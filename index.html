@@ -1081,14 +1081,66 @@
       await loadDashboard();
     }
 
-    async function addEmployee(){
-      $("empMsg").textContent = "";
-      if (!currentCompany) return;
+    async function addEmployee() {
+  $("empMsg").textContent = "";
+  if (!currentCompany) {
+    $("empMsg").textContent = "Company not loaded.";
+    return;
+  }
 
-      const full_name = $("empName").value.trim();
-      const job_title = $("empTitle").value.trim();
-      const job_category = $("empCategory").value.trim();
-      if (!full_name) { $("empMsg").textContent = "Enter a name."; return; }
+  const full_name = $("empName").value.trim();
+  const job_title = $("empTitle").value.trim();
+  const job_category = $("empCategory").value.trim();
+
+  if (!full_name) {
+    $("empMsg").textContent = "Enter a name.";
+    return;
+  }
+
+  // Generate employee ID:
+  // first 3 letters of name (letters only) + 9 digit number
+  const prefix = full_name
+    .replace(/[^a-zA-Z]/g, "")
+    .slice(0, 3)
+    .toUpperCase()
+    .padEnd(3, "X");
+
+  const randomDigits = Math.floor(100000000 + Math.random() * 900000000);
+  const employee_id = `${prefix}${randomDigits}`;
+
+  try {
+    const { error } = await supabase
+      .from("employees")
+      .insert([{
+        company_id: currentCompany.id,
+        full_name,
+        job_title,
+        job_category,
+        employee_code: employee_id
+      }]);
+
+    if (error) throw error;
+
+    // Clear inputs
+    $("empName").value = "";
+    $("empTitle").value = "";
+    $("empCategory").value = "";
+
+    $("empMsg").textContent = "Employee added.";
+    $("empMsg").className = "text-green-400 text-sm";
+
+    // Refresh employee list (if you have one)
+    if (typeof loadEmployees === "function") {
+      loadEmployees();
+    }
+
+  } catch (err) {
+    console.error(err);
+    $("empMsg").textContent = err.message || "Failed to add employee.";
+    $("empMsg").className = "text-red-400 text-sm";
+  }
+}
+
 
       // generate employee_code via RPC
       const { data: codeData, error: codeErr } = await sb.rpc("make_employee_code", { full_name });
@@ -1218,7 +1270,8 @@
           email,
           password,
           company_size: plan.companySize,
-          module_ids: Array.from(plan.modules)
+          module_ids: Array.from(plan.modules),
+          full_name: $("suFullName").value.trim()
         };
 
         try {
@@ -1260,7 +1313,7 @@
             purpose: "owner_signup",
             email: pendingSignup.email,
             code,
-            full_name,
+            full_name: pendingSignup.full_name,
             password: pendingSignup.password,
             company_name: pendingSignup.company_name,
             company_size: pendingSignup.company_size,
@@ -1374,6 +1427,7 @@
   </script>
 </body>
 </html>
+
 
 
 
