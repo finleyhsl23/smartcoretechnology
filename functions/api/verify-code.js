@@ -1,256 +1,247 @@
+// /functions/api/verify-code.js
 export async function onRequestPost({ request, env }) {
   try {
-    const b = await request.json().catch(() => ({}));
+    const body = await request.json().catch(() => ({}));
 
-    const purpose = String(b.purpose || "");
-    const email = String(b.email || "").trim().toLowerCase();
-    const code = String(b.code || "").trim();
-    const password = String(b.password || "");
-    const company_name = b.company_name ? String(b.company_name).trim() : null;
-    const company_size = b.company_size ? String(b.company_size).trim() : null;
-    const module_ids = Array.isArray(b.module_ids) ? b.module_ids.map(String) : [];
-    const company_code = b.company_code ? String(b.company_code).trim().toUpperCase() : null;
-    const full_name = b.full_name ? String(b.full_name).trim() : null;
+    const purpose = String(body.purpose || "owner_signup");
+    const email = String(body.email || "").trim().toLowerCase();
+    const code = String(body.code || "").trim();
+    const phase = String(body.phase || "verify"); // "verify" | "finalise"
 
-    if (!env.SUPABASE_URL) return jsonErr("Missing SUPABASE_URL env var", 500);
-    if (!env.SUPABASE_SERVICE_ROLE_KEY) return jsonErr("Missing SUPABASE_SERVICE_ROLE_KEY env var", 500);
-    if (!env.CODE_SALT) return jsonErr("Missing CODE_SALT env var", 500);
+    if (!email) return json({ ok: false, error: "Missing email" }, 400);
+    if (!code || code.length !== 6) return json({ ok: false, error: "Missing 6-digit code" }, 400);
 
-    if (!purpose) return jsonErr("Missing purpose", 400);
-    if (!email) return jsonErr("Missing email", 400);
-    if (!code || code.length !== 6) return jsonErr("Missing/invalid code", 400);
-    if (!password || password.length < 8) return jsonErr("Password must be at least 8 characters", 400);
+    if (!env.SUPABASE_URL) return json({ ok: false, error: "Missing SUPABASE_URL env var" }, 500);
+    if (!env.SUPABASE_SERVICE_ROLE_KEY) return json({ ok: false, error: "Missing SUPABASE_SERVICE_ROLE_KEY env var" }, 500);
+    if (!env.CODE_SALT) return json({ ok: false, error: "Missing CODE_SALT env var" }, 500);
 
-    // Hash code
+    const sbUrl = env.SUPABASE_URL;
+    const svc = env.SUPABASE_SERVICE_ROLE_KEY;
+
+    // hash code
     const enc = new TextEncoder();
     const digest = await crypto.subtle.digest("SHA-256", enc.encode(code + env.CODE_SALT));
-    const code_hash = Array.from(new Uint8Array(digest)).map(x => x.toString(16).padStart(2, "0")).join("");
+    const code_hash = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
 
-    // Find latest valid code row
-    const codesRes = await fetch(`${env.SUPABASE_URL}/rest/v1/signup_codes?select=id,email,code_hash,purpose,company_code,full_name,expires_at,created_at&email=eq.${encodeURIComponent(email)}&purpose=eq.${encodeURIComponent(purpose)}&order=created_at.desc&limit=1`, {
+    // Fetch latest un-used code row for this email + purpose
+    const q = new URL(`${sbUrl}/rest/v1/signup_codes`);
+    q.searchParams.set("select", "id,email,code_hash,purpose,company_code,expires_at,used_at,created_at");
+    q.searchParams.set("email", `eq.${email}`);
+    q.searchParams.set("purpose", `eq.${purpose}`);
+    q.searchParams.set("order", "created_at.desc");
+    q.searchParams.set("limit", "1");
+
+    const r = await fetch(q.toString(), {
       headers: {
-        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-        authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-      }
+        apikey: svc,
+        authorization: `Bearer ${svc}`,
+      },
     });
 
-    const codes = await codesRes.json().catch(()=>[]);
-    const row = codes?.[0];
-    if (!row) return jsonErr("No code found. Please request a new one.", 400);
+    if (!r.ok) {
+      const t = await r.text();
+      return json({ ok: false, error: `Supabase read failed: ${t}` }, 500);
+    }
 
-    if (row.code_hash !== code_hash) return jsonErr("Incorrect code. Please try again.", 400);
+    const rows = await r.json();
+    const row = rows?.[0];
+    if (!row) return json({ ok: false, error: "Code not found. Please request a new code." }, 400);
+
+    if (row.used_at) return json({ ok: false, error: "That code has already been used. Please request a new one." }, 400);
 
     const exp = new Date(row.expires_at).getTime();
-    if (Date.now() > exp) return jsonErr("That code has expired. Please request a new one.", 400);
+    if (!Number.isFinite(exp) || Date.now() > exp) {
+      return json({ ok: false, error: "That code has expired. Please request a new one." }, 400);
+    }
 
-    // Create auth user (ONLY now)
-    const createUserRes = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users`, {
+    if (String(row.code_hash) !== code_hash) {
+      return json({ ok: false, error: "Incorrect code. Please try again." }, 400);
+    }
+
+    // Create a verify_token (stateless). Finalise step recomputes and matches.
+    const verify_token = await makeToken(env.CODE_SALT, `${email}|${purpose}|${row.code_hash}|${row.expires_at}|${row.id}`);
+
+    if (phase === "verify") {
+      // IMPORTANT: Do NOT create user here
+      return json({ ok: true, verified: true, verify_token, expires_at: row.expires_at });
+    }
+
+    // -------- Phase: FINALISE (create everything) --------
+    const providedToken = String(body.verify_token || "");
+    if (!providedToken) return json({ ok: false, error: "Missing verify_token" }, 400);
+
+    const expected = await makeToken(env.CODE_SALT, `${email}|${purpose}|${row.code_hash}|${row.expires_at}|${row.id}`);
+    if (providedToken !== expected) {
+      return json({ ok: false, error: "Verification expired or invalid. Please request a new code." }, 400);
+    }
+
+    // Validate required payload for owner signup
+    const full_name = String(body.full_name || "").trim();
+    const password = String(body.password || "");
+    const company_name = String(body.company_name || "").trim();
+    const company_size = String(body.company_size || "").trim(); // keep as text
+    const module_ids = Array.isArray(body.module_ids) ? body.module_ids.map(String) : [];
+
+    if (!full_name) return json({ ok: false, error: "Missing full_name" }, 400);
+    if (!password || password.length < 8) return json({ ok: false, error: "Password must be at least 8 characters" }, 400);
+    if (!company_name) return json({ ok: false, error: "Missing company_name" }, 400);
+    if (!company_size) return json({ ok: false, error: "Missing company_size" }, 400);
+
+    // 1) Create auth user (Admin API)
+    const createUserRes = await fetch(`${sbUrl}/auth/v1/admin/users`, {
       method: "POST",
       headers: {
-        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-        authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
         "content-type": "application/json",
+        apikey: svc,
+        authorization: `Bearer ${svc}`,
       },
       body: JSON.stringify({
         email,
         password,
-        email_confirm: true
-      })
+        email_confirm: true,
+        user_metadata: { full_name },
+      }),
     });
 
-    const created = await createUserRes.json().catch(()=>null);
     if (!createUserRes.ok) {
-      const msg = created?.msg || created?.message || JSON.stringify(created);
-      // common: already registered
-      if (String(msg).toLowerCase().includes("already")) {
-        return jsonErr("This email is already registered to a SmartCore account. Please log in instead.", 400);
-      }
-      return jsonErr(`Create user failed: ${msg}`, 500);
+      const t = await createUserRes.text();
+      // Most common issue: user already exists in auth.users
+      return json({ ok: false, error: `Create user failed: ${t}` }, 500);
     }
 
+    const created = await createUserRes.json();
     const user_id = created?.id;
-    if (!user_id) return jsonErr("Create user failed (no id)", 500);
+    if (!user_id) return json({ ok: false, error: "Create user failed (no id)" }, 500);
 
-    // Owner signup creates company + subscription rows
-    if (purpose === "owner_signup") {
-      if (!company_name) return jsonErr("Missing company_name", 400);
-      if (!company_size) return jsonErr("Missing company_size", 400);
-      if (!module_ids.length) return jsonErr("Missing module_ids", 400);
+    // 2) Create company
+    const company_code = await makeCompanyCode(company_name);
 
-      // create company
-      const company_code_gen = await makeCompanyCode(company_name, env);
-
-      const coIns = await fetch(`${env.SUPABASE_URL}/rest/v1/companies`, {
-        method: "POST",
-        headers: {
-          apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-          authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-          "content-type":"application/json",
-          prefer: "return=representation"
-        },
-        body: JSON.stringify([{
-          company_name,
-          company_size,            // IMPORTANT: saves company_size
-          owner_user_id: user_id,
-          company_code: company_code_gen,
-          max_employees: maxForPlan(company_size) // enforce employee caps
-        }])
-      });
-
-      const coArr = await coIns.json().catch(()=>[]);
-      if (!coIns.ok) return jsonErr(`Create company failed: ${JSON.stringify(coArr)}`, 500);
-
-      const company = coArr?.[0];
-      if (!company?.id) return jsonErr("Create company failed (no company id).", 500);
-
-      // create profile (store company_name too)
-      await upsertProfile(env, {
-        user_id,
-        company_id: company.id,
+    const insCompany = await fetch(`${sbUrl}/rest/v1/companies`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        apikey: svc,
+        authorization: `Bearer ${svc}`,
+        prefer: "return=representation",
+      },
+      body: JSON.stringify([{
         company_name,
+        owner_user_id: user_id,
+        company_code,
+        company_size, // <-- save this
+      }]),
+    });
+
+    if (!insCompany.ok) {
+      const t = await insCompany.text();
+      return json({ ok: false, error: `Create company failed: ${t}` }, 500);
+    }
+
+    const cRows = await insCompany.json();
+    const company = cRows?.[0];
+    const company_id = company?.id;
+    if (!company_id) return json({ ok: false, error: "Create company failed (no company id returned)" }, 500);
+
+    // 3) Create profile
+    const insProfile = await fetch(`${sbUrl}/rest/v1/profiles`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        apikey: svc,
+        authorization: `Bearer ${svc}`,
+        prefer: "return=minimal",
+      },
+      body: JSON.stringify([{
+        user_id,
+        email,
+        company_id,
+        company_name,          // <-- save this
+        full_name,
         role: "owner",
-        is_admin: false
-      });
+        is_admin: "true",
+      }]),
+    });
 
-      // create subscription rows
-      await upsertSubscription(env, {
-        user_id,
-        company_id: company.id,
-        company_size,
-        module_ids
-      });
-
-      // delete code row
-      await deleteCode(env, row.id);
-
-      return jsonOk({ ok:true, user_id, company_id: company.id });
+    if (!insProfile.ok) {
+      const t = await insProfile.text();
+      return json({ ok: false, error: `Create profile failed: ${t}` }, 500);
     }
 
-    // Employee signup joins existing company and must match name + company_code
-    if (purpose === "employee_signup") {
-      const ccode = company_code || row.company_code;
-      const fname = full_name || row.full_name;
+    // 4) Create subscription ONLY after "payment accept"
+    // (payment is mocked, so we just log their chosen modules/size)
+    const company_size_label = String(body.company_size_label || company_size);
+    const company_size_price = Number(body.company_size_price || 0);
+    const modules_total = Number(body.modules_total || 0);
+    const total_monthly = Number(body.total_monthly || 0);
 
-      if (!ccode) return jsonErr("Missing company code", 400);
-      if (!fname) return jsonErr("Missing full name", 400);
-
-      // find company
-      const coRes = await fetch(`${env.SUPABASE_URL}/rest/v1/companies?select=id,company_name,company_code&company_code=eq.${encodeURIComponent(ccode)}&limit=1`, {
-        headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` }
-      });
-      const coArr = await coRes.json().catch(()=>[]);
-      const company = coArr?.[0];
-      if (!company) return jsonErr("We couldn’t find that company code. Please contact your system admin.", 400);
-
-      // verify employee exists by name
-      const empRes = await fetch(`${env.SUPABASE_URL}/rest/v1/employees?select=id,full_name&company_id=eq.${company.id}&full_name=ilike.${encodeURIComponent(fname)}&limit=1`, {
-        headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` }
-      });
-      const empArr = await empRes.json().catch(()=>[]);
-      const found = empArr?.[0];
-      if (!found) {
-        return jsonErr("We couldn’t find your details attached to this company yet. Please contact your system admin to confirm you’ve been added as an employee.", 400);
-      }
-
-      // profile
-      await upsertProfile(env, {
+    const insSub = await fetch(`${sbUrl}/rest/v1/subscriptions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        apikey: svc,
+        authorization: `Bearer ${svc}`,
+        prefer: "return=minimal",
+      },
+      body: JSON.stringify([{
         user_id,
-        company_id: company.id,
-        company_name: company.company_name,
-        full_name: fname,
-        role: "employee",
-        is_admin: false
-      });
+        company_size_id: String(body.company_size_id || company_size),
+        company_size_label,
+        company_size_price,
+        selected_modules: module_ids,
+        selected_module_ids: module_ids,
+        modules_total,
+        total_monthly,
+        currency: "GBP",
+        status: "active",
+      }]),
+    });
 
-      await deleteCode(env, row.id);
-      return jsonOk({ ok:true, user_id, company_id: company.id });
+    if (!insSub.ok) {
+      const t = await insSub.text();
+      return json({ ok: false, error: `Create subscription failed: ${t}` }, 500);
     }
 
-    // unknown
-    return jsonErr("Unknown purpose", 400);
+    // 5) Mark code as used
+    await fetch(`${sbUrl}/rest/v1/signup_codes?id=eq.${encodeURIComponent(row.id)}`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        apikey: svc,
+        authorization: `Bearer ${svc}`,
+        prefer: "return=minimal",
+      },
+      body: JSON.stringify({ used_at: new Date().toISOString() }),
+    });
+
+    return json({
+      ok: true,
+      created: true,
+      user_id,
+      company_id,
+      company_code
+    });
 
   } catch (e) {
-    return new Response(JSON.stringify({ ok:false, error: e?.message || String(e) }), {
-      status: 500,
-      headers: { "content-type":"application/json" }
-    });
+    return json({ ok: false, error: `Error: ${e?.message || e}` }, 500);
   }
 }
 
-function jsonOk(obj){
-  return new Response(JSON.stringify(obj), { headers:{ "content-type":"application/json" }});
-}
-function jsonErr(msg, status=400){
-  return new Response(JSON.stringify({ ok:false, error: msg }), {
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
     status,
-    headers:{ "content-type":"application/json" }
+    headers: { "content-type": "application/json" },
   });
 }
 
-function maxForPlan(plan){
-  if (plan === "up_to_25") return 25;
-  if (plan === "26_100") return 100;
-  if (plan === "101_250") return 250;
-  return null; // 250+ custom
+async function makeToken(secret, data) {
+  // HMAC-like token using SHA-256(secret|data)
+  const enc = new TextEncoder();
+  const digest = await crypto.subtle.digest("SHA-256", enc.encode(`${secret}|${data}`));
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function makeCompanyCode(company_name, env){
-  const prefix = String(company_name).replace(/[^a-z0-9]/gi,"").toUpperCase().slice(0,3).padEnd(3,"X");
-  for (let i=0;i<50;i++){
-    const num = Math.floor(100000 + Math.random()*900000);
-    const code = `${prefix}${num}`;
-
-    // ensure unique
-    const r = await fetch(`${env.SUPABASE_URL}/rest/v1/companies?select=id&company_code=eq.${encodeURIComponent(code)}&limit=1`, {
-      headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` }
-    });
-    const arr = await r.json().catch(()=>[]);
-    if (!arr?.length) return code;
-  }
-  // fallback
-  return `${prefix}${Math.floor(100000 + Math.random()*900000)}`;
-}
-
-async function upsertProfile(env, profile){
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/profiles`, {
-    method: "POST",
-    headers: {
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-      authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-      "content-type":"application/json",
-      prefer: "resolution=merge-duplicates,return=minimal"
-    },
-    body: JSON.stringify([profile])
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Profile upsert failed: ${t}`);
-  }
-}
-
-async function upsertSubscription(env, sub){
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/subscriptions`, {
-    method: "POST",
-    headers: {
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-      authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-      "content-type":"application/json",
-      prefer: "return=minimal"
-    },
-    body: JSON.stringify([sub])
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Subscription insert failed: ${t}`);
-  }
-}
-
-async function deleteCode(env, id){
-  await fetch(`${env.SUPABASE_URL}/rest/v1/signup_codes?id=eq.${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    headers: {
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-      authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
-    }
-  });
+async function makeCompanyCode(companyName) {
+  const prefix = (companyName.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 3) || "COM");
+  const n = String(Math.floor(100000 + Math.random() * 900000));
+  return `${prefix}${n}`;
 }
