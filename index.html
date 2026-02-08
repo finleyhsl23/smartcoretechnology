@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>SmartCore Technology</title>
 
+  <!-- FAVICON / TAB ICON -->
+  <link rel="icon" type="image/png" href="SmartCore Official Logos/SC Icon - Black Background.png">
+
   <!-- Tailwind (CDN for build phase) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
@@ -13,14 +16,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-  <!-- Supabase JS v2 -->
+  <!-- Supabase JS v2 (kept for employee login/sign-in) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
     :root{
       --bg0:#020617;
       --bg1:#06153a;
-      --bg2:#020923;
       --panelA: rgba(8, 12, 28, .62);
       --panelB: rgba(8, 12, 28, .45);
       --stroke: rgba(255,255,255,.12);
@@ -145,34 +147,6 @@
       box-shadow: 0 0 0 3px rgba(120,170,255,.10);
     }
 
-    input[type="file"]{display:none;}
-    .fileBtn{
-      display:inline-flex;
-      align-items:center;
-      gap:10px;
-      padding: 11px 14px;
-      border-radius: 14px;
-      border:1px solid var(--stroke2);
-      background: rgba(255,255,255,.05);
-      cursor:pointer;
-      transition: background .15s ease;
-      user-select:none;
-    }
-    .fileBtn:hover{background: rgba(255,255,255,.08);}
-
-    .chkWrap{ display:flex; align-items:center; gap:10px; user-select:none; cursor:pointer; }
-    .chk{
-      width:18px; height:18px; border-radius:6px;
-      border:1px solid rgba(255,255,255,.18);
-      background: rgba(255,255,255,.04);
-      display:flex; align-items:center; justify-content:center;
-      transition: background .15s ease, border-color .15s ease;
-    }
-    .chk.on{
-      background: rgba(120,170,255,.22);
-      border-color: rgba(120,170,255,.38);
-    }
-
     .eyeBtn{
       border:1px solid var(--stroke2);
       background: rgba(255,255,255,.04);
@@ -196,6 +170,26 @@
     .selected .tickDot{
       background: rgba(120,170,255,.95);
       box-shadow: 0 0 0 4px rgba(120,170,255,.14);
+    }
+
+    /* Make the Custom Module stand out */
+    .customCard{
+      border:1px solid rgba(120,170,255,.22) !important;
+      background: linear-gradient(180deg, rgba(120,170,255,.13), rgba(255,255,255,.04)) !important;
+      position: relative;
+      overflow:hidden;
+    }
+    .customBadge{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border:1px solid rgba(120,170,255,.35);
+      background: rgba(120,170,255,.14);
+      font-size: 12px;
+      opacity:.95;
+      width: fit-content;
     }
 
     html{ scroll-behavior:smooth; }
@@ -233,6 +227,9 @@
         <div class="flex items-center gap-2">
           <button id="navHome" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
             Home
+          </button>
+          <button id="navEmployee" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
+            Employee Sign Up
           </button>
           <button id="navLogin" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
             Log In
@@ -298,7 +295,7 @@
         <div class="fadeUp" data-anim>
           <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Build Your Plan</h2>
           <p class="mt-2 text-sm sm:text-[15px]" style="color: var(--muted); max-width: 52rem;">
-            Choose a company size, then add only the systems you need. Clear pricing, modular setup, and a calm, reliable experience.
+            Choose a company size, then add only the systems you need. When you press <b>Continue</b>, an email opens with everything pre-filled — we’ll take it from there.
           </p>
         </div>
 
@@ -345,7 +342,7 @@
         <div id="plusBox" class="mt-4 hidden fadeUp" data-anim>
           <div class="glass2 p-4">
             <div class="font-semibold">250+ Company Size</div>
-            <p class="mt-1 text-sm opacity-75">Enter an approximate headcount. This is required before you can contact us.</p>
+            <p class="mt-1 text-sm opacity-75">Enter an approximate headcount. This will be included in the email.</p>
             <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label class="text-xs opacity-70">Approx. employee count</label>
@@ -367,6 +364,59 @@
             <p class="mt-1 text-sm" style="color: var(--muted);">Select the modules you want to include in your plan.</p>
           </div>
           <div id="modulesGrid" class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"></div>
+
+          <!-- Custom module details (only shows when selected) -->
+          <div id="customBox" class="mt-4 hidden fadeUp" data-anim>
+            <div class="glass2 p-4">
+              <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <div class="font-semibold">Custom Module — Built personally for your company</div>
+                  <div class="text-sm opacity-75 mt-1">Tell us what you want building. This gets inserted into the email.</div>
+                </div>
+                <div class="customBadge">
+                  <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(120,170,255,.85)"></span>
+                  Recommended
+                </div>
+              </div>
+
+              <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="sm:col-span-2">
+                  <label class="text-xs opacity-70">What is it?</label>
+                  <input id="cWhat" class="inp mt-1" placeholder="e.g. A vehicle inspection app with photo evidence and sign-off" />
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="text-xs opacity-70">What’s it for?</label>
+                  <input id="cFor" class="inp mt-1" placeholder="e.g. Standardise checks, reduce rework, create audit trail" />
+                </div>
+                <div>
+                  <label class="text-xs opacity-70">Who uses it?</label>
+                  <input id="cWho" class="inp mt-1" placeholder="e.g. Engineers, Supervisors, Admin team" />
+                </div>
+                <div>
+                  <label class="text-xs opacity-70">Where is it used?</label>
+                  <input id="cWhere" class="inp mt-1" placeholder="e.g. Mobile on-site + office dashboard" />
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="text-xs opacity-70">Key features (comma separated)</label>
+                  <input id="cFeatures" class="inp mt-1" placeholder="e.g. photo upload, signatures, reminders, reporting" />
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="text-xs opacity-70">Integrations / systems it must work with (optional)</label>
+                  <input id="cIntegrations" class="inp mt-1" placeholder="e.g. Microsoft 365, SharePoint, Xero, existing database" />
+                </div>
+                <div>
+                  <label class="text-xs opacity-70">Rough timescale (optional)</label>
+                  <input id="cTimescale" class="inp mt-1" placeholder="e.g. ASAP / 4–6 weeks / Q3" />
+                </div>
+                <div>
+                  <label class="text-xs opacity-70">Budget range (optional)</label>
+                  <input id="cBudget" class="inp mt-1" placeholder="e.g. £2k–£5k / unsure" />
+                </div>
+              </div>
+
+              <div id="customWarn" class="mt-3 text-sm text-red-300 hidden"></div>
+            </div>
+          </div>
         </div>
 
         <!-- ABOUT -->
@@ -391,30 +441,6 @@
             <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
               SmartCore Technology is not about flashy software. It’s about building tools that work properly, scale sensibly, and quietly do their job in the background.
             </p>
-
-            <div class="mt-7">
-              <h4 class="text-lg font-semibold">The SmartCore Technology Approach</h4>
-              <p class="mt-3 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
-                SmartCore Technology is built on a simple philosophy: technology should make work easier, not more complicated.
-              </p>
-
-              <ul class="mt-4 grid sm:grid-cols-2 gap-2 text-sm" style="color: var(--muted);">
-                <li class="flex gap-2"><span class="opacity-80">•</span> solve a specific, real business problem</li>
-                <li class="flex gap-2"><span class="opacity-80">•</span> be easy to understand and use</li>
-                <li class="flex gap-2"><span class="opacity-80">•</span> create clear, auditable records</li>
-                <li class="flex gap-2"><span class="opacity-80">•</span> scale as organisations grow</li>
-                <li class="flex gap-2"><span class="opacity-80">•</span> remain reliable over time</li>
-              </ul>
-
-              <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
-                Instead of offering one large, bloated platform, SmartCore provides modular systems that companies can choose and combine based on their actual needs.
-                This keeps costs fair, reduces complexity, and allows businesses to stay in control of how they operate.
-              </p>
-
-              <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
-                SmartCore Technology focuses on the areas that matter most — people, safety, and operational clarity — delivering tools that support organisations without getting in the way.
-              </p>
-            </div>
           </div>
         </div>
 
@@ -438,7 +464,7 @@
       <div class="glass2 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div class="flex items-center justify-between sm:justify-start gap-6">
           <div>
-            <div class="text-xs opacity-70">Monthly total</div>
+            <div class="text-xs opacity-70">Monthly estimate</div>
             <div class="text-lg font-semibold" id="totalText">£0 / month</div>
           </div>
           <div class="hidden sm:block text-xs opacity-60" id="summaryMini">Select a company size to begin.</div>
@@ -489,207 +515,7 @@
     </div>
   </div>
 
-  <!-- MODAL: Signup (owner) -->
-  <div id="signupModalBackdrop" class="modalBackdrop">
-    <div class="modal glass p-5 sm:p-6" style="max-width: 720px;">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="text-xl sm:text-2xl font-bold">Create your company account</div>
-          <div class="mt-1 text-sm opacity-75">Enter your details, then verify with a 6-digit code.</div>
-        </div>
-        <button id="suClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
-      </div>
-
-      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div class="sm:col-span-2">
-          <label class="text-xs opacity-70">Company name</label>
-          <input id="suCompanyName" class="inp mt-1" placeholder="e.g. SmartFits Installations Ltd" />
-        </div>
-
-        <div class="sm:col-span-2">
-          <label class="text-xs opacity-70">Email</label>
-          <input id="suEmail" type="email" class="inp mt-1" placeholder="name@company.co.uk" />
-        </div>
-
-        <div class="sm:col-span-2">
-          <label class="text-xs opacity-70">Password</label>
-          <div class="mt-1 flex gap-2">
-            <input id="suPassword" type="password" class="inp" placeholder="Minimum 8 characters" />
-            <button id="suEye" type="button" class="eyeBtn" aria-label="Show/hide password">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" stroke="white" stroke-opacity=".85" stroke-width="2"/>
-                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="white" stroke-opacity=".85" stroke-width="2"/>
-              </svg>
-            </button>
-          </div>
-          <div id="suPwHint" class="mt-2 text-xs opacity-60">We only create your account after you verify your code and accept payment (testing).</div>
-        </div>
-      </div>
-
-      <div id="suMsg" class="mt-4 text-sm text-red-300 hidden"></div>
-
-      <div class="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <button id="suContinue" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-          Continue
-        </button>
-
-        <div class="text-sm opacity-70">
-          <div class="block">Already have an account?</div>
-          <button id="suGoLogin" class="underline hover:opacity-100">Log In Instead</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL: Verify code -->
-  <div id="verifyModalBackdrop" class="modalBackdrop">
-    <div class="modal glass p-5 sm:p-6" style="max-width: 620px;">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="text-xl sm:text-2xl font-bold">Verify your email</div>
-          <div class="mt-1 text-sm opacity-75">Enter the 6-digit code we sent to <span id="vEmail" class="font-medium"></span>.</div>
-        </div>
-        <button id="vClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
-      </div>
-
-      <div class="mt-5">
-        <label class="text-xs opacity-70">6-digit code</label>
-        <input id="vCode" class="inp mt-1 text-center tracking-[0.4em]" maxlength="6" placeholder="123456" />
-      </div>
-
-      <div id="vMsg" class="mt-4 text-sm text-red-300 hidden"></div>
-
-      <div class="mt-5 flex items-center justify-between gap-3">
-        <button id="vVerify" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-          Continue
-        </button>
-        <button id="vResend" class="px-3 py-3 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
-          Resend code
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL: Payment placeholder -->
-  <div id="payModalBackdrop" class="modalBackdrop">
-    <div class="modal glass p-5 sm:p-6" style="max-width: 720px;">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="text-xl sm:text-2xl font-bold">Payment</div>
-          <div class="mt-1 text-sm opacity-75">Testing mode: accept or decline.</div>
-        </div>
-        <button id="payClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
-      </div>
-
-      <div class="mt-5 glass2 p-4">
-        <div class="text-sm opacity-80">Plan summary</div>
-        <div class="mt-2 text-lg font-semibold" id="payTotal">£0 / month</div>
-        <div class="mt-2 text-xs opacity-60" id="paySummary"></div>
-      </div>
-
-      <div id="payMsg" class="mt-4 text-sm text-red-300 hidden"></div>
-
-      <div class="mt-5 flex flex-col sm:flex-row gap-3">
-        <button id="payAccept" class="flex-1 px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-          Accept
-        </button>
-        <button id="payDecline" class="flex-1 px-4 py-3 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm font-medium">
-          Decline
-        </button>
-      </div>
-
-      <div class="mt-4 text-xs opacity-60">
-        On <b>Accept</b>, your account is created in Supabase and your subscription is saved.
-        On <b>Decline</b>, nothing is created.
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL: Login -->
-  <div id="loginModalBackdrop" class="modalBackdrop">
-    <div class="modal glass p-5 sm:p-6" style="max-width: 680px;">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="text-xl sm:text-2xl font-bold">Log in</div>
-          <div class="mt-1 text-sm opacity-75">Access your dashboard and systems.</div>
-        </div>
-        <button id="liClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
-      </div>
-
-      <div class="mt-5 grid grid-cols-1 gap-3">
-        <div>
-          <label class="text-xs opacity-70">Email</label>
-          <input id="liEmail" class="inp mt-1" type="email" placeholder="name@company.co.uk" />
-        </div>
-        <div>
-          <label class="text-xs opacity-70">Password</label>
-          <div class="mt-1 flex gap-2">
-            <input id="liPassword" class="inp" type="password" placeholder="Your password" />
-            <button id="liEye" type="button" class="eyeBtn" aria-label="Show/hide password">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" stroke="white" stroke-opacity=".85" stroke-width="2"/>
-                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="white" stroke-opacity=".85" stroke-width="2"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div id="liMsg" class="mt-4 text-sm text-red-300 hidden"></div>
-
-      <div class="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <button id="liLogin" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-          Log In
-        </button>
-
-        <div class="text-sm opacity-70">
-          <div id="liWrong" class="hidden">
-            <button id="liReset" class="underline hover:opacity-100">Incorrect credentials — Forgot your password?</button>
-          </div>
-          <div class="mt-2">
-            <button id="liNoAcc" class="underline hover:opacity-100">Don’t have an account?</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL: No account -->
-  <div id="noAccModalBackdrop" class="modalBackdrop">
-    <div class="modal glass p-5 sm:p-6" style="max-width: 780px;">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="text-xl sm:text-2xl font-bold">Getting started</div>
-          <div class="mt-1 text-sm opacity-75">Choose the right route based on your company.</div>
-        </div>
-        <button id="noAccClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
-      </div>
-
-      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div class="glass2 p-4">
-          <div class="font-semibold">Sign up as an employee</div>
-          <p class="mt-2 text-sm opacity-80">
-            If your company already uses SmartCore, ask your admin for the company code and sign up as an employee.
-          </p>
-          <button id="noAccEmployee" class="mt-4 px-4 py-3 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm font-medium">
-            Sign Up As An Employee
-          </button>
-        </div>
-
-        <div class="glass2 p-4">
-          <div class="font-semibold">Build your plan</div>
-          <p class="mt-2 text-sm opacity-80">
-            If your company is new to SmartCore, build a plan, select modules, and create a company account.
-          </p>
-          <button id="noAccBuild" class="mt-4 px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-            Build Your Plan
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL: Employee signup -->
+  <!-- MODAL: Employee sign-up (kept, with verification) -->
   <div id="empModalBackdrop" class="modalBackdrop">
     <div class="modal glass p-5 sm:p-6" style="max-width: 760px;">
       <div class="flex items-start justify-between gap-3">
@@ -731,7 +557,7 @@
 
       <div class="mt-5 flex items-center justify-between gap-3">
         <button id="empSend" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-          Continue
+          Send verification code
         </button>
       </div>
 
@@ -748,201 +574,59 @@
 
         <div class="mt-4 flex gap-3">
           <button id="empVerify" class="flex-1 px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-            Continue
+            Verify & create account
           </button>
           <button id="empResend" class="px-4 py-3 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm font-medium">
             Resend
           </button>
         </div>
-
-        <div class="mt-3 text-xs opacity-60">
-          Note: employee finalise requires your backend to support <b>purpose: employee_signup</b> in <code>/api/verify-code</code>.
-        </div>
       </div>
     </div>
   </div>
 
-  <!-- DASHBOARD -->
-  <section id="dashboard" class="hidden">
-    <div class="max-w-6xl mx-auto px-4 pt-28 pb-24">
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div class="fadeUp" data-anim>
-          <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h2>
-          <p id="dashSub" class="mt-1 text-sm" style="color: var(--muted);">Loading your account…</p>
+  <!-- MODAL: Employee login (kept minimal) -->
+  <div id="loginModalBackdrop" class="modalBackdrop">
+    <div class="modal glass p-5 sm:p-6" style="max-width: 680px;">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="text-xl sm:text-2xl font-bold">Log in</div>
+          <div class="mt-1 text-sm opacity-75">Employee access (if your company is already set up).</div>
         </div>
-
-        <div class="flex items-center gap-2">
-          <button id="dashBuyMore" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
-            Buy more systems
-          </button>
-          <button id="dashSignOut" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
-            Sign out
-          </button>
-        </div>
+        <button id="liClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
       </div>
 
-      <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div class="glass p-5">
-          <div class="text-sm opacity-80 font-semibold">Company</div>
-          <div class="mt-3 space-y-2 text-sm">
-            <div><span class="opacity-60">Name:</span> <span id="dashCompanyName" class="font-medium"></span></div>
-            <div><span class="opacity-60">Code:</span> <span id="dashCompanyCode" class="font-medium"></span></div>
-            <div><span class="opacity-60">Size:</span> <span id="dashCompanySize" class="font-medium"></span></div>
-            <div><span class="opacity-60">Plan:</span> <span id="dashPlan" class="font-medium"></span></div>
-          </div>
-
-          <div class="mt-4">
-            <button id="dashSettingsBtn" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
-              Company settings
+      <div class="mt-5 grid grid-cols-1 gap-3">
+        <div>
+          <label class="text-xs opacity-70">Email</label>
+          <input id="liEmail" class="inp mt-1" type="email" placeholder="you@company.co.uk" />
+        </div>
+        <div>
+          <label class="text-xs opacity-70">Password</label>
+          <div class="mt-1 flex gap-2">
+            <input id="liPassword" class="inp" type="password" placeholder="Your password" />
+            <button id="liEye" type="button" class="eyeBtn" aria-label="Show/hide password">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" stroke="white" stroke-opacity=".85" stroke-width="2"/>
+                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="white" stroke-opacity=".85" stroke-width="2"/>
+              </svg>
             </button>
           </div>
         </div>
-
-        <div class="glass p-5 lg:col-span-2">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <div class="text-sm opacity-80 font-semibold">Your systems</div>
-              <div class="mt-1 text-sm opacity-70">Quick links for the modules you own.</div>
-            </div>
-            <div class="text-sm opacity-70" id="dashTotal"></div>
-          </div>
-
-          <div id="dashSystems" class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
-        </div>
       </div>
 
-      <div class="mt-6 glass p-5">
-        <div class="flex items-center justify-between gap-3">
-          <div>
-            <div class="text-sm opacity-80 font-semibold">Employees</div>
-            <div class="mt-1 text-sm opacity-70">Add, edit, and remove employees. IDs are generated automatically.</div>
-          </div>
-          <button id="empAddBtn" class="px-3 py-2 rounded-xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-            Add employee
-          </button>
-        </div>
+      <div id="liMsg" class="mt-4 text-sm text-red-300 hidden"></div>
 
-        <div id="empLimitMsg" class="mt-3 text-sm text-red-300 hidden"></div>
-
-        <div class="mt-4 overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="text-left opacity-70">
-              <tr>
-                <th class="py-2 pr-3">Employee</th>
-                <th class="py-2 pr-3">Role</th>
-                <th class="py-2 pr-3">Category</th>
-                <th class="py-2 pr-3">ID</th>
-                <th class="py-2 pr-3">Admin</th>
-                <th class="py-2 pr-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="empTable"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- MODAL: Company settings -->
-  <div id="settingsModalBackdrop" class="modalBackdrop">
-    <div class="modal glass p-5 sm:p-6" style="max-width: 820px;">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="text-xl sm:text-2xl font-bold">Company settings</div>
-          <div class="mt-1 text-sm opacity-75">Update details and colours.</div>
-        </div>
-        <button id="setClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
-      </div>
-
-      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div class="sm:col-span-2">
-          <label class="text-xs opacity-70">Company name</label>
-          <input id="setName" class="inp mt-1" />
-        </div>
-        <div class="sm:col-span-2">
-          <label class="text-xs opacity-70">Company size (text)</label>
-          <input id="setSize" class="inp mt-1" placeholder="e.g. 26–100 People" />
-        </div>
-      </div>
-
-      <div id="setMsg" class="mt-4 text-sm text-red-300 hidden"></div>
-
-      <div class="mt-5 flex justify-end gap-3">
-        <button id="setSave" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-          Save changes
+      <div class="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <button id="liLogin" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
+          Log In
+        </button>
+        <button id="liReset" class="underline text-sm opacity-80 hover:opacity-100 text-left">
+          Forgot your password?
         </button>
       </div>
-    </div>
-  </div>
 
-  <!-- MODAL: Add/Edit employee -->
-  <div id="empEditModalBackdrop" class="modalBackdrop">
-    <div class="modal glass p-5 sm:p-6" style="max-width: 820px;">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div id="empEditTitle" class="text-xl sm:text-2xl font-bold">Add employee</div>
-          <div class="mt-1 text-sm opacity-75">Names must match for employee self sign-up.</div>
-        </div>
-        <button id="empEditClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
-      </div>
-
-      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div class="sm:col-span-2">
-          <label class="text-xs opacity-70">Full name</label>
-          <input id="empEName" class="inp mt-1" placeholder="e.g. Finley Hassall" />
-        </div>
-        <div>
-          <label class="text-xs opacity-70">Job title</label>
-          <input id="empETitle" class="inp mt-1" placeholder="e.g. Founder" />
-        </div>
-        <div>
-          <label class="text-xs opacity-70">Job category</label>
-          <input id="empECategory" class="inp mt-1" placeholder="e.g. Senior management team" />
-        </div>
-
-        <div class="sm:col-span-2 mt-1">
-          <div class="chkWrap" id="empEAdminWrap">
-            <div class="chk" id="empEAdminChk">
-              <svg id="empEAdminTick" width="14" height="14" viewBox="0 0 24 24" fill="none" class="hidden">
-                <path d="M20 6L9 17l-5-5" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>
-            <div>
-              <div class="text-sm font-medium">Admin access</div>
-              <div class="text-xs opacity-70">Admins can manage employees.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div id="empEditMsg" class="mt-4 text-sm text-red-300 hidden"></div>
-
-      <div class="mt-5 flex justify-end gap-3">
-        <button id="empESave" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-          Save
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL: Confirm remove -->
-  <div id="confirmModalBackdrop" class="modalBackdrop">
-    <div class="modal glass p-5 sm:p-6" style="max-width: 720px;">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="text-xl sm:text-2xl font-bold">Confirm removal</div>
-          <div id="confirmText" class="mt-2 text-sm opacity-80"></div>
-        </div>
-        <button id="confirmClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
-      </div>
-
-      <div class="mt-6 flex flex-col sm:flex-row gap-3">
-        <button id="confirmYes" class="flex-1 px-4 py-3 rounded-2xl border border-[rgba(255,80,80,.35)] bg-[rgba(255,80,80,.12)] hover:bg-[rgba(255,80,80,.18)] text-sm font-medium">
-          Yes, remove
-        </button>
-        <button id="confirmNo" class="flex-1 px-4 py-3 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm font-medium">
-          No, keep
-        </button>
+      <div class="mt-4 text-xs opacity-60">
+        Note: if your company is not yet set up, use <b>Build Your Plan</b> and email us — we’ll handle it manually.
       </div>
     </div>
   </div>
@@ -990,16 +674,6 @@
       return "£" + v.toFixed(0);
     }
 
-    function companyPrefix(name){
-      const clean = (name||"").replace(/[^a-zA-Z]/g,"").toUpperCase();
-      return (clean.slice(0,3) || "COM").padEnd(3,"X");
-    }
-    function randDigits(len){
-      let out = "";
-      for(let i=0;i<len;i++) out += Math.floor(Math.random()*10);
-      return out;
-    }
-
     /******************************************************************
       SUPABASE (single init, no redeclare)
     ******************************************************************/
@@ -1020,6 +694,12 @@
     ];
 
     const MODULES = [
+      // PROMOTED custom module
+      { id:"custom_module", name:"Custom Module — Built Personally For Your Company", price:0, isCustom:true,
+        full:`A bespoke system designed around your exact workflow. We’ll scope it properly, keep it practical, and build it to last.`,
+        bullets:["Designed around your real process","Simple, usable UX","Audit-ready records","Built to integrate sensibly","Delivered with clear ownership"]
+      },
+
       { id:"presence_fire", name:"Presence & Fire Safety", price:10,
         full:`A real-time presence system that shows exactly who is on site at any moment. Staff and visitors sign in and out digitally, creating a live evacuation list that can be used immediately during fire drills or real emergencies.`,
         bullets:["Live on-site list for staff and visitors","Instant evacuation roll call","Clear, auditable sign-in history","Fast kiosk-friendly workflows","Fire drill & incident support"]
@@ -1060,16 +740,8 @@
     const state = {
       size: null,
       selectedModules: new Set(),
-      plusApprox: null,
       plusNotes: "",
-      pendingSignup: null,     // { company_name,email,password,..., verify_token, code }
-      session: null,
-      profile: null,
-      company: null,
-      subscription: null,
-      employees: [],
-      editingEmployee: null,
-      confirmAction: null
+      pendingEmployee: null // { company_code, full_name, email, password }
     };
 
     /******************************************************************
@@ -1169,12 +841,18 @@
         const card = document.createElement("div");
         card.className = "glass2 p-4 flex flex-col gap-3 hover:bg-white/6 transition cursor-pointer";
         if (selected) card.classList.add("selected");
+        if (m.isCustom) card.classList.add("customCard");
+
+        const priceText = (m.isCustom) ? "Price quoted after scoping" : `${money(m.price)} / month`;
+        const tag = m.isCustom ? `<div class="customBadge"><span class="w-2.5 h-2.5 rounded-full" style="background: rgba(120,170,255,.85)"></span> Custom build</div>` : "";
 
         card.innerHTML = `
           <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="font-semibold leading-tight">${m.name}</div>
-              <div class="text-sm opacity-80 mt-1">${money(m.price)} / month</div>
+            <div class="min-w-0">
+              ${tag}
+              <div class="font-semibold leading-tight mt-2">${m.name}</div>
+              <div class="text-sm opacity-80 mt-1">${priceText}</div>
+              ${m.isCustom ? `<div class="text-xs opacity-70 mt-2">Built personally around your workflow — we’ll help scope it properly.</div>` : ``}
             </div>
             <div class="tickDot mt-1"></div>
           </div>
@@ -1201,6 +879,10 @@
         grid.appendChild(card);
       });
 
+      // show custom details box if selected
+      if (state.selectedModules.has("custom_module")) show($("customBox"));
+      else hide($("customBox"));
+
       updateTotal();
     }
 
@@ -1215,7 +897,7 @@
       if(!m) return;
 
       setText($("mmTitle"), m.name);
-      setText($("mmPrice"), `${money(m.price)} / month`);
+      setText($("mmPrice"), m.isCustom ? "Price quoted after scoping" : `${money(m.price)} / month`);
       setText($("mmSummary"), m.full);
 
       const bullets = $("mmBullets");
@@ -1252,7 +934,6 @@
           $("plusCount").value = "";
           $("plusNotes").value = "";
           hide($("plusWarn"));
-          state.plusApprox = null;
           state.plusNotes = "";
         }
       } else {
@@ -1270,16 +951,11 @@
       let mods = 0;
       state.selectedModules.forEach(id=>{
         const m = MODULES.find(x=>x.id===id);
-        mods += (m?.price || 0);
+        if(!m) return;
+        if(m.isCustom) return; // custom quoted separately
+        mods += (m.price || 0);
       });
       return base + mods;
-    }
-
-    function buildPaySummaryText(){
-      const sizeLabel = state.size?.label || "—";
-      const modules = Array.from(state.selectedModules).map(id => MODULES.find(m=>m.id===id)?.name).filter(Boolean);
-      const mText = modules.length ? modules.join(", ") : "No modules selected";
-      return `Plan: ${sizeLabel}. Modules: ${mText}.`;
     }
 
     function updateTotal(){
@@ -1291,43 +967,121 @@
       const total = computeTotal();
       setText($("totalText"), `${money(total)} / month`);
       setText($("summaryMini"), `${state.size.label} + ${state.selectedModules.size} module(s)`);
-      $("checkoutBtn").textContent = (state.size.id === "s250plus") ? "Contact us" : "Continue";
+      $("checkoutBtn").textContent = "Continue";
     }
 
-    function buildContactEmail(){
-      const approx = Number($("plusCount").value || 0);
-      const notes = ($("plusNotes").value || "").trim();
+    /******************************************************************
+      BUILD EMAIL (for ALL sizes now)
+    ******************************************************************/
+    function getCustomDetails(){
+      return {
+        what: ($("cWhat")?.value || "").trim(),
+        for: ($("cFor")?.value || "").trim(),
+        who: ($("cWho")?.value || "").trim(),
+        where: ($("cWhere")?.value || "").trim(),
+        features: ($("cFeatures")?.value || "").trim(),
+        integrations: ($("cIntegrations")?.value || "").trim(),
+        timescale: ($("cTimescale")?.value || "").trim(),
+        budget: ($("cBudget")?.value || "").trim()
+      };
+    }
 
-      if (!approx || approx < 1){
-        showErr($("plusWarn"), "Please enter an approximate company size to continue.");
+    function validateCustomDetails(){
+      clearErr($("customWarn"));
+      if(!state.selectedModules.has("custom_module")) return true;
+
+      const d = getCustomDetails();
+      if(!d.what || !d.for || !d.who){
+        showErr($("customWarn"), "Please fill in at least: What is it, What’s it for, and Who uses it.");
+        return false;
+      }
+      return true;
+    }
+
+    function buildPlanEmail(){
+      if(!state.size){
+        alert("Select a company size first.");
         return null;
       }
-      hide($("plusWarn"));
 
-      const selected = Array.from(state.selectedModules).map(id => MODULES.find(m=>m.id===id)?.name).filter(Boolean);
-      const subject = "250+ Person Company - Wanting to Sign Up";
-      const body = [
-        "Hello SmartCore Technology,",
-        "",
-        "We would like to discuss a SmartCore subscription for a 250+ person organisation.",
-        "",
-        `Approximate headcount: ${approx}`,
-        "",
-        "Requested systems:",
-        selected.length ? selected.map(s=>`- ${s}`).join("\n") : "- (none selected yet)",
-        "",
-        notes ? `Additional notes:\n${notes}\n` : "",
-        "Please let us know the next steps and any information you need from us.",
-        "",
-        "Kind regards,",
-        "(Your name)"
-      ].join("\n");
+      // for 250+ we require a number (as requested earlier), but now it’s just for the email content
+      let approx = null;
+      let notes = "";
+      if(state.size.id === "s250plus"){
+        approx = Number($("plusCount").value || 0);
+        notes = ($("plusNotes").value || "").trim();
+        if(!approx || approx < 1){
+          showErr($("plusWarn"), "Please enter an approximate company size to continue.");
+          return null;
+        }
+        hide($("plusWarn"));
+      } else {
+        notes = ($("plusNotes").value || "").trim();
+      }
 
+      if(!validateCustomDetails()) return null;
+
+      const selected = Array.from(state.selectedModules)
+        .map(id => MODULES.find(m=>m.id===id))
+        .filter(Boolean);
+
+      // Put custom module last in the email, after the list
+      const custom = selected.find(m=>m.id==="custom_module");
+      const normal = selected.filter(m=>m.id!=="custom_module");
+
+      const total = computeTotal();
+      const subject = `SmartCore Plan Request — ${state.size.label}`;
+
+      const lines = [];
+      lines.push("Hello SmartCore Technology,");
+      lines.push("");
+      lines.push("We would like to move forward with SmartCore. Below are the details of what we need:");
+      lines.push("");
+      lines.push(`Company size: ${state.size.label}${state.size.id==="s250plus" ? ` (approx. ${approx})` : ""}`);
+      lines.push(`Monthly estimate (excluding any custom build): ${money(total)} / month`);
+      lines.push("");
+
+      lines.push("Requested modules:");
+      if(normal.length){
+        normal.forEach(m=>{
+          lines.push(`- ${m.name}`);
+        });
+      } else {
+        lines.push("- (none selected)");
+      }
+
+      if(custom){
+        const d = getCustomDetails();
+        lines.push("");
+        lines.push("Custom Module — Built Personally For Your Company:");
+        lines.push(`What is it: ${d.what || "—"}`);
+        lines.push(`What’s it for: ${d.for || "—"}`);
+        lines.push(`Who uses it: ${d.who || "—"}`);
+        lines.push(`Where is it used: ${d.where || "—"}`);
+        lines.push(`Key features: ${d.features || "—"}`);
+        lines.push(`Integrations / must work with: ${d.integrations || "—"}`);
+        lines.push(`Timescale: ${d.timescale || "—"}`);
+        lines.push(`Budget range: ${d.budget || "—"}`);
+      }
+
+      if(state.size.id==="s250plus" && notes){
+        lines.push("");
+        lines.push("Additional notes:");
+        lines.push(notes);
+      }
+
+      lines.push("");
+      lines.push("Please reply with next steps.");
+      lines.push("");
+      lines.push("Kind regards,");
+      lines.push("(Your name)");
+
+      const body = lines.join("\n");
       return `mailto:support@smartcoretechnology.co.uk?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     }
 
     /******************************************************************
-      API helper (Cloudflare)
+      API helper (Cloudflare functions)
     ******************************************************************/
     async function apiPost(path, payload){
       const res = await fetch(path, {
@@ -1348,203 +1102,108 @@
     }
 
     /******************************************************************
-      OWNER SIGNUP FLOW
-      CRITICAL FIX:
-      - Verify modal MUST ONLY CALL phase:"verify"
-      - Payment modal Accept is the ONLY place that calls phase:"finalise"
-      - Also: we "de-dupe" click handlers by cloning buttons in wire()
-        (prevents old handlers from earlier versions still firing)
+      EMPLOYEE SIGNUP (kept with verification code)
+      Assumes your backend supports:
+      - POST /api/send-code   { email, purpose:"employee_signup" }
+      - POST /api/verify-code { phase:"finalise", purpose:"employee_signup", ... }
     ******************************************************************/
-    async function ownerSendCode(){
-      clearErr($("suMsg"));
+    async function employeeSendCode(){
+      clearErr($("empMsg"));
+      clearErr($("empVerifyMsg"));
 
-      if(!state.size){
-        showErr($("suMsg"), "Please select a company size first.");
-        return;
-      }
-      if(state.size.id === "s250plus"){
-        showErr($("suMsg"), "250+ companies must use Contact us.");
-        return;
-      }
+      const company_code = $("empCompanyCode").value.trim();
+      const full_name = $("empFullName").value.trim();
+      const email = $("empEmail").value.trim().toLowerCase();
+      const password = $("empPassword").value;
 
-      const company_name = $("suCompanyName").value.trim();
-      const email = $("suEmail").value.trim().toLowerCase();
-      const password = $("suPassword").value; // keep EXACT, do not trim
+      if(!company_code) return showErr($("empMsg"), "Please enter your company code.");
+      if(!full_name) return showErr($("empMsg"), "Please enter your full name.");
+      if(!email) return showErr($("empMsg"), "Please enter your email.");
+      if(!password || password.length < 8) return showErr($("empMsg"), "Password must be at least 8 characters.");
 
-      if(!company_name) return showErr($("suMsg"), "Please enter your company name.");
-      if(!email) return showErr($("suMsg"), "Please enter your email.");
-      if(!password || password.length < 8) return showErr($("suMsg"), "Password must be at least 8 characters.");
+      state.pendingEmployee = { company_code, full_name, email, password };
 
-      state.pendingSignup = {
-        company_name,
-        email,
-        password,
-        company_size_label: state.size.label, // backend expects company_size text
-        company_size_id: state.size.id,
-        company_size_price: state.size.price,
-        module_ids: Array.from(state.selectedModules),
-        verify_token: null,
-        code: null
-      };
-
-      $("suContinue").disabled = true;
-      $("suContinue").classList.add("opacity-60");
+      $("empSend").disabled = true;
+      $("empSend").classList.add("opacity-60");
 
       try{
-        await apiPost("/api/send-code", { email, purpose:"owner_signup" });
-
-        closeModal($("signupModalBackdrop"));
-        setText($("vEmail"), email);
-        $("vCode").value = "";
-        clearErr($("vMsg"));
-        openModal($("verifyModalBackdrop"));
-
+        await apiPost("/api/send-code", { email, purpose:"employee_signup" });
+        show($("empVerifyBox"));
+        $("empCode").value = "";
+        showOk($("empMsg"), "Code sent. Please check your inbox.");
       }catch(e){
-        showErr($("suMsg"), String(e.message || "Failed to send code."));
+        showErr($("empMsg"), String(e.message || "Failed to send code."));
       }finally{
-        $("suContinue").disabled = false;
-        $("suContinue").classList.remove("opacity-60");
+        $("empSend").disabled = false;
+        $("empSend").classList.remove("opacity-60");
       }
     }
 
-    async function ownerVerifyOnly(){
-      clearErr($("vMsg"));
-
-      const code = $("vCode").value.trim();
-      if(!code || code.length !== 6) return showErr($("vMsg"), "Please enter the 6-digit code.");
-
-      // If password isn't present here, something cleared state: show correct message (NOT password length)
-      if(!state.pendingSignup?.email || !state.pendingSignup?.password){
-        return showErr($("vMsg"), "Your signup details weren’t saved. Please close and start again.");
-      }
-
-      $("vVerify").disabled = true;
-      $("vVerify").classList.add("opacity-60");
-
+    async function employeeResend(){
+      clearErr($("empVerifyMsg"));
+      if(!state.pendingEmployee?.email) return showErr($("empVerifyMsg"), "Please fill in your details above first.");
       try{
-        // IMPORTANT: VERIFY ONLY (no finalise)
-        const verifyRes = await apiPost("/api/verify-code", {
-          phase: "verify",
-          purpose: "owner_signup",
-          email: state.pendingSignup.email,
-          code
-        });
-
-        if(!verifyRes?.ok || !verifyRes?.verify_token){
-          throw new Error(verifyRes?.error || "Verification failed.");
-        }
-
-        state.pendingSignup.verify_token = verifyRes.verify_token;
-        state.pendingSignup.code = code;
-
-        closeModal($("verifyModalBackdrop"));
-
-        const total = computeTotal();
-        setText($("payTotal"), `${money(total)} / month`);
-        setText($("paySummary"), buildPaySummaryText());
-        clearErr($("payMsg"));
-        openModal($("payModalBackdrop"));
-
+        await apiPost("/api/send-code", { email: state.pendingEmployee.email, purpose:"employee_signup" });
+        showOk($("empVerifyMsg"), "New code sent. Please check your inbox.");
       }catch(e){
-        // If backend ever returns password error here, translate it into the correct UX
-        const msg = String(e.message || e);
-        if (msg.toLowerCase().includes("password must be at least 8")) {
-          showErr($("vMsg"), "Your password wasn’t saved from the signup screen. Please close and start again.");
-        } else {
-          showErr($("vMsg"), msg);
-        }
-      }finally{
-        $("vVerify").disabled = false;
-        $("vVerify").classList.remove("opacity-60");
+        showErr($("empVerifyMsg"), String(e.message || "Failed to resend code."));
       }
     }
 
-    async function resendOwnerCode(){
-      clearErr($("vMsg"));
-      if(!state.pendingSignup?.email) return showErr($("vMsg"), "Start signup again first.");
-      try{
-        await apiPost("/api/send-code", { email: state.pendingSignup.email, purpose:"owner_signup" });
-        showOk($("vMsg"), "New code sent. Please check your inbox.");
-      }catch(e){
-        showErr($("vMsg"), String(e.message || "Failed to resend code."));
-      }
-    }
+    async function employeeVerifyAndCreate(){
+      clearErr($("empVerifyMsg"));
 
-    async function paymentAccept(){
-      clearErr($("payMsg"));
+      const code = $("empCode").value.trim();
+      if(!code || code.length !== 6) return showErr($("empVerifyMsg"), "Please enter the 6-digit code.");
 
-      const p = state.pendingSignup;
-      if(!p?.email || !p?.password || !p?.company_name || !p?.verify_token || !p?.code){
-        return showErr($("payMsg"), "Signup state missing. Please close and start again.");
+      const p = state.pendingEmployee;
+      if(!p?.company_code || !p?.full_name || !p?.email || !p?.password){
+        return showErr($("empVerifyMsg"), "Your details weren’t saved. Please close and start again.");
       }
 
-      // Validate password HERE as well, but show it on payment modal (still correct place, not verify modal)
-      if(p.password.length < 8){
-        return showErr($("payMsg"), "Password must be at least 8 characters. Please close and start again.");
-      }
-
-      $("payAccept").disabled = true;
-      $("payAccept").classList.add("opacity-60");
+      $("empVerify").disabled = true;
+      $("empVerify").classList.add("opacity-60");
 
       try{
-        const total = computeTotal();
-        const modules_total = Array.from(state.selectedModules).reduce((sum, id)=>{
-          const m = MODULES.find(x=>x.id===id);
-          return sum + (m?.price || 0);
-        }, 0);
-
-        // FINALISE (only here)
-        const finalRes = await apiPost("/api/verify-code", {
+        const res = await apiPost("/api/verify-code", {
           phase: "finalise",
-          purpose: "owner_signup",
+          purpose: "employee_signup",
           email: p.email,
-          code: p.code,
-          verify_token: p.verify_token,
-
+          code,
           password: p.password,
-          full_name: "Owner",
-
-          company_name: p.company_name,
-          company_size: p.company_size_label,
-          company_size_label: p.company_size_label,
-          company_size_id: p.company_size_id,
-          company_size_price: p.company_size_price,
-          module_ids: p.module_ids,
-          modules_total,
-          total_monthly: total
+          full_name: p.full_name,
+          company_code: p.company_code
         });
 
-        if(!finalRes?.ok) throw new Error(finalRes?.error || "Finalise failed.");
+        if(!res?.ok) throw new Error(res?.error || "Employee signup failed.");
 
+        // optional auto-login
         const { error } = await sb.auth.signInWithPassword({ email: p.email, password: p.password });
-        if(error) throw new Error(error.message);
+        if(error) {
+          showOk($("empVerifyMsg"), "Account created. You can now log in.");
+        } else {
+          showOk($("empVerifyMsg"), "Account created and logged in.");
+        }
 
-        closeModal($("payModalBackdrop"));
-        state.pendingSignup = null;
+        // cleanup
+        state.pendingEmployee = null;
 
-        await loadAccount();
-        showDashboard();
+        // close after a moment (nice UX)
+        setTimeout(()=> closeModal($("empModalBackdrop")), 700);
 
       }catch(e){
-        showErr($("payMsg"), String(e.message || e));
+        showErr($("empVerifyMsg"), String(e.message || e));
       }finally{
-        $("payAccept").disabled = false;
-        $("payAccept").classList.remove("opacity-60");
+        $("empVerify").disabled = false;
+        $("empVerify").classList.remove("opacity-60");
       }
-    }
-
-    function paymentDecline(){
-      closeModal($("payModalBackdrop"));
-      state.pendingSignup = null;
-      alert("Payment declined (testing). No account was created.");
     }
 
     /******************************************************************
-      LOGIN
+      LOGIN (minimal)
     ******************************************************************/
     async function login(){
       clearErr($("liMsg"));
-      $("liWrong").classList.add("hidden");
 
       const email = $("liEmail").value.trim().toLowerCase();
       const password = $("liPassword").value;
@@ -1557,14 +1216,9 @@
 
       try{
         const { error } = await sb.auth.signInWithPassword({ email, password });
-        if(error){
-          $("liWrong").classList.remove("hidden");
-          throw new Error(error.message);
-        }
+        if(error) throw new Error(error.message);
 
-        closeModal($("loginModalBackdrop"));
-        await loadAccount();
-        showDashboard();
+        showOk($("liMsg"), "Logged in. (Employee portal coming next.)");
 
       }catch(e){
         showErr($("liMsg"), String(e.message || "Login failed."));
@@ -1587,134 +1241,18 @@
       }
     }
 
-    async function signOut(){
-      await sb.auth.signOut();
-      state.session = null;
-      state.profile = null;
-      state.company = null;
-      state.subscription = null;
-      state.employees = [];
-
-      hide($("dashboard"));
-      show($("main"));
-      window.scrollTo({ top:0, behavior:"smooth" });
-    }
-
-    /******************************************************************
-      ACCOUNT LOAD / DASH (kept minimal here)
-    ******************************************************************/
-    async function loadAccount(){
-      const { data: { session } } = await sb.auth.getSession();
-      state.session = session || null;
-
-      if(!state.session?.user){
-        state.profile = null;
-        state.company = null;
-        state.subscription = null;
-        state.employees = [];
-        return;
-      }
-
-      const uid = state.session.user.id;
-
-      const { data: prof, error: pErr } = await sb
-        .from("profiles")
-        .select("*")
-        .eq("user_id", uid)
-        .maybeSingle();
-
-      if(pErr) throw new Error("Profile load failed: " + pErr.message);
-      state.profile = prof || null;
-
-      let comp = null;
-      if(state.profile?.company_id){
-        const { data, error } = await sb.from("companies").select("*").eq("id", state.profile.company_id).maybeSingle();
-        if(error) throw new Error("Company load failed: " + error.message);
-        comp = data;
-      } else {
-        const { data, error } = await sb.from("companies").select("*").eq("owner_user_id", uid).maybeSingle();
-        if(error) throw new Error("Company load failed: " + error.message);
-        comp = data;
-      }
-      state.company = comp || null;
-
-      const { data: sub } = await sb
-        .from("subscriptions")
-        .select("*")
-        .eq("user_id", uid)
-        .order("created_at", { ascending:false })
-        .limit(1)
-        .maybeSingle();
-
-      state.subscription = sub || null;
-
-      if(state.company?.id){
-        const { data: emps } = await sb
-          .from("employees")
-          .select("*")
-          .eq("company_id", state.company.id)
-          .order("created_at", { ascending:true });
-
-        state.employees = emps || [];
-      } else {
-        state.employees = [];
-      }
-    }
-
-    function showDashboard(){
-      hide($("main"));
-      show($("dashboard"));
-
-      setText($("dashCompanyName"), state.company?.company_name || "(not set)");
-      setText($("dashCompanyCode"), state.company?.company_code || "(not set)");
-      setText($("dashCompanySize"), state.company?.company_size || "(not set)");
-      setText($("dashPlan"), state.subscription?.company_size_label || "(not set)");
-      setText($("dashSub"), "Manage your company, systems, and employees.");
-
-      window.location.hash = "#dashboard";
-      window.scrollTo({ top:0, behavior:"smooth" });
-    }
-
-    function buyMore(){
-      hide($("dashboard"));
-      show($("main"));
-      window.location.hash = "#packages";
-      $("packages").scrollIntoView({ behavior:"smooth", block:"start" });
-    }
-
-    /******************************************************************
-      IMPORTANT: HARD RESET OLD EVENT HANDLERS
-      This fixes your exact symptom:
-      - if an older script version had vVerify calling FINALISE,
-        that old handler can still exist if you appended scripts or
-        had duplicate IDs / duplicate inline scripts.
-      - cloning the button removes ALL prior listeners instantly.
-    ******************************************************************/
-    function resetBtn(id){
-      const old = $(id);
-      if(!old || !old.parentNode) return old;
-      const fresh = old.cloneNode(true);
-      old.parentNode.replaceChild(fresh, old);
-      return fresh;
-    }
-
     /******************************************************************
       WIRING
     ******************************************************************/
     function wire(){
-      // reset key buttons to match only THIS version
-      resetBtn("suContinue");
-      resetBtn("vVerify");
-      resetBtn("payAccept");
-      resetBtn("payDecline");
-
       // hero
       $("heroBuild").onclick = ()=> $("packages").scrollIntoView({ behavior:"smooth", block:"start" });
       $("heroEmployee").onclick = ()=> openModal($("empModalBackdrop"));
       $("heroDown").onclick = ()=> $("packages").scrollIntoView({ behavior:"smooth", block:"start" });
 
       // nav
-      $("navHome").onclick = ()=> { hide($("dashboard")); show($("main")); window.scrollTo({ top:0, behavior:"smooth" }); };
+      $("navHome").onclick = ()=> window.scrollTo({ top:0, behavior:"smooth" });
+      $("navEmployee").onclick = ()=> openModal($("empModalBackdrop"));
       $("navLogin").onclick = ()=> openModal($("loginModalBackdrop"));
 
       // company size
@@ -1724,45 +1262,26 @@
 
       // plus inputs
       $("plusCount").addEventListener("input", ()=> hide($("plusWarn")));
-      $("plusNotes").addEventListener("input", ()=> state.plusNotes = $("plusNotes").value);
 
-      // checkout
+      // checkout -> ALWAYS email now
       $("checkoutBtn").onclick = ()=>{
-        if(!state.size) return alert("Select a company size first.");
-
-        if(state.size.id === "s250plus"){
-          const mailto = buildContactEmail();
-          if(!mailto) return;
-          window.location.href = mailto;
-          return;
-        }
-        openModal($("signupModalBackdrop"));
+        const mailto = buildPlanEmail();
+        if(!mailto) return;
+        window.location.href = mailto;
       };
 
       // module modal
       $("mmClose").onclick = ()=> closeModal($("moduleModalBackdrop"));
 
-      // signup modal
-      $("suClose").onclick = ()=> closeModal($("signupModalBackdrop"));
-      $("suContinue").onclick = ownerSendCode;
-      $("suGoLogin").onclick = ()=>{
-        closeModal($("signupModalBackdrop"));
-        openModal($("loginModalBackdrop"));
-      };
-      $("suEye").onclick = ()=>{
-        const p = $("suPassword");
+      // employee modal
+      $("empClose").onclick = ()=> closeModal($("empModalBackdrop"));
+      $("empEye").onclick = ()=>{
+        const p = $("empPassword");
         p.type = (p.type === "password") ? "text" : "password";
       };
-
-      // verify modal
-      $("vClose").onclick = ()=> closeModal($("verifyModalBackdrop"));
-      $("vVerify").onclick = ownerVerifyOnly;
-      $("vResend").onclick = resendOwnerCode;
-
-      // payment modal
-      $("payClose").onclick = ()=> closeModal($("payModalBackdrop"));
-      $("payAccept").onclick = paymentAccept;
-      $("payDecline").onclick = paymentDecline;
+      $("empSend").onclick = employeeSendCode;
+      $("empResend").onclick = employeeResend;
+      $("empVerify").onclick = employeeVerifyAndCreate;
 
       // login modal
       $("liClose").onclick = ()=> closeModal($("loginModalBackdrop"));
@@ -1772,45 +1291,12 @@
       };
       $("liLogin").onclick = login;
       $("liReset").onclick = resetPassword;
-      $("liNoAcc").onclick = ()=>{
-        closeModal($("loginModalBackdrop"));
-        openModal($("noAccModalBackdrop"));
-      };
-
-      // no account modal
-      $("noAccClose").onclick = ()=> closeModal($("noAccModalBackdrop"));
-      $("noAccEmployee").onclick = ()=>{
-        closeModal($("noAccModalBackdrop"));
-        openModal($("empModalBackdrop"));
-      };
-      $("noAccBuild").onclick = ()=>{
-        closeModal($("noAccModalBackdrop"));
-        $("packages").scrollIntoView({ behavior:"smooth", block:"start" });
-      };
-
-      // employee modal (UI only; backend needs employee finalise)
-      $("empClose").onclick = ()=> closeModal($("empModalBackdrop"));
-      $("empEye").onclick = ()=>{
-        const p = $("empPassword");
-        p.type = (p.type === "password") ? "text" : "password";
-      };
-
-      // dashboard
-      $("dashSignOut").onclick = signOut;
-      $("dashBuyMore").onclick = buyMore;
 
       // backdrop click closes
       [
         $("moduleModalBackdrop"),
-        $("signupModalBackdrop"),
-        $("verifyModalBackdrop"),
-        $("payModalBackdrop"),
-        $("loginModalBackdrop"),
-        $("noAccModalBackdrop"),
         $("empModalBackdrop"),
-        $("settingsModalBackdrop"),
-        $("empEditModalBackdrop"),
-        $("confirmModalBackdrop")
+        $("loginModalBackdrop")
       ].forEach(b=>{
         b.addEventListener("click", (e)=>{
           if(e.target === b) closeModal(b);
@@ -1820,6 +1306,12 @@
       // hero parallax
       window.addEventListener("mousemove", bubbleParallax, { passive:true });
       window.addEventListener("resize", buildBubbles, { passive:true });
+
+      // custom module required fields: clear warn on input
+      ["cWhat","cFor","cWho"].forEach(id=>{
+        const el = $(id);
+        if(el) el.addEventListener("input", ()=> clearErr($("customWarn")));
+      });
     }
 
     /******************************************************************
@@ -1833,11 +1325,6 @@
 
       renderModules();
       updateTotal();
-
-      await loadAccount();
-      if(state.session?.user){
-        showDashboard();
-      }
     }
 
     init().catch(err=>{
@@ -1848,4 +1335,3 @@
 
 </body>
 </html>
-
