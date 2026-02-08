@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>SmartCore Technology</title>
 
-  <!-- FAVICON / TAB ICON -->
+  <!-- Favicon / tab icon -->
   <link rel="icon" type="image/png" href="SmartCore Official Logos/SC Icon - Black Background.png">
+  <link rel="apple-touch-icon" href="SmartCore Official Logos/SC Icon - Black Background.png">
 
   <!-- Tailwind (CDN for build phase) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -16,13 +17,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-  <!-- Supabase JS v2 (kept for employee login/sign-in) -->
+  <!-- Supabase JS v2 (kept for existing login + dashboard + employee flows) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
     :root{
       --bg0:#020617;
       --bg1:#06153a;
+      --bg2:#020923;
       --panelA: rgba(8, 12, 28, .62);
       --panelB: rgba(8, 12, 28, .45);
       --stroke: rgba(255,255,255,.12);
@@ -146,6 +148,20 @@
       border-color: rgba(120,170,255,.35);
       box-shadow: 0 0 0 3px rgba(120,170,255,.10);
     }
+    textarea.inp{ min-height: 120px; resize: vertical; }
+
+    .chkWrap{ display:flex; align-items:center; gap:10px; user-select:none; cursor:pointer; }
+    .chk{
+      width:18px; height:18px; border-radius:6px;
+      border:1px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.04);
+      display:flex; align-items:center; justify-content:center;
+      transition: background .15s ease, border-color .15s ease;
+    }
+    .chk.on{
+      background: rgba(120,170,255,.22);
+      border-color: rgba(120,170,255,.38);
+    }
 
     .eyeBtn{
       border:1px solid var(--stroke2);
@@ -172,23 +188,23 @@
       box-shadow: 0 0 0 4px rgba(120,170,255,.14);
     }
 
-    /* Make the Custom Module stand out */
-    .customCard{
-      border:1px solid rgba(120,170,255,.22) !important;
-      background: linear-gradient(180deg, rgba(120,170,255,.13), rgba(255,255,255,.04)) !important;
-      position: relative;
-      overflow:hidden;
+    /* Keep standard module cards all the same height */
+    .moduleCard{
+      min-height: 168px;
+      height: 100%;
     }
+
+    /* Custom promo styling */
     .customBadge{
       display:inline-flex;
       align-items:center;
-      gap:8px;
-      padding: 6px 10px;
+      gap:10px;
+      padding: 8px 12px;
       border-radius: 999px;
-      border:1px solid rgba(120,170,255,.35);
-      background: rgba(120,170,255,.14);
+      border:1px solid rgba(120,170,255,.28);
+      background: rgba(120,170,255,.12);
       font-size: 12px;
-      opacity:.95;
+      opacity: .95;
       width: fit-content;
     }
 
@@ -227,9 +243,6 @@
         <div class="flex items-center gap-2">
           <button id="navHome" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
             Home
-          </button>
-          <button id="navEmployee" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
-            Employee Sign Up
           </button>
           <button id="navLogin" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
             Log In
@@ -295,7 +308,7 @@
         <div class="fadeUp" data-anim>
           <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Build Your Plan</h2>
           <p class="mt-2 text-sm sm:text-[15px]" style="color: var(--muted); max-width: 52rem;">
-            Choose a company size, then add only the systems you need. When you press <b>Continue</b>, an email opens with everything pre-filled — we’ll take it from there.
+            Choose a company size, then add only the systems you need. When you press <b>Continue</b>, we’ll open an email to support with everything you selected.
           </p>
         </div>
 
@@ -342,7 +355,7 @@
         <div id="plusBox" class="mt-4 hidden fadeUp" data-anim>
           <div class="glass2 p-4">
             <div class="font-semibold">250+ Company Size</div>
-            <p class="mt-1 text-sm opacity-75">Enter an approximate headcount. This will be included in the email.</p>
+            <p class="mt-1 text-sm opacity-75">Enter an approximate headcount. This is required before you can continue.</p>
             <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label class="text-xs opacity-70">Approx. employee count</label>
@@ -363,58 +376,55 @@
             <h3 class="text-lg font-semibold">System Modules</h3>
             <p class="mt-1 text-sm" style="color: var(--muted);">Select the modules you want to include in your plan.</p>
           </div>
+
+          <!-- Standard modules grid (4 across on desktop) -->
           <div id="modulesGrid" class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"></div>
 
-          <!-- Custom module details (only shows when selected) -->
+          <!-- Custom Module (full-width promo row) -->
+          <div id="customRow" class="mt-3"></div>
+
+          <!-- Custom module details (only shown when custom selected) -->
           <div id="customBox" class="mt-4 hidden fadeUp" data-anim>
             <div class="glass2 p-4">
-              <div class="flex items-center justify-between gap-3 flex-wrap">
-                <div>
-                  <div class="font-semibold">Custom Module — Built personally for your company</div>
-                  <div class="text-sm opacity-75 mt-1">Tell us what you want building. This gets inserted into the email.</div>
-                </div>
-                <div class="customBadge">
-                  <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(120,170,255,.85)"></span>
-                  Recommended
-                </div>
-              </div>
+              <div class="font-semibold">Custom Module – a few details so we can scope it properly</div>
+              <p class="mt-1 text-sm opacity-75">Fill in as much or as little as you like — we’ll pick it up from your email.</p>
 
-              <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div class="sm:col-span-2">
+              <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <div>
                   <label class="text-xs opacity-70">What is it?</label>
-                  <input id="cWhat" class="inp mt-1" placeholder="e.g. A vehicle inspection app with photo evidence and sign-off" />
+                  <textarea id="cWhat" class="inp mt-1" placeholder="A short description of the module you need..."></textarea>
                 </div>
-                <div class="sm:col-span-2">
+
+                <div>
                   <label class="text-xs opacity-70">What’s it for?</label>
-                  <input id="cFor" class="inp mt-1" placeholder="e.g. Standardise checks, reduce rework, create audit trail" />
+                  <textarea id="cWhy" class="inp mt-1" placeholder="What problem does it solve? What outcome do you want?"></textarea>
                 </div>
+
                 <div>
                   <label class="text-xs opacity-70">Who uses it?</label>
-                  <input id="cWho" class="inp mt-1" placeholder="e.g. Engineers, Supervisors, Admin team" />
+                  <textarea id="cWho" class="inp mt-1" placeholder="Roles / teams / sites / external users (if any)..."></textarea>
                 </div>
+
                 <div>
-                  <label class="text-xs opacity-70">Where is it used?</label>
-                  <input id="cWhere" class="inp mt-1" placeholder="e.g. Mobile on-site + office dashboard" />
+                  <label class="text-xs opacity-70">Key workflow</label>
+                  <textarea id="cFlow" class="inp mt-1" placeholder="Step-by-step of how it should work (even rough notes)"></textarea>
                 </div>
-                <div class="sm:col-span-2">
-                  <label class="text-xs opacity-70">Key features (comma separated)</label>
-                  <input id="cFeatures" class="inp mt-1" placeholder="e.g. photo upload, signatures, reminders, reporting" />
-                </div>
-                <div class="sm:col-span-2">
-                  <label class="text-xs opacity-70">Integrations / systems it must work with (optional)</label>
-                  <input id="cIntegrations" class="inp mt-1" placeholder="e.g. Microsoft 365, SharePoint, Xero, existing database" />
-                </div>
+
                 <div>
-                  <label class="text-xs opacity-70">Rough timescale (optional)</label>
-                  <input id="cTimescale" class="inp mt-1" placeholder="e.g. ASAP / 4–6 weeks / Q3" />
+                  <label class="text-xs opacity-70">Data / reporting needed</label>
+                  <textarea id="cReports" class="inp mt-1" placeholder="What reports, exports, audit logs, dashboards, reminders, etc?"></textarea>
                 </div>
+
                 <div>
-                  <label class="text-xs opacity-70">Budget range (optional)</label>
-                  <input id="cBudget" class="inp mt-1" placeholder="e.g. £2k–£5k / unsure" />
+                  <label class="text-xs opacity-70">Integrations (optional)</label>
+                  <textarea id="cIntegrations" class="inp mt-1" placeholder="Any existing systems it needs to connect to?"></textarea>
+                </div>
+
+                <div class="lg:col-span-2">
+                  <label class="text-xs opacity-70">Anything else</label>
+                  <textarea id="cOther" class="inp mt-1" placeholder="Timelines, constraints, examples, must-haves, nice-to-haves..."></textarea>
                 </div>
               </div>
-
-              <div id="customWarn" class="mt-3 text-sm text-red-300 hidden"></div>
             </div>
           </div>
         </div>
@@ -430,17 +440,43 @@
             </p>
 
             <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
-              Rather than focusing on trends or hype, SmartCore Technology was created with a clear goal: to build practical, reliable systems that businesses can depend on every day.
+              Rather than focusing on trends or hype, SmartCore Technology was created with a clear goal: to build practical, reliable systems that businesses
+              can depend on every day.
             </p>
 
             <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
-              The company was developed with guidance and support from Finley’s mother, a business owner herself, but every system within SmartCore has been hand-crafted from the ground up by Finley.
-              Each feature, workflow, and decision has been designed with real workplaces in mind — prioritising clarity, usability, and long-term reliability over unnecessary complexity.
+              The company was developed with guidance and support from Finley’s mother, a business owner herself, but every system within SmartCore has been
+              hand-crafted from the ground up by Finley. Each feature, workflow, and decision has been designed with real workplaces in mind — prioritising
+              clarity, usability, and long-term reliability over unnecessary complexity.
             </p>
 
             <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
               SmartCore Technology is not about flashy software. It’s about building tools that work properly, scale sensibly, and quietly do their job in the background.
             </p>
+
+            <div class="mt-7">
+              <h4 class="text-lg font-semibold">The SmartCore Technology Approach</h4>
+              <p class="mt-3 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
+                SmartCore Technology is built on a simple philosophy: technology should make work easier, not more complicated.
+              </p>
+
+              <ul class="mt-4 grid sm:grid-cols-2 gap-2 text-sm" style="color: var(--muted);">
+                <li class="flex gap-2"><span class="opacity-80">•</span> solve a specific, real business problem</li>
+                <li class="flex gap-2"><span class="opacity-80">•</span> be easy to understand and use</li>
+                <li class="flex gap-2"><span class="opacity-80">•</span> create clear, auditable records</li>
+                <li class="flex gap-2"><span class="opacity-80">•</span> scale as organisations grow</li>
+                <li class="flex gap-2"><span class="opacity-80">•</span> remain reliable over time</li>
+              </ul>
+
+              <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
+                Instead of offering one large, bloated platform, SmartCore provides modular systems that companies can choose and combine based on their actual needs.
+                This keeps costs fair, reduces complexity, and allows businesses to stay in control of how they operate.
+              </p>
+
+              <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
+                SmartCore Technology focuses on the areas that matter most — people, safety, and operational clarity — delivering tools that support organisations without getting in the way.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -464,7 +500,7 @@
       <div class="glass2 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div class="flex items-center justify-between sm:justify-start gap-6">
           <div>
-            <div class="text-xs opacity-70">Monthly estimate</div>
+            <div class="text-xs opacity-70">Monthly total</div>
             <div class="text-lg font-semibold" id="totalText">£0 / month</div>
           </div>
           <div class="hidden sm:block text-xs opacity-60" id="summaryMini">Select a company size to begin.</div>
@@ -515,7 +551,53 @@
     </div>
   </div>
 
-  <!-- MODAL: Employee sign-up (kept, with verification) -->
+  <!-- MODAL: Login (kept for existing customers) -->
+  <div id="loginModalBackdrop" class="modalBackdrop">
+    <div class="modal glass p-5 sm:p-6" style="max-width: 680px;">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="text-xl sm:text-2xl font-bold">Log in</div>
+          <div class="mt-1 text-sm opacity-75">Access your dashboard and systems.</div>
+        </div>
+        <button id="liClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 gap-3">
+        <div>
+          <label class="text-xs opacity-70">Email</label>
+          <input id="liEmail" class="inp mt-1" type="email" placeholder="name@company.co.uk" />
+        </div>
+        <div>
+          <label class="text-xs opacity-70">Password</label>
+          <div class="mt-1 flex gap-2">
+            <input id="liPassword" class="inp" type="password" placeholder="Your password" />
+            <button id="liEye" type="button" class="eyeBtn" aria-label="Show/hide password">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" stroke="white" stroke-opacity=".85" stroke-width="2"/>
+                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="white" stroke-opacity=".85" stroke-width="2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="liMsg" class="mt-4 text-sm text-red-300 hidden"></div>
+
+      <div class="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <button id="liLogin" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
+          Log In
+        </button>
+
+        <div class="text-sm opacity-70">
+          <div id="liWrong" class="hidden">
+            <button id="liReset" class="underline hover:opacity-100">Incorrect credentials — Forgot your password?</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Employee signup -->
   <div id="empModalBackdrop" class="modalBackdrop">
     <div class="modal glass p-5 sm:p-6" style="max-width: 760px;">
       <div class="flex items-start justify-between gap-3">
@@ -557,7 +639,7 @@
 
       <div class="mt-5 flex items-center justify-between gap-3">
         <button id="empSend" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-          Send verification code
+          Continue
         </button>
       </div>
 
@@ -574,62 +656,64 @@
 
         <div class="mt-4 flex gap-3">
           <button id="empVerify" class="flex-1 px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-            Verify & create account
+            Continue
           </button>
           <button id="empResend" class="px-4 py-3 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm font-medium">
             Resend
           </button>
         </div>
+
+        <div class="mt-3 text-xs opacity-60">
+          Note: employee finalise requires your backend to support <b>purpose: employee_signup</b> in <code>/api/verify-code</code>.
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: Employee login (kept minimal) -->
-  <div id="loginModalBackdrop" class="modalBackdrop">
-    <div class="modal glass p-5 sm:p-6" style="max-width: 680px;">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="text-xl sm:text-2xl font-bold">Log in</div>
-          <div class="mt-1 text-sm opacity-75">Employee access (if your company is already set up).</div>
+  <!-- DASHBOARD (kept for existing accounts) -->
+  <section id="dashboard" class="hidden">
+    <div class="max-w-6xl mx-auto px-4 pt-28 pb-24">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div class="fadeUp" data-anim>
+          <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h2>
+          <p id="dashSub" class="mt-1 text-sm" style="color: var(--muted);">Loading your account…</p>
         </div>
-        <button id="liClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
+
+        <div class="flex items-center gap-2">
+          <button id="dashBuyMore" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
+            Buy more systems
+          </button>
+          <button id="dashSignOut" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
+            Sign out
+          </button>
+        </div>
       </div>
 
-      <div class="mt-5 grid grid-cols-1 gap-3">
-        <div>
-          <label class="text-xs opacity-70">Email</label>
-          <input id="liEmail" class="inp mt-1" type="email" placeholder="you@company.co.uk" />
-        </div>
-        <div>
-          <label class="text-xs opacity-70">Password</label>
-          <div class="mt-1 flex gap-2">
-            <input id="liPassword" class="inp" type="password" placeholder="Your password" />
-            <button id="liEye" type="button" class="eyeBtn" aria-label="Show/hide password">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" stroke="white" stroke-opacity=".85" stroke-width="2"/>
-                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="white" stroke-opacity=".85" stroke-width="2"/>
-              </svg>
-            </button>
+      <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="glass p-5">
+          <div class="text-sm opacity-80 font-semibold">Company</div>
+          <div class="mt-3 space-y-2 text-sm">
+            <div><span class="opacity-60">Name:</span> <span id="dashCompanyName" class="font-medium"></span></div>
+            <div><span class="opacity-60">Code:</span> <span id="dashCompanyCode" class="font-medium"></span></div>
+            <div><span class="opacity-60">Size:</span> <span id="dashCompanySize" class="font-medium"></span></div>
+            <div><span class="opacity-60">Plan:</span> <span id="dashPlan" class="font-medium"></span></div>
           </div>
         </div>
-      </div>
 
-      <div id="liMsg" class="mt-4 text-sm text-red-300 hidden"></div>
+        <div class="glass p-5 lg:col-span-2">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="text-sm opacity-80 font-semibold">Your systems</div>
+              <div class="mt-1 text-sm opacity-70">Quick links for the modules you own.</div>
+            </div>
+            <div class="text-sm opacity-70" id="dashTotal"></div>
+          </div>
 
-      <div class="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <button id="liLogin" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-          Log In
-        </button>
-        <button id="liReset" class="underline text-sm opacity-80 hover:opacity-100 text-left">
-          Forgot your password?
-        </button>
-      </div>
-
-      <div class="mt-4 text-xs opacity-60">
-        Note: if your company is not yet set up, use <b>Build Your Plan</b> and email us — we’ll handle it manually.
+          <div id="dashSystems" class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+        </div>
       </div>
     </div>
-  </div>
+  </section>
 
   <script>
     /******************************************************************
@@ -693,13 +777,8 @@
       { id:"s250plus", label:"250+ People", price:0 }
     ];
 
+    // Standard modules + Custom module (custom module is quoted after scoping)
     const MODULES = [
-      // PROMOTED custom module
-      { id:"custom_module", name:"Custom Module — Built Personally For Your Company", price:0, isCustom:true,
-        full:`A bespoke system designed around your exact workflow. We’ll scope it properly, keep it practical, and build it to last.`,
-        bullets:["Designed around your real process","Simple, usable UX","Audit-ready records","Built to integrate sensibly","Delivered with clear ownership"]
-      },
-
       { id:"presence_fire", name:"Presence & Fire Safety", price:10,
         full:`A real-time presence system that shows exactly who is on site at any moment. Staff and visitors sign in and out digitally, creating a live evacuation list that can be used immediately during fire drills or real emergencies.`,
         bullets:["Live on-site list for staff and visitors","Instant evacuation roll call","Clear, auditable sign-in history","Fast kiosk-friendly workflows","Fire drill & incident support"]
@@ -731,6 +810,12 @@
       { id:"wellbeing_check", name:"Wellbeing Check", price:4,
         full:`A lightweight wellbeing check-in with three states: 🙂 Positive (green), 😐 Neutral (amber), 🙁 Concerned (red).`,
         bullets:["3-state wellbeing pulse","Trend visibility","Privacy-respecting","Quick to use","Helps surface support needs"]
+      },
+
+      // Custom module promoted separately (full width)
+      { id:"custom_module", name:"Custom Module – Built Personally For Your Company", price:0,
+        full:`A bespoke SmartCore module designed around your exact workflow. We’ll scope it properly, map the process, then build a clean, reliable system that fits how your business actually runs.`,
+        bullets:["Built around your workflow","Clear scoping & requirements","Auditable records & reporting","Designed to scale sensibly","Quoted after scoping"]
       }
     ];
 
@@ -740,8 +825,25 @@
     const state = {
       size: null,
       selectedModules: new Set(),
+      plusApprox: null,
       plusNotes: "",
-      pendingEmployee: null // { company_code, full_name, email, password }
+
+      // Custom module detail fields (for email)
+      custom: {
+        what: "",
+        why: "",
+        who: "",
+        flow: "",
+        reports: "",
+        integrations: "",
+        other: ""
+      },
+
+      // dashboard/login state (unchanged)
+      session: null,
+      profile: null,
+      company: null,
+      subscription: null
     };
 
     /******************************************************************
@@ -829,35 +931,35 @@
     }
 
     /******************************************************************
-      MODULES RENDER
+      MODULES RENDER (4 across + custom full-width bottom)
     ******************************************************************/
     function renderModules(){
       const grid = $("modulesGrid");
+      const customRow = $("customRow");
       grid.innerHTML = "";
+      customRow.innerHTML = "";
 
-      MODULES.forEach(m => {
+      const custom = MODULES.find(m => m.id ===_attach; // safety (shouldn't happen)
+      const standardModules = MODULES.filter(m => m.id !== "custom_module");
+
+      // Standard modules (equal height)
+      standardModules.forEach(m => {
         const selected = state.selectedModules.has(m.id);
 
         const card = document.createElement("div");
-        card.className = "glass2 p-4 flex flex-col gap-3 hover:bg-white/6 transition cursor-pointer";
+        card.className = "glass2 p-4 flex flex-col gap-3 hover:bg-white/6 transition cursor-pointer moduleCard";
         if (selected) card.classList.add("selected");
-        if (m.isCustom) card.classList.add("customCard");
-
-        const priceText = (m.isCustom) ? "Price quoted after scoping" : `${money(m.price)} / month`;
-        const tag = m.isCustom ? `<div class="customBadge"><span class="w-2.5 h-2.5 rounded-full" style="background: rgba(120,170,255,.85)"></span> Custom build</div>` : "";
 
         card.innerHTML = `
           <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              ${tag}
-              <div class="font-semibold leading-tight mt-2">${m.name}</div>
-              <div class="text-sm opacity-80 mt-1">${priceText}</div>
-              ${m.isCustom ? `<div class="text-xs opacity-70 mt-2">Built personally around your workflow — we’ll help scope it properly.</div>` : ``}
+            <div>
+              <div class="font-semibold leading-tight">${m.name}</div>
+              <div class="text-sm opacity-80 mt-1">${money(m.price)} / month</div>
             </div>
             <div class="tickDot mt-1"></div>
           </div>
 
-          <div class="flex items-center justify-between gap-3 mt-1">
+          <div class="flex items-center justify-between gap-3 mt-auto">
             <button class="learnMore px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm whitespace-nowrap">
               Learn more
             </button>
@@ -879,7 +981,63 @@
         grid.appendChild(card);
       });
 
-      // show custom details box if selected
+      // Custom full-width promo card
+      const customModule = MODULES.find(m => m.id === "custom_module");
+      if (customModule){
+        const selected = state.selectedModules.has(customModule.id);
+
+        const wrap = document.createElement("div");
+        wrap.className = "grid grid-cols-1";
+
+        wrap.innerHTML = `
+          <div class="glass2 p-5 hover:bg-white/6 transition cursor-pointer ${selected ? "selected" : ""}">
+            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+              <div class="min-w-0">
+                <div class="customBadge">
+                  <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(120,170,255,.85)"></span>
+                  Custom build (recommended)
+                </div>
+
+                <div class="mt-3 text-2xl font-extrabold tracking-tight leading-tight">
+                  ${customModule.name}
+                </div>
+
+                <div class="mt-2 text-sm opacity-80">
+                  <b>Built personally around your workflow</b> — we’ll help scope it properly, then build a system that fits your company.
+                </div>
+
+                <div class="mt-3 text-sm opacity-80">
+                  <span class="opacity-90">Pricing:</span> Quoted after scoping (can be selected alongside any modules above).
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2 shrink-0">
+                <button class="learnMore px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm whitespace-nowrap">
+                  Learn more
+                </button>
+                <div class="text-xs opacity-60">${selected ? "Selected" : "Click to select"}</div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const card = wrap.firstElementChild;
+
+        card.addEventListener("click", (e) => {
+          if (e.target && e.target.classList.contains("learnMore")) return;
+          toggleModule(customModule.id);
+        });
+
+        card.querySelector(".learnMore").addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openModuleModal(customModule.id);
+        });
+
+        customRow.appendChild(wrap);
+      }
+
+      // Show/hide custom details
       if (state.selectedModules.has("custom_module")) show($("customBox"));
       else hide($("customBox"));
 
@@ -897,7 +1055,11 @@
       if(!m) return;
 
       setText($("mmTitle"), m.name);
-      setText($("mmPrice"), m.isCustom ? "Price quoted after scoping" : `${money(m.price)} / month`);
+
+      // Show custom module price differently
+      if (m.id === "custom_module") setText($("mmPrice"), "Quoted after scoping");
+      else setText($("mmPrice"), `${money(m.price)} / month`);
+
       setText($("mmSummary"), m.full);
 
       const bullets = $("mmBullets");
@@ -915,6 +1077,7 @@
 
     /******************************************************************
       COMPANY SIZE / TOTAL
+      (Total excludes custom module because it’s quoted)
     ******************************************************************/
     function setCompanySize(sizeId){
       const size = COMPANY_SIZES.find(s=>s.id===sizeId);
@@ -934,6 +1097,7 @@
           $("plusCount").value = "";
           $("plusNotes").value = "";
           hide($("plusWarn"));
+          state.plusApprox = null;
           state.plusNotes = "";
         }
       } else {
@@ -951,8 +1115,9 @@
       let mods = 0;
       state.selectedModules.forEach(id=>{
         const m = MODULES.find(x=>x.id===id);
-        if(!m) return;
-        if(m.isCustom) return; // custom quoted separately
+        if (!m) return;
+        // custom module is quoted, so do not add to monthly total
+        if (m.id === "custom_module") return;
         mods += (m.price || 0);
       });
       return base + mods;
@@ -962,126 +1127,106 @@
       if(!state.size){
         setText($("totalText"), "£0 / month");
         setText($("summaryMini"), "Select a company size to begin.");
+        $("checkoutBtn").textContent = "Continue";
         return;
       }
       const total = computeTotal();
+      const selectedCount = state.selectedModules.size;
+
+      // If custom selected, make the mini text clearer
+      const hasCustom = state.selectedModules.has("custom_module");
+      const customNote = hasCustom ? " + Custom (quoted)" : "";
       setText($("totalText"), `${money(total)} / month`);
-      setText($("summaryMini"), `${state.size.label} + ${state.selectedModules.size} module(s)`);
+      setText($("summaryMini"), `${state.size.label} + ${selectedCount} module(s)${customNote}`);
       $("checkoutBtn").textContent = "Continue";
     }
 
     /******************************************************************
-      BUILD EMAIL (for ALL sizes now)
+      EMAIL GENERATION
+      - Continue always opens email to support@smartcoretechnology.co.uk
+      - Includes company size, selected modules, calculated total
+      - If custom module selected, includes custom questions/answers
     ******************************************************************/
-    function getCustomDetails(){
-      return {
-        what: ($("cWhat")?.value || "").trim(),
-        for: ($("cFor")?.value || "").trim(),
-        who: ($("cWho")?.value || "").trim(),
-        where: ($("cWhere")?.value || "").trim(),
-        features: ($("cFeatures")?.value || "").trim(),
-        integrations: ($("cIntegrations")?.value || "").trim(),
-        timescale: ($("cTimescale")?.value || "").trim(),
-        budget: ($("cBudget")?.value || "").trim()
-      };
-    }
-
-    function validateCustomDetails(){
-      clearErr($("customWarn"));
-      if(!state.selectedModules.has("custom_module")) return true;
-
-      const d = getCustomDetails();
-      if(!d.what || !d.for || !d.who){
-        showErr($("customWarn"), "Please fill in at least: What is it, What’s it for, and Who uses it.");
-        return false;
-      }
-      return true;
-    }
-
     function buildPlanEmail(){
-      if(!state.size){
-        alert("Select a company size first.");
-        return null;
-      }
-
-      // for 250+ we require a number (as requested earlier), but now it’s just for the email content
-      let approx = null;
-      let notes = "";
-      if(state.size.id === "s250plus"){
-        approx = Number($("plusCount").value || 0);
-        notes = ($("plusNotes").value || "").trim();
-        if(!approx || approx < 1){
-          showErr($("plusWarn"), "Please enter an approximate company size to continue.");
-          return null;
-        }
-        hide($("plusWarn"));
-      } else {
-        notes = ($("plusNotes").value || "").trim();
-      }
-
-      if(!validateCustomDetails()) return null;
+      if(!state.size) return { error: "Select a company size first." };
 
       const selected = Array.from(state.selectedModules)
         .map(id => MODULES.find(m=>m.id===id))
         .filter(Boolean);
 
-      // Put custom module last in the email, after the list
-      const custom = selected.find(m=>m.id==="custom_module");
-      const normal = selected.filter(m=>m.id!=="custom_module");
+      const standard = selected.filter(m => m.id !== "custom_module");
+      const hasCustom = selected.some(m => m.id === "custom_module");
+
+      // 250+ requires approx count
+      let headcountLine = "";
+      let notesLine = "";
+      if (state.size.id === "s250plus"){
+        const approx = Number($("plusCount").value || 0);
+        const notes = ($("plusNotes").value || "").trim();
+        if (!approx || approx < 1){
+          showErr($("plusWarn"), "Please enter an approximate company size to continue.");
+          return { error: "Missing 250+ headcount." };
+        }
+        hide($("plusWarn"));
+        headcountLine = `Approximate headcount: ${approx}`;
+        if (notes) notesLine = `Additional notes: ${notes}`;
+      }
 
       const total = computeTotal();
-      const subject = `SmartCore Plan Request — ${state.size.label}`;
 
-      const lines = [];
-      lines.push("Hello SmartCore Technology,");
-      lines.push("");
-      lines.push("We would like to move forward with SmartCore. Below are the details of what we need:");
-      lines.push("");
-      lines.push(`Company size: ${state.size.label}${state.size.id==="s250plus" ? ` (approx. ${approx})` : ""}`);
-      lines.push(`Monthly estimate (excluding any custom build): ${money(total)} / month`);
-      lines.push("");
+      const subjectParts = ["SmartCore Plan Request"];
+      if (hasCustom) subjectParts.push("Custom Module");
+      subjectParts.push(state.size.label);
+      const subject = subjectParts.join(" - ");
 
-      lines.push("Requested modules:");
-      if(normal.length){
-        normal.forEach(m=>{
-          lines.push(`- ${m.name}`);
-        });
-      } else {
-        lines.push("- (none selected)");
-      }
+      const modulesList = selected.length
+        ? selected.map(m => {
+            if (m.id === "custom_module") return `- ${m.name} (quoted after scoping)`;
+            return `- ${m.name} (${money(m.price)}/month)`;
+          }).join("\n")
+        : "- (No modules selected)";
 
-      if(custom){
-        const d = getCustomDetails();
-        lines.push("");
-        lines.push("Custom Module — Built Personally For Your Company:");
-        lines.push(`What is it: ${d.what || "—"}`);
-        lines.push(`What’s it for: ${d.for || "—"}`);
-        lines.push(`Who uses it: ${d.who || "—"}`);
-        lines.push(`Where is it used: ${d.where || "—"}`);
-        lines.push(`Key features: ${d.features || "—"}`);
-        lines.push(`Integrations / must work with: ${d.integrations || "—"}`);
-        lines.push(`Timescale: ${d.timescale || "—"}`);
-        lines.push(`Budget range: ${d.budget || "—"}`);
-      }
+      const customBlock = hasCustom ? [
+        "",
+        "Custom Module:",
+        `What is it: ${state.custom.what || ""}`,
+        `What's it for: ${state.custom.why || ""}`,
+        `Who uses it: ${state.custom.who || ""}`,
+        `Key workflow: ${state.custom.flow || ""}`,
+        `Data / reporting needed: ${state.custom.reports || ""}`,
+        `Integrations: ${state.custom.integrations || ""}`,
+        `Anything else: ${state.custom.other || ""}`
+      ].join("\n") : "";
 
-      if(state.size.id==="s250plus" && notes){
-        lines.push("");
-        lines.push("Additional notes:");
-        lines.push(notes);
-      }
+      const body = [
+        "Hello SmartCore Technology,",
+        "",
+        "We would like to discuss a SmartCore subscription with the following setup:",
+        "",
+        `Company size band: ${state.size.label}`,
+        headcountLine ? headcountLine : "",
+        notesLine ? notesLine : "",
+        "",
+        "Selected modules:",
+        modulesList,
+        "",
+        `Estimated monthly total (excluding quoted custom work): ${money(total)} / month`,
+        customBlock,
+        "",
+        "Please let us know next steps and any information you need from us.",
+        "",
+        "Kind regards,",
+        "(Your name)",
+        "(Company name)",
+        "(Phone number)"
+      ].filter(line => line !== "").join("\n");
 
-      lines.push("");
-      lines.push("Please reply with next steps.");
-      lines.push("");
-      lines.push("Kind regards,");
-      lines.push("(Your name)");
-
-      const body = lines.join("\n");
-      return `mailto:support@smartcoretechnology.co.uk?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      const mailto = `mailto:support@smartcoretechnology.co.uk?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      return { mailto };
     }
 
     /******************************************************************
-      API helper (Cloudflare functions)
+      API helper (Cloudflare) - kept for employee signup verification
     ******************************************************************/
     async function apiPost(path, payload){
       const res = await fetch(path, {
@@ -1102,108 +1247,11 @@
     }
 
     /******************************************************************
-      EMPLOYEE SIGNUP (kept with verification code)
-      Assumes your backend supports:
-      - POST /api/send-code   { email, purpose:"employee_signup" }
-      - POST /api/verify-code { phase:"finalise", purpose:"employee_signup", ... }
-    ******************************************************************/
-    async function employeeSendCode(){
-      clearErr($("empMsg"));
-      clearErr($("empVerifyMsg"));
-
-      const company_code = $("empCompanyCode").value.trim();
-      const full_name = $("empFullName").value.trim();
-      const email = $("empEmail").value.trim().toLowerCase();
-      const password = $("empPassword").value;
-
-      if(!company_code) return showErr($("empMsg"), "Please enter your company code.");
-      if(!full_name) return showErr($("empMsg"), "Please enter your full name.");
-      if(!email) return showErr($("empMsg"), "Please enter your email.");
-      if(!password || password.length < 8) return showErr($("empMsg"), "Password must be at least 8 characters.");
-
-      state.pendingEmployee = { company_code, full_name, email, password };
-
-      $("empSend").disabled = true;
-      $("empSend").classList.add("opacity-60");
-
-      try{
-        await apiPost("/api/send-code", { email, purpose:"employee_signup" });
-        show($("empVerifyBox"));
-        $("empCode").value = "";
-        showOk($("empMsg"), "Code sent. Please check your inbox.");
-      }catch(e){
-        showErr($("empMsg"), String(e.message || "Failed to send code."));
-      }finally{
-        $("empSend").disabled = false;
-        $("empSend").classList.remove("opacity-60");
-      }
-    }
-
-    async function employeeResend(){
-      clearErr($("empVerifyMsg"));
-      if(!state.pendingEmployee?.email) return showErr($("empVerifyMsg"), "Please fill in your details above first.");
-      try{
-        await apiPost("/api/send-code", { email: state.pendingEmployee.email, purpose:"employee_signup" });
-        showOk($("empVerifyMsg"), "New code sent. Please check your inbox.");
-      }catch(e){
-        showErr($("empVerifyMsg"), String(e.message || "Failed to resend code."));
-      }
-    }
-
-    async function employeeVerifyAndCreate(){
-      clearErr($("empVerifyMsg"));
-
-      const code = $("empCode").value.trim();
-      if(!code || code.length !== 6) return showErr($("empVerifyMsg"), "Please enter the 6-digit code.");
-
-      const p = state.pendingEmployee;
-      if(!p?.company_code || !p?.full_name || !p?.email || !p?.password){
-        return showErr($("empVerifyMsg"), "Your details weren’t saved. Please close and start again.");
-      }
-
-      $("empVerify").disabled = true;
-      $("empVerify").classList.add("opacity-60");
-
-      try{
-        const res = await apiPost("/api/verify-code", {
-          phase: "finalise",
-          purpose: "employee_signup",
-          email: p.email,
-          code,
-          password: p.password,
-          full_name: p.full_name,
-          company_code: p.company_code
-        });
-
-        if(!res?.ok) throw new Error(res?.error || "Employee signup failed.");
-
-        // optional auto-login
-        const { error } = await sb.auth.signInWithPassword({ email: p.email, password: p.password });
-        if(error) {
-          showOk($("empVerifyMsg"), "Account created. You can now log in.");
-        } else {
-          showOk($("empVerifyMsg"), "Account created and logged in.");
-        }
-
-        // cleanup
-        state.pendingEmployee = null;
-
-        // close after a moment (nice UX)
-        setTimeout(()=> closeModal($("empModalBackdrop")), 700);
-
-      }catch(e){
-        showErr($("empVerifyMsg"), String(e.message || e));
-      }finally{
-        $("empVerify").disabled = false;
-        $("empVerify").classList.remove("opacity-60");
-      }
-    }
-
-    /******************************************************************
-      LOGIN (minimal)
+      LOGIN (unchanged)
     ******************************************************************/
     async function login(){
       clearErr($("liMsg"));
+      $("liWrong").classList.add("hidden");
 
       const email = $("liEmail").value.trim().toLowerCase();
       const password = $("liPassword").value;
@@ -1216,9 +1264,14 @@
 
       try{
         const { error } = await sb.auth.signInWithPassword({ email, password });
-        if(error) throw new Error(error.message);
+        if(error){
+          $("liWrong").classList.remove("hidden");
+          throw new Error(error.message);
+        }
 
-        showOk($("liMsg"), "Logged in. (Employee portal coming next.)");
+        closeModal($("loginModalBackdrop"));
+        await loadAccount();
+        showDashboard();
 
       }catch(e){
         showErr($("liMsg"), String(e.message || "Login failed."));
@@ -1241,6 +1294,201 @@
       }
     }
 
+    async function signOut(){
+      await sb.auth.signOut();
+      state.session = null;
+      state.profile = null;
+      state.company = null;
+      state.subscription = null;
+
+      hide($("dashboard"));
+      show($("main"));
+      window.scrollTo({ top:0, behavior:"smooth" });
+    }
+
+    /******************************************************************
+      ACCOUNT LOAD / DASH (kept minimal)
+    ******************************************************************/
+    async function loadAccount(){
+      const { data: { session } } = await sb.auth.getSession();
+      state.session = session || null;
+
+      if(!state.session?.user){
+        state.profile = null;
+        state.company = null;
+        state.subscription = null;
+        return;
+      }
+
+      const uid = state.session.user.id;
+
+      const { data: prof, error: pErr } = await sb
+        .from("profiles")
+        .select("*")
+        .eq("user_id", uid)
+        .maybeSingle();
+
+      if(pErr) throw new Error("Profile load failed: " + pErr.message);
+      state.profile = prof || null;
+
+      let comp = null;
+      if(state.profile?.company_id){
+        const { data, error } = await sb.from("companies").select("*").eq("id", state.profile.company_id).maybeSingle();
+        if(error) throw new Error("Company load failed: " + error.message);
+        comp = data;
+      } else {
+        const { data, error } = await sb.from("companies").select("*").eq("owner_user_id", uid).maybeSingle();
+        if(error) throw new Error("Company load failed: " + error.message);
+        comp = data;
+      }
+      state.company = comp || null;
+
+      const { data: sub } = await sb
+        .from("subscriptions")
+        .select("*")
+        .eq("user_id", uid)
+        .order("created_at", { ascending:false })
+        .limit(1)
+        .maybeSingle();
+
+      state.subscription = sub || null;
+    }
+
+    function showDashboard(){
+      hide($("main"));
+      show($("dashboard"));
+
+      setText($("dashCompanyName"), state.company?.company_name || "(not set)");
+      setText($("dashCompanyCode"), state.company?.company_code || "(not set)");
+      setText($("dashCompanySize"), state.company?.company_size || "(not set)");
+      setText($("dashPlan"), state.subscription?.company_size_label || "(not set)");
+      setText($("dashSub"), "Manage your company and systems.");
+
+      window.location.hash = "#dashboard";
+      window.scrollTo({ top:0, behavior:"smooth" });
+    }
+
+    function buyMore(){
+      hide($("dashboard"));
+      show($("main"));
+      window.location.hash = "#packages";
+      $("packages").scrollIntoView({ behavior:"smooth", block:"start" });
+    }
+
+    /******************************************************************
+      EMPLOYEE SIGNUP (kept + verification code stuff)
+      Requires backend endpoints:
+      - POST /api/send-code  { email, purpose:"employee_signup" }
+      - POST /api/verify-code { phase:"verify"/"finalise", purpose:"employee_signup", ... }
+    ******************************************************************/
+    async function employeeSendCode(){
+      clearErr($("empMsg"));
+      clearErr($("empVerifyMsg"));
+
+      const company_code = $("empCompanyCode").value.trim().toUpperCase();
+      const full_name = $("empFullName").value.trim();
+      const email = $("empEmail").value.trim().toLowerCase();
+      const password = $("empPassword").value;
+
+      if(!company_code) return showErr($("empMsg"), "Please enter your company code.");
+      if(!full_name) return showErr($("empMsg"), "Please enter your full name.");
+      if(!email) return showErr($("empMsg"), "Please enter your email.");
+      if(!password || password.length < 8) return showErr($("empMsg"), "Password must be at least 8 characters.");
+
+      $("empSend").disabled = true;
+      $("empSend").classList.add("opacity-60");
+
+      try{
+        // Send code
+        await apiPost("/api/send-code", { email, purpose:"employee_signup" });
+
+        // Store locally for verify step
+        state._empPending = { company_code, full_name, email, password, verify_token: null };
+
+        $("empCode").value = "";
+        show($("empVerifyBox"));
+        showOk($("empMsg"), "Code sent. Please check your inbox.");
+
+      }catch(e){
+        showErr($("empMsg"), String(e.message || "Failed to send code."));
+      }finally{
+        $("empSend").disabled = false;
+        $("empSend").classList.remove("opacity-60");
+      }
+    }
+
+    async function employeeVerify(){
+      clearErr($("empVerifyMsg"));
+
+      const code = $("empCode").value.trim();
+      if(!code || code.length !== 6) return showErr($("empVerifyMsg"), "Please enter the 6-digit code.");
+
+      const p = state._empPending;
+      if(!p?.email || !p?.password) return showErr($("empVerifyMsg"), "Please start again.");
+
+      $("empVerify").disabled = true;
+      $("empVerify").classList.add("opacity-60");
+
+      try{
+        // Verify
+        const verifyRes = await apiPost("/api/verify-code", {
+          phase: "verify",
+          purpose: "employee_signup",
+          email: p.email,
+          code
+        });
+
+        if(!verifyRes?.ok || !verifyRes?.verify_token){
+          throw new Error(verifyRes?.error || "Verification failed.");
+        }
+
+        p.verify_token = verifyRes.verify_token;
+
+        // Finalise employee signup (your backend must support this purpose)
+        const finalRes = await apiPost("/api/verify-code", {
+          phase: "finalise",
+          purpose: "employee_signup",
+          email: p.email,
+          code,
+          verify_token: p.verify_token,
+
+          password: p.password,
+          full_name: p.full_name,
+          company_code: p.company_code
+        });
+
+        if(!finalRes?.ok) throw new Error(finalRes?.error || "Signup failed.");
+
+        // Sign in to Supabase
+        const { error } = await sb.auth.signInWithPassword({ email: p.email, password: p.password });
+        if(error) throw new Error(error.message);
+
+        closeModal($("empModalBackdrop"));
+        state._empPending = null;
+
+        await loadAccount();
+        if(state.session?.user) showDashboard();
+
+      }catch(e){
+        showErr($("empVerifyMsg"), String(e.message || e));
+      }finally{
+        $("empVerify").disabled = false;
+        $("empVerify").classList.remove("opacity-60");
+      }
+    }
+
+    async function employeeResend(){
+      clearErr($("empVerifyMsg"));
+      const p = state._empPending;
+      if(!p?.email) return showErr($("empVerifyMsg"), "Start again first.");
+      try{
+        await apiPost("/api/send-code", { email: p.email, purpose:"employee_signup" });
+        showOk($("empVerifyMsg"), "New code sent. Please check your inbox.");
+      }catch(e){
+        showErr($("empVerifyMsg"), String(e.message || "Failed to resend code."));
+      }
+    }
+
     /******************************************************************
       WIRING
     ******************************************************************/
@@ -1251,8 +1499,7 @@
       $("heroDown").onclick = ()=> $("packages").scrollIntoView({ behavior:"smooth", block:"start" });
 
       // nav
-      $("navHome").onclick = ()=> window.scrollTo({ top:0, behavior:"smooth" });
-      $("navEmployee").onclick = ()=> openModal($("empModalBackdrop"));
+      $("navHome").onclick = ()=> { hide($("dashboard")); show($("main")); window.scrollTo({ top:0, behavior:"smooth" }); };
       $("navLogin").onclick = ()=> openModal($("loginModalBackdrop"));
 
       // company size
@@ -1262,26 +1509,34 @@
 
       // plus inputs
       $("plusCount").addEventListener("input", ()=> hide($("plusWarn")));
+      $("plusNotes").addEventListener("input", ()=> state.plusNotes = $("plusNotes").value);
 
-      // checkout -> ALWAYS email now
+      // custom inputs (capture for email)
+      const bindCustom = (id, key) => {
+        const el = $(id);
+        if (!el) return;
+        el.addEventListener("input", ()=> { state.custom[key] = el.value.trim(); });
+      };
+      bindCustom("cWhat","what");
+      bindCustom("cWhy","why");
+      bindCustom("cWho","who");
+      bindCustom("cFlow","flow");
+      bindCustom("cReports","reports");
+      bindCustom("cIntegrations","integrations");
+      bindCustom("cOther","other");
+
+      // checkout -> email
       $("checkoutBtn").onclick = ()=>{
-        const mailto = buildPlanEmail();
-        if(!mailto) return;
-        window.location.href = mailto;
+        const out = buildPlanEmail();
+        if (out.error){
+          alert(out.error === "Missing 250+ headcount." ? "Please enter an approximate headcount." : out.error);
+          return;
+        }
+        window.location.href = out.mailto;
       };
 
       // module modal
       $("mmClose").onclick = ()=> closeModal($("moduleModalBackdrop"));
-
-      // employee modal
-      $("empClose").onclick = ()=> closeModal($("empModalBackdrop"));
-      $("empEye").onclick = ()=>{
-        const p = $("empPassword");
-        p.type = (p.type === "password") ? "text" : "password";
-      };
-      $("empSend").onclick = employeeSendCode;
-      $("empResend").onclick = employeeResend;
-      $("empVerify").onclick = employeeVerifyAndCreate;
 
       // login modal
       $("liClose").onclick = ()=> closeModal($("loginModalBackdrop"));
@@ -1292,11 +1547,25 @@
       $("liLogin").onclick = login;
       $("liReset").onclick = resetPassword;
 
+      // employee modal
+      $("empClose").onclick = ()=> closeModal($("empModalBackdrop"));
+      $("empEye").onclick = ()=>{
+        const p = $("empPassword");
+        p.type = (p.type === "password") ? "text" : "password";
+      };
+      $("empSend").onclick = employeeSendCode;
+      $("empVerify").onclick = employeeVerify;
+      $("empResend").onclick = employeeResend;
+
+      // dashboard
+      $("dashSignOut").onclick = signOut;
+      $("dashBuyMore").onclick = buyMore;
+
       // backdrop click closes
       [
         $("moduleModalBackdrop"),
-        $("empModalBackdrop"),
-        $("loginModalBackdrop")
+        $("loginModalBackdrop"),
+        $("empModalBackdrop")
       ].forEach(b=>{
         b.addEventListener("click", (e)=>{
           if(e.target === b) closeModal(b);
@@ -1306,12 +1575,6 @@
       // hero parallax
       window.addEventListener("mousemove", bubbleParallax, { passive:true });
       window.addEventListener("resize", buildBubbles, { passive:true });
-
-      // custom module required fields: clear warn on input
-      ["cWhat","cFor","cWho"].forEach(id=>{
-        const el = $(id);
-        if(el) el.addEventListener("input", ()=> clearErr($("customWarn")));
-      });
     }
 
     /******************************************************************
@@ -1325,6 +1588,11 @@
 
       renderModules();
       updateTotal();
+
+      await loadAccount();
+      if(state.session?.user){
+        showDashboard();
+      }
     }
 
     init().catch(err=>{
