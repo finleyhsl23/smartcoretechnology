@@ -934,115 +934,115 @@
       MODULES RENDER (4 across + custom full-width bottom)
     ******************************************************************/
     function renderModules(){
-      const grid = $("modulesGrid");
-      const customRow = $("customRow");
-      grid.innerHTML = "";
-      customRow.innerHTML = "";
+  const grid = $("modulesGrid");
+  const customRow = $("customRow");
+  grid.innerHTML = "";
+  customRow.innerHTML = "";
 
-      const custom = MODULES.find(m => m.id ===_attach; // safety (shouldn't happen)
-      const standardModules = MODULES.filter(m => m.id !== "custom_module");
+  const standardModules = MODULES.filter(m => m.id !== "custom_module");
 
-      // Standard modules (equal height)
-      standardModules.forEach(m => {
-        const selected = state.selectedModules.has(m.id);
+  // Standard modules (equal height)
+  standardModules.forEach(m => {
+    const selected = state.selectedModules.has(m.id);
 
-        const card = document.createElement("div");
-        card.className = "glass2 p-4 flex flex-col gap-3 hover:bg-white/6 transition cursor-pointer moduleCard";
-        if (selected) card.classList.add("selected");
+    const card = document.createElement("div");
+    card.className = "glass2 p-4 flex flex-col gap-3 hover:bg-white/6 transition cursor-pointer moduleCard";
+    if (selected) card.classList.add("selected");
 
-        card.innerHTML = `
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="font-semibold leading-tight">${m.name}</div>
-              <div class="text-sm opacity-80 mt-1">${money(m.price)} / month</div>
+    card.innerHTML = `
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="font-semibold leading-tight">${m.name}</div>
+          <div class="text-sm opacity-80 mt-1">${money(m.price)} / month</div>
+        </div>
+        <div class="tickDot mt-1"></div>
+      </div>
+
+      <div class="flex items-center justify-between gap-3 mt-auto">
+        <button class="learnMore px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm whitespace-nowrap">
+          Learn more
+        </button>
+        <div class="text-xs opacity-60">${selected ? "Selected" : "Click to select"}</div>
+      </div>
+    `;
+
+    card.addEventListener("click", (e) => {
+      if (e.target && e.target.classList.contains("learnMore")) return;
+      toggleModule(m.id);
+    });
+
+    card.querySelector(".learnMore").addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openModuleModal(m.id);
+    });
+
+    grid.appendChild(card);
+  });
+
+  // Custom full-width promo card
+  const customModule = MODULES.find(m => m.id === "custom_module");
+  if (customModule){
+    const selected = state.selectedModules.has(customModule.id);
+
+    const wrap = document.createElement("div");
+    wrap.className = "grid grid-cols-1";
+
+    wrap.innerHTML = `
+      <div class="glass2 p-5 hover:bg-white/6 transition cursor-pointer ${selected ? "selected" : ""}">
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+          <div class="min-w-0">
+            <div class="customBadge">
+              <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(120,170,255,.85)"></span>
+              Custom build (recommended)
             </div>
-            <div class="tickDot mt-1"></div>
+
+            <div class="mt-3 text-2xl font-extrabold tracking-tight leading-tight">
+              ${customModule.name}
+            </div>
+
+            <div class="mt-2 text-sm opacity-80">
+              <b>Built personally around your workflow</b> — we’ll help scope it properly, then build a system that fits your company.
+            </div>
+
+            <div class="mt-3 text-sm opacity-80">
+              <span class="opacity-90">Pricing:</span> Quoted after scoping (can be selected alongside any modules above).
+            </div>
           </div>
 
-          <div class="flex items-center justify-between gap-3 mt-auto">
+          <div class="flex items-center gap-2 shrink-0">
             <button class="learnMore px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm whitespace-nowrap">
               Learn more
             </button>
             <div class="text-xs opacity-60">${selected ? "Selected" : "Click to select"}</div>
           </div>
-        `;
+        </div>
+      </div>
+    `;
 
-        card.addEventListener("click", (e) => {
-          if (e.target && e.target.classList.contains("learnMore")) return;
-          toggleModule(m.id);
-        });
+    const card = wrap.firstElementChild;
 
-        card.querySelector(".learnMore").addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          openModuleModal(m.id);
-        });
+    card.addEventListener("click", (e) => {
+      if (e.target && e.target.classList.contains("learnMore")) return;
+      toggleModule(customModule.id);
+    });
 
-        grid.appendChild(card);
-      });
+    card.querySelector(".learnMore").addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openModuleModal(customModule.id);
+    });
 
-      // Custom full-width promo card
-      const customModule = MODULES.find(m => m.id === "custom_module");
-      if (customModule){
-        const selected = state.selectedModules.has(customModule.id);
+    customRow.appendChild(wrap);
+  }
 
-        const wrap = document.createElement("div");
-        wrap.className = "grid grid-cols-1";
+  // Show/hide custom details box
+  if (state.selectedModules.has("custom_module")) show($("customBox"));
+  else hide($("customBox"));
 
-        wrap.innerHTML = `
-          <div class="glass2 p-5 hover:bg-white/6 transition cursor-pointer ${selected ? "selected" : ""}">
-            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-              <div class="min-w-0">
-                <div class="customBadge">
-                  <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(120,170,255,.85)"></span>
-                  Custom build (recommended)
-                </div>
+  updateTotal();
+}
 
-                <div class="mt-3 text-2xl font-extrabold tracking-tight leading-tight">
-                  ${customModule.name}
-                </div>
-
-                <div class="mt-2 text-sm opacity-80">
-                  <b>Built personally around your workflow</b> — we’ll help scope it properly, then build a system that fits your company.
-                </div>
-
-                <div class="mt-3 text-sm opacity-80">
-                  <span class="opacity-90">Pricing:</span> Quoted after scoping (can be selected alongside any modules above).
-                </div>
-              </div>
-
-              <div class="flex items-center gap-2 shrink-0">
-                <button class="learnMore px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm whitespace-nowrap">
-                  Learn more
-                </button>
-                <div class="text-xs opacity-60">${selected ? "Selected" : "Click to select"}</div>
-              </div>
-            </div>
-          </div>
-        `;
-
-        const card = wrap.firstElementChild;
-
-        card.addEventListener("click", (e) => {
-          if (e.target && e.target.classList.contains("learnMore")) return;
-          toggleModule(customModule.id);
-        });
-
-        card.querySelector(".learnMore").addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          openModuleModal(customModule.id);
-        });
-
-        customRow.appendChild(wrap);
-      }
-
-      // Show/hide custom details
-      if (state.selectedModules.has("custom_module")) show($("customBox"));
-      else hide($("customBox"));
-
-      updateTotal();
-    }
 
     function toggleModule(id){
       if (state.selectedModules.has(id)) state.selectedModules.delete(id);
@@ -1603,3 +1603,4 @@
 
 </body>
 </html>
+
