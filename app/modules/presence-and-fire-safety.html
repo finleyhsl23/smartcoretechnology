@@ -1,857 +1,664 @@
-<!--
-SmartCore Technology — Presence & Fire Safety (Multi-tenant SaaS module)
-Drop-in file: /app/modules/presence-and-fire-safety.html
-
-This module assumes:
-- Supabase Auth is already used in /app/index.html and /app/app.js
-- Users are routed to /app/{company}/presence-and-fire-safety.html (or similar)
-- Row Level Security (RLS) is enabled so users can ONLY access their own company's data.
-
-✅ IMPORTANT (Production assumptions)
-This file is production-ready *as a module*, but it depends on your Supabase schema + RLS being set up.
-This is not "placeholder logic" — it is a clean implementation against a sensible schema.
-
-──────────────────────────────────────────────────────────────────────────────
-REQUIRED SUPABASE TABLES (high-level)
-(Names are referenced by this module; keep them exactly as written)
-
-companies:
-  id uuid pk
-  slug text unique
-  name text
-  created_at timestamptz default now()
-
-company_users:
-  company_id uuid fk companies.id
-  user_id uuid (auth.users.id)
-  role text  -- 'employee' | 'hr_admin' | 'fire_marshal' | 'company_admin'
-  active boolean default true
-
-sites:
-  id uuid pk
-  company_id uuid fk companies.id
-  name text
-  created_at timestamptz default now()
-
-company_settings:
-  company_id uuid pk fk companies.id
-  evac_pin_sha256 text   -- hex string of SHA-256(pin)
-  created_at timestamptz default now()
-
-employees:
-  id uuid pk
-  company_id uuid fk companies.id
-  employee_code text
-  first_name text
-  last_name text
-  active boolean default true
-  created_at timestamptz default now()
-
-visitors:
-  id uuid pk
-  company_id uuid fk companies.id
-  site_id uuid fk sites.id
-  full_name text
-  visitor_company text
-  visiting text
-  photo_path text null
-  created_at timestamptz default now()
-
-presence_events:
-  id uuid pk
-  company_id uuid fk companies.id
-  site_id uuid fk sites.id
-  person_type text -- 'employee'|'visitor'
-  employee_id uuid null fk employees.id
-  visitor_id uuid null fk visitors.id
-  direction text -- 'in'|'out'
-  method text -- 'qr'|'manual'|'admin'
-  device_label text null
-  raw_input text null
-  occurred_at timestamptz default now()
-  actor_user_id uuid null
-
-current_presence:
-  company_id uuid
-  site_id uuid
-  person_type text
-  employee_id uuid null
-  visitor_id uuid null
-  state text -- 'in'|'out'
-  last_event_id uuid
-  last_changed_at timestamptz
-  PRIMARY KEY (company_id, site_id, person_type, employee_id, visitor_id)
-
-evacuation_sessions:
-  id uuid pk
-  company_id uuid
-  site_id uuid
-  status text -- 'open'|'closed'
-  type text -- 'alarm'|'drill'|'test'|'other'
-  started_at timestamptz default now()
-  started_by_user_id uuid null
-  marshal_name text
-  closed_at timestamptz null
-
-evacuation_rollcall_entries:
-  id uuid pk
-  session_id uuid fk evacuation_sessions.id
-  company_id uuid
-  site_id uuid
-  person_type text
-  employee_id uuid null
-  visitor_id uuid null
-  display_name text
-  meta text null
-  photo_path text null
-  accounted_for boolean default false
-  accounted_at timestamptz null
-  accounted_by_user_id uuid null
-  accounted_by_name text null
-
-audit_log:
-  id uuid pk
-  company_id uuid
-  site_id uuid null
-  actor_user_id uuid null
-  action text
-  metadata jsonb
-  created_at timestamptz default now()
-
-──────────────────────────────────────────────────────────────────────────────
-HOW TENANCY IS ENFORCED
-This module:
-- Reads company slug from the URL (/app/{company}/...)
-- Verifies the logged-in user belongs to that company via company_users + companies.slug
-- All Supabase queries include company_id/site_id AND rely on RLS for enforcement.
--->
-
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Presence & Fire Safety • SmartCore Technology</title>
+  <title>Presence & Fire Safety • SmartCore</title>
 
   <!-- Supabase JS v2 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
+    /* =========================================================
+       SMARTCORE / SMARTFITS-STYLE THEME (matches your kiosk UI)
+       - Big centered card
+       - Blue gradient background
+       - Top header bar inside card
+       - Tabs: Staff / Visitors / Admin
+       - Left camera panel + right action panel
+    ========================================================= */
     :root{
-      --bg:#0b1020;
-      --panel:#0f1730;
-      --panel2:#0c1329;
-      --text:#e8eeff;
-      --muted:#a7b3d6;
-      --muted2:#7f8bb3;
-      --line:rgba(255,255,255,0.08);
-      --accent:#7c5cff;
-      --accent2:#2dd4bf;
-      --danger:#ff4d6d;
-      --warn:#ffb020;
-      --ok:#2ee59d;
+      --bg1:#05081a;
+      --bg2:#07163b;
+      --card:#0a0f22;
+      --card2:#081022;
+      --line:rgba(255,255,255,0.10);
+      --line2:rgba(255,255,255,0.06);
+      --text:#e9f0ff;
+      --muted:rgba(233,240,255,0.72);
+      --muted2:rgba(233,240,255,0.55);
 
-      --shadow: 0 12px 40px rgba(0,0,0,0.45);
-      --r: 14px;
-      --r2: 10px;
-      --pad: 14px;
-      --pad2: 10px;
+      --blue1:#1e5cff;
+      --blue2:#0ea5ff;
+      --good:#19d39a;
+      --warn:#ffb020;
+      --bad:#ff4d6d;
+
+      --r:16px;
+      --r2:12px;
+      --shadow: 0 18px 70px rgba(0,0,0,0.55);
       --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
+
     *{box-sizing:border-box}
     html,body{height:100%}
     body{
       margin:0;
-      background: radial-gradient(1200px 800px at 25% -10%, rgba(124,92,255,0.22), transparent 55%),
-                  radial-gradient(900px 700px at 90% 10%, rgba(45,212,191,0.12), transparent 55%),
-                  var(--bg);
-      color:var(--text);
       font-family:var(--font);
-      letter-spacing:0.2px;
-    }
-    a{color:inherit}
-    .topbar{
-      position:sticky; top:0; z-index:50;
-      background: rgba(11,16,32,0.78);
-      backdrop-filter: blur(14px);
-      border-bottom: 1px solid var(--line);
-    }
-    .wrap{max-width:1200px; margin:0 auto; padding: 14px 18px;}
-    .row{display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap;}
-    .brand{
-      display:flex; gap:10px; align-items:center;
-    }
-    .logo{
-      width:34px; height:34px; border-radius:10px;
-      background: linear-gradient(135deg, rgba(124,92,255,1), rgba(45,212,191,1));
-      box-shadow: 0 14px 40px rgba(124,92,255,0.25);
-    }
-    .titleblock{display:flex; flex-direction:column; gap:2px;}
-    .titleblock b{font-size:14px}
-    .titleblock span{font-size:12px; color:var(--muted)}
-    .pill{
-      border:1px solid var(--line);
-      background: rgba(255,255,255,0.04);
-      padding:7px 10px;
-      border-radius:999px;
-      color:var(--muted);
-      font-size:12px;
+      color:var(--text);
+      background:
+        radial-gradient(1200px 900px at 50% 10%, rgba(30,92,255,0.28), transparent 60%),
+        radial-gradient(900px 700px at 20% 30%, rgba(14,165,255,0.14), transparent 60%),
+        linear-gradient(180deg, var(--bg1), var(--bg2));
       display:flex;
-      gap:8px;
       align-items:center;
+      justify-content:center;
+      padding: 22px;
     }
-    .pill code{font-family:var(--mono); color:var(--text); font-size:12px}
-    .grid{
-      display:grid;
-      grid-template-columns: 1.2fr 0.8fr;
-      gap:14px;
-      margin-top:14px;
-    }
-    @media (max-width: 980px){
-      .grid{grid-template-columns:1fr}
-    }
-    .panel{
-      background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.02));
-      border: 1px solid var(--line);
+
+    /* Main centered card */
+    .shell{
+      width:min(1120px, 100%);
+      background: linear-gradient(180deg, rgba(10,15,34,0.92), rgba(8,16,34,0.92));
+      border:1px solid var(--line);
       border-radius: var(--r);
       box-shadow: var(--shadow);
       overflow:hidden;
     }
-    .panel .head{
-      padding: 14px 14px;
+
+    /* Header bar inside card */
+    .head{
+      padding: 14px 16px;
+      background: linear-gradient(180deg, rgba(30,92,255,0.22), rgba(0,0,0,0.0));
       border-bottom:1px solid var(--line);
-      display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .brand{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      min-width: 240px;
+    }
+    .dot{
+      width:16px;
+      height:16px;
+      border-radius:999px;
+      background: radial-gradient(circle at 30% 30%, #ffffff, rgba(255,255,255,0.15) 28%, rgba(30,92,255,1) 70%);
+      border:1px solid rgba(255,255,255,0.18);
+    }
+    .brand h1{
+      margin:0;
+      font-size:14px;
+      letter-spacing:0.4px;
+    }
+    .brand p{
+      margin:2px 0 0;
+      font-size:11px;
+      color: var(--muted);
+    }
+
+    .meta{
+      display:flex;
+      gap:14px;
+      align-items:flex-end;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      text-align:right;
+    }
+    .meta .block{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      font-size:11px;
+      color:var(--muted);
+    }
+    .meta .block b{
+      color:var(--text);
+      font-size:12px;
+      font-family:var(--mono);
+      font-weight:600;
+    }
+    .meta .pill{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding: 6px 10px;
+      border-radius:999px;
+      border:1px solid var(--line2);
+      background: rgba(255,255,255,0.03);
+      color:var(--muted);
+      font-size:11px;
+      white-space:nowrap;
+    }
+    .meta .pill select{
+      background: transparent;
+      border:0;
+      color: var(--text);
+      outline:none;
+      font-size:11px;
+      padding:0;
+      margin:0;
+      font-family:var(--mono);
+    }
+
+    /* Tabs */
+    .tabs{
+      display:flex;
+      gap:10px;
+      padding: 10px 16px 0;
+      border-bottom:1px solid var(--line2);
       background: rgba(0,0,0,0.12);
     }
-    .panel .head h2{
-      margin:0;
-      font-size:13px;
-      letter-spacing:0.4px;
-      text-transform:uppercase;
-      color: var(--muted);
-      font-weight:700;
-    }
-    .panel .body{padding:14px}
-    .tabs{
-      display:flex; gap:8px; flex-wrap:wrap;
-    }
     .tab{
-      padding:10px 12px;
-      border-radius: 12px;
-      border:1px solid var(--line);
+      padding: 8px 14px;
+      border-radius: 999px;
+      border:1px solid var(--line2);
       background: rgba(255,255,255,0.03);
       color: var(--muted);
       cursor:pointer;
       user-select:none;
-      font-size:13px;
-      display:flex; gap:8px; align-items:center;
-      transition: transform .08s ease, background .12s ease, border-color .12s ease;
+      font-size:12px;
+      transition: .12s ease;
     }
-    .tab:hover{transform: translateY(-1px); border-color: rgba(124,92,255,0.35)}
+    .tab:hover{ border-color: rgba(30,92,255,0.45); transform: translateY(-1px); }
     .tab.active{
       color: var(--text);
-      background: rgba(124,92,255,0.16);
-      border-color: rgba(124,92,255,0.45);
+      background: rgba(30,92,255,0.18);
+      border-color: rgba(30,92,255,0.55);
+      box-shadow: 0 0 0 4px rgba(30,92,255,0.08) inset;
     }
-    .btn{
-      border:1px solid var(--line);
-      background: rgba(255,255,255,0.03);
-      color: var(--text);
-      padding: 10px 12px;
-      border-radius: 12px;
-      cursor:pointer;
-      font-size:13px;
-      display:inline-flex; gap:8px; align-items:center;
-      transition: transform .08s ease, background .12s ease, border-color .12s ease;
-    }
-    .btn:hover{transform: translateY(-1px); border-color: rgba(124,92,255,0.35)}
-    .btn.primary{
-      background: rgba(124,92,255,0.2);
-      border-color: rgba(124,92,255,0.55);
-    }
-    .btn.good{
-      background: rgba(45,212,191,0.14);
-      border-color: rgba(45,212,191,0.38);
-    }
-    .btn.danger{
-      background: rgba(255,77,109,0.14);
-      border-color: rgba(255,77,109,0.38);
-    }
-    .btn.small{padding:8px 10px; border-radius:10px; font-size:12px}
-    .btn:disabled{opacity:.5; cursor:not-allowed; transform:none}
-    .field{
-      display:flex; flex-direction:column; gap:8px;
-    }
-    .field label{
-      font-size:12px;
-      color:var(--muted);
-    }
-    .inrow{display:flex; gap:10px; flex-wrap:wrap}
-    input,select,textarea{
-      width:100%;
-      background: rgba(255,255,255,0.03);
-      border:1px solid var(--line);
-      color: var(--text);
-      padding: 10px 12px;
-      border-radius: 12px;
-      outline:none;
-      font-size:13px;
-    }
-    textarea{min-height:90px; resize:vertical}
-    input:focus,select:focus,textarea:focus{
-      border-color: rgba(124,92,255,0.55);
-      box-shadow: 0 0 0 4px rgba(124,92,255,0.12);
-    }
-    .hint{font-size:12px; color: var(--muted2)}
-    .split{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-    @media (max-width: 760px){
-      .split{grid-template-columns:1fr}
-    }
-    .card{
-      border:1px solid var(--line);
+
+    /* Content area */
+    .content{
+      padding: 14px 16px 16px;
       background: rgba(0,0,0,0.12);
-      border-radius: var(--r);
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: 1.25fr 0.75fr;
+      gap:12px;
+    }
+    @media (max-width: 980px){
+      .grid{grid-template-columns:1fr}
+      .meta{justify-content:flex-start; text-align:left}
+    }
+
+    .panel{
+      background: rgba(0,0,0,0.18);
+      border:1px solid var(--line2);
+      border-radius: var(--r2);
       padding: 12px;
     }
-    .kpi{
-      display:flex; gap:12px; align-items:center; justify-content:space-between;
-      padding: 10px 12px;
-      border-radius: 12px;
-      border:1px solid var(--line);
-      background: rgba(255,255,255,0.02);
+    .panel h2{
+      margin:0 0 8px;
+      font-size:12px;
+      letter-spacing:0.5px;
+      color: var(--muted);
+      text-transform:uppercase;
     }
-    .kpi b{font-size:20px}
-    .kpi span{color:var(--muted); font-size:12px}
-    .list{
-      display:flex; flex-direction:column; gap:10px;
-    }
-    .item{
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-      border:1px solid var(--line);
-      background: rgba(255,255,255,0.02);
-      padding: 10px 12px;
-      border-radius: 12px;
-    }
-    .item .left{display:flex; flex-direction:column; gap:2px; min-width:0}
-    .item .left b{font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-    .item .left span{font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-    .item .right{display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end}
-    .tag{
+    .subtle{
       font-size:11px;
+      color: var(--muted2);
+      line-height:1.35;
+    }
+    .hr{
+      height:1px;
+      background: var(--line2);
+      margin: 10px 0;
+    }
+
+    /* Inputs and buttons like your UI */
+    .field{
+      margin-top:10px;
+    }
+    .label{
+      font-size:11px;
+      color: var(--muted);
+      margin-bottom:6px;
+    }
+    .row{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+    .input{
+      flex:1;
+      min-width: 180px;
+      background: rgba(255,255,255,0.03);
+      border:1px solid var(--line2);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 999px;
+      outline:none;
+      font-size:12px;
+    }
+    .input:focus{
+      border-color: rgba(30,92,255,0.65);
+      box-shadow: 0 0 0 4px rgba(30,92,255,0.10);
+    }
+    .btn{
+      border:1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.03);
+      color: var(--text);
+      padding: 9px 14px;
+      border-radius: 999px;
+      cursor:pointer;
+      font-size:12px;
+      transition: .12s ease;
+      white-space:nowrap;
+    }
+    .btn:hover{ border-color: rgba(30,92,255,0.45); transform: translateY(-1px); }
+    .btn.primary{
+      background: linear-gradient(135deg, rgba(30,92,255,0.40), rgba(14,165,255,0.25));
+      border-color: rgba(30,92,255,0.55);
+    }
+    .btn.good{
+      background: rgba(25,211,154,0.12);
+      border-color: rgba(25,211,154,0.35);
+    }
+    .btn.bad{
+      background: rgba(255,77,109,0.12);
+      border-color: rgba(255,77,109,0.35);
+    }
+    .btn:disabled{
+      opacity:.55;
+      cursor:not-allowed;
+      transform:none;
+    }
+
+    /* Camera */
+    .video{
+      width:100%;
+      aspect-ratio: 16/9;
+      background: rgba(0,0,0,0.30);
+      border:1px solid var(--line2);
+      border-radius: var(--r2);
+      overflow:hidden;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    video{width:100%; height:100%; object-fit:cover}
+
+    /* Lists */
+    .list{display:flex; flex-direction:column; gap:8px; margin-top:10px;}
+    .item{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      padding: 10px 12px;
+      border-radius: var(--r2);
+      border:1px solid var(--line2);
+      background: rgba(255,255,255,0.02);
+    }
+    .item .left{min-width:0}
+    .item .left b{
+      display:block;
+      font-size:12px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .item .left span{
+      display:block;
+      font-size:11px;
+      color: var(--muted2);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      margin-top:2px;
+    }
+    .badge{
+      font-size:10px;
       padding: 4px 8px;
       border-radius:999px;
-      border:1px solid var(--line);
+      border:1px solid var(--line2);
       color: var(--muted);
       background: rgba(255,255,255,0.02);
+      font-family: var(--mono);
     }
-    .tag.ok{border-color: rgba(46,229,157,0.35); color: rgba(46,229,157,0.95); background: rgba(46,229,157,0.10)}
-    .tag.warn{border-color: rgba(255,176,32,0.35); color: rgba(255,176,32,0.95); background: rgba(255,176,32,0.08)}
-    .tag.danger{border-color: rgba(255,77,109,0.35); color: rgba(255,77,109,0.95); background: rgba(255,77,109,0.08)}
-    .mono{font-family:var(--mono)}
-    .divider{height:1px; background: var(--line); margin:12px 0}
-    .hide{display:none !important}
+    .badge.ok{ border-color: rgba(25,211,154,0.35); color: rgba(25,211,154,0.95); background: rgba(25,211,154,0.10); }
+    .badge.bad{ border-color: rgba(255,77,109,0.35); color: rgba(255,77,109,0.95); background: rgba(255,77,109,0.10); }
+    .badge.warn{ border-color: rgba(255,176,32,0.35); color: rgba(255,176,32,0.95); background: rgba(255,176,32,0.08); }
 
-    /* Modal */
+    /* Modal (PIN + Rollcall) */
     .modal-backdrop{
-      position:fixed; inset:0; z-index:100;
+      position:fixed; inset:0; z-index:200;
+      background: rgba(0,0,0,0.58);
       display:flex; align-items:center; justify-content:center;
-      background: rgba(0,0,0,0.55);
-      backdrop-filter: blur(10px);
       padding: 18px;
+      backdrop-filter: blur(10px);
     }
     .modal{
-      width:min(720px, 100%);
+      width:min(620px, 100%);
+      background: linear-gradient(180deg, rgba(10,15,34,0.98), rgba(8,16,34,0.98));
       border:1px solid var(--line);
-      border-radius: 18px;
-      background: linear-gradient(180deg, rgba(15,23,48,0.98), rgba(12,19,41,0.98));
-      box-shadow: 0 22px 60px rgba(0,0,0,0.65);
+      border-radius: var(--r);
+      box-shadow: 0 24px 70px rgba(0,0,0,0.65);
       overflow:hidden;
     }
-    .modal .mhead{
-      padding: 14px 14px;
-      border-bottom:1px solid var(--line);
+    .mhead{
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line2);
       display:flex; align-items:center; justify-content:space-between; gap:10px;
+      background: rgba(0,0,0,0.12);
     }
-    .modal .mhead b{font-size:14px}
-    .modal .mbody{padding:14px}
-    .modal .mfoot{
-      padding: 14px;
-      border-top:1px solid var(--line);
-      display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;
+    .mhead b{font-size:13px}
+    .mbody{padding: 14px}
+    .mfoot{
+      padding: 12px 14px;
+      border-top: 1px solid var(--line2);
+      display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;
     }
-    video{
-      width:100%;
-      border-radius: 14px;
-      border:1px solid var(--line);
-      background: rgba(0,0,0,0.25);
-    }
-    .toastwrap{
-      position: fixed;
-      right: 14px;
-      bottom: 14px;
-      z-index: 999;
+    .hide{display:none !important;}
+
+    /* Checkboxes in rollcall */
+    .check{
       display:flex;
-      flex-direction:column;
+      align-items:center;
       gap:10px;
-      max-width: min(520px, calc(100vw - 28px));
+    }
+    input[type="checkbox"]{
+      width:18px; height:18px;
+      accent-color: var(--good);
+      cursor:pointer;
+    }
+
+    /* System message at bottom (optional) */
+    .footnote{
+      margin-top: 10px;
+      font-size:11px;
+      color: var(--muted2);
+      line-height:1.35;
+    }
+
+    /* Tiny toast */
+    .toastwrap{
+      position:fixed; right:16px; bottom:16px; z-index:999;
+      display:flex; flex-direction:column; gap:10px;
+      max-width: min(460px, calc(100vw - 32px));
     }
     .toast{
-      border:1px solid var(--line);
-      background: rgba(15,23,48,0.92);
-      backdrop-filter: blur(10px);
+      border:1px solid var(--line2);
+      background: rgba(10,15,34,0.92);
       border-radius: 14px;
       padding: 10px 12px;
-      box-shadow: 0 18px 50px rgba(0,0,0,0.6);
+      box-shadow: 0 18px 55px rgba(0,0,0,0.65);
       display:flex; gap:10px; align-items:flex-start;
+      backdrop-filter: blur(10px);
     }
-    .toast b{font-size:13px}
-    .toast p{margin:2px 0 0; color:var(--muted); font-size:12px; line-height:1.4}
-    .dot{width:10px; height:10px; border-radius:99px; margin-top:4px; background: var(--accent)}
-    .dot.ok{background: var(--ok)}
-    .dot.warn{background: var(--warn)}
-    .dot.danger{background: var(--danger)}
-    .footer-note{
-      font-size:12px;
-      color: var(--muted2);
-      line-height:1.45;
-    }
+    .toast .tDot{width:10px;height:10px;border-radius:99px;margin-top:4px;background: var(--blue2)}
+    .toast .tDot.ok{background: var(--good)}
+    .toast .tDot.warn{background: var(--warn)}
+    .toast .tDot.bad{background: var(--bad)}
+    .toast b{font-size:12px}
+    .toast p{margin:2px 0 0; font-size:11px; color: var(--muted); line-height:1.35}
   </style>
 </head>
+
 <body>
 
-  <div class="topbar">
-    <div class="wrap">
-      <div class="row">
-        <div class="brand">
-          <div class="logo"></div>
-          <div class="titleblock">
-            <b>Presence & Fire Safety</b>
-            <span>SmartCore Technology • Practical Technology. Built to Last.</span>
-          </div>
+  <div class="shell" role="application" aria-label="Presence & Fire Safety">
+    <div class="head">
+      <div class="brand">
+        <div class="dot" aria-hidden="true"></div>
+        <div>
+          <h1 id="sysTitle">PRESENCE & FIRE SAFETY</h1>
+          <p>Staff & Visitor Fire Safety Register — SmartCore Technology</p>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="block">
+          <span id="dateStr">—</span>
+          <b id="timeStr">—</b>
         </div>
 
-        <div class="row" style="gap:10px;">
-          <div class="pill" title="Tenant / Site context">
-            <span>Company:</span> <code id="companySlug">…</code>
-            <span style="opacity:.35">|</span>
-            <span>Site:</span>
-            <select id="siteSelect" style="width:auto; min-width:190px; padding:7px 10px; border-radius:999px;"></select>
-          </div>
-          <div class="pill" title="Signed in user">
-            <span>User:</span> <code id="userEmail">…</code>
-            <span style="opacity:.35">|</span>
-            <span>Role:</span> <code id="userRole">…</code>
-          </div>
-          <button class="btn small" id="logoutBtn">Log out</button>
+        <div class="block">
+          <span id="kioskLabel">System</span>
+          <b id="kioskName">App Module</b>
+        </div>
+
+        <div class="pill" title="Tenant & site context">
+          <span>Company:</span>
+          <b id="companySlug" style="font-family:var(--mono); font-size:12px;">—</b>
+          <span style="opacity:.35">|</span>
+          <span>Site:</span>
+          <select id="siteSelect" aria-label="Select site"></select>
+        </div>
+
+        <div class="pill" title="Logged in user">
+          <span>User:</span> <b id="userEmail" style="font-family:var(--mono); font-size:12px;">—</b>
+          <span style="opacity:.35">|</span>
+          <span>Role:</span> <b id="userRole" style="font-family:var(--mono); font-size:12px;">—</b>
+          <button class="btn" id="logoutBtn" style="padding:7px 12px;">Log out</button>
         </div>
       </div>
     </div>
-  </div>
 
-  <div class="wrap">
-    <div class="grid">
-      <!-- LEFT: Operations -->
-      <div class="panel">
-        <div class="head">
-          <h2>Operations</h2>
-          <div class="tabs" id="tabs">
-            <div class="tab active" data-tab="staff">Staff</div>
-            <div class="tab" data-tab="visitors">Visitors</div>
-            <div class="tab" data-tab="onsite">Who’s on site</div>
-            <div class="tab" data-tab="evac">Evacuation</div>
-          </div>
-        </div>
-        <div class="body">
-
-          <!-- STAFF TAB -->
-          <div id="tab_staff">
-            <div class="split">
-              <div class="card">
-                <div class="row" style="margin-bottom:10px;">
-                  <b style="font-size:14px;">Staff sign in / out (QR)</b>
-                  <div class="tag">Kiosk-ready</div>
-                </div>
-                <div class="hint">Scan an employee badge QR to toggle IN/OUT. Server-side dedupe prevents double scans.</div>
-                <div class="divider"></div>
-
-                <div id="cameraBlock">
-                  <video id="video" autoplay playsinline muted></video>
-                  <div class="inrow" style="margin-top:10px;">
-                    <button class="btn good" id="startCameraBtn">Start camera</button>
-                    <button class="btn" id="stopCameraBtn" disabled>Stop camera</button>
-                    <span class="tag mono" id="cameraStatus">idle</span>
-                  </div>
-                  <div class="hint" style="margin-top:8px;">
-                    Works best on Chrome/Edge. If BarcodeDetector isn’t available, use manual code entry below.
-                  </div>
-                </div>
-
-                <div class="divider"></div>
-
-                <div class="field">
-                  <label>Manual badge code</label>
-                  <div class="inrow">
-                    <input id="manualBadgeCode" placeholder="Scan or type badge code (e.g. SMT123456 or encoded token)" autocomplete="off" />
-                    <button class="btn primary" id="submitBadgeBtn">Submit</button>
-                  </div>
-                  <div class="hint">This uses the same endpoint as QR scans.</div>
-                </div>
-              </div>
-
-              <div class="card">
-                <div class="row" style="margin-bottom:10px;">
-                  <b style="font-size:14px;">Staff sign in / out (Search)</b>
-                  <div class="tag">Office/Admin</div>
-                </div>
-                <div class="hint">Search employees by employee code or name, then record IN or OUT.</div>
-                <div class="divider"></div>
-
-                <div class="field">
-                  <label>Search</label>
-                  <input id="employeeSearch" placeholder="Employee code or name…" autocomplete="off" />
-                  <div class="inrow">
-                    <button class="btn" id="searchEmployeeBtn">Search</button>
-                    <button class="btn" id="clearEmployeeSearchBtn">Clear</button>
-                  </div>
-                  <div class="hint" id="employeeSearchHint">Results will appear below.</div>
-                </div>
-
-                <div class="divider"></div>
-
-                <div class="list" id="employeeResults"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- VISITORS TAB -->
-          <div id="tab_visitors" class="hide">
-            <div class="split">
-              <div class="card">
-                <div class="row" style="margin-bottom:10px;">
-                  <b style="font-size:14px;">Visitor sign in</b>
-                  <div class="tag">On arrival</div>
-                </div>
-                <div class="hint">Create a visitor record and mark them IN for the selected site.</div>
-                <div class="divider"></div>
-
-                <div class="field">
-                  <label>Full name</label>
-                  <input id="vName" autocomplete="off" />
-                </div>
-                <div class="field" style="margin-top:10px;">
-                  <label>Visitor company</label>
-                  <input id="vCompany" autocomplete="off" />
-                </div>
-                <div class="field" style="margin-top:10px;">
-                  <label>Visiting (person/department)</label>
-                  <input id="vVisiting" autocomplete="off" />
-                </div>
-                <div class="field" style="margin-top:10px;">
-                  <label>Photo (optional but recommended)</label>
-                  <input id="vPhoto" type="file" accept="image/*" />
-                  <div class="hint">Stored securely per company. Access controlled by RLS/storage policies.</div>
-                </div>
-
-                <div class="inrow" style="margin-top:12px;">
-                  <button class="btn good" id="visitorSignInBtn">Sign in visitor</button>
-                  <button class="btn" id="visitorClearBtn">Clear</button>
-                </div>
-              </div>
-
-              <div class="card">
-                <div class="row" style="margin-bottom:10px;">
-                  <b style="font-size:14px;">Visitors currently on site</b>
-                  <div class="tag">Live</div>
-                </div>
-                <div class="hint">Select a visitor to sign them out.</div>
-                <div class="divider"></div>
-                <div class="list" id="visitorsOnsiteList"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- ONSITE TAB -->
-          <div id="tab_onsite" class="hide">
-            <div class="split">
-              <div class="card">
-                <div class="row">
-                  <b style="font-size:14px;">Live “Who is on site”</b>
-                  <div class="tag">Realtime</div>
-                </div>
-                <div class="hint">This list is sourced from current_presence (snapshot). Presence events are stored separately for audit/history.</div>
-                <div class="divider"></div>
-                <div class="list" id="onsiteList"></div>
-              </div>
-
-              <div class="card">
-                <div class="row">
-                  <b style="font-size:14px;">Quick stats</b>
-                </div>
-                <div class="divider"></div>
-                <div class="kpi">
-                  <span>Total on site</span>
-                  <b id="kpiTotal">0</b>
-                </div>
-                <div style="height:10px"></div>
-                <div class="kpi">
-                  <span>Staff</span>
-                  <b id="kpiStaff">0</b>
-                </div>
-                <div style="height:10px"></div>
-                <div class="kpi">
-                  <span>Visitors</span>
-                  <b id="kpiVisitors">0</b>
-                </div>
-
-                <div class="divider"></div>
-
-                <div class="field">
-                  <label>Export presence (CSV)</label>
-                  <div class="inrow">
-                    <input id="exportFrom" type="date" />
-                    <input id="exportTo" type="date" />
-                  </div>
-                  <div class="inrow" style="margin-top:10px;">
-                    <button class="btn primary" id="exportPresenceBtn">Download CSV</button>
-                  </div>
-                  <div class="hint">For HR audits and reporting. Spreadsheets are for export only.</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- EVAC TAB -->
-          <div id="tab_evac" class="hide">
-            <div class="split">
-              <div class="card">
-                <div class="row">
-                  <b style="font-size:14px;">Emergency Evacuation (Roll Call)</b>
-                  <div class="tag danger">PIN protected</div>
-                </div>
-                <div class="hint">
-                  Creates a snapshot of everyone currently on site, then allows marshals/admins to mark people as accounted for.
-                  Every change is timestamped and logged.
-                </div>
-                <div class="divider"></div>
-
-                <div class="field">
-                  <label>Marshal name</label>
-                  <input id="marshalName" placeholder="e.g. J. Smith" autocomplete="off" />
-                  <div class="hint">Recorded on the evacuation session.</div>
-                </div>
-
-                <div class="field" style="margin-top:10px;">
-                  <label>Evacuation type</label>
-                  <select id="evacType">
-                    <option value="alarm">Fire Alarm</option>
-                    <option value="drill">Fire Drill</option>
-                    <option value="test">Test</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-
-                <div class="inrow" style="margin-top:12px;">
-                  <button class="btn danger" id="startEvacBtn">Start evacuation roll call</button>
-                  <button class="btn" id="resumeEvacBtn">Resume active roll call</button>
-                </div>
-
-                <div class="divider"></div>
-                <div class="footer-note">
-                  This system provides records and tools — it does not guarantee legal compliance.
-                  Responsibility for safe evacuation procedures remains with the customer.
-                </div>
-              </div>
-
-              <div class="card">
-                <div class="row">
-                  <b style="font-size:14px;">Active roll call</b>
-                  <span class="tag mono" id="activeSessionTag">none</span>
-                </div>
-                <div class="hint">When an evacuation session is open, the roll-call list below updates live.</div>
-                <div class="divider"></div>
-
-                <div class="list" id="rollCallList"></div>
-
-                <div class="divider"></div>
-
-                <div class="inrow">
-                  <button class="btn good" id="markAllSafeBtn">Mark all as accounted</button>
-                  <button class="btn" id="exportEvacBtn">Export roll call (CSV)</button>
-                  <button class="btn danger" id="closeEvacBtn">Close session</button>
-                </div>
-                <div class="hint" style="margin-top:8px;">Only Fire Marshals / Admins can start/close sessions.</div>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      <!-- RIGHT: Status & Admin controls -->
-      <div class="panel">
-        <div class="head">
-          <h2>Status</h2>
-          <div class="inrow">
-            <button class="btn small" id="refreshBtn">Refresh</button>
-            <button class="btn small" id="openAdminBtn">Admin</button>
-          </div>
-        </div>
-        <div class="body">
-
-          <div class="card">
-            <div class="row">
-              <b style="font-size:14px;">Connection</b>
-              <span class="tag mono" id="connTag">initialising…</span>
-            </div>
-            <div class="divider"></div>
-            <div class="hint" id="connHint">Setting up Supabase session and tenant context.</div>
-          </div>
-
-          <div style="height:12px"></div>
-
-          <div class="card">
-            <div class="row">
-              <b style="font-size:14px;">Live updates</b>
-              <span class="tag" id="rtTag">off</span>
-            </div>
-            <div class="divider"></div>
-            <div class="hint">
-              Presence list and roll-call updates are streamed in realtime to support evacuation scenarios.
-            </div>
-          </div>
-
-          <div style="height:12px"></div>
-
-          <div class="card">
-            <div class="row">
-              <b style="font-size:14px;">Admin actions</b>
-              <span class="tag">Restricted</span>
-            </div>
-            <div class="divider"></div>
-            <div class="inrow">
-              <button class="btn" id="openEmployeesBtn">Manage employees</button>
-              <button class="btn" id="openAuditBtn">View audit log</button>
-            </div>
-            <div class="hint" style="margin-top:8px;">
-              These actions require HR Admin / Company Admin.
-            </div>
-          </div>
-
-          <div style="height:12px"></div>
-
-          <div class="card">
-            <b style="font-size:14px;">Notes</b>
-            <div class="divider"></div>
-            <div class="footer-note">
-              • Presence is stored as immutable events + a current snapshot for performance.<br/>
-              • Evacuation creates a snapshot at start so roll-call is consistent.<br/>
-              • All sensitive actions are written to audit_log.
-            </div>
-          </div>
-
-        </div>
-      </div>
+    <div class="tabs" role="tablist" aria-label="Main tabs">
+      <div class="tab active" data-tab="staff" role="tab" aria-selected="true">Staff</div>
+      <div class="tab" data-tab="visitors" role="tab" aria-selected="false">Visitors</div>
+      <div class="tab" data-tab="admin" role="tab" aria-selected="false">Admin</div>
     </div>
-  </div>
 
-  <!-- Admin Modal -->
-  <div id="adminModal" class="modal-backdrop hide" aria-hidden="true">
-    <div class="modal">
-      <div class="mhead">
-        <b>Admin</b>
-        <button class="btn small" id="closeAdminBtn">Close</button>
-      </div>
-      <div class="mbody">
-        <div class="tabs" id="adminTabs">
-          <div class="tab active" data-atab="employees">Employees</div>
-          <div class="tab" data-atab="audit">Audit log</div>
-        </div>
+    <div class="content">
+      <!-- STAFF TAB -->
+      <div id="tab_staff">
+        <div class="grid">
+          <!-- Left: Camera / Badge Scan -->
+          <div class="panel">
+            <h2>Badge Scan</h2>
+            <div class="subtle">Present your QR badge to sign in or out.</div>
+            <div class="hr"></div>
 
-        <div id="admin_employees" style="margin-top:12px;">
-          <div class="split">
-            <div class="card">
-              <b style="font-size:14px;">Create employee</b>
-              <div class="divider"></div>
-
-              <div class="field">
-                <label>Employee code</label>
-                <input id="aEmpCode" placeholder="e.g. SMT000123" autocomplete="off" />
-              </div>
-              <div class="split" style="margin-top:10px;">
-                <div class="field">
-                  <label>First name</label>
-                  <input id="aEmpFirst" autocomplete="off" />
-                </div>
-                <div class="field">
-                  <label>Last name</label>
-                  <input id="aEmpLast" autocomplete="off" />
-                </div>
-              </div>
-
-              <div class="inrow" style="margin-top:12px;">
-                <button class="btn good" id="createEmployeeBtn">Create</button>
-                <button class="btn" id="clearEmployeeFormBtn">Clear</button>
-              </div>
-              <div class="hint" style="margin-top:8px;">Employee badge QR payload = employee_code by default.</div>
+            <div class="video">
+              <video id="video" autoplay playsinline muted></video>
             </div>
 
-            <div class="card">
+            <div class="row" style="margin-top:10px;">
+              <button class="btn primary" id="startCamBtn">Enable / Restart Camera</button>
+              <button class="btn" id="stopCamBtn" disabled>Stop</button>
+              <span class="badge" id="camStatus">idle</span>
+            </div>
+
+            <div class="hr"></div>
+
+            <div class="field">
+              <div class="label">Manual badge code</div>
               <div class="row">
-                <b style="font-size:14px;">Employees</b>
-                <button class="btn small" id="reloadEmployeesBtn">Reload</button>
+                <input class="input" id="badgeCode" placeholder="Scan or type employee code (e.g. SMT000123)" autocomplete="off" />
+                <button class="btn primary" id="badgeSubmitBtn">Submit</button>
               </div>
-              <div class="divider"></div>
-              <div class="list" id="employeesList"></div>
+              <div class="subtle" style="margin-top:6px;">
+                If QR scanning isn’t supported on this device, use manual entry.
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Staff Sign In / Out + Evac PIN -->
+          <div class="panel">
+            <h2>Staff Sign-In / Out</h2>
+            <div class="subtle">Use your name or employee code if you can’t scan in.</div>
+
+            <div class="field">
+              <div class="label">Sign in</div>
+              <div class="row">
+                <input class="input" id="staffInInput" placeholder="Full name or employee code" autocomplete="off" />
+                <button class="btn primary" id="staffInBtn">Sign In</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="label">Sign out</div>
+              <div class="row">
+                <input class="input" id="staffOutInput" placeholder="Full name or employee code" autocomplete="off" />
+                <button class="btn" id="staffOutBtn">Sign Out</button>
+              </div>
+            </div>
+
+            <div class="hr"></div>
+
+            <div class="row" style="justify-content:space-between; gap:10px;">
+              <h2 style="margin:0;">Evacuation List</h2>
+              <button class="btn" id="refreshEvacBtn">Refresh</button>
+            </div>
+            <div class="subtle">Enter the evacuation PIN to open the live roll call list.</div>
+
+            <div class="field">
+              <div class="row">
+                <input class="input" id="evacPinInput" type="password" inputmode="numeric" placeholder="Enter 4+ digit PIN" autocomplete="off" />
+                <button class="btn bad" id="evacEnterBtn">Enter</button>
+              </div>
+            </div>
+
+            <div class="list" id="evacSummaryList">
+              <div class="subtle" id="evacHint">Locked. Enter PIN to load the evacuation roll call.</div>
             </div>
           </div>
         </div>
-
-        <div id="admin_audit" class="hide" style="margin-top:12px;">
-          <div class="card">
-            <div class="row">
-              <b style="font-size:14px;">Audit log (latest)</b>
-              <button class="btn small" id="reloadAuditBtn">Reload</button>
-            </div>
-            <div class="divider"></div>
-            <div class="list" id="auditList"></div>
-          </div>
-        </div>
-
       </div>
-      <div class="mfoot">
-        <div class="hint" style="margin-right:auto;">
-          Admin actions are logged. Tenant isolation is enforced by RLS.
+
+      <!-- VISITORS TAB -->
+      <div id="tab_visitors" class="hide">
+        <div class="grid">
+          <div class="panel">
+            <h2>Visitor Sign-In</h2>
+            <div class="subtle">Please sign in on arrival and sign out before leaving.</div>
+            <div class="hr"></div>
+
+            <div class="field">
+              <div class="label">Visitor Name</div>
+              <input class="input" id="vName" autocomplete="off" />
+            </div>
+
+            <div class="row" style="margin-top:10px;">
+              <div style="flex:1;">
+                <div class="label">Company</div>
+                <input class="input" id="vCompany" autocomplete="off" />
+              </div>
+              <div style="flex:1;">
+                <div class="label">Person/Department Visiting</div>
+                <input class="input" id="vVisiting" autocomplete="off" />
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="label">Photo (optional)</div>
+              <input class="input" id="vPhoto" type="file" accept="image/*" style="border-radius:12px; padding:9px 10px;" />
+              <div class="subtle" style="margin-top:6px;">Stored securely per company.</div>
+            </div>
+
+            <div class="row" style="margin-top:10px;">
+              <button class="btn primary" id="visitorSignInBtn">Sign In Visitor</button>
+              <button class="btn" id="visitorClearBtn">Clear</button>
+            </div>
+
+            <div class="hr"></div>
+
+            <h2>Visitor Sign-Out</h2>
+            <div class="subtle">Select a visitor currently signed in, then sign them out.</div>
+            <div class="list" id="visitorsOnsiteList"></div>
+          </div>
+
+          <div class="panel" style="display:flex; align-items:center; justify-content:center; text-align:center; padding: 28px;">
+            <div>
+              <h2 style="margin:0 0 8px; color:var(--text); text-transform:none;">WELCOME</h2>
+              <div class="subtle" style="max-width:420px;">
+                Please ensure you have signed in on arrival and signed out when leaving.
+                This helps keep everyone safe in the event of an evacuation.
+              </div>
+              <div class="footnote" style="margin-top:18px;">
+                SmartCore Technology provides records and tools — it does not guarantee legal compliance.
+                Responsibility remains with the customer.
+              </div>
+            </div>
+          </div>
         </div>
-        <button class="btn" id="closeAdminBtn2">Done</button>
+      </div>
+
+      <!-- ADMIN TAB (minimal, only what is necessary) -->
+      <div id="tab_admin" class="hide">
+        <div class="grid">
+          <div class="panel">
+            <h2>Who’s On Site (Live)</h2>
+            <div class="subtle">Live onsite list for the selected site.</div>
+            <div class="hr"></div>
+            <div class="row" style="justify-content:space-between;">
+              <span class="badge" id="onsiteCountBadge">0 on site</span>
+              <button class="btn" id="refreshOnsiteBtn">Refresh</button>
+            </div>
+            <div class="list" id="onsiteList"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Exports</h2>
+            <div class="subtle">Download presence history for HR as CSV.</div>
+            <div class="hr"></div>
+
+            <div class="row">
+              <div style="flex:1;">
+                <div class="label">From</div>
+                <input class="input" id="exportFrom" type="date" />
+              </div>
+              <div style="flex:1;">
+                <div class="label">To</div>
+                <input class="input" id="exportTo" type="date" />
+              </div>
+            </div>
+
+            <div class="row" style="margin-top:10px;">
+              <button class="btn primary" id="exportPresenceBtn">Download CSV</button>
+            </div>
+
+            <div class="hr"></div>
+
+            <h2>Evacuation (Active Session)</h2>
+            <div class="subtle">If a roll call is active, you can export it here.</div>
+            <div class="row" style="margin-top:10px;">
+              <span class="badge" id="activeSessionBadge">no active session</span>
+              <button class="btn" id="exportEvacBtn" disabled>Export Roll Call CSV</button>
+            </div>
+
+            <div class="footnote">
+              Tenant isolation is enforced by Supabase RLS. Users cannot access other companies’ records.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footnote">
+        Note: This system records sign-ins/outs and roll calls. It provides tools and records, not legal compliance guarantees.
       </div>
     </div>
   </div>
 
-  <!-- Evac PIN Modal -->
-  <div id="pinModal" class="modal-backdrop hide" aria-hidden="true">
-    <div class="modal" style="max-width:520px;">
+  <!-- EVAC ROLL CALL MODAL -->
+  <div id="evacModalBackdrop" class="modal-backdrop hide" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Evacuation Roll Call">
       <div class="mhead">
-        <b>Evacuation access</b>
-        <button class="btn small" id="pinCancelBtn">Cancel</button>
+        <b>Evacuation Roll Call</b>
+        <div class="row" style="gap:8px;">
+          <span class="badge warn" id="evacSessionBadge">—</span>
+          <button class="btn" id="evacCloseModalBtn">Close</button>
+        </div>
       </div>
       <div class="mbody">
-        <div class="hint">
-          Enter the company evacuation PIN to start or resume a roll call. This attempt will be audited.
-        </div>
-        <div class="divider"></div>
-        <div class="field">
-          <label>PIN</label>
-          <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" />
-          <div class="hint">PIN is verified against company_settings.evac_pin_sha256 using SHA-256.</div>
-        </div>
+        <div class="subtle" id="evacModalSub">Loading…</div>
+        <div class="hr"></div>
+        <div class="list" id="rollCallList"></div>
       </div>
       <div class="mfoot">
-        <button class="btn primary" id="pinConfirmBtn">Unlock</button>
+        <button class="btn" id="evacRefreshBtn">Refresh</button>
+        <button class="btn primary" id="evacMarkAllBtn">Mark All Safe</button>
+        <button class="btn" id="evacExportBtn">Export CSV</button>
       </div>
     </div>
   </div>
@@ -862,59 +669,38 @@ This module:
 (() => {
   "use strict";
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Utilities
-  ───────────────────────────────────────────────────────────────────────── */
+  /* =========================================================
+     IMPORTANT: This module expects tenant-safe Supabase tables
+     and RLS. It will NOT show other company data even if a user
+     tries to change the URL, assuming RLS is correct.
+  ========================================================= */
+
   const $ = (id) => document.getElementById(id);
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const nowIso = () => new Date().toISOString();
-  const isLikelyUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s || "");
 
   function toast(type, title, msg){
     const wrap = $("toastwrap");
-    const t = document.createElement("div");
-    t.className = "toast";
+    const el = document.createElement("div");
+    el.className = "toast";
     const dot = document.createElement("div");
-    dot.className = "dot " + (type || "");
-    const c = document.createElement("div");
+    dot.className = "tDot " + (type || "");
+    const box = document.createElement("div");
     const b = document.createElement("b"); b.textContent = title;
     const p = document.createElement("p"); p.textContent = msg;
-    c.appendChild(b); c.appendChild(p);
-    t.appendChild(dot); t.appendChild(c);
-    wrap.appendChild(t);
-    setTimeout(() => { t.style.opacity = "0"; t.style.transform = "translateY(6px)"; }, 3500);
-    setTimeout(() => { t.remove(); }, 4200);
-  }
-
-  function setConn(state, hint){
-    $("connTag").textContent = state;
-    $("connHint").textContent = hint || "";
-  }
-
-  function getCompanySlugFromPath(){
-    // Supported patterns:
-    // 1) /app/{company}/presence-and-fire-safety.html
-    // 2) /app/{company}/{system}.html
-    // 3) /app/modules/presence-and-fire-safety.html  (if you ever open the module directly)
-    const parts = window.location.pathname.split("/").filter(Boolean);
-    const appIdx = parts.indexOf("app");
-    if(appIdx === -1) return null;
-
-    // /app/modules/... => no company in URL
-    if(parts[appIdx+1] === "modules") return null;
-
-    return parts[appIdx+1] || null;
+    box.appendChild(b); box.appendChild(p);
+    el.appendChild(dot); el.appendChild(box);
+    wrap.appendChild(el);
+    setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(6px)"; }, 3600);
+    setTimeout(() => { el.remove(); }, 4300);
   }
 
   function downloadText(filename, text){
     const blob = new Blob([text], {type:"text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   }
 
@@ -925,24 +711,18 @@ This module:
     return arr.map(b => b.toString(16).padStart(2,"0")).join("");
   }
 
-  function parseDateInputToRange(dateStr){
-    // dateStr 'YYYY-MM-DD' -> [startIso, endIsoExclusive]
-    if(!dateStr) return [null, null];
-    const start = new Date(dateStr + "T00:00:00.000Z");
-    const end = new Date(start.getTime() + 24*60*60*1000);
-    return [start.toISOString(), end.toISOString()];
+  function getCompanySlugFromPath(){
+    const parts = window.location.pathname.split("/").filter(Boolean);
+    const appIdx = parts.indexOf("app");
+    if(appIdx === -1) return null;
+
+    // /app/{company}/presence-and-fire-safety.html  (expected)
+    // /app/modules/... (no company slug present)
+    const next = parts[appIdx + 1];
+    if(!next || next === "modules") return null;
+    return next;
   }
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Supabase client (must be configured in your /app/app.js)
-     This module will use:
-       - window.SMARTCORE_SUPABASE_URL
-       - window.SMARTCORE_SUPABASE_ANON_KEY
-     OR
-       - window.supabaseClient (already created)
-     OR
-       - localStorage keys: SMARTCORE_SUPABASE_URL / SMARTCORE_SUPABASE_ANON_KEY
-  ───────────────────────────────────────────────────────────────────────── */
   function resolveSupabaseConfig(){
     const url =
       window.SMARTCORE_SUPABASE_URL ||
@@ -961,29 +741,19 @@ This module:
 
   function getSupabaseClient(){
     if(window.supabaseClient) return window.supabaseClient;
-
     const { url, key } = resolveSupabaseConfig();
     if(!url || !key){
-      throw new Error(
-        "Supabase config missing. Ensure /app/app.js defines window.SMARTCORE_SUPABASE_URL and window.SMARTCORE_SUPABASE_ANON_KEY (or localStorage keys)."
-      );
+      throw new Error("Supabase config missing. Set window.SMARTCORE_SUPABASE_URL + window.SMARTCORE_SUPABASE_ANON_KEY (or localStorage).");
     }
     const client = window.supabase.createClient(url, key, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true
-      }
+      auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:true }
     });
     window.supabaseClient = client;
     return client;
   }
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     State
-  ───────────────────────────────────────────────────────────────────────── */
   const state = {
-    supabase: null,
+    sb: null,
     session: null,
     user: null,
 
@@ -994,55 +764,94 @@ This module:
     sites: [],
     siteId: null,
 
-    rtChannels: [],
-    activeEvacSession: null,
-    evacUnlocked: false,
-
-    scanning: false,
-    videoStream: null,
-    barcodeDetector: null,
+    // camera scan
+    scanning:false,
+    stream:null,
+    detector:null,
     lastScanAt: 0,
-    scanCooldownMs: 1800
+    scanCooldownMs: 1800,
+
+    // evac
+    evacUnlocked:false,
+    activeSession:null,
+
+    // realtime (optional)
+    channels:[]
   };
 
-  /* ─────────────────────────────────────────────────────────────────────────
+  /* ==========================
+     Clock (top right)
+  ========================== */
+  function startClock(){
+    const tick = () => {
+      const d = new Date();
+      const dd = String(d.getDate()).padStart(2,"0");
+      const mm = String(d.getMonth()+1).padStart(2,"0");
+      const yyyy = d.getFullYear();
+      const hh = String(d.getHours()).padStart(2,"0");
+      const mi = String(d.getMinutes()).padStart(2,"0");
+      const ss = String(d.getSeconds()).padStart(2,"0");
+      $("dateStr").textContent = `${dd}/${mm}/${yyyy}`;
+      $("timeStr").textContent = `${hh}:${mi}:${ss}`;
+    };
+    tick();
+    setInterval(tick, 1000);
+  }
+
+  /* ==========================
+     Audit (non-blocking)
+  ========================== */
+  async function audit(action, metadata){
+    try{
+      await state.sb.from("audit_log").insert([{
+        company_id: state.company?.id || null,
+        site_id: state.siteId || null,
+        actor_user_id: state.user?.id || null,
+        action,
+        metadata: metadata || {},
+        created_at: nowIso()
+      }]);
+    }catch(_e){}
+  }
+
+  /* ==========================
      Auth + tenant context
-  ───────────────────────────────────────────────────────────────────────── */
+  ========================== */
   async function requireSession(){
-    const sb = state.supabase;
-    const { data, error } = await sb.auth.getSession();
+    const { data, error } = await state.sb.auth.getSession();
     if(error) throw error;
     if(!data?.session){
-      // Back to /app/index.html
       window.location.href = "/app/index.html";
       return;
     }
     state.session = data.session;
     state.user = data.session.user;
-    $("userEmail").textContent = state.user.email || "(unknown)";
+    $("userEmail").textContent = state.user.email || "unknown";
   }
 
-  async function resolveCompanyContext(){
-    state.companySlug = getCompanySlugFromPath();
+  async function resolveTenant(){
+    // 1) URL slug (/app/{company}/...)
+    // 2) fallback to localStorage (if your app.js stores it)
+    state.companySlug = getCompanySlugFromPath() || localStorage.getItem("SMARTCORE_COMPANY_SLUG") || null;
+
     if(!state.companySlug){
-      // Strict: this module requires company in URL for tenancy.
-      throw new Error("Company slug missing from URL. Open this module via /app/{company}/presence-and-fire-safety.html");
+      $("companySlug").textContent = "missing";
+      throw new Error("Company slug missing. Open via /app/{company}/presence-and-fire-safety.html (not /app/modules/...).");
     }
     $("companySlug").textContent = state.companySlug;
 
-    // Get company by slug
-    const { data: company, error: cErr } = await state.supabase
+    // company by slug
+    const { data: company, error: cErr } = await state.sb
       .from("companies")
       .select("id, slug, name")
       .eq("slug", state.companySlug)
       .single();
 
     if(cErr) throw cErr;
-    if(!company) throw new Error("Company not found.");
     state.company = company;
 
-    // Verify membership + role for this user
-    const { data: cu, error: cuErr } = await state.supabase
+    // membership + role
+    const { data: cu, error: cuErr } = await state.sb
       .from("company_users")
       .select("role, active")
       .eq("company_id", company.id)
@@ -1051,35 +860,36 @@ This module:
 
     if(cuErr) throw cuErr;
     if(!cu || cu.active !== true){
-      throw new Error("Access denied: user is not active for this company.");
+      throw new Error("Access denied: you are not active for this company.");
     }
     state.role = cu.role;
     $("userRole").textContent = state.role;
 
-    // Sites
-    const { data: sites, error: sErr } = await state.supabase
+    // sites
+    const { data: sites, error: sErr } = await state.sb
       .from("sites")
       .select("id, name")
-      .eq("company_id", state.company.id)
-      .order("name", { ascending: true });
+      .eq("company_id", company.id)
+      .order("name", { ascending:true });
 
     if(sErr) throw sErr;
     state.sites = sites || [];
+    if(!state.sites.length) throw new Error("No sites configured for this company.");
 
-    if(state.sites.length === 0){
-      throw new Error("No sites configured for this company. Create at least one site in the database.");
-    }
-
-    // Choose site: from query string or first
+    // choose site
     const url = new URL(window.location.href);
     const qsSite = url.searchParams.get("site");
     state.siteId = (qsSite && isLikelyUuid(qsSite)) ? qsSite : state.sites[0].id;
-    renderSiteSelect();
+    renderSites();
 
-    await audit("module.opened", { module: "presence-and-fire-safety", slug: state.companySlug, site_id: state.siteId });
+    await audit("module.opened", { module:"presence-and-fire-safety", slug: state.companySlug, site_id: state.siteId });
   }
 
-  function renderSiteSelect(){
+  function isLikelyUuid(s){
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s||"");
+  }
+
+  function renderSites(){
     const sel = $("siteSelect");
     sel.innerHTML = "";
     for(const s of state.sites){
@@ -1091,88 +901,49 @@ This module:
     }
   }
 
-  async function audit(action, metadata){
-    try{
-      await state.supabase.from("audit_log").insert([{
-        company_id: state.company?.id || null,
-        site_id: state.siteId || null,
-        actor_user_id: state.user?.id || null,
-        action,
-        metadata: metadata || {},
-        created_at: nowIso()
-      }]);
-    }catch(_e){
-      // Never block UX on audit failures; do not toast noisily.
-    }
-  }
-
-  /* ─────────────────────────────────────────────────────────────────────────
-     Presence logic (Staff scan + manual)
-  ───────────────────────────────────────────────────────────────────────── */
-  async function toggleByBadgeCode(badgeCode, method){
-    const code = String(badgeCode || "").trim();
-    if(!code){
-      toast("warn", "No code", "Enter or scan a badge code.");
+  /* ==========================
+     Presence: badge toggle
+  ========================== */
+  async function toggleByEmployeeCode(code, method){
+    const badge = String(code||"").trim();
+    if(!badge){
+      toast("warn","Missing code","Enter or scan an employee code.");
       return;
     }
 
-    // Deduplicate rapid scans locally
+    // local scan cooldown
     const now = Date.now();
-    if(now - state.lastScanAt < state.scanCooldownMs){
-      return;
-    }
+    if(now - state.lastScanAt < state.scanCooldownMs) return;
     state.lastScanAt = now;
 
-    $("connTag").textContent = "working…";
-
-    // Resolve employee by employee_code (badge payload) within company
-    const { data: emp, error: eErr } = await state.supabase
+    // resolve employee
+    const { data: emp, error: eErr } = await state.sb
       .from("employees")
       .select("id, employee_code, first_name, last_name, active")
       .eq("company_id", state.company.id)
-      .eq("employee_code", code)
+      .eq("employee_code", badge)
       .maybeSingle();
 
-    if(eErr) {
-      $("connTag").textContent = "ok";
-      toast("danger", "Scan failed", eErr.message);
-      await audit("presence.scan.error", { code, error: eErr.message });
-      return;
-    }
-    if(!emp){
-      $("connTag").textContent = "ok";
-      toast("warn", "Not found", "No active employee matches that badge code.");
-      await audit("presence.scan.not_found", { code });
-      return;
-    }
-    if(emp.active !== true){
-      $("connTag").textContent = "ok";
-      toast("warn", "Inactive", "This employee is inactive and cannot be signed in/out.");
-      await audit("presence.scan.inactive", { employee_id: emp.id, code });
-      return;
-    }
+    if(eErr){ toast("bad","Error", eErr.message); await audit("presence.scan.error",{badge, error:eErr.message}); return; }
+    if(!emp){ toast("warn","Not found","No employee matches that code."); await audit("presence.scan.not_found",{badge}); return; }
+    if(emp.active !== true){ toast("warn","Inactive","Employee is inactive."); await audit("presence.scan.inactive",{employee_id:emp.id}); return; }
 
-    // Determine current state from current_presence
-    const { data: cp, error: cpErr } = await state.supabase
+    // current state
+    const { data: cp, error: cpErr } = await state.sb
       .from("current_presence")
       .select("state")
       .eq("company_id", state.company.id)
       .eq("site_id", state.siteId)
-      .eq("person_type", "employee")
+      .eq("person_type","employee")
       .eq("employee_id", emp.id)
       .maybeSingle();
 
-    if(cpErr){
-      $("connTag").textContent = "ok";
-      toast("danger", "Error", cpErr.message);
-      await audit("presence.toggle.error", { employee_id: emp.id, error: cpErr.message });
-      return;
-    }
+    if(cpErr){ toast("bad","Error", cpErr.message); await audit("presence.toggle.error",{employee_id:emp.id, error:cpErr.message}); return; }
 
-    const newDirection = (cp?.state === "in") ? "out" : "in";
+    const dir = (cp?.state === "in") ? "out" : "in";
 
-    // Write presence event
-    const { data: ev, error: evErr } = await state.supabase
+    // insert event
+    const { data: ev, error: evErr } = await state.sb
       .from("presence_events")
       .insert([{
         company_id: state.company.id,
@@ -1180,25 +951,20 @@ This module:
         person_type: "employee",
         employee_id: emp.id,
         visitor_id: null,
-        direction: newDirection,
+        direction: dir,
         method: method || "qr",
-        device_label: navigator.userAgent ? navigator.userAgent.slice(0, 120) : null,
-        raw_input: code,
+        device_label: "app_module",
+        raw_input: badge,
         occurred_at: nowIso(),
         actor_user_id: state.user.id
       }])
       .select("id, occurred_at")
       .single();
 
-    if(evErr){
-      $("connTag").textContent = "ok";
-      toast("danger", "Error", evErr.message);
-      await audit("presence.event.insert_failed", { employee_id: emp.id, direction: newDirection, error: evErr.message });
-      return;
-    }
+    if(evErr){ toast("bad","Error", evErr.message); await audit("presence.event.insert_failed",{employee_id:emp.id, error:evErr.message}); return; }
 
-    // Upsert snapshot
-    const { error: upErr } = await state.supabase
+    // upsert snapshot
+    const { error: upErr } = await state.sb
       .from("current_presence")
       .upsert([{
         company_id: state.company.id,
@@ -1206,191 +972,135 @@ This module:
         person_type: "employee",
         employee_id: emp.id,
         visitor_id: null,
-        state: newDirection === "in" ? "in" : "out",
+        state: dir,
         last_event_id: ev.id,
         last_changed_at: ev.occurred_at
-      }], { onConflict: "company_id,site_id,person_type,employee_id,visitor_id" });
+      }], { onConflict:"company_id,site_id,person_type,employee_id,visitor_id" });
 
-    if(upErr){
-      $("connTag").textContent = "ok";
-      toast("danger", "Error", upErr.message);
-      await audit("presence.snapshot.upsert_failed", { employee_id: emp.id, direction: newDirection, error: upErr.message });
-      return;
-    }
+    if(upErr){ toast("bad","Error", upErr.message); await audit("presence.snapshot.upsert_failed",{employee_id:emp.id, error:upErr.message}); return; }
 
-    $("connTag").textContent = "ok";
     const name = `${emp.first_name} ${emp.last_name}`.trim();
-    toast("ok", "Recorded", `${name} is now ${newDirection.toUpperCase()} for this site.`);
-    await audit("presence.toggle.success", { employee_id: emp.id, direction: newDirection, method: method || "qr" });
+    toast("ok","Recorded", `${name} is now ${dir.toUpperCase()}.`);
+    await audit("presence.toggle.success",{employee_id:emp.id, direction:dir, method:method||"qr"});
 
-    // Refresh relevant lists
     await refreshOnsite();
     await refreshVisitorsOnsite();
+    await refreshEvacSummary();
   }
 
-  async function searchEmployees(){
-    const q = String($("employeeSearch").value || "").trim();
-    const out = $("employeeResults");
-    out.innerHTML = "";
-    if(!q){
-      $("employeeSearchHint").textContent = "Enter a name or employee code to search.";
-      return;
-    }
-    $("employeeSearchHint").textContent = "Searching…";
+  /* ==========================
+     Presence: manual staff in/out by search
+  ========================== */
+  async function resolveEmployeeByInput(input){
+    const q = String(input||"").trim();
+    if(!q) return null;
 
-    // Prefer exact employee_code match then fallback to name search
-    let results = [];
-
-    const { data: exact, error: exErr } = await state.supabase
+    // 1) exact employee_code
+    const { data: exact, error: exErr } = await state.sb
       .from("employees")
       .select("id, employee_code, first_name, last_name, active")
       .eq("company_id", state.company.id)
       .eq("employee_code", q)
-      .limit(10);
+      .limit(2);
 
-    if(exErr) {
-      toast("danger","Search failed", exErr.message);
-      $("employeeSearchHint").textContent = "Search failed.";
-      await audit("employees.search.error", { q, error: exErr.message });
-      return;
+    if(exErr) throw exErr;
+    if(exact && exact.length === 1) return exact[0];
+    if(exact && exact.length > 1) return exact[0];
+
+    // 2) name search (pick first best match, but protect against ambiguity)
+    const { data: hits, error: hErr } = await state.sb
+      .from("employees")
+      .select("id, employee_code, first_name, last_name, active")
+      .eq("company_id", state.company.id)
+      .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
+      .limit(6);
+
+    if(hErr) throw hErr;
+    if(!hits || hits.length === 0) return null;
+
+    // If multiple, require employee code to avoid wrong sign-in/out
+    if(hits.length > 1){
+      const names = hits.map(x => `${x.first_name} ${x.last_name} (${x.employee_code})`).slice(0,4).join(" • ");
+      toast("warn","Ambiguous", `Multiple matches. Use employee code. (${names}${hits.length>4 ? "…" : ""})`);
+      return null;
     }
-    if(exact && exact.length){
-      results = exact;
-    } else {
-      // Case-insensitive name match using ilike
-      const { data: name, error: nErr } = await state.supabase
-        .from("employees")
-        .select("id, employee_code, first_name, last_name, active")
-        .eq("company_id", state.company.id)
-        .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
-        .limit(20);
 
-      if(nErr){
-        toast("danger","Search failed", nErr.message);
-        $("employeeSearchHint").textContent = "Search failed.";
-        await audit("employees.search.error", { q, error: nErr.message });
+    return hits[0];
+  }
+
+  async function recordEmployeeDirection(input, direction){
+    try{
+      const emp = await resolveEmployeeByInput(input);
+      if(!emp){
+        toast("warn","Not found","No matching employee found (or ambiguous name).");
         return;
       }
-      results = name || [];
-    }
+      if(emp.active !== true){
+        toast("warn","Inactive","Employee is inactive.");
+        return;
+      }
 
-    if(!results.length){
-      $("employeeSearchHint").textContent = "No employees found.";
-      return;
-    }
-    $("employeeSearchHint").textContent = `Found ${results.length} result(s).`;
+      const { data: ev, error: evErr } = await state.sb
+        .from("presence_events")
+        .insert([{
+          company_id: state.company.id,
+          site_id: state.siteId,
+          person_type: "employee",
+          employee_id: emp.id,
+          visitor_id: null,
+          direction,
+          method: "manual",
+          device_label: "manual",
+          raw_input: String(input||"").trim(),
+          occurred_at: nowIso(),
+          actor_user_id: state.user.id
+        }])
+        .select("id, occurred_at")
+        .single();
 
-    for(const emp of results){
-      const item = document.createElement("div");
-      item.className = "item";
+      if(evErr){ toast("bad","Error", evErr.message); await audit("presence.manual.event_failed",{employee_id:emp.id, error:evErr.message}); return; }
 
-      const left = document.createElement("div");
-      left.className = "left";
-      const b = document.createElement("b");
-      b.textContent = `${emp.first_name} ${emp.last_name}`.trim();
-      const s = document.createElement("span");
-      s.textContent = `Code: ${emp.employee_code} • ${emp.active ? "Active" : "Inactive"}`;
-      left.appendChild(b); left.appendChild(s);
+      const { error: upErr } = await state.sb
+        .from("current_presence")
+        .upsert([{
+          company_id: state.company.id,
+          site_id: state.siteId,
+          person_type: "employee",
+          employee_id: emp.id,
+          visitor_id: null,
+          state: direction,
+          last_event_id: ev.id,
+          last_changed_at: ev.occurred_at
+        }], { onConflict:"company_id,site_id,person_type,employee_id,visitor_id" });
 
-      const right = document.createElement("div");
-      right.className = "right";
+      if(upErr){ toast("bad","Error", upErr.message); await audit("presence.manual.snapshot_failed",{employee_id:emp.id, error:upErr.message}); return; }
 
-      const inBtn = document.createElement("button");
-      inBtn.className = "btn small good";
-      inBtn.textContent = "Sign IN";
-      inBtn.disabled = !emp.active;
-      inBtn.onclick = async () => await recordEmployeeDirection(emp, "in");
+      toast("ok","Recorded", `${emp.first_name} ${emp.last_name} marked ${direction.toUpperCase()}.`);
+      await audit("presence.manual.success",{employee_id:emp.id, direction});
 
-      const outBtn = document.createElement("button");
-      outBtn.className = "btn small";
-      outBtn.textContent = "Sign OUT";
-      outBtn.disabled = !emp.active;
-      outBtn.onclick = async () => await recordEmployeeDirection(emp, "out");
-
-      right.appendChild(inBtn); right.appendChild(outBtn);
-
-      item.appendChild(left); item.appendChild(right);
-      out.appendChild(item);
+      await refreshOnsite();
+      await refreshEvacSummary();
+    }catch(e){
+      toast("bad","Error", e.message || String(e));
     }
   }
 
-  async function recordEmployeeDirection(emp, direction){
-    if(!emp?.id) return;
-    if(emp.active !== true){
-      toast("warn","Inactive", "This employee is inactive.");
-      return;
-    }
-
-    const { data: ev, error: evErr } = await state.supabase
-      .from("presence_events")
-      .insert([{
-        company_id: state.company.id,
-        site_id: state.siteId,
-        person_type: "employee",
-        employee_id: emp.id,
-        visitor_id: null,
-        direction,
-        method: "manual",
-        device_label: "manual",
-        raw_input: `${emp.employee_code}`,
-        occurred_at: nowIso(),
-        actor_user_id: state.user.id
-      }])
-      .select("id, occurred_at")
-      .single();
-
-    if(evErr){
-      toast("danger","Error", evErr.message);
-      await audit("presence.manual.error", { employee_id: emp.id, direction, error: evErr.message });
-      return;
-    }
-
-    const { error: upErr } = await state.supabase
-      .from("current_presence")
-      .upsert([{
-        company_id: state.company.id,
-        site_id: state.siteId,
-        person_type: "employee",
-        employee_id: emp.id,
-        visitor_id: null,
-        state: direction === "in" ? "in" : "out",
-        last_event_id: ev.id,
-        last_changed_at: ev.occurred_at
-      }], { onConflict: "company_id,site_id,person_type,employee_id,visitor_id" });
-
-    if(upErr){
-      toast("danger","Error", upErr.message);
-      await audit("presence.manual.snapshot_failed", { employee_id: emp.id, direction, error: upErr.message });
-      return;
-    }
-
-    toast("ok","Recorded", `${emp.first_name} ${emp.last_name} marked ${direction.toUpperCase()}.`);
-    await audit("presence.manual.success", { employee_id: emp.id, direction });
-    await refreshOnsite();
-  }
-
-  /* ─────────────────────────────────────────────────────────────────────────
-     Visitors
-  ───────────────────────────────────────────────────────────────────────── */
+  /* ==========================
+     Visitors sign in/out
+  ========================== */
   async function visitorSignIn(){
-    const full_name = String($("vName").value || "").trim();
-    const visitor_company = String($("vCompany").value || "").trim();
-    const visiting = String($("vVisiting").value || "").trim();
+    const full_name = String($("vName").value||"").trim();
+    const visitor_company = String($("vCompany").value||"").trim();
+    const visiting = String($("vVisiting").value||"").trim();
     const file = $("vPhoto").files?.[0] || null;
 
     if(!full_name){
-      toast("warn","Missing info", "Visitor name is required.");
+      toast("warn","Missing","Visitor name is required.");
       return;
     }
 
-    let photo_path = null;
-    if(file){
-      // Store under: company/{company_id}/visitors/{visitor_id or temp}/{timestamp}.jpg
-      // We'll upload after creating visitor row (need visitor id) -> two-step for clean path.
-    }
-
     // Create visitor row first
-    const { data: v, error: vErr } = await state.supabase
+    const { data: v, error: vErr } = await state.sb
       .from("visitors")
       .insert([{
         company_id: state.company.id,
@@ -1404,32 +1114,27 @@ This module:
       .select("id, full_name")
       .single();
 
-    if(vErr){
-      toast("danger","Error", vErr.message);
-      await audit("visitor.create.error", { full_name, error: vErr.message });
-      return;
-    }
+    if(vErr){ toast("bad","Error", vErr.message); await audit("visitor.create_failed",{error:vErr.message}); return; }
 
-    // Upload photo if present
+    // Upload photo if present (bucket: smartcore)
     if(file){
-      const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(0, 80);
+      const safeName = file.name.replace(/[^\w.\-]+/g,"_").slice(0, 80);
       const path = `company_${state.company.id}/visitors/${v.id}/${Date.now()}_${safeName}`;
-      const { error: upErr } = await state.supabase.storage
+      const { error: upErr } = await state.sb.storage
         .from("smartcore")
-        .upload(path, file, { upsert: true, contentType: file.type });
+        .upload(path, file, { upsert:true, contentType:file.type });
 
-      if(upErr){
-        toast("warn","Photo upload failed", "Visitor created, but photo could not be uploaded.");
-        await audit("visitor.photo.upload_failed", { visitor_id: v.id, error: upErr.message });
+      if(!upErr){
+        await state.sb.from("visitors").update({ photo_path:path }).eq("id", v.id);
+        await audit("visitor.photo_uploaded",{visitor_id:v.id, photo_path:path});
       } else {
-        photo_path = path;
-        await state.supabase.from("visitors").update({ photo_path }).eq("id", v.id);
-        await audit("visitor.photo.uploaded", { visitor_id: v.id, photo_path });
+        toast("warn","Photo not saved","Visitor signed in, but photo upload failed.");
+        await audit("visitor.photo_upload_failed",{visitor_id:v.id, error:upErr.message});
       }
     }
 
-    // Presence IN event
-    const { data: ev, error: evErr } = await state.supabase
+    // Presence IN
+    const { data: ev, error: evErr } = await state.sb
       .from("presence_events")
       .insert([{
         company_id: state.company.id,
@@ -1447,34 +1152,27 @@ This module:
       .select("id, occurred_at")
       .single();
 
-    if(evErr){
-      toast("danger","Error", evErr.message);
-      await audit("visitor.presence_in.error", { visitor_id: v.id, error: evErr.message });
-      return;
-    }
+    if(evErr){ toast("bad","Error", evErr.message); await audit("visitor.presence_in_failed",{visitor_id:v.id, error:evErr.message}); return; }
 
-    const { error: snapErr } = await state.supabase
+    const { error: snapErr } = await state.sb
       .from("current_presence")
       .upsert([{
         company_id: state.company.id,
         site_id: state.siteId,
-        person_type: "visitor",
-        employee_id: null,
+        person_type:"visitor",
+        employee_id:null,
         visitor_id: v.id,
-        state: "in",
+        state:"in",
         last_event_id: ev.id,
         last_changed_at: ev.occurred_at
-      }], { onConflict: "company_id,site_id,person_type,employee_id,visitor_id" });
+      }], { onConflict:"company_id,site_id,person_type,employee_id,visitor_id" });
 
-    if(snapErr){
-      toast("danger","Error", snapErr.message);
-      await audit("visitor.snapshot.error", { visitor_id: v.id, error: snapErr.message });
-      return;
-    }
+    if(snapErr){ toast("bad","Error", snapErr.message); await audit("visitor.snapshot_failed",{visitor_id:v.id, error:snapErr.message}); return; }
 
-    toast("ok","Signed in", `${full_name} is now IN for this site.`);
-    await audit("visitor.sign_in.success", { visitor_id: v.id, full_name });
+    toast("ok","Signed in", `${full_name} is now IN.`);
+    await audit("visitor.sign_in_success",{visitor_id:v.id});
 
+    // clear inputs
     $("vName").value = "";
     $("vCompany").value = "";
     $("vVisiting").value = "";
@@ -1482,23 +1180,20 @@ This module:
 
     await refreshVisitorsOnsite();
     await refreshOnsite();
+    await refreshEvacSummary();
   }
 
   async function visitorSignOut(visitorId){
-    const { data: v, error: vErr } = await state.supabase
+    const { data: v, error: vErr } = await state.sb
       .from("visitors")
       .select("id, full_name")
       .eq("company_id", state.company.id)
       .eq("id", visitorId)
       .single();
 
-    if(vErr){
-      toast("danger","Error", vErr.message);
-      await audit("visitor.sign_out.lookup_error", { visitor_id: visitorId, error: vErr.message });
-      return;
-    }
+    if(vErr){ toast("bad","Error", vErr.message); await audit("visitor.signout_lookup_failed",{visitor_id:visitorId, error:vErr.message}); return; }
 
-    const { data: ev, error: evErr } = await state.supabase
+    const { data: ev, error: evErr } = await state.sb
       .from("presence_events")
       .insert([{
         company_id: state.company.id,
@@ -1516,43 +1211,36 @@ This module:
       .select("id, occurred_at")
       .single();
 
-    if(evErr){
-      toast("danger","Error", evErr.message);
-      await audit("visitor.presence_out.error", { visitor_id: v.id, error: evErr.message });
-      return;
-    }
+    if(evErr){ toast("bad","Error", evErr.message); await audit("visitor.presence_out_failed",{visitor_id:v.id, error:evErr.message}); return; }
 
-    const { error: snapErr } = await state.supabase
+    const { error: snapErr } = await state.sb
       .from("current_presence")
       .upsert([{
         company_id: state.company.id,
         site_id: state.siteId,
-        person_type: "visitor",
-        employee_id: null,
+        person_type:"visitor",
+        employee_id:null,
         visitor_id: v.id,
-        state: "out",
+        state:"out",
         last_event_id: ev.id,
         last_changed_at: ev.occurred_at
-      }], { onConflict: "company_id,site_id,person_type,employee_id,visitor_id" });
+      }], { onConflict:"company_id,site_id,person_type,employee_id,visitor_id" });
 
-    if(snapErr){
-      toast("danger","Error", snapErr.message);
-      await audit("visitor.snapshot_out.error", { visitor_id: v.id, error: snapErr.message });
-      return;
-    }
+    if(snapErr){ toast("bad","Error", snapErr.message); await audit("visitor.snapshot_out_failed",{visitor_id:v.id, error:snapErr.message}); return; }
 
     toast("ok","Signed out", `${v.full_name} is now OUT.`);
-    await audit("visitor.sign_out.success", { visitor_id: v.id });
+    await audit("visitor.sign_out_success",{visitor_id:v.id});
 
     await refreshVisitorsOnsite();
     await refreshOnsite();
+    await refreshEvacSummary();
   }
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Live presence lists (current_presence)
-  ───────────────────────────────────────────────────────────────────────── */
+  /* ==========================
+     Live onsite list
+  ========================== */
   async function refreshOnsite(){
-    const { data, error } = await state.supabase
+    const { data, error } = await state.sb
       .from("current_presence")
       .select(`
         person_type, employee_id, visitor_id, state, last_changed_at,
@@ -1561,116 +1249,102 @@ This module:
       `)
       .eq("company_id", state.company.id)
       .eq("site_id", state.siteId)
-      .eq("state", "in")
-      .order("last_changed_at", { ascending: false });
+      .eq("state","in")
+      .order("last_changed_at", { ascending:false });
 
-    if(error){
-      toast("danger","Error", error.message);
-      await audit("onsite.refresh.error", { error: error.message });
-      return;
-    }
+    if(error){ toast("bad","Error", error.message); await audit("onsite.refresh_failed",{error:error.message}); return; }
 
     const list = $("onsiteList");
     list.innerHTML = "";
-
     const items = data || [];
-    let staff = 0, visitors = 0;
 
-    for(const row of items){
+    $("onsiteCountBadge").textContent = `${items.length} on site`;
+
+    if(items.length === 0){
+      const d = document.createElement("div");
+      d.className = "subtle";
+      d.textContent = "No one currently signed in.";
+      list.appendChild(d);
+      return;
+    }
+
+    for(const r of items){
       const item = document.createElement("div");
       item.className = "item";
 
       const left = document.createElement("div");
       left.className = "left";
 
-      let name = "";
-      let meta = "";
-      if(row.person_type === "employee"){
-        staff++;
-        name = `${row.employees?.first_name || ""} ${row.employees?.last_name || ""}`.trim() || "Employee";
-        meta = `Staff • ${row.employees?.employee_code || "no code"} • IN since ${new Date(row.last_changed_at).toLocaleString()}`;
+      let name = "—";
+      let meta = "—";
+      if(r.person_type === "employee"){
+        name = `${r.employees?.first_name||""} ${r.employees?.last_name||""}`.trim() || "Employee";
+        meta = `Staff • ${r.employees?.employee_code||"—"} • IN since ${new Date(r.last_changed_at).toLocaleString()}`;
       } else {
-        visitors++;
-        name = row.visitors?.full_name || "Visitor";
-        meta = `Visitor • ${row.visitors?.visitor_company || "—"} • IN since ${new Date(row.last_changed_at).toLocaleString()}`;
+        name = r.visitors?.full_name || "Visitor";
+        meta = `Visitor • ${r.visitors?.visitor_company||"—"} • IN since ${new Date(r.last_changed_at).toLocaleString()}`;
       }
 
-      const b = document.createElement("b");
-      b.textContent = name;
-
-      const s = document.createElement("span");
-      s.textContent = meta;
-
+      const b = document.createElement("b"); b.textContent = name;
+      const s = document.createElement("span"); s.textContent = meta;
       left.appendChild(b); left.appendChild(s);
 
       const right = document.createElement("div");
-      right.className = "right";
-      const tag = document.createElement("span");
-      tag.className = "tag ok";
-      tag.textContent = "ON SITE";
-      right.appendChild(tag);
+      right.className = "row";
+      const badge = document.createElement("span");
+      badge.className = "badge ok";
+      badge.textContent = "ON SITE";
+      right.appendChild(badge);
 
       item.appendChild(left);
       item.appendChild(right);
       list.appendChild(item);
     }
-
-    $("kpiTotal").textContent = String(items.length);
-    $("kpiStaff").textContent = String(staff);
-    $("kpiVisitors").textContent = String(visitors);
-
-    // Visitors list in Visitors tab
-    // (Staff list there is through search/scan)
   }
 
   async function refreshVisitorsOnsite(){
-    const { data, error } = await state.supabase
+    const { data, error } = await state.sb
       .from("current_presence")
       .select(`
-        visitor_id, last_changed_at, visitors:visitor_id ( full_name, visitor_company )
+        visitor_id, last_changed_at,
+        visitors:visitor_id ( full_name, visitor_company )
       `)
       .eq("company_id", state.company.id)
       .eq("site_id", state.siteId)
-      .eq("person_type", "visitor")
-      .eq("state", "in")
-      .order("last_changed_at", { ascending: false });
+      .eq("person_type","visitor")
+      .eq("state","in")
+      .order("last_changed_at",{ascending:false});
 
-    if(error){
-      toast("danger","Error", error.message);
-      await audit("visitors.onsite.refresh.error", { error: error.message });
-      return;
-    }
+    if(error){ toast("bad","Error", error.message); await audit("visitors.refresh_failed",{error:error.message}); return; }
 
     const list = $("visitorsOnsiteList");
     list.innerHTML = "";
-
     const items = data || [];
+
     if(items.length === 0){
-      const empty = document.createElement("div");
-      empty.className = "hint";
-      empty.textContent = "No visitors currently signed in.";
-      list.appendChild(empty);
+      const d = document.createElement("div");
+      d.className = "subtle";
+      d.textContent = "No visitors currently signed in.";
+      list.appendChild(d);
       return;
     }
 
-    for(const row of items){
+    for(const r of items){
       const item = document.createElement("div");
       item.className = "item";
-
       const left = document.createElement("div");
       left.className = "left";
-      const b = document.createElement("b");
-      b.textContent = row.visitors?.full_name || "Visitor";
+      const b = document.createElement("b"); b.textContent = r.visitors?.full_name || "Visitor";
       const s = document.createElement("span");
-      s.textContent = `${row.visitors?.visitor_company || "—"} • IN since ${new Date(row.last_changed_at).toLocaleString()}`;
+      s.textContent = `${r.visitors?.visitor_company||"—"} • IN since ${new Date(r.last_changed_at).toLocaleString()}`;
       left.appendChild(b); left.appendChild(s);
 
       const right = document.createElement("div");
-      right.className = "right";
+      right.className = "row";
       const btn = document.createElement("button");
-      btn.className = "btn small";
-      btn.textContent = "Sign OUT";
-      btn.onclick = async () => await visitorSignOut(row.visitor_id);
+      btn.className = "btn";
+      btn.textContent = "Sign Out";
+      btn.onclick = async () => await visitorSignOut(r.visitor_id);
       right.appendChild(btn);
 
       item.appendChild(left); item.appendChild(right);
@@ -1678,177 +1352,92 @@ This module:
     }
   }
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Realtime subscriptions
-  ───────────────────────────────────────────────────────────────────────── */
-  function clearRealtime(){
-    for(const ch of state.rtChannels){
-      try { state.supabase.removeChannel(ch); } catch(_e){}
-    }
-    state.rtChannels = [];
-    $("rtTag").textContent = "off";
+  /* ==========================
+     Evacuation: PIN -> open rollcall modal
+     - If no active session exists: create one + snapshot current onsite
+     - Then show live rollcall entries
+  ========================== */
+  function roleCanEvac(){
+    return ["fire_marshal","hr_admin","company_admin"].includes(state.role);
   }
 
-  function enableRealtime(){
-    clearRealtime();
-
-    const ch1 = state.supabase.channel(`rt_presence_${state.company.id}_${state.siteId}`);
-    ch1.on("postgres_changes", {
-      event: "*",
-      schema: "public",
-      table: "current_presence",
-      filter: `company_id=eq.${state.company.id}`
-    }, async (payload) => {
-      // Only refresh if current site changed (cheap and safe)
-      if(payload?.new?.site_id === state.siteId || payload?.old?.site_id === state.siteId){
-        await refreshOnsite();
-        await refreshVisitorsOnsite();
-      }
-    });
-
-    ch1.subscribe((status) => {
-      if(status === "SUBSCRIBED"){
-        $("rtTag").textContent = "on";
-      }
-    });
-
-    const ch2 = state.supabase.channel(`rt_evac_${state.company.id}_${state.siteId}`);
-    ch2.on("postgres_changes", {
-      event: "*",
-      schema: "public",
-      table: "evacuation_rollcall_entries",
-      filter: `company_id=eq.${state.company.id}`
-    }, async (payload) => {
-      if(state.activeEvacSession && payload?.new?.session_id === state.activeEvacSession.id){
-        await refreshRollCall();
-      }
-    });
-    ch2.on("postgres_changes", {
-      event: "*",
-      schema: "public",
-      table: "evacuation_sessions",
-      filter: `company_id=eq.${state.company.id}`
-    }, async (payload) => {
-      // If active session changed/closed, refresh active session
-      await loadActiveEvacSession();
-    });
-
-    ch2.subscribe((status) => {
-      if(status === "SUBSCRIBED"){
-        $("rtTag").textContent = "on";
-      }
-    });
-
-    state.rtChannels.push(ch1, ch2);
-  }
-
-  /* ─────────────────────────────────────────────────────────────────────────
-     Evacuation: PIN + session + snapshot + roll call
-  ───────────────────────────────────────────────────────────────────────── */
-  function roleCanStartEvac(){
-    return ["fire_marshal", "hr_admin", "company_admin"].includes(state.role);
-  }
-
-  async function openPinModal(){
-    $("pinInput").value = "";
-    $("pinModal").classList.remove("hide");
-  }
-
-  function closePinModal(){
-    $("pinModal").classList.add("hide");
-  }
-
-  async function verifyPin(pin){
-    const entered = String(pin || "").trim();
+  async function verifyEvacPin(pin){
+    const entered = String(pin||"").trim();
     if(!entered){
-      toast("warn","PIN required", "Enter the evacuation PIN.");
+      toast("warn","PIN required","Enter the evacuation PIN.");
       return false;
     }
-
     const enteredHash = await sha256Hex(entered);
 
-    const { data: settings, error } = await state.supabase
+    const { data: settings, error } = await state.sb
       .from("company_settings")
       .select("evac_pin_sha256")
       .eq("company_id", state.company.id)
       .single();
 
     if(error){
-      toast("danger","Error", error.message);
-      await audit("evac.pin.settings_error", { error: error.message });
+      toast("bad","Error", error.message);
+      await audit("evac.pin.settings_error",{error:error.message});
       return false;
     }
 
-    const ok = (settings?.evac_pin_sha256 || "").toLowerCase() === enteredHash.toLowerCase();
-    await audit(ok ? "evac.pin.success" : "evac.pin.failed", { entered_hash_prefix: enteredHash.slice(0, 10) });
-    if(!ok){
-      toast("danger","Incorrect PIN", "Access denied.");
-    }
+    const ok = (settings?.evac_pin_sha256||"").toLowerCase() === enteredHash.toLowerCase();
+    await audit(ok ? "evac.pin.success" : "evac.pin.failed", { entered_hash_prefix: enteredHash.slice(0,10) });
+    if(!ok) toast("bad","Incorrect PIN","Access denied.");
     return ok;
   }
 
-  async function startEvacuation(){
-    if(!roleCanStartEvac()){
-      toast("danger","Restricted", "Only Fire Marshals / Admins can start an evacuation session.");
-      return;
+  async function loadActiveSession(){
+    const { data, error } = await state.sb
+      .from("evacuation_sessions")
+      .select("id, started_at, status, type, marshal_name")
+      .eq("company_id", state.company.id)
+      .eq("site_id", state.siteId)
+      .eq("status","open")
+      .order("started_at",{ascending:false})
+      .limit(1);
+
+    if(error){
+      await audit("evac.active.load_failed",{error:error.message});
+      return null;
     }
 
-    const marshal = String($("marshalName").value || "").trim();
-    if(!marshal){
-      toast("warn","Missing marshal name", "Enter the marshal name to proceed.");
-      return;
-    }
-
-    // PIN unlock required
-    await openPinModal();
-    state._pendingEvacAction = "start";
+    state.activeSession = (data && data[0]) ? data[0] : null;
+    $("activeSessionBadge").textContent = state.activeSession ? ("active: " + state.activeSession.id.slice(0,8) + "…") : "no active session";
+    $("exportEvacBtn").disabled = !state.activeSession;
+    return state.activeSession;
   }
 
-  async function resumeEvacuation(){
-    if(!roleCanStartEvac()){
-      toast("danger","Restricted", "Only Fire Marshals / Admins can resume evacuation mode.");
-      return;
-    }
-    await openPinModal();
-    state._pendingEvacAction = "resume";
-  }
+  async function ensureSessionAndSnapshot(){
+    let ses = await loadActiveSession();
+    if(ses) return ses;
 
-  async function createEvacSessionAndSnapshot(){
-    const marshal = String($("marshalName").value || "").trim();
-    const type = $("evacType").value;
+    // Create a new open session. Use user email as marshal_name if none.
+    const marshal = (state.user.email || "marshal").slice(0, 80);
 
-    // If there is already an open session, do NOT create a second one for the same site.
-    await loadActiveEvacSession();
-    if(state.activeEvacSession){
-      toast("warn","Already active", "An evacuation session is already open for this site. Resuming it.");
-      await refreshRollCall();
-      return;
-    }
-
-    // Create session
-    const { data: ses, error: sErr } = await state.supabase
+    const { data: created, error: sErr } = await state.sb
       .from("evacuation_sessions")
       .insert([{
         company_id: state.company.id,
         site_id: state.siteId,
-        status: "open",
-        type,
+        status:"open",
+        type:"alarm",
         started_at: nowIso(),
         started_by_user_id: state.user.id,
         marshal_name: marshal,
         closed_at: null
       }])
-      .select("id, started_at, type, marshal_name, status")
+      .select("id, started_at, status, type, marshal_name")
       .single();
 
     if(sErr){
-      toast("danger","Error", sErr.message);
-      await audit("evac.session.create_failed", { error: sErr.message });
-      return;
+      toast("bad","Error", sErr.message);
+      await audit("evac.session.create_failed",{error:sErr.message});
+      return null;
     }
 
-    // Snapshot current onsite list
-    const { data: onsite, error: oErr } = await state.supabase
+    // Snapshot current onsite
+    const { data: onsite, error: oErr } = await state.sb
       .from("current_presence")
       .select(`
         person_type, employee_id, visitor_id, state, last_changed_at,
@@ -1857,30 +1446,30 @@ This module:
       `)
       .eq("company_id", state.company.id)
       .eq("site_id", state.siteId)
-      .eq("state", "in");
+      .eq("state","in");
 
     if(oErr){
-      toast("danger","Error", oErr.message);
-      await audit("evac.snapshot.read_failed", { session_id: ses.id, error: oErr.message });
-      return;
+      toast("bad","Error", oErr.message);
+      await audit("evac.snapshot.read_failed",{session_id:created.id, error:oErr.message});
+      return null;
     }
 
-    const entries = (onsite || []).map(r => {
+    const entries = (onsite||[]).map(r => {
       let display_name = "";
       let meta = "";
       let photo_path = null;
 
       if(r.person_type === "employee"){
-        display_name = `${r.employees?.first_name || ""} ${r.employees?.last_name || ""}`.trim() || "Employee";
-        meta = `Staff • ${r.employees?.employee_code || "—"}`;
+        display_name = `${r.employees?.first_name||""} ${r.employees?.last_name||""}`.trim() || "Employee";
+        meta = `Staff • ${r.employees?.employee_code||"—"}`;
       } else {
         display_name = r.visitors?.full_name || "Visitor";
-        meta = `Visitor • ${r.visitors?.visitor_company || "—"}`;
+        meta = `Visitor • ${r.visitors?.visitor_company||"—"}`;
         photo_path = r.visitors?.photo_path || null;
       }
 
       return {
-        session_id: ses.id,
+        session_id: created.id,
         company_id: state.company.id,
         site_id: state.siteId,
         person_type: r.person_type,
@@ -1889,166 +1478,214 @@ This module:
         display_name,
         meta,
         photo_path,
-        accounted_for: false,
-        accounted_at: null,
-        accounted_by_user_id: null,
-        accounted_by_name: null
+        accounted_for:false,
+        accounted_at:null,
+        accounted_by_user_id:null,
+        accounted_by_name:null
       };
     });
 
     if(entries.length){
-      const { error: iErr } = await state.supabase
+      const { error: insErr } = await state.sb
         .from("evacuation_rollcall_entries")
         .insert(entries);
 
-      if(iErr){
-        toast("danger","Error", iErr.message);
-        await audit("evac.snapshot.insert_failed", { session_id: ses.id, error: iErr.message });
-        return;
+      if(insErr){
+        toast("bad","Error", insErr.message);
+        await audit("evac.snapshot.insert_failed",{session_id:created.id, error:insErr.message});
+        return null;
       }
     }
 
-    toast("danger","Evacuation started", `Roll call created for ${entries.length} person(s) on site.`);
-    await audit("evac.session.started", { session_id: ses.id, count: entries.length, type });
+    await audit("evac.session.started",{session_id:created.id, count:entries.length});
+    state.activeSession = created;
+    $("activeSessionBadge").textContent = "active: " + created.id.slice(0,8) + "…";
+    $("exportEvacBtn").disabled = false;
 
-    state.activeEvacSession = { id: ses.id, started_at: ses.started_at, status: "open" };
-    $("activeSessionTag").textContent = ses.id.slice(0,8) + "…";
-    await refreshRollCall();
+    return created;
   }
 
-  async function loadActiveEvacSession(){
-    const { data, error } = await state.supabase
-      .from("evacuation_sessions")
-      .select("id, started_at, status, type, marshal_name")
-      .eq("company_id", state.company.id)
-      .eq("site_id", state.siteId)
-      .eq("status", "open")
-      .order("started_at", { ascending: false })
-      .limit(1);
+  async function refreshEvacSummary(){
+    // Minimal summary inside staff tab (locked/unlocked)
+    const box = $("evacSummaryList");
+    box.innerHTML = "";
 
-    if(error){
-      toast("danger","Error", error.message);
-      await audit("evac.active.load_failed", { error: error.message });
+    if(!state.evacUnlocked){
+      const d = document.createElement("div");
+      d.className = "subtle";
+      d.id = "evacHint";
+      d.textContent = "Locked. Enter PIN to load the evacuation roll call.";
+      box.appendChild(d);
       return;
     }
 
-    const ses = (data && data[0]) ? data[0] : null;
-    state.activeEvacSession = ses;
-    $("activeSessionTag").textContent = ses ? (ses.id.slice(0,8) + "…") : "none";
-    $("closeEvacBtn").disabled = !ses || !roleCanStartEvac();
-    $("exportEvacBtn").disabled = !ses;
-    $("markAllSafeBtn").disabled = !ses;
+    await loadActiveSession();
+    const ses = state.activeSession;
+
+    if(!ses){
+      const d = document.createElement("div");
+      d.className = "subtle";
+      d.textContent = "Unlocked. No active session — opening roll call will create one.";
+      box.appendChild(d);
+      return;
+    }
+
+    const d = document.createElement("div");
+    d.className = "item";
+    const left = document.createElement("div");
+    left.className = "left";
+    const b = document.createElement("b");
+    b.textContent = "Active evacuation session";
+    const s = document.createElement("span");
+    s.textContent = `${ses.id} • started ${new Date(ses.started_at).toLocaleString()}`;
+    left.appendChild(b); left.appendChild(s);
+
+    const right = document.createElement("div");
+    right.className = "row";
+    const badge = document.createElement("span");
+    badge.className = "badge warn";
+    badge.textContent = "OPEN";
+    const openBtn = document.createElement("button");
+    openBtn.className = "btn bad";
+    openBtn.textContent = "Open Roll Call";
+    openBtn.onclick = () => openEvacModal();
+    right.appendChild(badge);
+    right.appendChild(openBtn);
+
+    d.appendChild(left); d.appendChild(right);
+    box.appendChild(d);
+  }
+
+  async function openEvacModal(){
+    if(!state.evacUnlocked){
+      toast("warn","Locked","Enter the PIN first.");
+      return;
+    }
+    if(!roleCanEvac()){
+      toast("bad","Restricted","Only Fire Marshals / Admins can manage roll call.");
+      return;
+    }
+
+    const ses = await ensureSessionAndSnapshot();
+    if(!ses) return;
+
+    $("evacSessionBadge").textContent = ses.id.slice(0,8) + "…";
+    $("evacModalSub").textContent = `Session started: ${new Date(ses.started_at).toLocaleString()} • Site: ${$("siteSelect").selectedOptions[0]?.textContent || ""}`;
+    $("evacModalBackdrop").classList.remove("hide");
+
+    await refreshRollCall();
+  }
+
+  function closeEvacModal(){
+    $("evacModalBackdrop").classList.add("hide");
   }
 
   async function refreshRollCall(){
     const list = $("rollCallList");
     list.innerHTML = "";
 
-    if(!state.activeEvacSession){
-      const hint = document.createElement("div");
-      hint.className = "hint";
-      hint.textContent = "No active roll call. Start one to generate the evacuation list.";
-      list.appendChild(hint);
+    if(!state.activeSession){
+      const d = document.createElement("div");
+      d.className = "subtle";
+      d.textContent = "No active session.";
+      list.appendChild(d);
       return;
     }
 
-    const { data, error } = await state.supabase
+    const { data, error } = await state.sb
       .from("evacuation_rollcall_entries")
       .select("id, display_name, meta, accounted_for, accounted_at, accounted_by_name")
       .eq("company_id", state.company.id)
       .eq("site_id", state.siteId)
-      .eq("session_id", state.activeEvacSession.id)
-      .order("accounted_for", { ascending: true });
+      .eq("session_id", state.activeSession.id)
+      .order("accounted_for",{ascending:true});
 
     if(error){
-      toast("danger","Error", error.message);
-      await audit("evac.rollcall.refresh_failed", { session_id: state.activeEvacSession.id, error: error.message });
+      toast("bad","Error", error.message);
+      await audit("evac.rollcall.refresh_failed",{session_id:state.activeSession.id, error:error.message});
       return;
     }
 
     const entries = data || [];
-    if(entries.length === 0){
-      const hint = document.createElement("div");
-      hint.className = "hint";
-      hint.textContent = "This session has no roll-call entries.";
-      list.appendChild(hint);
+    if(!entries.length){
+      const d = document.createElement("div");
+      d.className = "subtle";
+      d.textContent = "No one was on site at the moment roll call started.";
+      list.appendChild(d);
       return;
     }
 
     let accounted = 0;
+    for(const e of entries) if(e.accounted_for) accounted++;
+
+    // Header summary row
+    const summary = document.createElement("div");
+    summary.className = "item";
+    const sL = document.createElement("div"); sL.className="left";
+    const sB = document.createElement("b"); sB.textContent = `Roll call: ${accounted} / ${entries.length} accounted`;
+    const sS = document.createElement("span"); sS.textContent = `Live updates: manual refresh • Session: ${state.activeSession.id}`;
+    sL.appendChild(sB); sL.appendChild(sS);
+    const sR = document.createElement("div"); sR.className="row";
+    const sBadge = document.createElement("span"); sBadge.className="badge warn"; sBadge.textContent="LIVE";
+    sR.appendChild(sBadge);
+    summary.appendChild(sL); summary.appendChild(sR);
+    list.appendChild(summary);
 
     for(const e of entries){
-      if(e.accounted_for) accounted++;
-
       const item = document.createElement("div");
       item.className = "item";
 
       const left = document.createElement("div");
       left.className = "left";
-      const b = document.createElement("b");
-      b.textContent = e.display_name;
+      const b = document.createElement("b"); b.textContent = e.display_name;
       const s = document.createElement("span");
-      const when = e.accounted_for && e.accounted_at ? ` • Accounted at ${new Date(e.accounted_at).toLocaleTimeString()}` : "";
-      const by = e.accounted_for && e.accounted_by_name ? ` by ${e.accounted_by_name}` : "";
-      s.textContent = `${e.meta || "—"}${when}${by}`;
+      const when = e.accounted_for && e.accounted_at ? ` • ${new Date(e.accounted_at).toLocaleTimeString()}` : "";
+      const by = e.accounted_for && e.accounted_by_name ? ` • ${e.accounted_by_name}` : "";
+      s.textContent = `${e.meta||"—"}${when}${by}`;
       left.appendChild(b); left.appendChild(s);
 
       const right = document.createElement("div");
-      right.className = "right";
+      right.className = "row";
 
-      const tag = document.createElement("span");
-      tag.className = "tag " + (e.accounted_for ? "ok" : "danger");
-      tag.textContent = e.accounted_for ? "ACCOUNTED" : "MISSING";
-      right.appendChild(tag);
+      const status = document.createElement("span");
+      status.className = "badge " + (e.accounted_for ? "ok" : "bad");
+      status.textContent = e.accounted_for ? "SAFE" : "MISSING";
+      right.appendChild(status);
 
-      const btn = document.createElement("button");
-      btn.className = "btn small " + (e.accounted_for ? "" : "good");
-      btn.textContent = e.accounted_for ? "Unmark" : "Mark safe";
-      btn.onclick = async () => await setAccounted(e.id, !e.accounted_for);
-      // allow all authenticated users to mark/unmark ONLY if they are marshal/admin in practice:
-      // but in real life you may allow multiple marshals; we restrict to roles:
-      btn.disabled = !roleCanStartEvac();
-      right.appendChild(btn);
+      const checkWrap = document.createElement("label");
+      checkWrap.className = "check";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !!e.accounted_for;
+      cb.onchange = async () => await setAccounted(e.id, cb.checked);
+      checkWrap.appendChild(cb);
+
+      const t = document.createElement("span");
+      t.className = "subtle";
+      t.textContent = "Accounted";
+      checkWrap.appendChild(t);
+
+      right.appendChild(checkWrap);
 
       item.appendChild(left); item.appendChild(right);
       list.appendChild(item);
     }
-
-    // Add top summary as first item
-    const summary = document.createElement("div");
-    summary.className = "item";
-    const l = document.createElement("div");
-    l.className = "left";
-    const b = document.createElement("b");
-    b.textContent = `Roll call: ${accounted} / ${entries.length} accounted`;
-    const s = document.createElement("span");
-    s.textContent = `Session: ${state.activeEvacSession.id} • Started ${new Date(state.activeEvacSession.started_at).toLocaleString()}`;
-    l.appendChild(b); l.appendChild(s);
-    const r = document.createElement("div");
-    r.className = "right";
-    const t = document.createElement("span");
-    t.className = "tag warn";
-    t.textContent = "LIVE";
-    r.appendChild(t);
-    summary.appendChild(l); summary.appendChild(r);
-    list.prepend(summary);
   }
 
-  async function setAccounted(entryId, accountedFor){
-    if(!state.activeEvacSession) return;
-    if(!roleCanStartEvac()){
-      toast("danger","Restricted", "Only Fire Marshals / Admins can mark roll call.");
+  async function setAccounted(entryId, accounted){
+    if(!roleCanEvac()){
+      toast("bad","Restricted","Only Fire Marshals / Admins can mark roll call.");
       return;
     }
 
     const patch = {
-      accounted_for: !!accountedFor,
-      accounted_at: accountedFor ? nowIso() : null,
-      accounted_by_user_id: accountedFor ? state.user.id : null,
-      accounted_by_name: accountedFor ? (String($("marshalName").value || "").trim() || state.user.email || "marshal") : null
+      accounted_for: !!accounted,
+      accounted_at: accounted ? nowIso() : null,
+      accounted_by_user_id: accounted ? state.user.id : null,
+      accounted_by_name: accounted ? (state.user.email || "marshal") : null
     };
 
-    const { error } = await state.supabase
+    const { error } = await state.sb
       .from("evacuation_rollcall_entries")
       .update(patch)
       .eq("company_id", state.company.id)
@@ -2056,100 +1693,111 @@ This module:
       .eq("id", entryId);
 
     if(error){
-      toast("danger","Error", error.message);
-      await audit("evac.entry.update_failed", { entry_id: entryId, error: error.message });
+      toast("bad","Error", error.message);
+      await audit("evac.entry.update_failed",{entry_id:entryId, error:error.message});
       return;
     }
 
-    await audit("evac.entry.updated", { entry_id: entryId, accounted_for: !!accountedFor });
+    await audit("evac.entry.updated",{entry_id:entryId, accounted_for:!!accounted});
     await refreshRollCall();
+    await refreshEvacSummary();
   }
 
   async function markAllSafe(){
-    if(!state.activeEvacSession) return;
-    if(!roleCanStartEvac()){
-      toast("danger","Restricted", "Only Fire Marshals / Admins can mark roll call.");
+    if(!state.activeSession) return;
+    if(!roleCanEvac()){
+      toast("bad","Restricted","Only Fire Marshals / Admins can mark roll call.");
       return;
     }
 
-    const byName = (String($("marshalName").value || "").trim() || state.user.email || "marshal");
-    const { error } = await state.supabase
+    const { error } = await state.sb
       .from("evacuation_rollcall_entries")
       .update({
-        accounted_for: true,
+        accounted_for:true,
         accounted_at: nowIso(),
         accounted_by_user_id: state.user.id,
-        accounted_by_name: byName
+        accounted_by_name: state.user.email || "marshal"
       })
       .eq("company_id", state.company.id)
       .eq("site_id", state.siteId)
-      .eq("session_id", state.activeEvacSession.id)
+      .eq("session_id", state.activeSession.id)
       .eq("accounted_for", false);
 
     if(error){
-      toast("danger","Error", error.message);
-      await audit("evac.mark_all_failed", { error: error.message });
+      toast("bad","Error", error.message);
+      await audit("evac.mark_all_failed",{error:error.message});
       return;
     }
 
-    toast("ok","Updated", "All entries marked as accounted.");
-    await audit("evac.mark_all_success", { session_id: state.activeEvacSession.id });
+    toast("ok","Updated","All entries marked as safe.");
+    await audit("evac.mark_all_success",{session_id:state.activeSession.id});
     await refreshRollCall();
+    await refreshEvacSummary();
   }
 
-  async function closeEvacSession(){
-    if(!state.activeEvacSession) return;
-    if(!roleCanStartEvac()){
-      toast("danger","Restricted", "Only Fire Marshals / Admins can close a session.");
+  async function exportEvacCsv(){
+    if(!state.activeSession){
+      toast("warn","No session","No active evacuation session.");
       return;
     }
 
-    await openPinModal();
-    state._pendingEvacAction = "close";
-  }
-
-  async function closeEvacSessionConfirmed(){
-    const sesId = state.activeEvacSession.id;
-    const { error } = await state.supabase
-      .from("evacuation_sessions")
-      .update({ status: "closed", closed_at: nowIso() })
+    const { data, error } = await state.sb
+      .from("evacuation_rollcall_entries")
+      .select("display_name, meta, accounted_for, accounted_at, accounted_by_name")
       .eq("company_id", state.company.id)
       .eq("site_id", state.siteId)
-      .eq("id", sesId)
-      .eq("status", "open");
+      .eq("session_id", state.activeSession.id)
+      .order("display_name",{ascending:true});
 
     if(error){
-      toast("danger","Error", error.message);
-      await audit("evac.session.close_failed", { session_id: sesId, error: error.message });
+      toast("bad","Error", error.message);
+      await audit("export.evac.failed",{error:error.message});
       return;
     }
 
-    toast("ok","Closed", "Evacuation session closed.");
-    await audit("evac.session.closed", { session_id: sesId });
+    const rows = (data||[]).map(r => ({
+      display_name: r.display_name,
+      meta: r.meta || "",
+      accounted_for: r.accounted_for ? "YES" : "NO",
+      accounted_at: r.accounted_at || "",
+      accounted_by: r.accounted_by_name || ""
+    }));
 
-    state.activeEvacSession = null;
-    $("activeSessionTag").textContent = "none";
-    await refreshRollCall();
-    await loadActiveEvacSession();
+    const header = Object.keys(rows[0] || { display_name:"", meta:"", accounted_for:"", accounted_at:"", accounted_by:"" });
+    const csv = [
+      header.join(","),
+      ...rows.map(o => header.map(k => `"${String(o[k] ?? "").replace(/"/g,'""')}"`).join(","))
+    ].join("\n");
+
+    const start = new Date(state.activeSession.started_at).toISOString().slice(0,19).replace(/[:T]/g,"-");
+    const fname = `evac_rollcall_${state.company.slug}_${start}.csv`;
+    downloadText(fname, csv);
+    toast("ok","Export ready", `Downloaded ${fname}`);
+    await audit("export.evac.success",{session_id:state.activeSession.id, rows:rows.length});
   }
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Exports (CSV)
-  ───────────────────────────────────────────────────────────────────────── */
+  /* ==========================
+     Exports: presence events (CSV)
+  ========================== */
+  function parseDateRange(fromD, toD){
+    if(!fromD || !toD) return [null,null];
+    const start = new Date(fromD + "T00:00:00.000Z");
+    const end = new Date(toD + "T00:00:00.000Z");
+    // include entire "to" day => add 1 day
+    const endExcl = new Date(end.getTime() + 24*60*60*1000);
+    return [start.toISOString(), endExcl.toISOString()];
+  }
+
   async function exportPresenceCsv(){
     const fromD = $("exportFrom").value;
     const toD = $("exportTo").value;
-
     if(!fromD || !toD){
-      toast("warn","Select dates", "Choose a From and To date.");
+      toast("warn","Select dates","Choose From and To.");
       return;
     }
+    const [fromIso, toIso] = parseDateRange(fromD, toD);
 
-    // inclusive range: [fromStart, toEndExclusive]
-    const [fromStart] = parseDateInputToRange(fromD);
-    const [, toEndExclusive] = parseDateInputToRange(toD);
-
-    const { data, error } = await state.supabase
+    const { data, error } = await state.sb
       .from("presence_events")
       .select(`
         occurred_at, person_type, direction, method, raw_input,
@@ -2158,32 +1806,31 @@ This module:
       `)
       .eq("company_id", state.company.id)
       .eq("site_id", state.siteId)
-      .gte("occurred_at", fromStart)
-      .lt("occurred_at", toEndExclusive)
-      .order("occurred_at", { ascending: true });
+      .gte("occurred_at", fromIso)
+      .lt("occurred_at", toIso)
+      .order("occurred_at", { ascending:true });
 
     if(error){
-      toast("danger","Error", error.message);
-      await audit("export.presence.failed", { error: error.message });
+      toast("bad","Error", error.message);
+      await audit("export.presence.failed",{error:error.message});
       return;
     }
 
-    const rows = (data || []).map(r => {
+    const rows = (data||[]).map(r => {
       let name = "";
-      let idcode = "";
-      let type = r.person_type || "";
-      if(type === "employee"){
-        name = `${r.employees?.first_name || ""} ${r.employees?.last_name || ""}`.trim();
-        idcode = r.employees?.employee_code || "";
+      let ident = "";
+      if(r.person_type === "employee"){
+        name = `${r.employees?.first_name||""} ${r.employees?.last_name||""}`.trim();
+        ident = r.employees?.employee_code || "";
       } else {
         name = r.visitors?.full_name || "";
-        idcode = r.visitors?.visitor_company || "";
+        ident = r.visitors?.visitor_company || "";
       }
       return {
         occurred_at: r.occurred_at,
-        person_type: type,
+        person_type: r.person_type,
         name,
-        identifier: idcode,
+        identifier: ident,
         direction: r.direction,
         method: r.method,
         raw_input: r.raw_input || ""
@@ -2199,524 +1846,235 @@ This module:
     const fname = `presence_${state.company.slug}_${fromD}_to_${toD}.csv`;
     downloadText(fname, csv);
     toast("ok","Export ready", `Downloaded ${fname}`);
-    await audit("export.presence.success", { from: fromStart, to: toEndExclusive, rows: rows.length });
+    await audit("export.presence.success",{from:fromIso, to:toIso, rows:rows.length});
   }
 
-  async function exportEvacCsv(){
-    if(!state.activeEvacSession){
-      toast("warn","No session", "No active evacuation session to export.");
-      return;
-    }
-
-    const { data, error } = await state.supabase
-      .from("evacuation_rollcall_entries")
-      .select("display_name, meta, accounted_for, accounted_at, accounted_by_name")
-      .eq("company_id", state.company.id)
-      .eq("site_id", state.siteId)
-      .eq("session_id", state.activeEvacSession.id)
-      .order("display_name", { ascending: true });
-
-    if(error){
-      toast("danger","Error", error.message);
-      await audit("export.evac.failed", { error: error.message });
-      return;
-    }
-
-    const rows = (data || []).map(r => ({
-      display_name: r.display_name,
-      meta: r.meta || "",
-      accounted_for: r.accounted_for ? "YES" : "NO",
-      accounted_at: r.accounted_at || "",
-      accounted_by: r.accounted_by_name || ""
-    }));
-
-    const header = Object.keys(rows[0] || { display_name:"", meta:"", accounted_for:"", accounted_at:"", accounted_by:"" });
-    const csv = [
-      header.join(","),
-      ...rows.map(o => header.map(k => `"${String(o[k] ?? "").replace(/"/g,'""')}"`).join(","))
-    ].join("\n");
-
-    const start = new Date(state.activeEvacSession.started_at).toISOString().slice(0,19).replace(/[:T]/g,"-");
-    const fname = `evac_rollcall_${state.company.slug}_${start}.csv`;
-    downloadText(fname, csv);
-    toast("ok","Export ready", `Downloaded ${fname}`);
-    await audit("export.evac.success", { session_id: state.activeEvacSession.id, rows: rows.length });
-  }
-
-  /* ─────────────────────────────────────────────────────────────────────────
-     Admin modal: employees + audit log
-  ───────────────────────────────────────────────────────────────────────── */
-  function roleCanAdmin(){
-    return ["hr_admin", "company_admin"].includes(state.role);
-  }
-
-  function openAdmin(){
-    if(!roleCanAdmin()){
-      toast("danger","Restricted", "You need HR Admin / Company Admin access.");
-      return;
-    }
-    $("adminModal").classList.remove("hide");
-    loadEmployees();
-  }
-  function closeAdmin(){
-    $("adminModal").classList.add("hide");
-  }
-
-  async function loadEmployees(){
-    const list = $("employeesList");
-    list.innerHTML = "";
-
-    const { data, error } = await state.supabase
-      .from("employees")
-      .select("id, employee_code, first_name, last_name, active, created_at")
-      .eq("company_id", state.company.id)
-      .order("last_name", { ascending: true })
-      .limit(5000);
-
-    if(error){
-      toast("danger","Error", error.message);
-      await audit("admin.employees.load_failed", { error: error.message });
-      return;
-    }
-
-    if(!data || !data.length){
-      const hint = document.createElement("div");
-      hint.className = "hint";
-      hint.textContent = "No employees yet.";
-      list.appendChild(hint);
-      return;
-    }
-
-    for(const e of data){
-      const item = document.createElement("div");
-      item.className = "item";
-
-      const left = document.createElement("div");
-      left.className = "left";
-      const b = document.createElement("b");
-      b.textContent = `${e.first_name} ${e.last_name}`.trim();
-      const s = document.createElement("span");
-      s.textContent = `${e.employee_code} • ${e.active ? "Active" : "Inactive"}`;
-      left.appendChild(b); left.appendChild(s);
-
-      const right = document.createElement("div");
-      right.className = "right";
-
-      const toggle = document.createElement("button");
-      toggle.className = "btn small " + (e.active ? "danger" : "good");
-      toggle.textContent = e.active ? "Deactivate" : "Reactivate";
-      toggle.onclick = async () => await setEmployeeActive(e.id, !e.active);
-      right.appendChild(toggle);
-
-      item.appendChild(left); item.appendChild(right);
-      list.appendChild(item);
-    }
-  }
-
-  async function setEmployeeActive(empId, active){
-    const { error } = await state.supabase
-      .from("employees")
-      .update({ active: !!active })
-      .eq("company_id", state.company.id)
-      .eq("id", empId);
-
-    if(error){
-      toast("danger","Error", error.message);
-      await audit("admin.employee.toggle_failed", { employee_id: empId, active: !!active, error: error.message });
-      return;
-    }
-
-    toast("ok","Updated", `Employee ${active ? "reactivated" : "deactivated"}.`);
-    await audit("admin.employee.toggled", { employee_id: empId, active: !!active });
-
-    await loadEmployees();
-  }
-
-  async function createEmployee(){
-    if(!roleCanAdmin()){
-      toast("danger","Restricted", "You need HR Admin / Company Admin access.");
-      return;
-    }
-
-    const employee_code = String($("aEmpCode").value || "").trim();
-    const first_name = String($("aEmpFirst").value || "").trim();
-    const last_name = String($("aEmpLast").value || "").trim();
-
-    if(!employee_code || !first_name || !last_name){
-      toast("warn","Missing info", "Employee code, first name, and last name are required.");
-      return;
-    }
-
-    const { error } = await state.supabase
-      .from("employees")
-      .insert([{
-        company_id: state.company.id,
-        employee_code,
-        first_name,
-        last_name,
-        active: true,
-        created_at: nowIso()
-      }]);
-
-    if(error){
-      toast("danger","Error", error.message);
-      await audit("admin.employee.create_failed", { employee_code, error: error.message });
-      return;
-    }
-
-    toast("ok","Created", `${first_name} ${last_name} added.`);
-    await audit("admin.employee.created", { employee_code, first_name, last_name });
-
-    $("aEmpCode").value = "";
-    $("aEmpFirst").value = "";
-    $("aEmpLast").value = "";
-
-    await loadEmployees();
-  }
-
-  async function loadAudit(){
-    const list = $("auditList");
-    list.innerHTML = "";
-
-    const { data, error } = await state.supabase
-      .from("audit_log")
-      .select("created_at, action, metadata, actor_user_id")
-      .eq("company_id", state.company.id)
-      .order("created_at", { ascending: false })
-      .limit(80);
-
-    if(error){
-      toast("danger","Error", error.message);
-      return;
-    }
-
-    if(!data || !data.length){
-      const hint = document.createElement("div");
-      hint.className = "hint";
-      hint.textContent = "No audit events yet.";
-      list.appendChild(hint);
-      return;
-    }
-
-    for(const a of data){
-      const item = document.createElement("div");
-      item.className = "item";
-
-      const left = document.createElement("div");
-      left.className = "left";
-      const b = document.createElement("b");
-      b.textContent = a.action;
-      const s = document.createElement("span");
-      s.textContent = `${new Date(a.created_at).toLocaleString()} • ${a.actor_user_id ? a.actor_user_id.slice(0,8)+"…" : "system"}`;
-      left.appendChild(b); left.appendChild(s);
-
-      const right = document.createElement("div");
-      right.className = "right";
-      const tag = document.createElement("span");
-      tag.className = "tag mono";
-      tag.textContent = JSON.stringify(a.metadata || {}).slice(0, 60);
-      right.appendChild(tag);
-
-      item.appendChild(left); item.appendChild(right);
-      list.appendChild(item);
-    }
-  }
-
-  /* ─────────────────────────────────────────────────────────────────────────
-     Camera QR scanning
-  ───────────────────────────────────────────────────────────────────────── */
+  /* ==========================
+     Camera QR scan (BarcodeDetector)
+  ========================== */
   async function startCamera(){
     if(state.scanning) return;
 
     if(!navigator.mediaDevices?.getUserMedia){
-      toast("danger","Unsupported", "Camera access not available in this browser.");
+      toast("bad","Unsupported","Camera not available.");
       return;
     }
 
     try{
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-        audio: false
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" }, audio:false });
+      state.stream = stream;
+      const v = $("video");
+      v.srcObject = stream;
 
-      state.videoStream = stream;
-      const video = $("video");
-      video.srcObject = stream;
-
-      // BarcodeDetector is the cleanest native option
       if("BarcodeDetector" in window){
-        try{
-          state.barcodeDetector = new BarcodeDetector({ formats: ["qr_code"] });
-        }catch(_e){
-          state.barcodeDetector = null;
-        }
-      } else {
-        state.barcodeDetector = null;
-      }
+        try { state.detector = new BarcodeDetector({ formats:["qr_code"] }); } catch(_e){ state.detector = null; }
+      } else state.detector = null;
 
       state.scanning = true;
-      $("startCameraBtn").disabled = true;
-      $("stopCameraBtn").disabled = false;
-      $("cameraStatus").textContent = state.barcodeDetector ? "scanning (qr)" : "camera on (manual code)";
-      await audit("camera.started", { barcode_detector: !!state.barcodeDetector });
+      $("startCamBtn").disabled = true;
+      $("stopCamBtn").disabled = false;
+      $("camStatus").textContent = state.detector ? "scanning" : "camera on";
+      await audit("camera.started",{barcode_detector:!!state.detector});
 
-      if(state.barcodeDetector){
-        scanLoop();
-      } else {
-        toast("warn","Manual mode", "BarcodeDetector is not supported. Use manual badge code entry.");
-      }
+      if(state.detector) scanLoop();
+      else toast("warn","Manual mode","QR detection not supported on this device. Use manual badge code.");
     }catch(e){
-      toast("danger","Camera error", e.message || String(e));
-      await audit("camera.error", { error: e.message || String(e) });
+      toast("bad","Camera error", e.message || String(e));
+      await audit("camera.error",{error:e.message || String(e)});
     }
   }
 
   async function stopCamera(){
     state.scanning = false;
-    $("startCameraBtn").disabled = false;
-    $("stopCameraBtn").disabled = true;
-    $("cameraStatus").textContent = "idle";
+    $("startCamBtn").disabled = false;
+    $("stopCamBtn").disabled = true;
+    $("camStatus").textContent = "idle";
 
-    const video = $("video");
-    if(video) video.srcObject = null;
+    const v = $("video");
+    if(v) v.srcObject = null;
 
-    if(state.videoStream){
-      for(const t of state.videoStream.getTracks()){
+    if(state.stream){
+      for(const t of state.stream.getTracks()){
         try{ t.stop(); }catch(_e){}
       }
     }
-    state.videoStream = null;
-    await audit("camera.stopped", {});
+    state.stream = null;
+    await audit("camera.stopped",{});
   }
 
   async function scanLoop(){
-    while(state.scanning && state.barcodeDetector){
+    while(state.scanning && state.detector){
       try{
-        const video = $("video");
-        if(video.readyState >= 2){
-          const codes = await state.barcodeDetector.detect(video);
+        const v = $("video");
+        if(v.readyState >= 2){
+          const codes = await state.detector.detect(v);
           if(codes && codes.length){
             const raw = codes[0].rawValue;
-            if(raw){
-              await toggleByBadgeCode(raw, "qr");
-            }
+            if(raw) await toggleByEmployeeCode(raw, "qr");
           }
         }
-      }catch(_e){
-        // ignore detection errors (camera race conditions etc.)
-      }
-      await sleep(180);
+      }catch(_e){}
+      await sleep(160);
     }
   }
 
-  /* ─────────────────────────────────────────────────────────────────────────
+  /* ==========================
      Tabs
-  ───────────────────────────────────────────────────────────────────────── */
+  ========================== */
   function setTab(name){
-    for(const el of document.querySelectorAll("#tabs .tab")){
-      el.classList.toggle("active", el.dataset.tab === name);
-    }
+    document.querySelectorAll(".tab").forEach(t => {
+      t.classList.toggle("active", t.dataset.tab === name);
+      t.setAttribute("aria-selected", t.dataset.tab === name ? "true" : "false");
+    });
     $("tab_staff").classList.toggle("hide", name !== "staff");
     $("tab_visitors").classList.toggle("hide", name !== "visitors");
-    $("tab_onsite").classList.toggle("hide", name !== "onsite");
-    $("tab_evac").classList.toggle("hide", name !== "evac");
+    $("tab_admin").classList.toggle("hide", name !== "admin");
   }
 
-  function setAdminTab(name){
-    for(const el of document.querySelectorAll("#adminTabs .tab")){
-      el.classList.toggle("active", el.dataset.atab === name);
-    }
-    $("admin_employees").classList.toggle("hide", name !== "employees");
-    $("admin_audit").classList.toggle("hide", name !== "audit");
-    if(name === "employees") loadEmployees();
-    if(name === "audit") loadAudit();
-  }
-
-  /* ─────────────────────────────────────────────────────────────────────────
-     Event wiring
-  ───────────────────────────────────────────────────────────────────────── */
+  /* ==========================
+     Wire UI events
+  ========================== */
   function wire(){
-    // Top actions
-    $("logoutBtn").onclick = async () => {
-      await audit("auth.logout", {});
-      await state.supabase.auth.signOut();
-      window.location.href = "/app/index.html";
-    };
-    $("refreshBtn").onclick = async () => await fullRefresh();
-
-    $("siteSelect").onchange = async (e) => {
-      const newSite = e.target.value;
-      state.siteId = newSite;
-
-      // Update URL query for reproducible context
-      const u = new URL(window.location.href);
-      u.searchParams.set("site", newSite);
-      window.history.replaceState({}, "", u.toString());
-
-      await audit("site.changed", { site_id: newSite });
-
-      clearRealtime();
-      await fullRefresh();
-      enableRealtime();
-    };
-
-    // Tabs
-    document.querySelectorAll("#tabs .tab").forEach(t => {
+    // tabs
+    document.querySelectorAll(".tab").forEach(t => {
       t.addEventListener("click", () => setTab(t.dataset.tab));
     });
 
-    // Staff scan
-    $("startCameraBtn").onclick = startCamera;
-    $("stopCameraBtn").onclick = stopCamera;
-    $("submitBadgeBtn").onclick = async () => await toggleByBadgeCode($("manualBadgeCode").value, "manual");
-
-    $("manualBadgeCode").addEventListener("keydown", async (e) => {
-      if(e.key === "Enter"){
-        await toggleByBadgeCode($("manualBadgeCode").value, "manual");
-      }
-    });
-
-    // Staff search
-    $("searchEmployeeBtn").onclick = searchEmployees;
-    $("clearEmployeeSearchBtn").onclick = () => {
-      $("employeeSearch").value = "";
-      $("employeeResults").innerHTML = "";
-      $("employeeSearchHint").textContent = "Results will appear below.";
+    // logout
+    $("logoutBtn").onclick = async () => {
+      await audit("auth.logout",{});
+      await state.sb.auth.signOut();
+      window.location.href = "/app/index.html";
     };
-    $("employeeSearch").addEventListener("keydown", async (e) => {
-      if(e.key === "Enter") await searchEmployees();
+
+    // site select
+    $("siteSelect").onchange = async (e) => {
+      state.siteId = e.target.value;
+      const u = new URL(window.location.href);
+      u.searchParams.set("site", state.siteId);
+      window.history.replaceState({}, "", u.toString());
+      await audit("site.changed",{site_id:state.siteId});
+      // reset evac lock per site
+      state.evacUnlocked = false;
+      state.activeSession = null;
+      $("activeSessionBadge").textContent = "no active session";
+      $("exportEvacBtn").disabled = true;
+      await fullRefresh();
+    };
+
+    // camera
+    $("startCamBtn").onclick = startCamera;
+    $("stopCamBtn").onclick = stopCamera;
+
+    // manual badge submit
+    $("badgeSubmitBtn").onclick = async () => await toggleByEmployeeCode($("badgeCode").value, "manual");
+    $("badgeCode").addEventListener("keydown", async (e) => {
+      if(e.key === "Enter") await toggleByEmployeeCode($("badgeCode").value, "manual");
     });
 
-    // Visitors
+    // staff in/out
+    $("staffInBtn").onclick = async () => await recordEmployeeDirection($("staffInInput").value, "in");
+    $("staffOutBtn").onclick = async () => await recordEmployeeDirection($("staffOutInput").value, "out");
+    $("staffInInput").addEventListener("keydown", async (e) => { if(e.key==="Enter") await recordEmployeeDirection($("staffInInput").value,"in"); });
+    $("staffOutInput").addEventListener("keydown", async (e) => { if(e.key==="Enter") await recordEmployeeDirection($("staffOutInput").value,"out"); });
+
+    // visitors
     $("visitorSignInBtn").onclick = visitorSignIn;
     $("visitorClearBtn").onclick = () => {
-      $("vName").value = "";
-      $("vCompany").value = "";
-      $("vVisiting").value = "";
-      $("vPhoto").value = "";
+      $("vName").value=""; $("vCompany").value=""; $("vVisiting").value=""; $("vPhoto").value="";
     };
 
-    // Evac
-    $("startEvacBtn").onclick = startEvacuation;
-    $("resumeEvacBtn").onclick = resumeEvacuation;
-    $("markAllSafeBtn").onclick = markAllSafe;
-    $("exportEvacBtn").onclick = exportEvacCsv;
-    $("closeEvacBtn").onclick = closeEvacSession;
+    // onsite refresh
+    $("refreshOnsiteBtn").onclick = refreshOnsite;
 
-    // Exports
-    $("exportPresenceBtn").onclick = exportPresenceCsv;
-
-    // Admin modal
-    $("openAdminBtn").onclick = openAdmin;
-    $("openEmployeesBtn").onclick = openAdmin;
-    $("openAuditBtn").onclick = () => { openAdmin(); setAdminTab("audit"); };
-
-    $("closeAdminBtn").onclick = closeAdmin;
-    $("closeAdminBtn2").onclick = closeAdmin;
-    $("reloadEmployeesBtn").onclick = loadEmployees;
-    $("createEmployeeBtn").onclick = createEmployee;
-    $("clearEmployeeFormBtn").onclick = () => {
-      $("aEmpCode").value = "";
-      $("aEmpFirst").value = "";
-      $("aEmpLast").value = "";
-    };
-
-    $("reloadAuditBtn").onclick = loadAudit;
-
-    document.querySelectorAll("#adminTabs .tab").forEach(t => {
-      t.addEventListener("click", () => setAdminTab(t.dataset.atab));
-    });
-
-    // PIN modal
-    $("pinCancelBtn").onclick = () => { closePinModal(); state._pendingEvacAction = null; };
-    $("pinConfirmBtn").onclick = async () => {
-      const ok = await verifyPin($("pinInput").value);
+    // evac pin
+    $("evacEnterBtn").onclick = async () => {
+      if(!roleCanEvac()){
+        toast("bad","Restricted","Only Fire Marshals / Admins can open evacuation roll call.");
+        return;
+      }
+      const ok = await verifyEvacPin($("evacPinInput").value);
       if(!ok) return;
-
-      closePinModal();
-
-      if(state._pendingEvacAction === "start"){
-        await createEvacSessionAndSnapshot();
-      } else if(state._pendingEvacAction === "resume"){
-        await loadActiveEvacSession();
-        if(!state.activeEvacSession){
-          toast("warn","No active session", "No open evacuation session exists for this site.");
-        } else {
-          toast("ok","Resumed", "Active evacuation session loaded.");
-          await refreshRollCall();
-        }
-      } else if(state._pendingEvacAction === "close"){
-        await closeEvacSessionConfirmed();
-      }
-
-      state._pendingEvacAction = null;
+      state.evacUnlocked = true;
+      toast("ok","Unlocked","Evacuation list unlocked.");
+      await audit("evac.unlocked",{});
+      await refreshEvacSummary();
+      await openEvacModal();
     };
-    $("pinInput").addEventListener("keydown", async (e) => {
-      if(e.key === "Enter"){
-        $("pinConfirmBtn").click();
+    $("evacPinInput").addEventListener("keydown", async (e) => {
+      if(e.key==="Enter") $("evacEnterBtn").click();
+    });
+
+    $("refreshEvacBtn").onclick = async () => {
+      if(!state.evacUnlocked){
+        toast("warn","Locked","Enter PIN to refresh roll call.");
+        return;
       }
-    });
+      await loadActiveSession();
+      await refreshEvacSummary();
+    };
 
-    // Safety: stop camera when leaving page
-    window.addEventListener("beforeunload", () => {
-      try{ stopCamera(); }catch(_e){}
-    });
+    // evac modal
+    $("evacCloseModalBtn").onclick = closeEvacModal;
+    $("evacRefreshBtn").onclick = async () => { await loadActiveSession(); await refreshRollCall(); };
+    $("evacMarkAllBtn").onclick = markAllSafe;
+    $("evacExportBtn").onclick = exportEvacCsv;
+
+    // admin export buttons
+    $("exportPresenceBtn").onclick = exportPresenceCsv;
+    $("exportEvacBtn").onclick = exportEvacCsv;
+
+    // close camera on unload
+    window.addEventListener("beforeunload", () => { try{ stopCamera(); }catch(_e){} });
   }
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Full refresh
-  ───────────────────────────────────────────────────────────────────────── */
+  /* ==========================
+     Refresh
+  ========================== */
   async function fullRefresh(){
-    setConn("loading…", "Refreshing live presence and evacuation state.");
-    await loadActiveEvacSession();
-    await refreshOnsite();
     await refreshVisitorsOnsite();
-    await refreshRollCall();
-    setConn("ok", "Connected. Tenant isolation enforced by RLS.");
+    await refreshOnsite();
+
+    // evac
+    await loadActiveSession();
+    await refreshEvacSummary();
   }
 
-  /* ─────────────────────────────────────────────────────────────────────────
+  /* ==========================
      Init
-  ───────────────────────────────────────────────────────────────────────── */
+  ========================== */
   async function init(){
+    startClock();
+
     try{
-      setConn("initialising…", "Creating Supabase client");
-      state.supabase = getSupabaseClient();
-
+      state.sb = getSupabaseClient();
       await requireSession();
-      await resolveCompanyContext();
+      await resolveTenant();
 
-      // UI role-based enable/disable
-      const canEvac = roleCanStartEvac();
-      $("startEvacBtn").disabled = !canEvac;
-      $("resumeEvacBtn").disabled = !canEvac;
-      $("openAdminBtn").disabled = !roleCanAdmin();
-      $("openEmployeesBtn").disabled = !roleCanAdmin();
-      $("openAuditBtn").disabled = !roleCanAdmin();
+      // role gating: Admin tab is still visible but harmless; you can hide it if you want.
+      // We do NOT include employee management here (you asked to remove unnecessary admin).
+      // Only live onsite + exports remain.
+      if(!roleCanEvac()){
+        // keep evac list present but enforce restrictions
+      }
 
-      // Default export date range (today)
-      const today = new Date();
-      const yyyy = today.getUTCFullYear();
-      const mm = String(today.getUTCMonth()+1).padStart(2,"0");
-      const dd = String(today.getUTCDate()).padStart(2,"0");
-      const dstr = `${yyyy}-${mm}-${dd}`;
-      $("exportFrom").value = dstr;
-      $("exportTo").value = dstr;
+      // default export dates = today
+      const d = new Date();
+      const yyyy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth()+1).padStart(2,"0");
+      const dd = String(d.getUTCDate()).padStart(2,"0");
+      const today = `${yyyy}-${mm}-${dd}`;
+      $("exportFrom").value = today;
+      $("exportTo").value = today;
 
       wire();
-
       await fullRefresh();
-      enableRealtime();
 
-      // Health state
-      $("connTag").textContent = "ok";
-      toast("ok","Ready", "Presence & Fire Safety is loaded.");
+      toast("ok","Ready","Presence & Fire Safety loaded.");
     }catch(e){
       console.error(e);
-      $("connTag").textContent = "error";
-      setConn("error", e.message || String(e));
-      toast("danger","Cannot load module", e.message || String(e));
-      await audit("module.init_failed", { error: e.message || String(e) });
+      toast("bad","Cannot load", e.message || String(e));
+      await audit("module.init_failed",{error:e.message || String(e)});
     }
   }
 
