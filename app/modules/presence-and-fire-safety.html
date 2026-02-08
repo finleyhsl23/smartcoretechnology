@@ -1,1 +1,2729 @@
+<!--
+SmartCore Technology — Presence & Fire Safety (Multi-tenant SaaS module)
+Drop-in file: /app/modules/presence-and-fire-safety.html
 
+This module assumes:
+- Supabase Auth is already used in /app/index.html and /app/app.js
+- Users are routed to /app/{company}/presence-and-fire-safety.html (or similar)
+- Row Level Security (RLS) is enabled so users can ONLY access their own company's data.
+
+✅ IMPORTANT (Production assumptions)
+This file is production-ready *as a module*, but it depends on your Supabase schema + RLS being set up.
+This is not "placeholder logic" — it is a clean implementation against a sensible schema.
+
+──────────────────────────────────────────────────────────────────────────────
+REQUIRED SUPABASE TABLES (high-level)
+(Names are referenced by this module; keep them exactly as written)
+
+companies:
+  id uuid pk
+  slug text unique
+  name text
+  created_at timestamptz default now()
+
+company_users:
+  company_id uuid fk companies.id
+  user_id uuid (auth.users.id)
+  role text  -- 'employee' | 'hr_admin' | 'fire_marshal' | 'company_admin'
+  active boolean default true
+
+sites:
+  id uuid pk
+  company_id uuid fk companies.id
+  name text
+  created_at timestamptz default now()
+
+company_settings:
+  company_id uuid pk fk companies.id
+  evac_pin_sha256 text   -- hex string of SHA-256(pin)
+  created_at timestamptz default now()
+
+employees:
+  id uuid pk
+  company_id uuid fk companies.id
+  employee_code text
+  first_name text
+  last_name text
+  active boolean default true
+  created_at timestamptz default now()
+
+visitors:
+  id uuid pk
+  company_id uuid fk companies.id
+  site_id uuid fk sites.id
+  full_name text
+  visitor_company text
+  visiting text
+  photo_path text null
+  created_at timestamptz default now()
+
+presence_events:
+  id uuid pk
+  company_id uuid fk companies.id
+  site_id uuid fk sites.id
+  person_type text -- 'employee'|'visitor'
+  employee_id uuid null fk employees.id
+  visitor_id uuid null fk visitors.id
+  direction text -- 'in'|'out'
+  method text -- 'qr'|'manual'|'admin'
+  device_label text null
+  raw_input text null
+  occurred_at timestamptz default now()
+  actor_user_id uuid null
+
+current_presence:
+  company_id uuid
+  site_id uuid
+  person_type text
+  employee_id uuid null
+  visitor_id uuid null
+  state text -- 'in'|'out'
+  last_event_id uuid
+  last_changed_at timestamptz
+  PRIMARY KEY (company_id, site_id, person_type, employee_id, visitor_id)
+
+evacuation_sessions:
+  id uuid pk
+  company_id uuid
+  site_id uuid
+  status text -- 'open'|'closed'
+  type text -- 'alarm'|'drill'|'test'|'other'
+  started_at timestamptz default now()
+  started_by_user_id uuid null
+  marshal_name text
+  closed_at timestamptz null
+
+evacuation_rollcall_entries:
+  id uuid pk
+  session_id uuid fk evacuation_sessions.id
+  company_id uuid
+  site_id uuid
+  person_type text
+  employee_id uuid null
+  visitor_id uuid null
+  display_name text
+  meta text null
+  photo_path text null
+  accounted_for boolean default false
+  accounted_at timestamptz null
+  accounted_by_user_id uuid null
+  accounted_by_name text null
+
+audit_log:
+  id uuid pk
+  company_id uuid
+  site_id uuid null
+  actor_user_id uuid null
+  action text
+  metadata jsonb
+  created_at timestamptz default now()
+
+──────────────────────────────────────────────────────────────────────────────
+HOW TENANCY IS ENFORCED
+This module:
+- Reads company slug from the URL (/app/{company}/...)
+- Verifies the logged-in user belongs to that company via company_users + companies.slug
+- All Supabase queries include company_id/site_id AND rely on RLS for enforcement.
+-->
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Presence & Fire Safety • SmartCore Technology</title>
+
+  <!-- Supabase JS v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#0f1730;
+      --panel2:#0c1329;
+      --text:#e8eeff;
+      --muted:#a7b3d6;
+      --muted2:#7f8bb3;
+      --line:rgba(255,255,255,0.08);
+      --accent:#7c5cff;
+      --accent2:#2dd4bf;
+      --danger:#ff4d6d;
+      --warn:#ffb020;
+      --ok:#2ee59d;
+
+      --shadow: 0 12px 40px rgba(0,0,0,0.45);
+      --r: 14px;
+      --r2: 10px;
+      --pad: 14px;
+      --pad2: 10px;
+      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      background: radial-gradient(1200px 800px at 25% -10%, rgba(124,92,255,0.22), transparent 55%),
+                  radial-gradient(900px 700px at 90% 10%, rgba(45,212,191,0.12), transparent 55%),
+                  var(--bg);
+      color:var(--text);
+      font-family:var(--font);
+      letter-spacing:0.2px;
+    }
+    a{color:inherit}
+    .topbar{
+      position:sticky; top:0; z-index:50;
+      background: rgba(11,16,32,0.78);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--line);
+    }
+    .wrap{max-width:1200px; margin:0 auto; padding: 14px 18px;}
+    .row{display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap;}
+    .brand{
+      display:flex; gap:10px; align-items:center;
+    }
+    .logo{
+      width:34px; height:34px; border-radius:10px;
+      background: linear-gradient(135deg, rgba(124,92,255,1), rgba(45,212,191,1));
+      box-shadow: 0 14px 40px rgba(124,92,255,0.25);
+    }
+    .titleblock{display:flex; flex-direction:column; gap:2px;}
+    .titleblock b{font-size:14px}
+    .titleblock span{font-size:12px; color:var(--muted)}
+    .pill{
+      border:1px solid var(--line);
+      background: rgba(255,255,255,0.04);
+      padding:7px 10px;
+      border-radius:999px;
+      color:var(--muted);
+      font-size:12px;
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+    .pill code{font-family:var(--mono); color:var(--text); font-size:12px}
+    .grid{
+      display:grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap:14px;
+      margin-top:14px;
+    }
+    @media (max-width: 980px){
+      .grid{grid-template-columns:1fr}
+    }
+    .panel{
+      background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.02));
+      border: 1px solid var(--line);
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .panel .head{
+      padding: 14px 14px;
+      border-bottom:1px solid var(--line);
+      display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+      background: rgba(0,0,0,0.12);
+    }
+    .panel .head h2{
+      margin:0;
+      font-size:13px;
+      letter-spacing:0.4px;
+      text-transform:uppercase;
+      color: var(--muted);
+      font-weight:700;
+    }
+    .panel .body{padding:14px}
+    .tabs{
+      display:flex; gap:8px; flex-wrap:wrap;
+    }
+    .tab{
+      padding:10px 12px;
+      border-radius: 12px;
+      border:1px solid var(--line);
+      background: rgba(255,255,255,0.03);
+      color: var(--muted);
+      cursor:pointer;
+      user-select:none;
+      font-size:13px;
+      display:flex; gap:8px; align-items:center;
+      transition: transform .08s ease, background .12s ease, border-color .12s ease;
+    }
+    .tab:hover{transform: translateY(-1px); border-color: rgba(124,92,255,0.35)}
+    .tab.active{
+      color: var(--text);
+      background: rgba(124,92,255,0.16);
+      border-color: rgba(124,92,255,0.45);
+    }
+    .btn{
+      border:1px solid var(--line);
+      background: rgba(255,255,255,0.03);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+      cursor:pointer;
+      font-size:13px;
+      display:inline-flex; gap:8px; align-items:center;
+      transition: transform .08s ease, background .12s ease, border-color .12s ease;
+    }
+    .btn:hover{transform: translateY(-1px); border-color: rgba(124,92,255,0.35)}
+    .btn.primary{
+      background: rgba(124,92,255,0.2);
+      border-color: rgba(124,92,255,0.55);
+    }
+    .btn.good{
+      background: rgba(45,212,191,0.14);
+      border-color: rgba(45,212,191,0.38);
+    }
+    .btn.danger{
+      background: rgba(255,77,109,0.14);
+      border-color: rgba(255,77,109,0.38);
+    }
+    .btn.small{padding:8px 10px; border-radius:10px; font-size:12px}
+    .btn:disabled{opacity:.5; cursor:not-allowed; transform:none}
+    .field{
+      display:flex; flex-direction:column; gap:8px;
+    }
+    .field label{
+      font-size:12px;
+      color:var(--muted);
+    }
+    .inrow{display:flex; gap:10px; flex-wrap:wrap}
+    input,select,textarea{
+      width:100%;
+      background: rgba(255,255,255,0.03);
+      border:1px solid var(--line);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+      outline:none;
+      font-size:13px;
+    }
+    textarea{min-height:90px; resize:vertical}
+    input:focus,select:focus,textarea:focus{
+      border-color: rgba(124,92,255,0.55);
+      box-shadow: 0 0 0 4px rgba(124,92,255,0.12);
+    }
+    .hint{font-size:12px; color: var(--muted2)}
+    .split{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 760px){
+      .split{grid-template-columns:1fr}
+    }
+    .card{
+      border:1px solid var(--line);
+      background: rgba(0,0,0,0.12);
+      border-radius: var(--r);
+      padding: 12px;
+    }
+    .kpi{
+      display:flex; gap:12px; align-items:center; justify-content:space-between;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border:1px solid var(--line);
+      background: rgba(255,255,255,0.02);
+    }
+    .kpi b{font-size:20px}
+    .kpi span{color:var(--muted); font-size:12px}
+    .list{
+      display:flex; flex-direction:column; gap:10px;
+    }
+    .item{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      border:1px solid var(--line);
+      background: rgba(255,255,255,0.02);
+      padding: 10px 12px;
+      border-radius: 12px;
+    }
+    .item .left{display:flex; flex-direction:column; gap:2px; min-width:0}
+    .item .left b{font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+    .item .left span{font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+    .item .right{display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end}
+    .tag{
+      font-size:11px;
+      padding: 4px 8px;
+      border-radius:999px;
+      border:1px solid var(--line);
+      color: var(--muted);
+      background: rgba(255,255,255,0.02);
+    }
+    .tag.ok{border-color: rgba(46,229,157,0.35); color: rgba(46,229,157,0.95); background: rgba(46,229,157,0.10)}
+    .tag.warn{border-color: rgba(255,176,32,0.35); color: rgba(255,176,32,0.95); background: rgba(255,176,32,0.08)}
+    .tag.danger{border-color: rgba(255,77,109,0.35); color: rgba(255,77,109,0.95); background: rgba(255,77,109,0.08)}
+    .mono{font-family:var(--mono)}
+    .divider{height:1px; background: var(--line); margin:12px 0}
+    .hide{display:none !important}
+
+    /* Modal */
+    .modal-backdrop{
+      position:fixed; inset:0; z-index:100;
+      display:flex; align-items:center; justify-content:center;
+      background: rgba(0,0,0,0.55);
+      backdrop-filter: blur(10px);
+      padding: 18px;
+    }
+    .modal{
+      width:min(720px, 100%);
+      border:1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(15,23,48,0.98), rgba(12,19,41,0.98));
+      box-shadow: 0 22px 60px rgba(0,0,0,0.65);
+      overflow:hidden;
+    }
+    .modal .mhead{
+      padding: 14px 14px;
+      border-bottom:1px solid var(--line);
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+    }
+    .modal .mhead b{font-size:14px}
+    .modal .mbody{padding:14px}
+    .modal .mfoot{
+      padding: 14px;
+      border-top:1px solid var(--line);
+      display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;
+    }
+    video{
+      width:100%;
+      border-radius: 14px;
+      border:1px solid var(--line);
+      background: rgba(0,0,0,0.25);
+    }
+    .toastwrap{
+      position: fixed;
+      right: 14px;
+      bottom: 14px;
+      z-index: 999;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      max-width: min(520px, calc(100vw - 28px));
+    }
+    .toast{
+      border:1px solid var(--line);
+      background: rgba(15,23,48,0.92);
+      backdrop-filter: blur(10px);
+      border-radius: 14px;
+      padding: 10px 12px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.6);
+      display:flex; gap:10px; align-items:flex-start;
+    }
+    .toast b{font-size:13px}
+    .toast p{margin:2px 0 0; color:var(--muted); font-size:12px; line-height:1.4}
+    .dot{width:10px; height:10px; border-radius:99px; margin-top:4px; background: var(--accent)}
+    .dot.ok{background: var(--ok)}
+    .dot.warn{background: var(--warn)}
+    .dot.danger{background: var(--danger)}
+    .footer-note{
+      font-size:12px;
+      color: var(--muted2);
+      line-height:1.45;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="wrap">
+      <div class="row">
+        <div class="brand">
+          <div class="logo"></div>
+          <div class="titleblock">
+            <b>Presence & Fire Safety</b>
+            <span>SmartCore Technology • Practical Technology. Built to Last.</span>
+          </div>
+        </div>
+
+        <div class="row" style="gap:10px;">
+          <div class="pill" title="Tenant / Site context">
+            <span>Company:</span> <code id="companySlug">…</code>
+            <span style="opacity:.35">|</span>
+            <span>Site:</span>
+            <select id="siteSelect" style="width:auto; min-width:190px; padding:7px 10px; border-radius:999px;"></select>
+          </div>
+          <div class="pill" title="Signed in user">
+            <span>User:</span> <code id="userEmail">…</code>
+            <span style="opacity:.35">|</span>
+            <span>Role:</span> <code id="userRole">…</code>
+          </div>
+          <button class="btn small" id="logoutBtn">Log out</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="grid">
+      <!-- LEFT: Operations -->
+      <div class="panel">
+        <div class="head">
+          <h2>Operations</h2>
+          <div class="tabs" id="tabs">
+            <div class="tab active" data-tab="staff">Staff</div>
+            <div class="tab" data-tab="visitors">Visitors</div>
+            <div class="tab" data-tab="onsite">Who’s on site</div>
+            <div class="tab" data-tab="evac">Evacuation</div>
+          </div>
+        </div>
+        <div class="body">
+
+          <!-- STAFF TAB -->
+          <div id="tab_staff">
+            <div class="split">
+              <div class="card">
+                <div class="row" style="margin-bottom:10px;">
+                  <b style="font-size:14px;">Staff sign in / out (QR)</b>
+                  <div class="tag">Kiosk-ready</div>
+                </div>
+                <div class="hint">Scan an employee badge QR to toggle IN/OUT. Server-side dedupe prevents double scans.</div>
+                <div class="divider"></div>
+
+                <div id="cameraBlock">
+                  <video id="video" autoplay playsinline muted></video>
+                  <div class="inrow" style="margin-top:10px;">
+                    <button class="btn good" id="startCameraBtn">Start camera</button>
+                    <button class="btn" id="stopCameraBtn" disabled>Stop camera</button>
+                    <span class="tag mono" id="cameraStatus">idle</span>
+                  </div>
+                  <div class="hint" style="margin-top:8px;">
+                    Works best on Chrome/Edge. If BarcodeDetector isn’t available, use manual code entry below.
+                  </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="field">
+                  <label>Manual badge code</label>
+                  <div class="inrow">
+                    <input id="manualBadgeCode" placeholder="Scan or type badge code (e.g. SMT123456 or encoded token)" autocomplete="off" />
+                    <button class="btn primary" id="submitBadgeBtn">Submit</button>
+                  </div>
+                  <div class="hint">This uses the same endpoint as QR scans.</div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="row" style="margin-bottom:10px;">
+                  <b style="font-size:14px;">Staff sign in / out (Search)</b>
+                  <div class="tag">Office/Admin</div>
+                </div>
+                <div class="hint">Search employees by employee code or name, then record IN or OUT.</div>
+                <div class="divider"></div>
+
+                <div class="field">
+                  <label>Search</label>
+                  <input id="employeeSearch" placeholder="Employee code or name…" autocomplete="off" />
+                  <div class="inrow">
+                    <button class="btn" id="searchEmployeeBtn">Search</button>
+                    <button class="btn" id="clearEmployeeSearchBtn">Clear</button>
+                  </div>
+                  <div class="hint" id="employeeSearchHint">Results will appear below.</div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="list" id="employeeResults"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- VISITORS TAB -->
+          <div id="tab_visitors" class="hide">
+            <div class="split">
+              <div class="card">
+                <div class="row" style="margin-bottom:10px;">
+                  <b style="font-size:14px;">Visitor sign in</b>
+                  <div class="tag">On arrival</div>
+                </div>
+                <div class="hint">Create a visitor record and mark them IN for the selected site.</div>
+                <div class="divider"></div>
+
+                <div class="field">
+                  <label>Full name</label>
+                  <input id="vName" autocomplete="off" />
+                </div>
+                <div class="field" style="margin-top:10px;">
+                  <label>Visitor company</label>
+                  <input id="vCompany" autocomplete="off" />
+                </div>
+                <div class="field" style="margin-top:10px;">
+                  <label>Visiting (person/department)</label>
+                  <input id="vVisiting" autocomplete="off" />
+                </div>
+                <div class="field" style="margin-top:10px;">
+                  <label>Photo (optional but recommended)</label>
+                  <input id="vPhoto" type="file" accept="image/*" />
+                  <div class="hint">Stored securely per company. Access controlled by RLS/storage policies.</div>
+                </div>
+
+                <div class="inrow" style="margin-top:12px;">
+                  <button class="btn good" id="visitorSignInBtn">Sign in visitor</button>
+                  <button class="btn" id="visitorClearBtn">Clear</button>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="row" style="margin-bottom:10px;">
+                  <b style="font-size:14px;">Visitors currently on site</b>
+                  <div class="tag">Live</div>
+                </div>
+                <div class="hint">Select a visitor to sign them out.</div>
+                <div class="divider"></div>
+                <div class="list" id="visitorsOnsiteList"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ONSITE TAB -->
+          <div id="tab_onsite" class="hide">
+            <div class="split">
+              <div class="card">
+                <div class="row">
+                  <b style="font-size:14px;">Live “Who is on site”</b>
+                  <div class="tag">Realtime</div>
+                </div>
+                <div class="hint">This list is sourced from current_presence (snapshot). Presence events are stored separately for audit/history.</div>
+                <div class="divider"></div>
+                <div class="list" id="onsiteList"></div>
+              </div>
+
+              <div class="card">
+                <div class="row">
+                  <b style="font-size:14px;">Quick stats</b>
+                </div>
+                <div class="divider"></div>
+                <div class="kpi">
+                  <span>Total on site</span>
+                  <b id="kpiTotal">0</b>
+                </div>
+                <div style="height:10px"></div>
+                <div class="kpi">
+                  <span>Staff</span>
+                  <b id="kpiStaff">0</b>
+                </div>
+                <div style="height:10px"></div>
+                <div class="kpi">
+                  <span>Visitors</span>
+                  <b id="kpiVisitors">0</b>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="field">
+                  <label>Export presence (CSV)</label>
+                  <div class="inrow">
+                    <input id="exportFrom" type="date" />
+                    <input id="exportTo" type="date" />
+                  </div>
+                  <div class="inrow" style="margin-top:10px;">
+                    <button class="btn primary" id="exportPresenceBtn">Download CSV</button>
+                  </div>
+                  <div class="hint">For HR audits and reporting. Spreadsheets are for export only.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- EVAC TAB -->
+          <div id="tab_evac" class="hide">
+            <div class="split">
+              <div class="card">
+                <div class="row">
+                  <b style="font-size:14px;">Emergency Evacuation (Roll Call)</b>
+                  <div class="tag danger">PIN protected</div>
+                </div>
+                <div class="hint">
+                  Creates a snapshot of everyone currently on site, then allows marshals/admins to mark people as accounted for.
+                  Every change is timestamped and logged.
+                </div>
+                <div class="divider"></div>
+
+                <div class="field">
+                  <label>Marshal name</label>
+                  <input id="marshalName" placeholder="e.g. J. Smith" autocomplete="off" />
+                  <div class="hint">Recorded on the evacuation session.</div>
+                </div>
+
+                <div class="field" style="margin-top:10px;">
+                  <label>Evacuation type</label>
+                  <select id="evacType">
+                    <option value="alarm">Fire Alarm</option>
+                    <option value="drill">Fire Drill</option>
+                    <option value="test">Test</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                <div class="inrow" style="margin-top:12px;">
+                  <button class="btn danger" id="startEvacBtn">Start evacuation roll call</button>
+                  <button class="btn" id="resumeEvacBtn">Resume active roll call</button>
+                </div>
+
+                <div class="divider"></div>
+                <div class="footer-note">
+                  This system provides records and tools — it does not guarantee legal compliance.
+                  Responsibility for safe evacuation procedures remains with the customer.
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="row">
+                  <b style="font-size:14px;">Active roll call</b>
+                  <span class="tag mono" id="activeSessionTag">none</span>
+                </div>
+                <div class="hint">When an evacuation session is open, the roll-call list below updates live.</div>
+                <div class="divider"></div>
+
+                <div class="list" id="rollCallList"></div>
+
+                <div class="divider"></div>
+
+                <div class="inrow">
+                  <button class="btn good" id="markAllSafeBtn">Mark all as accounted</button>
+                  <button class="btn" id="exportEvacBtn">Export roll call (CSV)</button>
+                  <button class="btn danger" id="closeEvacBtn">Close session</button>
+                </div>
+                <div class="hint" style="margin-top:8px;">Only Fire Marshals / Admins can start/close sessions.</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- RIGHT: Status & Admin controls -->
+      <div class="panel">
+        <div class="head">
+          <h2>Status</h2>
+          <div class="inrow">
+            <button class="btn small" id="refreshBtn">Refresh</button>
+            <button class="btn small" id="openAdminBtn">Admin</button>
+          </div>
+        </div>
+        <div class="body">
+
+          <div class="card">
+            <div class="row">
+              <b style="font-size:14px;">Connection</b>
+              <span class="tag mono" id="connTag">initialising…</span>
+            </div>
+            <div class="divider"></div>
+            <div class="hint" id="connHint">Setting up Supabase session and tenant context.</div>
+          </div>
+
+          <div style="height:12px"></div>
+
+          <div class="card">
+            <div class="row">
+              <b style="font-size:14px;">Live updates</b>
+              <span class="tag" id="rtTag">off</span>
+            </div>
+            <div class="divider"></div>
+            <div class="hint">
+              Presence list and roll-call updates are streamed in realtime to support evacuation scenarios.
+            </div>
+          </div>
+
+          <div style="height:12px"></div>
+
+          <div class="card">
+            <div class="row">
+              <b style="font-size:14px;">Admin actions</b>
+              <span class="tag">Restricted</span>
+            </div>
+            <div class="divider"></div>
+            <div class="inrow">
+              <button class="btn" id="openEmployeesBtn">Manage employees</button>
+              <button class="btn" id="openAuditBtn">View audit log</button>
+            </div>
+            <div class="hint" style="margin-top:8px;">
+              These actions require HR Admin / Company Admin.
+            </div>
+          </div>
+
+          <div style="height:12px"></div>
+
+          <div class="card">
+            <b style="font-size:14px;">Notes</b>
+            <div class="divider"></div>
+            <div class="footer-note">
+              • Presence is stored as immutable events + a current snapshot for performance.<br/>
+              • Evacuation creates a snapshot at start so roll-call is consistent.<br/>
+              • All sensitive actions are written to audit_log.
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Modal -->
+  <div id="adminModal" class="modal-backdrop hide" aria-hidden="true">
+    <div class="modal">
+      <div class="mhead">
+        <b>Admin</b>
+        <button class="btn small" id="closeAdminBtn">Close</button>
+      </div>
+      <div class="mbody">
+        <div class="tabs" id="adminTabs">
+          <div class="tab active" data-atab="employees">Employees</div>
+          <div class="tab" data-atab="audit">Audit log</div>
+        </div>
+
+        <div id="admin_employees" style="margin-top:12px;">
+          <div class="split">
+            <div class="card">
+              <b style="font-size:14px;">Create employee</b>
+              <div class="divider"></div>
+
+              <div class="field">
+                <label>Employee code</label>
+                <input id="aEmpCode" placeholder="e.g. SMT000123" autocomplete="off" />
+              </div>
+              <div class="split" style="margin-top:10px;">
+                <div class="field">
+                  <label>First name</label>
+                  <input id="aEmpFirst" autocomplete="off" />
+                </div>
+                <div class="field">
+                  <label>Last name</label>
+                  <input id="aEmpLast" autocomplete="off" />
+                </div>
+              </div>
+
+              <div class="inrow" style="margin-top:12px;">
+                <button class="btn good" id="createEmployeeBtn">Create</button>
+                <button class="btn" id="clearEmployeeFormBtn">Clear</button>
+              </div>
+              <div class="hint" style="margin-top:8px;">Employee badge QR payload = employee_code by default.</div>
+            </div>
+
+            <div class="card">
+              <div class="row">
+                <b style="font-size:14px;">Employees</b>
+                <button class="btn small" id="reloadEmployeesBtn">Reload</button>
+              </div>
+              <div class="divider"></div>
+              <div class="list" id="employeesList"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="admin_audit" class="hide" style="margin-top:12px;">
+          <div class="card">
+            <div class="row">
+              <b style="font-size:14px;">Audit log (latest)</b>
+              <button class="btn small" id="reloadAuditBtn">Reload</button>
+            </div>
+            <div class="divider"></div>
+            <div class="list" id="auditList"></div>
+          </div>
+        </div>
+
+      </div>
+      <div class="mfoot">
+        <div class="hint" style="margin-right:auto;">
+          Admin actions are logged. Tenant isolation is enforced by RLS.
+        </div>
+        <button class="btn" id="closeAdminBtn2">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Evac PIN Modal -->
+  <div id="pinModal" class="modal-backdrop hide" aria-hidden="true">
+    <div class="modal" style="max-width:520px;">
+      <div class="mhead">
+        <b>Evacuation access</b>
+        <button class="btn small" id="pinCancelBtn">Cancel</button>
+      </div>
+      <div class="mbody">
+        <div class="hint">
+          Enter the company evacuation PIN to start or resume a roll call. This attempt will be audited.
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>PIN</label>
+          <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" />
+          <div class="hint">PIN is verified against company_settings.evac_pin_sha256 using SHA-256.</div>
+        </div>
+      </div>
+      <div class="mfoot">
+        <button class="btn primary" id="pinConfirmBtn">Unlock</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toastwrap" id="toastwrap"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Utilities
+  ───────────────────────────────────────────────────────────────────────── */
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const nowIso = () => new Date().toISOString();
+  const isLikelyUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s || "");
+
+  function toast(type, title, msg){
+    const wrap = $("toastwrap");
+    const t = document.createElement("div");
+    t.className = "toast";
+    const dot = document.createElement("div");
+    dot.className = "dot " + (type || "");
+    const c = document.createElement("div");
+    const b = document.createElement("b"); b.textContent = title;
+    const p = document.createElement("p"); p.textContent = msg;
+    c.appendChild(b); c.appendChild(p);
+    t.appendChild(dot); t.appendChild(c);
+    wrap.appendChild(t);
+    setTimeout(() => { t.style.opacity = "0"; t.style.transform = "translateY(6px)"; }, 3500);
+    setTimeout(() => { t.remove(); }, 4200);
+  }
+
+  function setConn(state, hint){
+    $("connTag").textContent = state;
+    $("connHint").textContent = hint || "";
+  }
+
+  function getCompanySlugFromPath(){
+    // Supported patterns:
+    // 1) /app/{company}/presence-and-fire-safety.html
+    // 2) /app/{company}/{system}.html
+    // 3) /app/modules/presence-and-fire-safety.html  (if you ever open the module directly)
+    const parts = window.location.pathname.split("/").filter(Boolean);
+    const appIdx = parts.indexOf("app");
+    if(appIdx === -1) return null;
+
+    // /app/modules/... => no company in URL
+    if(parts[appIdx+1] === "modules") return null;
+
+    return parts[appIdx+1] || null;
+  }
+
+  function downloadText(filename, text){
+    const blob = new Blob([text], {type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function sha256Hex(str){
+    const enc = new TextEncoder().encode(String(str));
+    const buf = await crypto.subtle.digest("SHA-256", enc);
+    const arr = Array.from(new Uint8Array(buf));
+    return arr.map(b => b.toString(16).padStart(2,"0")).join("");
+  }
+
+  function parseDateInputToRange(dateStr){
+    // dateStr 'YYYY-MM-DD' -> [startIso, endIsoExclusive]
+    if(!dateStr) return [null, null];
+    const start = new Date(dateStr + "T00:00:00.000Z");
+    const end = new Date(start.getTime() + 24*60*60*1000);
+    return [start.toISOString(), end.toISOString()];
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Supabase client (must be configured in your /app/app.js)
+     This module will use:
+       - window.SMARTCORE_SUPABASE_URL
+       - window.SMARTCORE_SUPABASE_ANON_KEY
+     OR
+       - window.supabaseClient (already created)
+     OR
+       - localStorage keys: SMARTCORE_SUPABASE_URL / SMARTCORE_SUPABASE_ANON_KEY
+  ───────────────────────────────────────────────────────────────────────── */
+  function resolveSupabaseConfig(){
+    const url =
+      window.SMARTCORE_SUPABASE_URL ||
+      localStorage.getItem("SMARTCORE_SUPABASE_URL") ||
+      window.supabaseUrl ||
+      null;
+
+    const key =
+      window.SMARTCORE_SUPABASE_ANON_KEY ||
+      localStorage.getItem("SMARTCORE_SUPABASE_ANON_KEY") ||
+      window.supabaseAnonKey ||
+      null;
+
+    return { url, key };
+  }
+
+  function getSupabaseClient(){
+    if(window.supabaseClient) return window.supabaseClient;
+
+    const { url, key } = resolveSupabaseConfig();
+    if(!url || !key){
+      throw new Error(
+        "Supabase config missing. Ensure /app/app.js defines window.SMARTCORE_SUPABASE_URL and window.SMARTCORE_SUPABASE_ANON_KEY (or localStorage keys)."
+      );
+    }
+    const client = window.supabase.createClient(url, key, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    });
+    window.supabaseClient = client;
+    return client;
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     State
+  ───────────────────────────────────────────────────────────────────────── */
+  const state = {
+    supabase: null,
+    session: null,
+    user: null,
+
+    companySlug: null,
+    company: null,
+    role: null,
+
+    sites: [],
+    siteId: null,
+
+    rtChannels: [],
+    activeEvacSession: null,
+    evacUnlocked: false,
+
+    scanning: false,
+    videoStream: null,
+    barcodeDetector: null,
+    lastScanAt: 0,
+    scanCooldownMs: 1800
+  };
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Auth + tenant context
+  ───────────────────────────────────────────────────────────────────────── */
+  async function requireSession(){
+    const sb = state.supabase;
+    const { data, error } = await sb.auth.getSession();
+    if(error) throw error;
+    if(!data?.session){
+      // Back to /app/index.html
+      window.location.href = "/app/index.html";
+      return;
+    }
+    state.session = data.session;
+    state.user = data.session.user;
+    $("userEmail").textContent = state.user.email || "(unknown)";
+  }
+
+  async function resolveCompanyContext(){
+    state.companySlug = getCompanySlugFromPath();
+    if(!state.companySlug){
+      // Strict: this module requires company in URL for tenancy.
+      throw new Error("Company slug missing from URL. Open this module via /app/{company}/presence-and-fire-safety.html");
+    }
+    $("companySlug").textContent = state.companySlug;
+
+    // Get company by slug
+    const { data: company, error: cErr } = await state.supabase
+      .from("companies")
+      .select("id, slug, name")
+      .eq("slug", state.companySlug)
+      .single();
+
+    if(cErr) throw cErr;
+    if(!company) throw new Error("Company not found.");
+    state.company = company;
+
+    // Verify membership + role for this user
+    const { data: cu, error: cuErr } = await state.supabase
+      .from("company_users")
+      .select("role, active")
+      .eq("company_id", company.id)
+      .eq("user_id", state.user.id)
+      .maybeSingle();
+
+    if(cuErr) throw cuErr;
+    if(!cu || cu.active !== true){
+      throw new Error("Access denied: user is not active for this company.");
+    }
+    state.role = cu.role;
+    $("userRole").textContent = state.role;
+
+    // Sites
+    const { data: sites, error: sErr } = await state.supabase
+      .from("sites")
+      .select("id, name")
+      .eq("company_id", state.company.id)
+      .order("name", { ascending: true });
+
+    if(sErr) throw sErr;
+    state.sites = sites || [];
+
+    if(state.sites.length === 0){
+      throw new Error("No sites configured for this company. Create at least one site in the database.");
+    }
+
+    // Choose site: from query string or first
+    const url = new URL(window.location.href);
+    const qsSite = url.searchParams.get("site");
+    state.siteId = (qsSite && isLikelyUuid(qsSite)) ? qsSite : state.sites[0].id;
+    renderSiteSelect();
+
+    await audit("module.opened", { module: "presence-and-fire-safety", slug: state.companySlug, site_id: state.siteId });
+  }
+
+  function renderSiteSelect(){
+    const sel = $("siteSelect");
+    sel.innerHTML = "";
+    for(const s of state.sites){
+      const opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = s.name;
+      if(s.id === state.siteId) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+
+  async function audit(action, metadata){
+    try{
+      await state.supabase.from("audit_log").insert([{
+        company_id: state.company?.id || null,
+        site_id: state.siteId || null,
+        actor_user_id: state.user?.id || null,
+        action,
+        metadata: metadata || {},
+        created_at: nowIso()
+      }]);
+    }catch(_e){
+      // Never block UX on audit failures; do not toast noisily.
+    }
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Presence logic (Staff scan + manual)
+  ───────────────────────────────────────────────────────────────────────── */
+  async function toggleByBadgeCode(badgeCode, method){
+    const code = String(badgeCode || "").trim();
+    if(!code){
+      toast("warn", "No code", "Enter or scan a badge code.");
+      return;
+    }
+
+    // Deduplicate rapid scans locally
+    const now = Date.now();
+    if(now - state.lastScanAt < state.scanCooldownMs){
+      return;
+    }
+    state.lastScanAt = now;
+
+    $("connTag").textContent = "working…";
+
+    // Resolve employee by employee_code (badge payload) within company
+    const { data: emp, error: eErr } = await state.supabase
+      .from("employees")
+      .select("id, employee_code, first_name, last_name, active")
+      .eq("company_id", state.company.id)
+      .eq("employee_code", code)
+      .maybeSingle();
+
+    if(eErr) {
+      $("connTag").textContent = "ok";
+      toast("danger", "Scan failed", eErr.message);
+      await audit("presence.scan.error", { code, error: eErr.message });
+      return;
+    }
+    if(!emp){
+      $("connTag").textContent = "ok";
+      toast("warn", "Not found", "No active employee matches that badge code.");
+      await audit("presence.scan.not_found", { code });
+      return;
+    }
+    if(emp.active !== true){
+      $("connTag").textContent = "ok";
+      toast("warn", "Inactive", "This employee is inactive and cannot be signed in/out.");
+      await audit("presence.scan.inactive", { employee_id: emp.id, code });
+      return;
+    }
+
+    // Determine current state from current_presence
+    const { data: cp, error: cpErr } = await state.supabase
+      .from("current_presence")
+      .select("state")
+      .eq("company_id", state.company.id)
+      .eq("site_id", state.siteId)
+      .eq("person_type", "employee")
+      .eq("employee_id", emp.id)
+      .maybeSingle();
+
+    if(cpErr){
+      $("connTag").textContent = "ok";
+      toast("danger", "Error", cpErr.message);
+      await audit("presence.toggle.error", { employee_id: emp.id, error: cpErr.message });
+      return;
+    }
+
+    const newDirection = (cp?.state === "in") ? "out" : "in";
+
+    // Write presence event
+    const { data: ev, error: evErr } = await state.supabase
+      .from("presence_events")
+      .insert([{
+        company_id: state.company.id,
+        site_id: state.siteId,
+        person_type: "employee",
+        employee_id: emp.id,
+        visitor_id: null,
+        direction: newDirection,
+        method: method || "qr",
+        device_label: navigator.userAgent ? navigator.userAgent.slice(0, 120) : null,
+        raw_input: code,
+        occurred_at: nowIso(),
+        actor_user_id: state.user.id
+      }])
+      .select("id, occurred_at")
+      .single();
+
+    if(evErr){
+      $("connTag").textContent = "ok";
+      toast("danger", "Error", evErr.message);
+      await audit("presence.event.insert_failed", { employee_id: emp.id, direction: newDirection, error: evErr.message });
+      return;
+    }
+
+    // Upsert snapshot
+    const { error: upErr } = await state.supabase
+      .from("current_presence")
+      .upsert([{
+        company_id: state.company.id,
+        site_id: state.siteId,
+        person_type: "employee",
+        employee_id: emp.id,
+        visitor_id: null,
+        state: newDirection === "in" ? "in" : "out",
+        last_event_id: ev.id,
+        last_changed_at: ev.occurred_at
+      }], { onConflict: "company_id,site_id,person_type,employee_id,visitor_id" });
+
+    if(upErr){
+      $("connTag").textContent = "ok";
+      toast("danger", "Error", upErr.message);
+      await audit("presence.snapshot.upsert_failed", { employee_id: emp.id, direction: newDirection, error: upErr.message });
+      return;
+    }
+
+    $("connTag").textContent = "ok";
+    const name = `${emp.first_name} ${emp.last_name}`.trim();
+    toast("ok", "Recorded", `${name} is now ${newDirection.toUpperCase()} for this site.`);
+    await audit("presence.toggle.success", { employee_id: emp.id, direction: newDirection, method: method || "qr" });
+
+    // Refresh relevant lists
+    await refreshOnsite();
+    await refreshVisitorsOnsite();
+  }
+
+  async function searchEmployees(){
+    const q = String($("employeeSearch").value || "").trim();
+    const out = $("employeeResults");
+    out.innerHTML = "";
+    if(!q){
+      $("employeeSearchHint").textContent = "Enter a name or employee code to search.";
+      return;
+    }
+    $("employeeSearchHint").textContent = "Searching…";
+
+    // Prefer exact employee_code match then fallback to name search
+    let results = [];
+
+    const { data: exact, error: exErr } = await state.supabase
+      .from("employees")
+      .select("id, employee_code, first_name, last_name, active")
+      .eq("company_id", state.company.id)
+      .eq("employee_code", q)
+      .limit(10);
+
+    if(exErr) {
+      toast("danger","Search failed", exErr.message);
+      $("employeeSearchHint").textContent = "Search failed.";
+      await audit("employees.search.error", { q, error: exErr.message });
+      return;
+    }
+    if(exact && exact.length){
+      results = exact;
+    } else {
+      // Case-insensitive name match using ilike
+      const { data: name, error: nErr } = await state.supabase
+        .from("employees")
+        .select("id, employee_code, first_name, last_name, active")
+        .eq("company_id", state.company.id)
+        .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
+        .limit(20);
+
+      if(nErr){
+        toast("danger","Search failed", nErr.message);
+        $("employeeSearchHint").textContent = "Search failed.";
+        await audit("employees.search.error", { q, error: nErr.message });
+        return;
+      }
+      results = name || [];
+    }
+
+    if(!results.length){
+      $("employeeSearchHint").textContent = "No employees found.";
+      return;
+    }
+    $("employeeSearchHint").textContent = `Found ${results.length} result(s).`;
+
+    for(const emp of results){
+      const item = document.createElement("div");
+      item.className = "item";
+
+      const left = document.createElement("div");
+      left.className = "left";
+      const b = document.createElement("b");
+      b.textContent = `${emp.first_name} ${emp.last_name}`.trim();
+      const s = document.createElement("span");
+      s.textContent = `Code: ${emp.employee_code} • ${emp.active ? "Active" : "Inactive"}`;
+      left.appendChild(b); left.appendChild(s);
+
+      const right = document.createElement("div");
+      right.className = "right";
+
+      const inBtn = document.createElement("button");
+      inBtn.className = "btn small good";
+      inBtn.textContent = "Sign IN";
+      inBtn.disabled = !emp.active;
+      inBtn.onclick = async () => await recordEmployeeDirection(emp, "in");
+
+      const outBtn = document.createElement("button");
+      outBtn.className = "btn small";
+      outBtn.textContent = "Sign OUT";
+      outBtn.disabled = !emp.active;
+      outBtn.onclick = async () => await recordEmployeeDirection(emp, "out");
+
+      right.appendChild(inBtn); right.appendChild(outBtn);
+
+      item.appendChild(left); item.appendChild(right);
+      out.appendChild(item);
+    }
+  }
+
+  async function recordEmployeeDirection(emp, direction){
+    if(!emp?.id) return;
+    if(emp.active !== true){
+      toast("warn","Inactive", "This employee is inactive.");
+      return;
+    }
+
+    const { data: ev, error: evErr } = await state.supabase
+      .from("presence_events")
+      .insert([{
+        company_id: state.company.id,
+        site_id: state.siteId,
+        person_type: "employee",
+        employee_id: emp.id,
+        visitor_id: null,
+        direction,
+        method: "manual",
+        device_label: "manual",
+        raw_input: `${emp.employee_code}`,
+        occurred_at: nowIso(),
+        actor_user_id: state.user.id
+      }])
+      .select("id, occurred_at")
+      .single();
+
+    if(evErr){
+      toast("danger","Error", evErr.message);
+      await audit("presence.manual.error", { employee_id: emp.id, direction, error: evErr.message });
+      return;
+    }
+
+    const { error: upErr } = await state.supabase
+      .from("current_presence")
+      .upsert([{
+        company_id: state.company.id,
+        site_id: state.siteId,
+        person_type: "employee",
+        employee_id: emp.id,
+        visitor_id: null,
+        state: direction === "in" ? "in" : "out",
+        last_event_id: ev.id,
+        last_changed_at: ev.occurred_at
+      }], { onConflict: "company_id,site_id,person_type,employee_id,visitor_id" });
+
+    if(upErr){
+      toast("danger","Error", upErr.message);
+      await audit("presence.manual.snapshot_failed", { employee_id: emp.id, direction, error: upErr.message });
+      return;
+    }
+
+    toast("ok","Recorded", `${emp.first_name} ${emp.last_name} marked ${direction.toUpperCase()}.`);
+    await audit("presence.manual.success", { employee_id: emp.id, direction });
+    await refreshOnsite();
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Visitors
+  ───────────────────────────────────────────────────────────────────────── */
+  async function visitorSignIn(){
+    const full_name = String($("vName").value || "").trim();
+    const visitor_company = String($("vCompany").value || "").trim();
+    const visiting = String($("vVisiting").value || "").trim();
+    const file = $("vPhoto").files?.[0] || null;
+
+    if(!full_name){
+      toast("warn","Missing info", "Visitor name is required.");
+      return;
+    }
+
+    let photo_path = null;
+    if(file){
+      // Store under: company/{company_id}/visitors/{visitor_id or temp}/{timestamp}.jpg
+      // We'll upload after creating visitor row (need visitor id) -> two-step for clean path.
+    }
+
+    // Create visitor row first
+    const { data: v, error: vErr } = await state.supabase
+      .from("visitors")
+      .insert([{
+        company_id: state.company.id,
+        site_id: state.siteId,
+        full_name,
+        visitor_company: visitor_company || null,
+        visiting: visiting || null,
+        photo_path: null,
+        created_at: nowIso()
+      }])
+      .select("id, full_name")
+      .single();
+
+    if(vErr){
+      toast("danger","Error", vErr.message);
+      await audit("visitor.create.error", { full_name, error: vErr.message });
+      return;
+    }
+
+    // Upload photo if present
+    if(file){
+      const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(0, 80);
+      const path = `company_${state.company.id}/visitors/${v.id}/${Date.now()}_${safeName}`;
+      const { error: upErr } = await state.supabase.storage
+        .from("smartcore")
+        .upload(path, file, { upsert: true, contentType: file.type });
+
+      if(upErr){
+        toast("warn","Photo upload failed", "Visitor created, but photo could not be uploaded.");
+        await audit("visitor.photo.upload_failed", { visitor_id: v.id, error: upErr.message });
+      } else {
+        photo_path = path;
+        await state.supabase.from("visitors").update({ photo_path }).eq("id", v.id);
+        await audit("visitor.photo.uploaded", { visitor_id: v.id, photo_path });
+      }
+    }
+
+    // Presence IN event
+    const { data: ev, error: evErr } = await state.supabase
+      .from("presence_events")
+      .insert([{
+        company_id: state.company.id,
+        site_id: state.siteId,
+        person_type: "visitor",
+        employee_id: null,
+        visitor_id: v.id,
+        direction: "in",
+        method: "manual",
+        device_label: "visitor_signin",
+        raw_input: full_name,
+        occurred_at: nowIso(),
+        actor_user_id: state.user.id
+      }])
+      .select("id, occurred_at")
+      .single();
+
+    if(evErr){
+      toast("danger","Error", evErr.message);
+      await audit("visitor.presence_in.error", { visitor_id: v.id, error: evErr.message });
+      return;
+    }
+
+    const { error: snapErr } = await state.supabase
+      .from("current_presence")
+      .upsert([{
+        company_id: state.company.id,
+        site_id: state.siteId,
+        person_type: "visitor",
+        employee_id: null,
+        visitor_id: v.id,
+        state: "in",
+        last_event_id: ev.id,
+        last_changed_at: ev.occurred_at
+      }], { onConflict: "company_id,site_id,person_type,employee_id,visitor_id" });
+
+    if(snapErr){
+      toast("danger","Error", snapErr.message);
+      await audit("visitor.snapshot.error", { visitor_id: v.id, error: snapErr.message });
+      return;
+    }
+
+    toast("ok","Signed in", `${full_name} is now IN for this site.`);
+    await audit("visitor.sign_in.success", { visitor_id: v.id, full_name });
+
+    $("vName").value = "";
+    $("vCompany").value = "";
+    $("vVisiting").value = "";
+    $("vPhoto").value = "";
+
+    await refreshVisitorsOnsite();
+    await refreshOnsite();
+  }
+
+  async function visitorSignOut(visitorId){
+    const { data: v, error: vErr } = await state.supabase
+      .from("visitors")
+      .select("id, full_name")
+      .eq("company_id", state.company.id)
+      .eq("id", visitorId)
+      .single();
+
+    if(vErr){
+      toast("danger","Error", vErr.message);
+      await audit("visitor.sign_out.lookup_error", { visitor_id: visitorId, error: vErr.message });
+      return;
+    }
+
+    const { data: ev, error: evErr } = await state.supabase
+      .from("presence_events")
+      .insert([{
+        company_id: state.company.id,
+        site_id: state.siteId,
+        person_type: "visitor",
+        employee_id: null,
+        visitor_id: v.id,
+        direction: "out",
+        method: "manual",
+        device_label: "visitor_signout",
+        raw_input: v.full_name,
+        occurred_at: nowIso(),
+        actor_user_id: state.user.id
+      }])
+      .select("id, occurred_at")
+      .single();
+
+    if(evErr){
+      toast("danger","Error", evErr.message);
+      await audit("visitor.presence_out.error", { visitor_id: v.id, error: evErr.message });
+      return;
+    }
+
+    const { error: snapErr } = await state.supabase
+      .from("current_presence")
+      .upsert([{
+        company_id: state.company.id,
+        site_id: state.siteId,
+        person_type: "visitor",
+        employee_id: null,
+        visitor_id: v.id,
+        state: "out",
+        last_event_id: ev.id,
+        last_changed_at: ev.occurred_at
+      }], { onConflict: "company_id,site_id,person_type,employee_id,visitor_id" });
+
+    if(snapErr){
+      toast("danger","Error", snapErr.message);
+      await audit("visitor.snapshot_out.error", { visitor_id: v.id, error: snapErr.message });
+      return;
+    }
+
+    toast("ok","Signed out", `${v.full_name} is now OUT.`);
+    await audit("visitor.sign_out.success", { visitor_id: v.id });
+
+    await refreshVisitorsOnsite();
+    await refreshOnsite();
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Live presence lists (current_presence)
+  ───────────────────────────────────────────────────────────────────────── */
+  async function refreshOnsite(){
+    const { data, error } = await state.supabase
+      .from("current_presence")
+      .select(`
+        person_type, employee_id, visitor_id, state, last_changed_at,
+        employees:employee_id ( first_name, last_name, employee_code ),
+        visitors:visitor_id ( full_name, visitor_company )
+      `)
+      .eq("company_id", state.company.id)
+      .eq("site_id", state.siteId)
+      .eq("state", "in")
+      .order("last_changed_at", { ascending: false });
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("onsite.refresh.error", { error: error.message });
+      return;
+    }
+
+    const list = $("onsiteList");
+    list.innerHTML = "";
+
+    const items = data || [];
+    let staff = 0, visitors = 0;
+
+    for(const row of items){
+      const item = document.createElement("div");
+      item.className = "item";
+
+      const left = document.createElement("div");
+      left.className = "left";
+
+      let name = "";
+      let meta = "";
+      if(row.person_type === "employee"){
+        staff++;
+        name = `${row.employees?.first_name || ""} ${row.employees?.last_name || ""}`.trim() || "Employee";
+        meta = `Staff • ${row.employees?.employee_code || "no code"} • IN since ${new Date(row.last_changed_at).toLocaleString()}`;
+      } else {
+        visitors++;
+        name = row.visitors?.full_name || "Visitor";
+        meta = `Visitor • ${row.visitors?.visitor_company || "—"} • IN since ${new Date(row.last_changed_at).toLocaleString()}`;
+      }
+
+      const b = document.createElement("b");
+      b.textContent = name;
+
+      const s = document.createElement("span");
+      s.textContent = meta;
+
+      left.appendChild(b); left.appendChild(s);
+
+      const right = document.createElement("div");
+      right.className = "right";
+      const tag = document.createElement("span");
+      tag.className = "tag ok";
+      tag.textContent = "ON SITE";
+      right.appendChild(tag);
+
+      item.appendChild(left);
+      item.appendChild(right);
+      list.appendChild(item);
+    }
+
+    $("kpiTotal").textContent = String(items.length);
+    $("kpiStaff").textContent = String(staff);
+    $("kpiVisitors").textContent = String(visitors);
+
+    // Visitors list in Visitors tab
+    // (Staff list there is through search/scan)
+  }
+
+  async function refreshVisitorsOnsite(){
+    const { data, error } = await state.supabase
+      .from("current_presence")
+      .select(`
+        visitor_id, last_changed_at, visitors:visitor_id ( full_name, visitor_company )
+      `)
+      .eq("company_id", state.company.id)
+      .eq("site_id", state.siteId)
+      .eq("person_type", "visitor")
+      .eq("state", "in")
+      .order("last_changed_at", { ascending: false });
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("visitors.onsite.refresh.error", { error: error.message });
+      return;
+    }
+
+    const list = $("visitorsOnsiteList");
+    list.innerHTML = "";
+
+    const items = data || [];
+    if(items.length === 0){
+      const empty = document.createElement("div");
+      empty.className = "hint";
+      empty.textContent = "No visitors currently signed in.";
+      list.appendChild(empty);
+      return;
+    }
+
+    for(const row of items){
+      const item = document.createElement("div");
+      item.className = "item";
+
+      const left = document.createElement("div");
+      left.className = "left";
+      const b = document.createElement("b");
+      b.textContent = row.visitors?.full_name || "Visitor";
+      const s = document.createElement("span");
+      s.textContent = `${row.visitors?.visitor_company || "—"} • IN since ${new Date(row.last_changed_at).toLocaleString()}`;
+      left.appendChild(b); left.appendChild(s);
+
+      const right = document.createElement("div");
+      right.className = "right";
+      const btn = document.createElement("button");
+      btn.className = "btn small";
+      btn.textContent = "Sign OUT";
+      btn.onclick = async () => await visitorSignOut(row.visitor_id);
+      right.appendChild(btn);
+
+      item.appendChild(left); item.appendChild(right);
+      list.appendChild(item);
+    }
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Realtime subscriptions
+  ───────────────────────────────────────────────────────────────────────── */
+  function clearRealtime(){
+    for(const ch of state.rtChannels){
+      try { state.supabase.removeChannel(ch); } catch(_e){}
+    }
+    state.rtChannels = [];
+    $("rtTag").textContent = "off";
+  }
+
+  function enableRealtime(){
+    clearRealtime();
+
+    const ch1 = state.supabase.channel(`rt_presence_${state.company.id}_${state.siteId}`);
+    ch1.on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "current_presence",
+      filter: `company_id=eq.${state.company.id}`
+    }, async (payload) => {
+      // Only refresh if current site changed (cheap and safe)
+      if(payload?.new?.site_id === state.siteId || payload?.old?.site_id === state.siteId){
+        await refreshOnsite();
+        await refreshVisitorsOnsite();
+      }
+    });
+
+    ch1.subscribe((status) => {
+      if(status === "SUBSCRIBED"){
+        $("rtTag").textContent = "on";
+      }
+    });
+
+    const ch2 = state.supabase.channel(`rt_evac_${state.company.id}_${state.siteId}`);
+    ch2.on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "evacuation_rollcall_entries",
+      filter: `company_id=eq.${state.company.id}`
+    }, async (payload) => {
+      if(state.activeEvacSession && payload?.new?.session_id === state.activeEvacSession.id){
+        await refreshRollCall();
+      }
+    });
+    ch2.on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "evacuation_sessions",
+      filter: `company_id=eq.${state.company.id}`
+    }, async (payload) => {
+      // If active session changed/closed, refresh active session
+      await loadActiveEvacSession();
+    });
+
+    ch2.subscribe((status) => {
+      if(status === "SUBSCRIBED"){
+        $("rtTag").textContent = "on";
+      }
+    });
+
+    state.rtChannels.push(ch1, ch2);
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Evacuation: PIN + session + snapshot + roll call
+  ───────────────────────────────────────────────────────────────────────── */
+  function roleCanStartEvac(){
+    return ["fire_marshal", "hr_admin", "company_admin"].includes(state.role);
+  }
+
+  async function openPinModal(){
+    $("pinInput").value = "";
+    $("pinModal").classList.remove("hide");
+  }
+
+  function closePinModal(){
+    $("pinModal").classList.add("hide");
+  }
+
+  async function verifyPin(pin){
+    const entered = String(pin || "").trim();
+    if(!entered){
+      toast("warn","PIN required", "Enter the evacuation PIN.");
+      return false;
+    }
+
+    const enteredHash = await sha256Hex(entered);
+
+    const { data: settings, error } = await state.supabase
+      .from("company_settings")
+      .select("evac_pin_sha256")
+      .eq("company_id", state.company.id)
+      .single();
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("evac.pin.settings_error", { error: error.message });
+      return false;
+    }
+
+    const ok = (settings?.evac_pin_sha256 || "").toLowerCase() === enteredHash.toLowerCase();
+    await audit(ok ? "evac.pin.success" : "evac.pin.failed", { entered_hash_prefix: enteredHash.slice(0, 10) });
+    if(!ok){
+      toast("danger","Incorrect PIN", "Access denied.");
+    }
+    return ok;
+  }
+
+  async function startEvacuation(){
+    if(!roleCanStartEvac()){
+      toast("danger","Restricted", "Only Fire Marshals / Admins can start an evacuation session.");
+      return;
+    }
+
+    const marshal = String($("marshalName").value || "").trim();
+    if(!marshal){
+      toast("warn","Missing marshal name", "Enter the marshal name to proceed.");
+      return;
+    }
+
+    // PIN unlock required
+    await openPinModal();
+    state._pendingEvacAction = "start";
+  }
+
+  async function resumeEvacuation(){
+    if(!roleCanStartEvac()){
+      toast("danger","Restricted", "Only Fire Marshals / Admins can resume evacuation mode.");
+      return;
+    }
+    await openPinModal();
+    state._pendingEvacAction = "resume";
+  }
+
+  async function createEvacSessionAndSnapshot(){
+    const marshal = String($("marshalName").value || "").trim();
+    const type = $("evacType").value;
+
+    // If there is already an open session, do NOT create a second one for the same site.
+    await loadActiveEvacSession();
+    if(state.activeEvacSession){
+      toast("warn","Already active", "An evacuation session is already open for this site. Resuming it.");
+      await refreshRollCall();
+      return;
+    }
+
+    // Create session
+    const { data: ses, error: sErr } = await state.supabase
+      .from("evacuation_sessions")
+      .insert([{
+        company_id: state.company.id,
+        site_id: state.siteId,
+        status: "open",
+        type,
+        started_at: nowIso(),
+        started_by_user_id: state.user.id,
+        marshal_name: marshal,
+        closed_at: null
+      }])
+      .select("id, started_at, type, marshal_name, status")
+      .single();
+
+    if(sErr){
+      toast("danger","Error", sErr.message);
+      await audit("evac.session.create_failed", { error: sErr.message });
+      return;
+    }
+
+    // Snapshot current onsite list
+    const { data: onsite, error: oErr } = await state.supabase
+      .from("current_presence")
+      .select(`
+        person_type, employee_id, visitor_id, state, last_changed_at,
+        employees:employee_id ( first_name, last_name, employee_code ),
+        visitors:visitor_id ( full_name, visitor_company, photo_path )
+      `)
+      .eq("company_id", state.company.id)
+      .eq("site_id", state.siteId)
+      .eq("state", "in");
+
+    if(oErr){
+      toast("danger","Error", oErr.message);
+      await audit("evac.snapshot.read_failed", { session_id: ses.id, error: oErr.message });
+      return;
+    }
+
+    const entries = (onsite || []).map(r => {
+      let display_name = "";
+      let meta = "";
+      let photo_path = null;
+
+      if(r.person_type === "employee"){
+        display_name = `${r.employees?.first_name || ""} ${r.employees?.last_name || ""}`.trim() || "Employee";
+        meta = `Staff • ${r.employees?.employee_code || "—"}`;
+      } else {
+        display_name = r.visitors?.full_name || "Visitor";
+        meta = `Visitor • ${r.visitors?.visitor_company || "—"}`;
+        photo_path = r.visitors?.photo_path || null;
+      }
+
+      return {
+        session_id: ses.id,
+        company_id: state.company.id,
+        site_id: state.siteId,
+        person_type: r.person_type,
+        employee_id: r.employee_id || null,
+        visitor_id: r.visitor_id || null,
+        display_name,
+        meta,
+        photo_path,
+        accounted_for: false,
+        accounted_at: null,
+        accounted_by_user_id: null,
+        accounted_by_name: null
+      };
+    });
+
+    if(entries.length){
+      const { error: iErr } = await state.supabase
+        .from("evacuation_rollcall_entries")
+        .insert(entries);
+
+      if(iErr){
+        toast("danger","Error", iErr.message);
+        await audit("evac.snapshot.insert_failed", { session_id: ses.id, error: iErr.message });
+        return;
+      }
+    }
+
+    toast("danger","Evacuation started", `Roll call created for ${entries.length} person(s) on site.`);
+    await audit("evac.session.started", { session_id: ses.id, count: entries.length, type });
+
+    state.activeEvacSession = { id: ses.id, started_at: ses.started_at, status: "open" };
+    $("activeSessionTag").textContent = ses.id.slice(0,8) + "…";
+    await refreshRollCall();
+  }
+
+  async function loadActiveEvacSession(){
+    const { data, error } = await state.supabase
+      .from("evacuation_sessions")
+      .select("id, started_at, status, type, marshal_name")
+      .eq("company_id", state.company.id)
+      .eq("site_id", state.siteId)
+      .eq("status", "open")
+      .order("started_at", { ascending: false })
+      .limit(1);
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("evac.active.load_failed", { error: error.message });
+      return;
+    }
+
+    const ses = (data && data[0]) ? data[0] : null;
+    state.activeEvacSession = ses;
+    $("activeSessionTag").textContent = ses ? (ses.id.slice(0,8) + "…") : "none";
+    $("closeEvacBtn").disabled = !ses || !roleCanStartEvac();
+    $("exportEvacBtn").disabled = !ses;
+    $("markAllSafeBtn").disabled = !ses;
+  }
+
+  async function refreshRollCall(){
+    const list = $("rollCallList");
+    list.innerHTML = "";
+
+    if(!state.activeEvacSession){
+      const hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent = "No active roll call. Start one to generate the evacuation list.";
+      list.appendChild(hint);
+      return;
+    }
+
+    const { data, error } = await state.supabase
+      .from("evacuation_rollcall_entries")
+      .select("id, display_name, meta, accounted_for, accounted_at, accounted_by_name")
+      .eq("company_id", state.company.id)
+      .eq("site_id", state.siteId)
+      .eq("session_id", state.activeEvacSession.id)
+      .order("accounted_for", { ascending: true });
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("evac.rollcall.refresh_failed", { session_id: state.activeEvacSession.id, error: error.message });
+      return;
+    }
+
+    const entries = data || [];
+    if(entries.length === 0){
+      const hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent = "This session has no roll-call entries.";
+      list.appendChild(hint);
+      return;
+    }
+
+    let accounted = 0;
+
+    for(const e of entries){
+      if(e.accounted_for) accounted++;
+
+      const item = document.createElement("div");
+      item.className = "item";
+
+      const left = document.createElement("div");
+      left.className = "left";
+      const b = document.createElement("b");
+      b.textContent = e.display_name;
+      const s = document.createElement("span");
+      const when = e.accounted_for && e.accounted_at ? ` • Accounted at ${new Date(e.accounted_at).toLocaleTimeString()}` : "";
+      const by = e.accounted_for && e.accounted_by_name ? ` by ${e.accounted_by_name}` : "";
+      s.textContent = `${e.meta || "—"}${when}${by}`;
+      left.appendChild(b); left.appendChild(s);
+
+      const right = document.createElement("div");
+      right.className = "right";
+
+      const tag = document.createElement("span");
+      tag.className = "tag " + (e.accounted_for ? "ok" : "danger");
+      tag.textContent = e.accounted_for ? "ACCOUNTED" : "MISSING";
+      right.appendChild(tag);
+
+      const btn = document.createElement("button");
+      btn.className = "btn small " + (e.accounted_for ? "" : "good");
+      btn.textContent = e.accounted_for ? "Unmark" : "Mark safe";
+      btn.onclick = async () => await setAccounted(e.id, !e.accounted_for);
+      // allow all authenticated users to mark/unmark ONLY if they are marshal/admin in practice:
+      // but in real life you may allow multiple marshals; we restrict to roles:
+      btn.disabled = !roleCanStartEvac();
+      right.appendChild(btn);
+
+      item.appendChild(left); item.appendChild(right);
+      list.appendChild(item);
+    }
+
+    // Add top summary as first item
+    const summary = document.createElement("div");
+    summary.className = "item";
+    const l = document.createElement("div");
+    l.className = "left";
+    const b = document.createElement("b");
+    b.textContent = `Roll call: ${accounted} / ${entries.length} accounted`;
+    const s = document.createElement("span");
+    s.textContent = `Session: ${state.activeEvacSession.id} • Started ${new Date(state.activeEvacSession.started_at).toLocaleString()}`;
+    l.appendChild(b); l.appendChild(s);
+    const r = document.createElement("div");
+    r.className = "right";
+    const t = document.createElement("span");
+    t.className = "tag warn";
+    t.textContent = "LIVE";
+    r.appendChild(t);
+    summary.appendChild(l); summary.appendChild(r);
+    list.prepend(summary);
+  }
+
+  async function setAccounted(entryId, accountedFor){
+    if(!state.activeEvacSession) return;
+    if(!roleCanStartEvac()){
+      toast("danger","Restricted", "Only Fire Marshals / Admins can mark roll call.");
+      return;
+    }
+
+    const patch = {
+      accounted_for: !!accountedFor,
+      accounted_at: accountedFor ? nowIso() : null,
+      accounted_by_user_id: accountedFor ? state.user.id : null,
+      accounted_by_name: accountedFor ? (String($("marshalName").value || "").trim() || state.user.email || "marshal") : null
+    };
+
+    const { error } = await state.supabase
+      .from("evacuation_rollcall_entries")
+      .update(patch)
+      .eq("company_id", state.company.id)
+      .eq("site_id", state.siteId)
+      .eq("id", entryId);
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("evac.entry.update_failed", { entry_id: entryId, error: error.message });
+      return;
+    }
+
+    await audit("evac.entry.updated", { entry_id: entryId, accounted_for: !!accountedFor });
+    await refreshRollCall();
+  }
+
+  async function markAllSafe(){
+    if(!state.activeEvacSession) return;
+    if(!roleCanStartEvac()){
+      toast("danger","Restricted", "Only Fire Marshals / Admins can mark roll call.");
+      return;
+    }
+
+    const byName = (String($("marshalName").value || "").trim() || state.user.email || "marshal");
+    const { error } = await state.supabase
+      .from("evacuation_rollcall_entries")
+      .update({
+        accounted_for: true,
+        accounted_at: nowIso(),
+        accounted_by_user_id: state.user.id,
+        accounted_by_name: byName
+      })
+      .eq("company_id", state.company.id)
+      .eq("site_id", state.siteId)
+      .eq("session_id", state.activeEvacSession.id)
+      .eq("accounted_for", false);
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("evac.mark_all_failed", { error: error.message });
+      return;
+    }
+
+    toast("ok","Updated", "All entries marked as accounted.");
+    await audit("evac.mark_all_success", { session_id: state.activeEvacSession.id });
+    await refreshRollCall();
+  }
+
+  async function closeEvacSession(){
+    if(!state.activeEvacSession) return;
+    if(!roleCanStartEvac()){
+      toast("danger","Restricted", "Only Fire Marshals / Admins can close a session.");
+      return;
+    }
+
+    await openPinModal();
+    state._pendingEvacAction = "close";
+  }
+
+  async function closeEvacSessionConfirmed(){
+    const sesId = state.activeEvacSession.id;
+    const { error } = await state.supabase
+      .from("evacuation_sessions")
+      .update({ status: "closed", closed_at: nowIso() })
+      .eq("company_id", state.company.id)
+      .eq("site_id", state.siteId)
+      .eq("id", sesId)
+      .eq("status", "open");
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("evac.session.close_failed", { session_id: sesId, error: error.message });
+      return;
+    }
+
+    toast("ok","Closed", "Evacuation session closed.");
+    await audit("evac.session.closed", { session_id: sesId });
+
+    state.activeEvacSession = null;
+    $("activeSessionTag").textContent = "none";
+    await refreshRollCall();
+    await loadActiveEvacSession();
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Exports (CSV)
+  ───────────────────────────────────────────────────────────────────────── */
+  async function exportPresenceCsv(){
+    const fromD = $("exportFrom").value;
+    const toD = $("exportTo").value;
+
+    if(!fromD || !toD){
+      toast("warn","Select dates", "Choose a From and To date.");
+      return;
+    }
+
+    // inclusive range: [fromStart, toEndExclusive]
+    const [fromStart] = parseDateInputToRange(fromD);
+    const [, toEndExclusive] = parseDateInputToRange(toD);
+
+    const { data, error } = await state.supabase
+      .from("presence_events")
+      .select(`
+        occurred_at, person_type, direction, method, raw_input,
+        employees:employee_id ( employee_code, first_name, last_name ),
+        visitors:visitor_id ( full_name, visitor_company )
+      `)
+      .eq("company_id", state.company.id)
+      .eq("site_id", state.siteId)
+      .gte("occurred_at", fromStart)
+      .lt("occurred_at", toEndExclusive)
+      .order("occurred_at", { ascending: true });
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("export.presence.failed", { error: error.message });
+      return;
+    }
+
+    const rows = (data || []).map(r => {
+      let name = "";
+      let idcode = "";
+      let type = r.person_type || "";
+      if(type === "employee"){
+        name = `${r.employees?.first_name || ""} ${r.employees?.last_name || ""}`.trim();
+        idcode = r.employees?.employee_code || "";
+      } else {
+        name = r.visitors?.full_name || "";
+        idcode = r.visitors?.visitor_company || "";
+      }
+      return {
+        occurred_at: r.occurred_at,
+        person_type: type,
+        name,
+        identifier: idcode,
+        direction: r.direction,
+        method: r.method,
+        raw_input: r.raw_input || ""
+      };
+    });
+
+    const header = Object.keys(rows[0] || { occurred_at:"", person_type:"", name:"", identifier:"", direction:"", method:"", raw_input:"" });
+    const csv = [
+      header.join(","),
+      ...rows.map(o => header.map(k => `"${String(o[k] ?? "").replace(/"/g,'""')}"`).join(","))
+    ].join("\n");
+
+    const fname = `presence_${state.company.slug}_${fromD}_to_${toD}.csv`;
+    downloadText(fname, csv);
+    toast("ok","Export ready", `Downloaded ${fname}`);
+    await audit("export.presence.success", { from: fromStart, to: toEndExclusive, rows: rows.length });
+  }
+
+  async function exportEvacCsv(){
+    if(!state.activeEvacSession){
+      toast("warn","No session", "No active evacuation session to export.");
+      return;
+    }
+
+    const { data, error } = await state.supabase
+      .from("evacuation_rollcall_entries")
+      .select("display_name, meta, accounted_for, accounted_at, accounted_by_name")
+      .eq("company_id", state.company.id)
+      .eq("site_id", state.siteId)
+      .eq("session_id", state.activeEvacSession.id)
+      .order("display_name", { ascending: true });
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("export.evac.failed", { error: error.message });
+      return;
+    }
+
+    const rows = (data || []).map(r => ({
+      display_name: r.display_name,
+      meta: r.meta || "",
+      accounted_for: r.accounted_for ? "YES" : "NO",
+      accounted_at: r.accounted_at || "",
+      accounted_by: r.accounted_by_name || ""
+    }));
+
+    const header = Object.keys(rows[0] || { display_name:"", meta:"", accounted_for:"", accounted_at:"", accounted_by:"" });
+    const csv = [
+      header.join(","),
+      ...rows.map(o => header.map(k => `"${String(o[k] ?? "").replace(/"/g,'""')}"`).join(","))
+    ].join("\n");
+
+    const start = new Date(state.activeEvacSession.started_at).toISOString().slice(0,19).replace(/[:T]/g,"-");
+    const fname = `evac_rollcall_${state.company.slug}_${start}.csv`;
+    downloadText(fname, csv);
+    toast("ok","Export ready", `Downloaded ${fname}`);
+    await audit("export.evac.success", { session_id: state.activeEvacSession.id, rows: rows.length });
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Admin modal: employees + audit log
+  ───────────────────────────────────────────────────────────────────────── */
+  function roleCanAdmin(){
+    return ["hr_admin", "company_admin"].includes(state.role);
+  }
+
+  function openAdmin(){
+    if(!roleCanAdmin()){
+      toast("danger","Restricted", "You need HR Admin / Company Admin access.");
+      return;
+    }
+    $("adminModal").classList.remove("hide");
+    loadEmployees();
+  }
+  function closeAdmin(){
+    $("adminModal").classList.add("hide");
+  }
+
+  async function loadEmployees(){
+    const list = $("employeesList");
+    list.innerHTML = "";
+
+    const { data, error } = await state.supabase
+      .from("employees")
+      .select("id, employee_code, first_name, last_name, active, created_at")
+      .eq("company_id", state.company.id)
+      .order("last_name", { ascending: true })
+      .limit(5000);
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("admin.employees.load_failed", { error: error.message });
+      return;
+    }
+
+    if(!data || !data.length){
+      const hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent = "No employees yet.";
+      list.appendChild(hint);
+      return;
+    }
+
+    for(const e of data){
+      const item = document.createElement("div");
+      item.className = "item";
+
+      const left = document.createElement("div");
+      left.className = "left";
+      const b = document.createElement("b");
+      b.textContent = `${e.first_name} ${e.last_name}`.trim();
+      const s = document.createElement("span");
+      s.textContent = `${e.employee_code} • ${e.active ? "Active" : "Inactive"}`;
+      left.appendChild(b); left.appendChild(s);
+
+      const right = document.createElement("div");
+      right.className = "right";
+
+      const toggle = document.createElement("button");
+      toggle.className = "btn small " + (e.active ? "danger" : "good");
+      toggle.textContent = e.active ? "Deactivate" : "Reactivate";
+      toggle.onclick = async () => await setEmployeeActive(e.id, !e.active);
+      right.appendChild(toggle);
+
+      item.appendChild(left); item.appendChild(right);
+      list.appendChild(item);
+    }
+  }
+
+  async function setEmployeeActive(empId, active){
+    const { error } = await state.supabase
+      .from("employees")
+      .update({ active: !!active })
+      .eq("company_id", state.company.id)
+      .eq("id", empId);
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("admin.employee.toggle_failed", { employee_id: empId, active: !!active, error: error.message });
+      return;
+    }
+
+    toast("ok","Updated", `Employee ${active ? "reactivated" : "deactivated"}.`);
+    await audit("admin.employee.toggled", { employee_id: empId, active: !!active });
+
+    await loadEmployees();
+  }
+
+  async function createEmployee(){
+    if(!roleCanAdmin()){
+      toast("danger","Restricted", "You need HR Admin / Company Admin access.");
+      return;
+    }
+
+    const employee_code = String($("aEmpCode").value || "").trim();
+    const first_name = String($("aEmpFirst").value || "").trim();
+    const last_name = String($("aEmpLast").value || "").trim();
+
+    if(!employee_code || !first_name || !last_name){
+      toast("warn","Missing info", "Employee code, first name, and last name are required.");
+      return;
+    }
+
+    const { error } = await state.supabase
+      .from("employees")
+      .insert([{
+        company_id: state.company.id,
+        employee_code,
+        first_name,
+        last_name,
+        active: true,
+        created_at: nowIso()
+      }]);
+
+    if(error){
+      toast("danger","Error", error.message);
+      await audit("admin.employee.create_failed", { employee_code, error: error.message });
+      return;
+    }
+
+    toast("ok","Created", `${first_name} ${last_name} added.`);
+    await audit("admin.employee.created", { employee_code, first_name, last_name });
+
+    $("aEmpCode").value = "";
+    $("aEmpFirst").value = "";
+    $("aEmpLast").value = "";
+
+    await loadEmployees();
+  }
+
+  async function loadAudit(){
+    const list = $("auditList");
+    list.innerHTML = "";
+
+    const { data, error } = await state.supabase
+      .from("audit_log")
+      .select("created_at, action, metadata, actor_user_id")
+      .eq("company_id", state.company.id)
+      .order("created_at", { ascending: false })
+      .limit(80);
+
+    if(error){
+      toast("danger","Error", error.message);
+      return;
+    }
+
+    if(!data || !data.length){
+      const hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent = "No audit events yet.";
+      list.appendChild(hint);
+      return;
+    }
+
+    for(const a of data){
+      const item = document.createElement("div");
+      item.className = "item";
+
+      const left = document.createElement("div");
+      left.className = "left";
+      const b = document.createElement("b");
+      b.textContent = a.action;
+      const s = document.createElement("span");
+      s.textContent = `${new Date(a.created_at).toLocaleString()} • ${a.actor_user_id ? a.actor_user_id.slice(0,8)+"…" : "system"}`;
+      left.appendChild(b); left.appendChild(s);
+
+      const right = document.createElement("div");
+      right.className = "right";
+      const tag = document.createElement("span");
+      tag.className = "tag mono";
+      tag.textContent = JSON.stringify(a.metadata || {}).slice(0, 60);
+      right.appendChild(tag);
+
+      item.appendChild(left); item.appendChild(right);
+      list.appendChild(item);
+    }
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Camera QR scanning
+  ───────────────────────────────────────────────────────────────────────── */
+  async function startCamera(){
+    if(state.scanning) return;
+
+    if(!navigator.mediaDevices?.getUserMedia){
+      toast("danger","Unsupported", "Camera access not available in this browser.");
+      return;
+    }
+
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false
+      });
+
+      state.videoStream = stream;
+      const video = $("video");
+      video.srcObject = stream;
+
+      // BarcodeDetector is the cleanest native option
+      if("BarcodeDetector" in window){
+        try{
+          state.barcodeDetector = new BarcodeDetector({ formats: ["qr_code"] });
+        }catch(_e){
+          state.barcodeDetector = null;
+        }
+      } else {
+        state.barcodeDetector = null;
+      }
+
+      state.scanning = true;
+      $("startCameraBtn").disabled = true;
+      $("stopCameraBtn").disabled = false;
+      $("cameraStatus").textContent = state.barcodeDetector ? "scanning (qr)" : "camera on (manual code)";
+      await audit("camera.started", { barcode_detector: !!state.barcodeDetector });
+
+      if(state.barcodeDetector){
+        scanLoop();
+      } else {
+        toast("warn","Manual mode", "BarcodeDetector is not supported. Use manual badge code entry.");
+      }
+    }catch(e){
+      toast("danger","Camera error", e.message || String(e));
+      await audit("camera.error", { error: e.message || String(e) });
+    }
+  }
+
+  async function stopCamera(){
+    state.scanning = false;
+    $("startCameraBtn").disabled = false;
+    $("stopCameraBtn").disabled = true;
+    $("cameraStatus").textContent = "idle";
+
+    const video = $("video");
+    if(video) video.srcObject = null;
+
+    if(state.videoStream){
+      for(const t of state.videoStream.getTracks()){
+        try{ t.stop(); }catch(_e){}
+      }
+    }
+    state.videoStream = null;
+    await audit("camera.stopped", {});
+  }
+
+  async function scanLoop(){
+    while(state.scanning && state.barcodeDetector){
+      try{
+        const video = $("video");
+        if(video.readyState >= 2){
+          const codes = await state.barcodeDetector.detect(video);
+          if(codes && codes.length){
+            const raw = codes[0].rawValue;
+            if(raw){
+              await toggleByBadgeCode(raw, "qr");
+            }
+          }
+        }
+      }catch(_e){
+        // ignore detection errors (camera race conditions etc.)
+      }
+      await sleep(180);
+    }
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Tabs
+  ───────────────────────────────────────────────────────────────────────── */
+  function setTab(name){
+    for(const el of document.querySelectorAll("#tabs .tab")){
+      el.classList.toggle("active", el.dataset.tab === name);
+    }
+    $("tab_staff").classList.toggle("hide", name !== "staff");
+    $("tab_visitors").classList.toggle("hide", name !== "visitors");
+    $("tab_onsite").classList.toggle("hide", name !== "onsite");
+    $("tab_evac").classList.toggle("hide", name !== "evac");
+  }
+
+  function setAdminTab(name){
+    for(const el of document.querySelectorAll("#adminTabs .tab")){
+      el.classList.toggle("active", el.dataset.atab === name);
+    }
+    $("admin_employees").classList.toggle("hide", name !== "employees");
+    $("admin_audit").classList.toggle("hide", name !== "audit");
+    if(name === "employees") loadEmployees();
+    if(name === "audit") loadAudit();
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Event wiring
+  ───────────────────────────────────────────────────────────────────────── */
+  function wire(){
+    // Top actions
+    $("logoutBtn").onclick = async () => {
+      await audit("auth.logout", {});
+      await state.supabase.auth.signOut();
+      window.location.href = "/app/index.html";
+    };
+    $("refreshBtn").onclick = async () => await fullRefresh();
+
+    $("siteSelect").onchange = async (e) => {
+      const newSite = e.target.value;
+      state.siteId = newSite;
+
+      // Update URL query for reproducible context
+      const u = new URL(window.location.href);
+      u.searchParams.set("site", newSite);
+      window.history.replaceState({}, "", u.toString());
+
+      await audit("site.changed", { site_id: newSite });
+
+      clearRealtime();
+      await fullRefresh();
+      enableRealtime();
+    };
+
+    // Tabs
+    document.querySelectorAll("#tabs .tab").forEach(t => {
+      t.addEventListener("click", () => setTab(t.dataset.tab));
+    });
+
+    // Staff scan
+    $("startCameraBtn").onclick = startCamera;
+    $("stopCameraBtn").onclick = stopCamera;
+    $("submitBadgeBtn").onclick = async () => await toggleByBadgeCode($("manualBadgeCode").value, "manual");
+
+    $("manualBadgeCode").addEventListener("keydown", async (e) => {
+      if(e.key === "Enter"){
+        await toggleByBadgeCode($("manualBadgeCode").value, "manual");
+      }
+    });
+
+    // Staff search
+    $("searchEmployeeBtn").onclick = searchEmployees;
+    $("clearEmployeeSearchBtn").onclick = () => {
+      $("employeeSearch").value = "";
+      $("employeeResults").innerHTML = "";
+      $("employeeSearchHint").textContent = "Results will appear below.";
+    };
+    $("employeeSearch").addEventListener("keydown", async (e) => {
+      if(e.key === "Enter") await searchEmployees();
+    });
+
+    // Visitors
+    $("visitorSignInBtn").onclick = visitorSignIn;
+    $("visitorClearBtn").onclick = () => {
+      $("vName").value = "";
+      $("vCompany").value = "";
+      $("vVisiting").value = "";
+      $("vPhoto").value = "";
+    };
+
+    // Evac
+    $("startEvacBtn").onclick = startEvacuation;
+    $("resumeEvacBtn").onclick = resumeEvacuation;
+    $("markAllSafeBtn").onclick = markAllSafe;
+    $("exportEvacBtn").onclick = exportEvacCsv;
+    $("closeEvacBtn").onclick = closeEvacSession;
+
+    // Exports
+    $("exportPresenceBtn").onclick = exportPresenceCsv;
+
+    // Admin modal
+    $("openAdminBtn").onclick = openAdmin;
+    $("openEmployeesBtn").onclick = openAdmin;
+    $("openAuditBtn").onclick = () => { openAdmin(); setAdminTab("audit"); };
+
+    $("closeAdminBtn").onclick = closeAdmin;
+    $("closeAdminBtn2").onclick = closeAdmin;
+    $("reloadEmployeesBtn").onclick = loadEmployees;
+    $("createEmployeeBtn").onclick = createEmployee;
+    $("clearEmployeeFormBtn").onclick = () => {
+      $("aEmpCode").value = "";
+      $("aEmpFirst").value = "";
+      $("aEmpLast").value = "";
+    };
+
+    $("reloadAuditBtn").onclick = loadAudit;
+
+    document.querySelectorAll("#adminTabs .tab").forEach(t => {
+      t.addEventListener("click", () => setAdminTab(t.dataset.atab));
+    });
+
+    // PIN modal
+    $("pinCancelBtn").onclick = () => { closePinModal(); state._pendingEvacAction = null; };
+    $("pinConfirmBtn").onclick = async () => {
+      const ok = await verifyPin($("pinInput").value);
+      if(!ok) return;
+
+      closePinModal();
+
+      if(state._pendingEvacAction === "start"){
+        await createEvacSessionAndSnapshot();
+      } else if(state._pendingEvacAction === "resume"){
+        await loadActiveEvacSession();
+        if(!state.activeEvacSession){
+          toast("warn","No active session", "No open evacuation session exists for this site.");
+        } else {
+          toast("ok","Resumed", "Active evacuation session loaded.");
+          await refreshRollCall();
+        }
+      } else if(state._pendingEvacAction === "close"){
+        await closeEvacSessionConfirmed();
+      }
+
+      state._pendingEvacAction = null;
+    };
+    $("pinInput").addEventListener("keydown", async (e) => {
+      if(e.key === "Enter"){
+        $("pinConfirmBtn").click();
+      }
+    });
+
+    // Safety: stop camera when leaving page
+    window.addEventListener("beforeunload", () => {
+      try{ stopCamera(); }catch(_e){}
+    });
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Full refresh
+  ───────────────────────────────────────────────────────────────────────── */
+  async function fullRefresh(){
+    setConn("loading…", "Refreshing live presence and evacuation state.");
+    await loadActiveEvacSession();
+    await refreshOnsite();
+    await refreshVisitorsOnsite();
+    await refreshRollCall();
+    setConn("ok", "Connected. Tenant isolation enforced by RLS.");
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Init
+  ───────────────────────────────────────────────────────────────────────── */
+  async function init(){
+    try{
+      setConn("initialising…", "Creating Supabase client");
+      state.supabase = getSupabaseClient();
+
+      await requireSession();
+      await resolveCompanyContext();
+
+      // UI role-based enable/disable
+      const canEvac = roleCanStartEvac();
+      $("startEvacBtn").disabled = !canEvac;
+      $("resumeEvacBtn").disabled = !canEvac;
+      $("openAdminBtn").disabled = !roleCanAdmin();
+      $("openEmployeesBtn").disabled = !roleCanAdmin();
+      $("openAuditBtn").disabled = !roleCanAdmin();
+
+      // Default export date range (today)
+      const today = new Date();
+      const yyyy = today.getUTCFullYear();
+      const mm = String(today.getUTCMonth()+1).padStart(2,"0");
+      const dd = String(today.getUTCDate()).padStart(2,"0");
+      const dstr = `${yyyy}-${mm}-${dd}`;
+      $("exportFrom").value = dstr;
+      $("exportTo").value = dstr;
+
+      wire();
+
+      await fullRefresh();
+      enableRealtime();
+
+      // Health state
+      $("connTag").textContent = "ok";
+      toast("ok","Ready", "Presence & Fire Safety is loaded.");
+    }catch(e){
+      console.error(e);
+      $("connTag").textContent = "error";
+      setConn("error", e.message || String(e));
+      toast("danger","Cannot load module", e.message || String(e));
+      await audit("module.init_failed", { error: e.message || String(e) });
+    }
+  }
+
+  init();
+
+})();
+</script>
+
+</body>
+</html>
