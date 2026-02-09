@@ -1,44 +1,96 @@
-/*
-  SmartCore App Core
-  Auth + routing shell
-*/
+// /app/app.js
+import { supabaseClient } from "/app/shared/supabase.js";
+import { toast, $ } from "/app/shared/ui.js";
 
-const SUPABASE_URL = "https://jmgbbybpsnazkxinnpxp.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
-
-// Placeholder until Supabase JS is wired
-async function login() {
-  const email = document.getElementById("email").value;
-  const password = document.getElementById("password").value;
-
-  if (!email || !password) {
-    alert("Enter email and password");
-    return;
-  }
-
-  // TEMP – replace with Supabase auth
-  fakeAuth(email);
+function startClock(){
+  const tick = () => {
+    const d = new Date();
+    const dd = String(d.getDate()).padStart(2,"0");
+    const mm = String(d.getMonth()+1).padStart(2,"0");
+    const yyyy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2,"0");
+    const mi = String(d.getMinutes()).padStart(2,"0");
+    const ss = String(d.getSeconds()).padStart(2,"0");
+    const dateStr = document.getElementById("dateStr");
+    const timeStr = document.getElementById("timeStr");
+    if (dateStr) dateStr.textContent = `${dd}/${mm}/${yyyy}`;
+    if (timeStr) timeStr.textContent = `${hh}:${mi}:${ss}`;
+  };
+  tick(); setInterval(tick, 1000);
 }
 
-function fakeAuth(email) {
-  // Example: infer company from email domain (TEMP)
-  let companySlug = "smartfits";
-
-  if (email.includes("@mmb")) companySlug = "mmb";
-  if (email.includes("@smartcore")) companySlug = "smartcore";
-
-  redirectToCompany(companySlug);
+function onLoginPage(){
+  return location.pathname.endsWith("/app/index.html") || location.pathname === "/app/" || location.pathname === "/app";
 }
 
-function redirectToCompany(company) {
-  // Final app routing structure
-  // /app/{company}/dashboard.html
-  window.location.href = `/app/${company}/dashboard.html`;
+async function initLogin(){
+  startClock();
+
+  // Pre-fill config from localStorage if present
+  const urlEl = $("sbUrl");
+  const anonEl = $("sbAnon");
+
+  urlEl.value = localStorage.getItem("SMARTCORE_SUPABASE_URL") || "";
+  anonEl.value = localStorage.getItem("SMARTCORE_SUPABASE_ANON_KEY") || "";
+
+  $("clearBtn").onclick = () => {
+    $("email").value = "";
+    $("password").value = "";
+  };
+
+  $("loginBtn").onclick = async () => {
+    try{
+      $("statusBadge").textContent = "working";
+
+      const sbUrl = String(urlEl.value || "").trim();
+      const sbAnon = String(anonEl.value || "").trim();
+      if(!sbUrl || !sbAnon){
+        toast("warn","Missing config","Enter Supabase URL and anon key.");
+        $("statusBadge").textContent = "idle";
+        return;
+      }
+
+      // Persist app config
+      localStorage.setItem("SMARTCORE_SUPABASE_URL", sbUrl);
+      localStorage.setItem("SMARTCORE_SUPABASE_ANON_KEY", sbAnon);
+
+      // Create client (now config exists)
+      const sb = supabaseClient();
+
+      const email = String($("email").value||"").trim();
+      const password = String($("password").value||"").trim();
+      if(!email || !password){
+        toast("warn","Missing login","Enter email and password.");
+        $("statusBadge").textContent = "idle";
+        return;
+      }
+
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if(error){
+        toast("bad","Login failed", error.message);
+        $("statusBadge").textContent = "error";
+        return;
+      }
+
+      toast("ok","Logged in","Redirecting to dashboard…");
+      $("statusBadge").textContent = "ok";
+      window.location.href = "/app/dashboard.html";
+    }catch(e){
+      toast("bad","Error", e.message || String(e));
+      $("statusBadge").textContent = "error";
+    }
+  };
+
+  // If already logged in, go straight to dashboard
+  try{
+    const sb = supabaseClient();
+    const { data } = await sb.auth.getSession();
+    if(data?.session){
+      window.location.href = "/app/dashboard.html";
+    }
+  }catch{}
 }
 
-/*
-  FUTURE (do not remove):
-  - Supabase auth
-  - session persistence
-  - role-based routing
-*/
+if(onLoginPage()){
+  initLogin();
+}
