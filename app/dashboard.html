@@ -1,1 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SmartCore • Dashboard</title>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="stylesheet" href="/app/styles/app.css"/>
+</head>
+<body>
+  <div class="shell" role="application" aria-label="SmartCore Dashboard">
+    <div class="head">
+      <div class="brand">
+        <div class="dot" aria-hidden="true"></div>
+        <div>
+          <h1>DASHBOARD</h1>
+          <p>Company systems & modules</p>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="pill">
+          <span>Company:</span>
+          <b id="companyName" style="font-family:var(--mono); font-size:12px;">—</b>
+          <span style="opacity:.35">|</span>
+          <span>User:</span>
+          <b id="userEmail" style="font-family:var(--mono); font-size:12px;">—</b>
+          <span style="opacity:.35">|</span>
+          <span>Role:</span>
+          <b id="userRole" style="font-family:var(--mono); font-size:12px;">—</b>
+          <button class="btn" id="logoutBtn" style="padding:7px 12px;">Log out</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="panel">
+        <h2>Modules</h2>
+        <div class="subtle">Enabled modules are clickable. Disabled modules are shown but blocked.</div>
+
+        <div class="hr"></div>
+
+        <div class="list" id="modulesList"></div>
+
+        <div class="footnote">
+          Module access is enforced both in the UI and server-side using Supabase RLS + entitlement checks.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toastwrap" id="toastwrap"></div>
+
+  <script type="module">
+    import { supabaseClient } from "/app/shared/supabase.js";
+    import { getMyProfile, logout, requireAuth } from "/app/shared/auth.js";
+    import { toast, $ } from "/app/shared/ui.js";
+
+    const sb = supabaseClient();
+
+    async function init(){
+      try{
+        await requireAuth();
+        const profile = await getMyProfile();
+
+        const { data: u } = await sb.auth.getUser();
+        $("userEmail").textContent = u?.user?.email || "—";
+        $("userRole").textContent = profile.role;
+
+        const { data: company, error: cErr } = await sb
+          .from("companies")
+          .select("id,name")
+          .eq("id", profile.company_id)
+          .single();
+        if (cErr) throw cErr;
+        $("companyName").textContent = company.name;
+
+        $("logoutBtn").onclick = () => logout();
+
+        // Fetch modules enabled for this company
+        const { data: mods, error: mErr } = await sb
+          .from("company_modules")
+          .select("module_key, enabled")
+          .eq("company_id", profile.company_id)
+          .order("module_key",{ascending:true});
+        if (mErr) throw mErr;
+
+        const moduleMap = new Map((mods||[]).map(m => [m.module_key, !!m.enabled]));
+
+        // Define known modules (only one required for now)
+        const known = [
+          { key: "presence-and-fire-safety", name: "Presence & Fire Safety", href: "/app/modules/presence-and-fire-safety.html" }
+        ];
+
+        const list = $("modulesList");
+        list.innerHTML = "";
+
+        for(const k of known){
+          const enabled = moduleMap.get(k.key) === true;
+
+          const row = document.createElement("div");
+          row.className = "item";
+
+          const left = document.createElement("div");
+          left.className = "left";
+          const b = document.createElement("b"); b.textContent = k.name;
+          const s = document.createElement("span"); s.textContent = enabled ? "Enabled" : "Not enabled for your company";
+          left.appendChild(b); left.appendChild(s);
+
+          const right = document.createElement("div");
+          right.className = "row";
+
+          const badge = document.createElement("span");
+          badge.className = "badge " + (enabled ? "ok" : "bad");
+          badge.textContent = enabled ? "ENABLED" : "DISABLED";
+
+          const btn = document.createElement("button");
+          btn.className = "btn " + (enabled ? "primary" : "");
+          btn.textContent = enabled ? "Open" : "Locked";
+          btn.disabled = !enabled;
+          btn.onclick = () => window.location.href = k.href;
+
+          right.appendChild(badge);
+          right.appendChild(btn);
+
+          row.appendChild(left);
+          row.appendChild(right);
+          list.appendChild(row);
+        }
+      }catch(e){
+        toast("bad","Dashboard error", e.message || String(e));
+        // If not authenticated, send to login
+        setTimeout(() => (window.location.href = "/app/index.html"), 900);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
