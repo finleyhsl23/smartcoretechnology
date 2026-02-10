@@ -23,16 +23,11 @@ function onLoginPage(){
   return location.pathname.endsWith("/app/index.html") || location.pathname === "/app/" || location.pathname === "/app";
 }
 
+// /app/app.js (only the login button logic needs changing)
+import { supabaseClient } from "/app/shared/supabase.js";
+import { toast, $ } from "/app/shared/ui.js";
+
 async function initLogin(){
-  startClock();
-
-  // Pre-fill config from localStorage if present
-  const urlEl = $("sbUrl");
-  const anonEl = $("sbAnon");
-
-  urlEl.value = localStorage.getItem("SMARTCORE_SUPABASE_URL") || "";
-  anonEl.value = localStorage.getItem("SMARTCORE_SUPABASE_ANON_KEY") || "";
-
   $("clearBtn").onclick = () => {
     $("email").value = "";
     $("password").value = "";
@@ -42,19 +37,6 @@ async function initLogin(){
     try{
       $("statusBadge").textContent = "working";
 
-      const sbUrl = String(urlEl.value || "").trim();
-      const sbAnon = String(anonEl.value || "").trim();
-      if(!sbUrl || !sbAnon){
-        toast("warn","Missing config","Enter Supabase URL and anon key.");
-        $("statusBadge").textContent = "idle";
-        return;
-      }
-
-      // Persist app config
-      localStorage.setItem("SMARTCORE_SUPABASE_URL", sbUrl);
-      localStorage.setItem("SMARTCORE_SUPABASE_ANON_KEY", sbAnon);
-
-      // Create client (now config exists)
       const sb = supabaseClient();
 
       const email = String($("email").value||"").trim();
@@ -72,8 +54,6 @@ async function initLogin(){
         return;
       }
 
-      toast("ok","Logged in","Redirecting to dashboard…");
-      $("statusBadge").textContent = "ok";
       window.location.href = "/app/dashboard.html";
     }catch(e){
       toast("bad","Error", e.message || String(e));
@@ -91,6 +71,4 @@ async function initLogin(){
   }catch{}
 }
 
-if(onLoginPage()){
-  initLogin();
-}
+initLogin();
