@@ -16,59 +16,81 @@ function startClock(){
     if (dateStr) dateStr.textContent = `${dd}/${mm}/${yyyy}`;
     if (timeStr) timeStr.textContent = `${hh}:${mi}:${ss}`;
   };
-  tick(); setInterval(tick, 1000);
+  tick();
+  setInterval(tick, 1000);
 }
 
 function onLoginPage(){
   return location.pathname.endsWith("/app/index.html") || location.pathname === "/app/" || location.pathname === "/app";
 }
 
-// /app/app.js (only the login button logic needs changing)
-import { supabaseClient } from "/app/shared/supabase.js";
-import { toast, $ } from "/app/shared/ui.js";
-
 async function initLogin(){
-  $("clearBtn").onclick = () => {
+  startClock();
+
+  const loginBtn = $("loginBtn");
+  const clearBtn = $("clearBtn");
+  const status = $("statusBadge");
+
+  if (!loginBtn) {
+    console.error("loginBtn not found in DOM");
+    return;
+  }
+
+  clearBtn && (clearBtn.onclick = () => {
     $("email").value = "";
     $("password").value = "";
-  };
+    status && (status.textContent = "idle");
+  });
 
-  $("loginBtn").onclick = async () => {
+  loginBtn.onclick = async () => {
     try{
-      $("statusBadge").textContent = "working";
+      status && (status.textContent = "working");
 
-      const sb = supabaseClient();
+      const email = String($("email")?.value || "").trim();
+      const password = String($("password")?.value || "").trim();
 
-      const email = String($("email").value||"").trim();
-      const password = String($("password").value||"").trim();
       if(!email || !password){
         toast("warn","Missing login","Enter email and password.");
-        $("statusBadge").textContent = "idle";
+        status && (status.textContent = "idle");
         return;
       }
 
+      const sb = supabaseClient();
       const { error } = await sb.auth.signInWithPassword({ email, password });
+
       if(error){
         toast("bad","Login failed", error.message);
-        $("statusBadge").textContent = "error";
+        status && (status.textContent = "error");
         return;
       }
 
+      status && (status.textContent = "ok");
       window.location.href = "/app/dashboard.html";
     }catch(e){
       toast("bad","Error", e.message || String(e));
-      $("statusBadge").textContent = "error";
+      status && (status.textContent = "error");
+      console.error(e);
     }
   };
 
-  // If already logged in, go straight to dashboard
+  // Auto-redirect if already logged in
   try{
     const sb = supabaseClient();
     const { data } = await sb.auth.getSession();
     if(data?.session){
       window.location.href = "/app/dashboard.html";
     }
-  }catch{}
+  }catch(e){
+    // If supabase config is wrong, you will see it here
+    console.error(e);
+  }
 }
 
-initLogin();
+if(onLoginPage()){
+  // Ensure DOM is ready before binding
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initLogin);
+  } else {
+    initLogin();
+  }
+}
