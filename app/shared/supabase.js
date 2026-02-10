@@ -10,7 +10,9 @@ let _client = null;
 export function supabaseClient() {
   if (_client) return _client;
 
-  if (!window.supabase?.createClient) throw new Error("Supabase JS v2 not loaded.");
+  if (!window.supabase?.createClient) {
+    throw new Error("Supabase JS v2 not loaded.");
+  }
 
   _client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
