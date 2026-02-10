@@ -27,31 +27,35 @@ function onLoginPage(){
 async function initLogin(){
   startClock();
 
-  const loginBtn = $("loginBtn");
   const clearBtn = $("clearBtn");
+  const loginBtn = $("loginBtn");
   const status = $("statusBadge");
 
   if (!loginBtn) {
-    console.error("loginBtn not found in DOM");
+    console.error("loginBtn not found");
     return;
   }
 
-  clearBtn && (clearBtn.onclick = () => {
-    $("email").value = "";
-    $("password").value = "";
-    status && (status.textContent = "idle");
-  });
+  if (clearBtn) {
+    clearBtn.onclick = () => {
+      const e = $("email");
+      const p = $("password");
+      if (e) e.value = "";
+      if (p) p.value = "";
+      if (status) status.textContent = "idle";
+    };
+  }
 
   loginBtn.onclick = async () => {
     try{
-      status && (status.textContent = "working");
+      if (status) status.textContent = "working";
 
       const email = String($("email")?.value || "").trim();
       const password = String($("password")?.value || "").trim();
 
       if(!email || !password){
         toast("warn","Missing login","Enter email and password.");
-        status && (status.textContent = "idle");
+        if (status) status.textContent = "idle";
         return;
       }
 
@@ -60,20 +64,20 @@ async function initLogin(){
 
       if(error){
         toast("bad","Login failed", error.message);
-        status && (status.textContent = "error");
+        if (status) status.textContent = "error";
         return;
       }
 
-      status && (status.textContent = "ok");
+      if (status) status.textContent = "ok";
       window.location.href = "/app/dashboard.html";
     }catch(e){
-      toast("bad","Error", e.message || String(e));
-      status && (status.textContent = "error");
       console.error(e);
+      toast("bad","Error", e.message || String(e));
+      if (status) status.textContent = "error";
     }
   };
 
-  // Auto-redirect if already logged in
+  // If already logged in, go straight to dashboard
   try{
     const sb = supabaseClient();
     const { data } = await sb.auth.getSession();
@@ -81,13 +85,11 @@ async function initLogin(){
       window.location.href = "/app/dashboard.html";
     }
   }catch(e){
-    // If supabase config is wrong, you will see it here
     console.error(e);
   }
 }
 
 if(onLoginPage()){
-  // Ensure DOM is ready before binding
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initLogin);
   } else {
