@@ -426,8 +426,8 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
       if (upErr){ toast("bad","Error", upErr.message); return; }
 
-      const name = \`\${emp.first_name} \${emp.last_name}\`.trim();
-      toast("ok","Recorded", \`\${name} is now \${dir.toUpperCase()}.\`);
+      const name = ```${emp.first_name} `${emp.last_name}``.trim();
+      toast("ok","Recorded", ```${name} is now `${dir.toUpperCase()}.``);
       await audit("presence.toggle.success",{employee_id:emp.id, direction:dir, method:method||"qr"});
 
       await refreshOnsite();
@@ -455,7 +455,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
         .from("employees")
         .select("id, employee_code, first_name, last_name, active")
         .eq("company_id", state.profile.company_id)
-        .or(\`first_name.ilike.%\${q}%,last_name.ilike.%\${q}%\`)
+        .or(``first_name.ilike.%`${q}%,last_name.ilike.%`${q}%``)
         .limit(6);
 
       if (hErr) throw hErr;
@@ -509,7 +509,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
         if (upErr){ toast("bad","Error", upErr.message); return; }
 
-        toast("ok","Recorded", \`\${emp.first_name} \${emp.last_name} marked \${direction.toUpperCase()}.\`);
+        toast("ok","Recorded", ```${emp.first_name} `${emp.last_name} marked `${direction.toUpperCase()}.``);
         await audit("presence.manual.success",{employee_id:emp.id, direction});
 
         await refreshOnsite();
@@ -547,8 +547,8 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
       // Optional photo (Supabase Storage)
       if(file){
-        const safeName = file.name.replace(/[^\w.\-]+/g,"_").slice(0, 80);
-        const path = \`company_\${state.profile.company_id}/visitors/\${v.id}/\${Date.now()}_\${safeName}\`;
+        const safeName = file.name.replace(/[^`w.`-]+/g,"_").slice(0, 80);
+        const path = ``company_`${state.profile.company_id}/visitors/`${v.id}/`${Date.now()}_`${safeName}``;
 
         const { error: upErr } = await state.sb.storage
           .from("smartcore")
@@ -595,7 +595,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
       if (snapErr){ toast("bad","Error", snapErr.message); return; }
 
-      toast("ok","Signed in", \`\${full_name} is now IN.\`);
+      toast("ok","Signed in", ```${full_name} is now IN.``);
       await audit("visitor.sign_in_success",{visitor_id:v.id});
 
       $("vName").value = "";
@@ -652,7 +652,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
       if (snapErr){ toast("bad","Error", snapErr.message); return; }
 
-      toast("ok","Signed out", \`\${v.full_name} is now OUT.\`);
+      toast("ok","Signed out", ```${v.full_name} is now OUT.``);
       await audit("visitor.sign_out_success",{visitor_id:v.id});
 
       await refreshVisitorsOnsite();
@@ -666,11 +666,11 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
     async function refreshOnsite(){
       const { data, error } = await state.sb
         .from("current_presence")
-        .select(\`
+        .select(``
           person_type, employee_id, visitor_id, state, last_changed_at,
           employees:employee_id ( first_name, last_name, employee_code ),
           visitors:visitor_id ( full_name, visitor_company )
-        \`)
+        ``)
         .eq("company_id", state.profile.company_id)
         .eq("site_id", state.siteId)
         .eq("state","in")
@@ -682,7 +682,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       list.innerHTML = "";
 
       const items = data || [];
-      $("onsiteCountBadge").textContent = \`\${items.length} on site\`;
+      $("onsiteCountBadge").textContent = ```${items.length} on site``;
 
       if(items.length === 0){
         const d = document.createElement("div");
@@ -702,11 +702,11 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
         let name = "—";
         let meta = "—";
         if(r.person_type === "employee"){
-          name = \`\${r.employees?.first_name||""} \${r.employees?.last_name||""}\`.trim() || "Employee";
-          meta = \`Staff • \${r.employees?.employee_code||"—"} • IN since \${fmtDateTime(r.last_changed_at)}\`;
+          name = ```${r.employees?.first_name||""} `${r.employees?.last_name||""}``.trim() || "Employee";
+          meta = ``Staff • `${r.employees?.employee_code||"—"} • IN since `${fmtDateTime(r.last_changed_at)}``;
         } else {
           name = r.visitors?.full_name || "Visitor";
-          meta = \`Visitor • \${r.visitors?.visitor_company||"—"} • IN since \${fmtDateTime(r.last_changed_at)}\`;
+          meta = ``Visitor • `${r.visitors?.visitor_company||"—"} • IN since `${fmtDateTime(r.last_changed_at)}``;
         }
 
         const b = document.createElement("b"); b.textContent = name;
@@ -729,10 +729,10 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
     async function refreshVisitorsOnsite(){
       const { data, error } = await state.sb
         .from("current_presence")
-        .select(\`
+        .select(``
           visitor_id, last_changed_at,
           visitors:visitor_id ( full_name, visitor_company )
-        \`)
+        ``)
         .eq("company_id", state.profile.company_id)
         .eq("site_id", state.siteId)
         .eq("person_type","visitor")
@@ -762,7 +762,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
         const b = document.createElement("b"); b.textContent = r.visitors?.full_name || "Visitor";
         const s = document.createElement("span");
-        s.textContent = \`\${r.visitors?.visitor_company||"—"} • IN since \${fmtDateTime(r.last_changed_at)}\`;
+        s.textContent = ```${r.visitors?.visitor_company||"—"} • IN since `${fmtDateTime(r.last_changed_at)}``;
         left.appendChild(b); left.appendChild(s);
 
         const right = document.createElement("div");
@@ -845,11 +845,11 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       // Snapshot current onsite
       const { data: onsite, error: oErr } = await state.sb
         .from("current_presence")
-        .select(\`
+        .select(``
           person_type, employee_id, visitor_id, state,
           employees:employee_id ( first_name, last_name, employee_code ),
           visitors:visitor_id ( full_name, visitor_company, photo_path )
-        \`)
+        ``)
         .eq("company_id", state.profile.company_id)
         .eq("site_id", state.siteId)
         .eq("state","in");
@@ -858,8 +858,8 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
       const entries = (onsite || []).map(r => {
         if(r.person_type === "employee"){
-          const display = \`\${r.employees?.first_name||""} \${r.employees?.last_name||""}\`.trim() || "Employee";
-          const meta = \`Staff • \${r.employees?.employee_code||"—"}\`;
+          const display = ```${r.employees?.first_name||""} `${r.employees?.last_name||""}``.trim() || "Employee";
+          const meta = ``Staff • `${r.employees?.employee_code||"—"}``;
           return {
             company_id: state.profile.company_id,
             site_id: state.siteId,
@@ -874,7 +874,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
           };
         }
         const display = r.visitors?.full_name || "Visitor";
-        const meta = \`Visitor • \${r.visitors?.visitor_company||"—"}\`;
+        const meta = ``Visitor • `${r.visitors?.visitor_company||"—"}``;
         return {
           company_id: state.profile.company_id,
           site_id: state.siteId,
@@ -936,7 +936,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       b.textContent = "Active evacuation session";
 
       const s = document.createElement("span");
-      s.textContent = \`\${state.activeSession.id} • started \${fmtDateTime(state.activeSession.started_at)}\`;
+      s.textContent = ```${state.activeSession.id} • started `${fmtDateTime(state.activeSession.started_at)}``;
 
       left.appendChild(b);
       left.appendChild(s);
@@ -975,7 +975,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       if(!ses) return;
 
       $("evacSessionBadge").textContent = ses.id.slice(0,8) + "…";
-      $("evacModalSub").textContent = \`Session started: \${fmtDateTime(ses.started_at)}\`;
+      $("evacModalSub").textContent = ``Session started: `${fmtDateTime(ses.started_at)}``;
       $("evacModalBackdrop").classList.remove("hide");
 
       await refreshRollCall();
@@ -1021,8 +1021,8 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       const summary = document.createElement("div");
       summary.className = "item";
       const sL = document.createElement("div"); sL.className="left";
-      const sB = document.createElement("b"); sB.textContent = \`Roll call: \${accounted} / \${entries.length} accounted\`;
-      const sS = document.createElement("span"); sS.textContent = \`Session: \${state.activeSession.id}\`;
+      const sB = document.createElement("b"); sB.textContent = ``Roll call: `${accounted} / `${entries.length} accounted``;
+      const sS = document.createElement("span"); sS.textContent = ``Session: `${state.activeSession.id}``;
       sL.appendChild(sB); sL.appendChild(sS);
       const sR = document.createElement("div"); sR.className="row";
       const sBadge = document.createElement("span"); sBadge.className="badge warn"; sBadge.textContent="LIVE";
@@ -1039,9 +1039,9 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
         const b = document.createElement("b"); b.textContent = e.display_name;
         const s = document.createElement("span");
-        const when = e.accounted_for && e.accounted_at ? \` • \${new Date(e.accounted_at).toLocaleTimeString()}\` : "";
-        const by = e.accounted_for && e.accounted_by_name ? \` • \${e.accounted_by_name}\` : "";
-        s.textContent = \`\${e.meta||"—"}\${when}\${by}\`;
+        const when = e.accounted_for && e.accounted_at ? `` • `${new Date(e.accounted_at).toLocaleTimeString()}`` : "";
+        const by = e.accounted_for && e.accounted_by_name ? `` • `${e.accounted_by_name}`` : "";
+        s.textContent = ```${e.meta||"—"}`${when}`${by}``;
 
         left.appendChild(b); left.appendChild(s);
 
@@ -1162,11 +1162,11 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
       const { data, error } = await state.sb
         .from("presence_events")
-        .select(\`
+        .select(``
           occurred_at, person_type, direction, method, raw_input,
           employees:employee_id ( employee_code, first_name, last_name ),
           visitors:visitor_id ( full_name, visitor_company )
-        \`)
+        ``)
         .eq("company_id", state.profile.company_id)
         .eq("site_id", state.siteId)
         .gte("occurred_at", from.toISOString())
