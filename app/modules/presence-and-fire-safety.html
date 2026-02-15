@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Presence & Fire Safety • SmartCore</title>
 
-  <!-- Supabase JS v2 -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
   <link rel="stylesheet" href="/app/styles/app.css"/>
 </head>
 
@@ -184,7 +181,7 @@
         </div>
       </div>
 
-      <!-- ROLL CALL TAB (minimal admin) -->
+      <!-- ROLL CALL TAB -->
       <div id="tab_admin" class="hide">
         <div class="grid">
           <div class="panel">
@@ -254,7 +251,7 @@
 
   <script type="module">
     import { supabaseClient } from "/app/shared/supabase.js";
-    import { getMyProfile, logout } from "/app/shared/auth.js";
+    import { logout } from "/app/shared/auth.js";
     import { requireModuleAccess, isEvacRole } from "/app/shared/guard.js";
     import { $, toast, fmtDateTime, downloadCSV, sha256Hex } from "/app/shared/ui.js";
 
@@ -269,7 +266,6 @@
       evacUnlocked: false,
       activeSession: null,
 
-      // Camera scan
       scanning: false,
       stream: null,
       detector: null,
@@ -287,12 +283,12 @@
         const mi = String(d.getMinutes()).padStart(2,"0");
         const ss = String(d.getSeconds()).padStart(2,"0");
         const dEl = $("dateStr");
-const tEl = $("timeStr");
-if (dEl) dEl.textContent = `${dd}/${mm}/${yyyy}`;
-if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
-
+        const tEl = $("timeStr");
+        if (dEl) dEl.textContent = `${dd}/${mm}/${yyyy}`;
+        if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       };
-      tick(); setInterval(tick, 1000);
+      tick();
+      setInterval(tick, 1000);
     }
 
     async function loadCompany(){
@@ -303,7 +299,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
         .single();
       if (error) throw error;
       state.company = data;
-      $("companyName").textContent = data.name;
+      $("companyName").textContent = data?.name || "—";
     }
 
     async function loadSites(){
@@ -312,12 +308,12 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
         .select("id, name, is_default")
         .eq("company_id", state.profile.company_id)
         .order("name", { ascending: true });
+
       if (error) throw error;
 
       state.sites = data || [];
       if (!state.sites.length) throw new Error("No sites configured for your company.");
 
-      // pick default site, else first
       const def = state.sites.find(s => s.is_default) || state.sites[0];
       state.siteId = def.id;
 
@@ -353,9 +349,6 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       }catch(_e){}
     }
 
-    /* -------------------------
-       Staff: toggle IN/OUT by badge (employee_code)
-    ------------------------- */
     async function toggleByEmployeeCode(code, method){
       const badge = String(code||"").trim();
       if(!badge){
@@ -367,7 +360,6 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       if (now - state.lastScanAt < state.scanCooldownMs) return;
       state.lastScanAt = now;
 
-      // IMPORTANT: company_id filter ALWAYS. Also enforced by RLS.
       const { data: emp, error: eErr } = await state.sb
         .from("employees")
         .select("id, first_name, last_name, employee_code, active")
@@ -426,8 +418,8 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
       if (upErr){ toast("bad","Error", upErr.message); return; }
 
-      const name = `${emp.first_name} ${emp.last_name}`.trim();
-      toast("ok","Recorded", `${name} is now ${dir.toUpperCase()}.`);
+      const name = `${emp.first_name || ""} ${emp.last_name || ""}`.trim();
+      toast("ok","Recorded", `${name || "Employee"} is now ${dir.toUpperCase()}.`);
       await audit("presence.toggle.success",{employee_id:emp.id, direction:dir, method:method||"qr"});
 
       await refreshOnsite();
@@ -439,7 +431,6 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       const q = String(input||"").trim();
       if(!q) return null;
 
-      // exact employee_code
       const { data: exact, error: exErr } = await state.sb
         .from("employees")
         .select("id, employee_code, first_name, last_name, active")
@@ -450,12 +441,11 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       if (exErr) throw exErr;
       if (exact && exact.length === 1) return exact[0];
 
-      // name search
       const { data: hits, error: hErr } = await state.sb
         .from("employees")
         .select("id, employee_code, first_name, last_name, active")
         .eq("company_id", state.profile.company_id)
-        .or(``first_name.ilike.%`${q}%,last_name.ilike.%`${q}%``)
+        .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
         .limit(6);
 
       if (hErr) throw hErr;
@@ -509,7 +499,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
         if (upErr){ toast("bad","Error", upErr.message); return; }
 
-        toast("ok","Recorded", ```${emp.first_name} `${emp.last_name} marked `${direction.toUpperCase()}.``);
+        toast("ok","Recorded", `${emp.first_name} ${emp.last_name} marked ${direction.toUpperCase()}.`);
         await audit("presence.manual.success",{employee_id:emp.id, direction});
 
         await refreshOnsite();
@@ -519,9 +509,6 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       }
     }
 
-    /* -------------------------
-       Visitors
-    ------------------------- */
     async function visitorSignIn(){
       const full_name = String($("vName").value||"").trim();
       const visitor_company = String($("vCompany").value||"").trim();
@@ -545,10 +532,9 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
       if (vErr){ toast("bad","Error", vErr.message); return; }
 
-      // Optional photo (Supabase Storage)
       if(file){
-        const safeName = file.name.replace(/[^`w.`-]+/g,"_").slice(0, 80);
-        const path = ``company_`${state.profile.company_id}/visitors/`${v.id}/`${Date.now()}_`${safeName}``;
+        const safeName = file.name.replace(/[^\w.\-]+/g,"_").slice(0, 80);
+        const path = `company_${state.profile.company_id}/visitors/${v.id}/${Date.now()}_${safeName}`;
 
         const { error: upErr } = await state.sb.storage
           .from("smartcore")
@@ -595,7 +581,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
       if (snapErr){ toast("bad","Error", snapErr.message); return; }
 
-      toast("ok","Signed in", ```${full_name} is now IN.``);
+      toast("ok","Signed in", `${full_name} is now IN.`);
       await audit("visitor.sign_in_success",{visitor_id:v.id});
 
       $("vName").value = "";
@@ -652,7 +638,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
       if (snapErr){ toast("bad","Error", snapErr.message); return; }
 
-      toast("ok","Signed out", ```${v.full_name} is now OUT.``);
+      toast("ok","Signed out", `${v.full_name} is now OUT.`);
       await audit("visitor.sign_out_success",{visitor_id:v.id});
 
       await refreshVisitorsOnsite();
@@ -660,17 +646,14 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       await refreshEvacSummary();
     }
 
-    /* -------------------------
-       Live onsite list
-    ------------------------- */
     async function refreshOnsite(){
       const { data, error } = await state.sb
         .from("current_presence")
-        .select(``
+        .select(`
           person_type, employee_id, visitor_id, state, last_changed_at,
           employees:employee_id ( first_name, last_name, employee_code ),
           visitors:visitor_id ( full_name, visitor_company )
-        ``)
+        `)
         .eq("company_id", state.profile.company_id)
         .eq("site_id", state.siteId)
         .eq("state","in")
@@ -682,7 +665,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       list.innerHTML = "";
 
       const items = data || [];
-      $("onsiteCountBadge").textContent = ```${items.length} on site``;
+      $("onsiteCountBadge").textContent = `${items.length} on site`;
 
       if(items.length === 0){
         const d = document.createElement("div");
@@ -702,11 +685,11 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
         let name = "—";
         let meta = "—";
         if(r.person_type === "employee"){
-          name = ```${r.employees?.first_name||""} `${r.employees?.last_name||""}``.trim() || "Employee";
-          meta = ``Staff • `${r.employees?.employee_code||"—"} • IN since `${fmtDateTime(r.last_changed_at)}``;
+          name = `${r.employees?.first_name||""} ${r.employees?.last_name||""}`.trim() || "Employee";
+          meta = `Staff • ${r.employees?.employee_code||"—"} • IN since ${fmtDateTime(r.last_changed_at)}`;
         } else {
           name = r.visitors?.full_name || "Visitor";
-          meta = ``Visitor • `${r.visitors?.visitor_company||"—"} • IN since `${fmtDateTime(r.last_changed_at)}``;
+          meta = `Visitor • ${r.visitors?.visitor_company||"—"} • IN since ${fmtDateTime(r.last_changed_at)}`;
         }
 
         const b = document.createElement("b"); b.textContent = name;
@@ -729,10 +712,10 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
     async function refreshVisitorsOnsite(){
       const { data, error } = await state.sb
         .from("current_presence")
-        .select(``
+        .select(`
           visitor_id, last_changed_at,
           visitors:visitor_id ( full_name, visitor_company )
-        ``)
+        `)
         .eq("company_id", state.profile.company_id)
         .eq("site_id", state.siteId)
         .eq("person_type","visitor")
@@ -762,7 +745,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
         const b = document.createElement("b"); b.textContent = r.visitors?.full_name || "Visitor";
         const s = document.createElement("span");
-        s.textContent = ```${r.visitors?.visitor_company||"—"} • IN since `${fmtDateTime(r.last_changed_at)}``;
+        s.textContent = `${r.visitors?.visitor_company||"—"} • IN since ${fmtDateTime(r.last_changed_at)}`;
         left.appendChild(b); left.appendChild(s);
 
         const right = document.createElement("div");
@@ -780,9 +763,6 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       }
     }
 
-    /* -------------------------
-       Evac: PIN + session + rollcall
-    ------------------------- */
     async function verifyEvacPin(pin){
       const entered = String(pin||"").trim();
       if(!entered){ toast("warn","PIN required","Enter the evacuation PIN."); return false; }
@@ -827,7 +807,6 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       let ses = await loadActiveSession();
       if(ses) return ses;
 
-      // Create session
       const { data: created, error } = await state.sb
         .from("evacuation_sessions")
         .insert([{
@@ -842,14 +821,13 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
       if (error){ toast("bad","Error", error.message); return null; }
 
-      // Snapshot current onsite
       const { data: onsite, error: oErr } = await state.sb
         .from("current_presence")
-        .select(``
+        .select(`
           person_type, employee_id, visitor_id, state,
           employees:employee_id ( first_name, last_name, employee_code ),
           visitors:visitor_id ( full_name, visitor_company, photo_path )
-        ``)
+        `)
         .eq("company_id", state.profile.company_id)
         .eq("site_id", state.siteId)
         .eq("state","in");
@@ -858,8 +836,8 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
 
       const entries = (onsite || []).map(r => {
         if(r.person_type === "employee"){
-          const display = ```${r.employees?.first_name||""} `${r.employees?.last_name||""}``.trim() || "Employee";
-          const meta = ``Staff • `${r.employees?.employee_code||"—"}``;
+          const display = `${r.employees?.first_name||""} ${r.employees?.last_name||""}`.trim() || "Employee";
+          const meta = `Staff • ${r.employees?.employee_code||"—"}`;
           return {
             company_id: state.profile.company_id,
             site_id: state.siteId,
@@ -874,7 +852,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
           };
         }
         const display = r.visitors?.full_name || "Visitor";
-        const meta = ``Visitor • `${r.visitors?.visitor_company||"—"}``;
+        const meta = `Visitor • ${r.visitors?.visitor_company||"—"}`;
         return {
           company_id: state.profile.company_id,
           site_id: state.siteId,
@@ -936,7 +914,7 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       b.textContent = "Active evacuation session";
 
       const s = document.createElement("span");
-      s.textContent = ```${state.activeSession.id} • started `${fmtDateTime(state.activeSession.started_at)}``;
+      s.textContent = `${state.activeSession.id} • started ${fmtDateTime(state.activeSession.started_at)}`;
 
       left.appendChild(b);
       left.appendChild(s);
@@ -975,198 +953,25 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       if(!ses) return;
 
       $("evacSessionBadge").textContent = ses.id.slice(0,8) + "…";
-      $("evacModalSub").textContent = ``Session started: `${fmtDateTime(ses.started_at)}``;
+      $("evacModalSub").textContent = `Session started: ${fmtDateTime(ses.started_at)}`;
       $("evacModalBackdrop").classList.remove("hide");
-
-      await refreshRollCall();
     }
 
     function closeEvacModal(){
       $("evacModalBackdrop").classList.add("hide");
     }
 
-    async function refreshRollCall(){
-      const list = $("rollCallList");
-      list.innerHTML = "";
-
-      if(!state.activeSession){
-        const d = document.createElement("div");
-        d.className = "subtle";
-        d.textContent = "No active session.";
-        list.appendChild(d);
-        return;
-      }
-
-      const { data, error } = await state.sb
-        .from("evacuation_rollcall_entries")
-        .select("id, display_name, meta, accounted_for, accounted_at, accounted_by_name")
-        .eq("company_id", state.profile.company_id)
-        .eq("site_id", state.siteId)
-        .eq("session_id", state.activeSession.id)
-        .order("accounted_for",{ascending:true});
-
-      if (error){ toast("bad","Error", error.message); return; }
-
-      const entries = data || [];
-      if(!entries.length){
-        const d = document.createElement("div");
-        d.className = "subtle";
-        d.textContent = "No one was on site at the moment roll call started.";
-        list.appendChild(d);
-        return;
-      }
-
-      let accounted = entries.filter(e => e.accounted_for).length;
-
-      const summary = document.createElement("div");
-      summary.className = "item";
-      const sL = document.createElement("div"); sL.className="left";
-      const sB = document.createElement("b"); sB.textContent = ``Roll call: `${accounted} / `${entries.length} accounted``;
-      const sS = document.createElement("span"); sS.textContent = ``Session: `${state.activeSession.id}``;
-      sL.appendChild(sB); sL.appendChild(sS);
-      const sR = document.createElement("div"); sR.className="row";
-      const sBadge = document.createElement("span"); sBadge.className="badge warn"; sBadge.textContent="LIVE";
-      sR.appendChild(sBadge);
-      summary.appendChild(sL); summary.appendChild(sR);
-      list.appendChild(summary);
-
-      for(const e of entries){
-        const item = document.createElement("div");
-        item.className = "item";
-
-        const left = document.createElement("div");
-        left.className = "left";
-
-        const b = document.createElement("b"); b.textContent = e.display_name;
-        const s = document.createElement("span");
-        const when = e.accounted_for && e.accounted_at ? `` • `${new Date(e.accounted_at).toLocaleTimeString()}`` : "";
-        const by = e.accounted_for && e.accounted_by_name ? `` • `${e.accounted_by_name}`` : "";
-        s.textContent = ```${e.meta||"—"}`${when}`${by}``;
-
-        left.appendChild(b); left.appendChild(s);
-
-        const right = document.createElement("div");
-        right.className = "row";
-
-        const status = document.createElement("span");
-        status.className = "badge " + (e.accounted_for ? "ok" : "bad");
-        status.textContent = e.accounted_for ? "SAFE" : "MISSING";
-        right.appendChild(status);
-
-        const lab = document.createElement("label");
-        lab.className = "check";
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.checked = !!e.accounted_for;
-        cb.onchange = async () => await setAccounted(e.id, cb.checked);
-        lab.appendChild(cb);
-
-        const t = document.createElement("span");
-        t.className = "subtle";
-        t.textContent = "Accounted";
-        lab.appendChild(t);
-
-        right.appendChild(lab);
-
-        item.appendChild(left); item.appendChild(right);
-        list.appendChild(item);
-      }
-    }
-
-    async function setAccounted(entryId, accounted){
-      if(!isEvacRole(state.profile.role)){
-        toast("bad","Restricted","Only Fire Marshals / Admins can mark roll call.");
-        return;
-      }
-
-      const patch = {
-        accounted_for: !!accounted,
-        accounted_at: accounted ? new Date().toISOString() : null,
-        accounted_by_user_id: accounted ? state.profile.user_id : null,
-        accounted_by_name: accounted ? (state.profile.full_name || $("userEmail").textContent) : null
-      };
-
-      const { error } = await state.sb
-        .from("evacuation_rollcall_entries")
-        .update(patch)
-        .eq("company_id", state.profile.company_id)
-        .eq("site_id", state.siteId)
-        .eq("id", entryId);
-
-      if (error){ toast("bad","Error", error.message); return; }
-
-      await audit("evac.entry.updated",{entry_id:entryId, accounted_for:!!accounted});
-      await refreshRollCall();
-      await refreshEvacSummary();
-    }
-
-    async function markAllSafe(){
-      if(!state.activeSession) return;
-      if(!isEvacRole(state.profile.role)){
-        toast("bad","Restricted","Only Fire Marshals / Admins can mark roll call.");
-        return;
-      }
-
-      const { error } = await state.sb
-        .from("evacuation_rollcall_entries")
-        .update({
-          accounted_for:true,
-          accounted_at: new Date().toISOString(),
-          accounted_by_user_id: state.profile.user_id,
-          accounted_by_name: state.profile.full_name || $("userEmail").textContent
-        })
-        .eq("company_id", state.profile.company_id)
-        .eq("site_id", state.siteId)
-        .eq("session_id", state.activeSession.id)
-        .eq("accounted_for", false);
-
-      if (error){ toast("bad","Error", error.message); return; }
-
-      toast("ok","Updated","All entries marked as safe.");
-      await audit("evac.mark_all_success",{session_id:state.activeSession.id});
-      await refreshRollCall();
-      await refreshEvacSummary();
-    }
-
-    async function exportEvacCsv(){
-      if(!state.activeSession){
-        toast("warn","No session","No active evacuation session.");
-        return;
-      }
-
-      const { data, error } = await state.sb
-        .from("evacuation_rollcall_entries")
-        .select("display_name, meta, accounted_for, accounted_at, accounted_by_name")
-        .eq("company_id", state.profile.company_id)
-        .eq("site_id", state.siteId)
-        .eq("session_id", state.activeSession.id)
-        .order("display_name",{ascending:true});
-
-      if (error){ toast("bad","Error", error.message); return; }
-
-      const rows = (data||[]).map(r => ({
-        display_name: r.display_name,
-        meta: r.meta || "",
-        accounted_for: r.accounted_for ? "YES" : "NO",
-        accounted_at: r.accounted_at || "",
-        accounted_by: r.accounted_by_name || ""
-      }));
-
-      const start = new Date(state.activeSession.started_at).toISOString().slice(0,19).replace(/[:T]/g,"-");
-      downloadCSV(`evac_rollcall_${start}.csv`, rows);
-    }
-
     async function exportPresenceCsv(){
       const to = new Date();
-      const from = new Date(to.getTime() - 24*60*60*1000); // last 24h default
+      const from = new Date(to.getTime() - 24*60*60*1000);
 
       const { data, error } = await state.sb
         .from("presence_events")
-        .select(``
+        .select(`
           occurred_at, person_type, direction, method, raw_input,
           employees:employee_id ( employee_code, first_name, last_name ),
           visitors:visitor_id ( full_name, visitor_company )
-        ``)
+        `)
         .eq("company_id", state.profile.company_id)
         .eq("site_id", state.siteId)
         .gte("occurred_at", from.toISOString())
@@ -1199,9 +1004,6 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       downloadCSV(`presence_last_24h.csv`, rows);
     }
 
-    /* -------------------------
-       Camera scan (BarcodeDetector QR)
-    ------------------------- */
     async function startCamera(){
       if(state.scanning) return;
       if(!navigator.mediaDevices?.getUserMedia){
@@ -1317,12 +1119,8 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       $("evacPinInput").addEventListener("keydown", (e)=>{ if(e.key==="Enter") $("evacEnterBtn").click(); });
 
       $("openRollCallBtn").onclick = openEvacModal;
-      $("exportEvacBtn").onclick = exportEvacCsv;
 
       $("evacCloseModalBtn").onclick = closeEvacModal;
-      $("evacRefreshBtn").onclick = async () => { await loadActiveSession(); await refreshRollCall(); };
-      $("evacMarkAllBtn").onclick = markAllSafe;
-      $("evacExportBtn").onclick = exportEvacCsv;
 
       $("exportPresenceBtn").onclick = exportPresenceCsv;
 
@@ -1341,10 +1139,10 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
       state.sb = supabaseClient();
 
       try{
-        // Module access enforced BEFORE doing anything else.
         state.profile = await requireModuleAccess(MODULE_KEY);
 
-        $("userEmail").textContent = (await state.sb.auth.getUser()).data?.user?.email || "—";
+        const u = await state.sb.auth.getUser();
+        $("userEmail").textContent = u?.data?.user?.email || "—";
         $("userRole").textContent = state.profile.role;
 
         await loadCompany();
@@ -1368,7 +1166,6 @@ if (tEl) tEl.textContent = `${hh}:${mi}:${ss}`;
             </div>`;
           return;
         }
-
         toast("bad","Cannot load", e.message || String(e));
         console.error(e);
       }
