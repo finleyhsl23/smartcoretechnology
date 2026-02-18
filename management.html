@@ -1,0 +1,1138 @@
+<!-- index.html (single-page app: login -> #admin employee manager) -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SmartCore Technology</title>
+
+  <!-- Favicon / tab icon -->
+  <link rel="icon" type="image/png" href="SmartCore Official Logos/SC Icon - Black Background.png">
+  <link rel="apple-touch-icon" href="SmartCore Official Logos/SC Icon - Black Background.png">
+
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Supabase JS v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    :root{
+      --bg0:#020617;
+      --bg1:#06153a;
+      --panelA: rgba(8, 12, 28, .62);
+      --stroke: rgba(255,255,255,.12);
+      --stroke2: rgba(255,255,255,.08);
+      --text: #eaf0ff;
+      --muted: rgba(234,240,255,.74);
+      --accent: rgba(120,170,255,.95);
+      --shadow: 0 26px 80px rgba(0,0,0,.55);
+      --shadow2: 0 18px 55px rgba(0,0,0,.45);
+      --r1: 22px;
+      --r2: 16px;
+      --blur: 16px;
+    }
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      color: var(--text);
+      background:
+        radial-gradient(1100px 800px at 50% 10%, rgba(70,120,255,.20), transparent 60%),
+        radial-gradient(1200px 900px at 50% 60%, rgba(35,80,220,.14), transparent 62%),
+        linear-gradient(180deg, var(--bg0), var(--bg1));
+      overflow-x:hidden;
+    }
+    .glass{
+      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      border:1px solid var(--stroke);
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
+      border-radius: var(--r1);
+      box-shadow: var(--shadow);
+    }
+    .glass2{
+      background: rgba(255,255,255,.045);
+      border:1px solid var(--stroke2);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-radius: var(--r2);
+      box-shadow: var(--shadow2);
+    }
+    .inp{
+      width:100%;
+      border-radius: 14px;
+      border:1px solid var(--stroke2);
+      background: rgba(255,255,255,.05);
+      padding: 12px 12px;
+      outline:none;
+      color: var(--text);
+    }
+    .inp::placeholder{ color: rgba(234,240,255,.45); }
+    .inp:focus{
+      border-color: rgba(120,170,255,.35);
+      box-shadow: 0 0 0 3px rgba(120,170,255,.10);
+    }
+    .modalBackdrop{
+      position:fixed;
+      inset:0;
+      background: rgba(0,0,0,.62);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:50;
+      padding: 18px;
+    }
+    .modalBackdrop.show{display:flex;}
+    .modal{
+      max-width: 980px;
+      width: 100%;
+      max-height: 86vh;
+      overflow: auto;
+      border-radius: 20px;
+    }
+    .noScroll{ overflow:hidden; }
+
+    .navHide{ transform: translateY(-120%); transition: transform .28s ease; }
+    .navShow{ transform: translateY(0); transition: transform .28s ease; }
+
+    .fadeUp{ opacity:0; transform: translateY(10px); transition: opacity .45s ease, transform .45s ease; }
+    .fadeUp.in{ opacity:1; transform: translateY(0); }
+
+    .tag{
+      display:inline-flex; align-items:center; gap:8px;
+      padding: 6px 10px; border-radius: 999px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.05);
+      font-size: 12px; opacity: .95;
+      width: fit-content;
+    }
+    .tagDot{ width:8px; height:8px; border-radius:999px; background: rgba(255,255,255,.35); }
+    .tagDot.green{ background: rgba(80,240,160,.9); box-shadow: 0 0 0 4px rgba(80,240,160,.12); }
+    .tagDot.amber{ background: rgba(255,205,90,.95); box-shadow: 0 0 0 4px rgba(255,205,90,.12); }
+
+    .rowBtn{
+      padding: 8px 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.05);
+      transition: background .12s ease, transform .12s ease;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .rowBtn:hover{ background: rgba(255,255,255,.08); transform: translateY(-1px); }
+    .rowBtn.danger{
+      border-color: rgba(255,120,120,.18);
+      background: rgba(255,120,120,.08);
+    }
+    .rowBtn.danger:hover{ background: rgba(255,120,120,.12); }
+
+    .chip{
+      display:inline-flex; align-items:center; gap:8px;
+      padding: 6px 10px; border-radius: 999px;
+      border:1px solid rgba(120,170,255,.22);
+      background: rgba(120,170,255,.10);
+      font-size: 12px;
+    }
+
+    html{ scroll-behavior:smooth; }
+  </style>
+
+  <script>
+    // Supabase for this project (NEW project per your message)
+    window.__SUPABASE_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+    window.__SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+  </script>
+</head>
+
+<body>
+
+  <!-- NAV -->
+  <header id="nav" class="fixed top-4 left-0 right-0 z-40 navShow">
+    <div class="max-w-6xl mx-auto px-4">
+      <div class="glass2 flex items-center justify-between px-4 py-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="w-10 h-10 rounded-2xl overflow-hidden bg-black/30 border border-white/10 flex items-center justify-center shrink-0">
+            <img
+              src="SmartCore Official Logos/SC Icon - Black Background.png"
+              alt="SmartCore"
+              class="w-8 h-8 object-contain translate-y-[-1px]"
+              onerror="this.style.display='none'"
+            />
+          </div>
+          <div class="min-w-0">
+            <div class="font-semibold tracking-tight leading-tight">
+              SmartCore <span class="opacity-70">Technology</span>
+            </div>
+            <div class="text-xs opacity-70 leading-tight">Practical Technology. Built to Last.</div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="navHome" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
+            Home
+          </button>
+          <button id="navAdmin" class="hidden px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
+            Admin
+          </button>
+          <button id="navLogin" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
+            Log In
+          </button>
+          <button id="navLogout" class="hidden px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
+            Sign out
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- HOME -->
+  <main id="home" class="max-w-6xl mx-auto px-4 pt-28 pb-24">
+    <div class="glass p-7 sm:p-10">
+      <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs opacity-80">
+        <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(120,170,255,.85)"></span>
+        SmartCore Platform
+      </div>
+
+      <h1 class="mt-5 font-extrabold tracking-tight leading-[1.02]" style="font-size: clamp(40px, 5vw, 68px);">
+        Company Admin
+        <span style="opacity:.72">Portal</span>
+      </h1>
+
+      <p class="mt-4 text-[15px] sm:text-[17px] leading-relaxed" style="color: var(--muted); max-width: 52rem;">
+        Log in to manage your company and employees.
+      </p>
+
+      <div class="mt-7 flex flex-wrap items-center gap-3">
+        <button id="homeLogin" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
+          Log In
+        </button>
+      </div>
+
+      <div class="mt-8 text-xs opacity-60">
+        Support: <a class="underline hover:opacity-100" href="mailto:support@smartcoretechnology.co.uk">support@smartcoretechnology.co.uk</a>
+      </div>
+    </div>
+
+    <footer class="mt-10 glass2 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div class="text-sm opacity-80">SmartCore Technology</div>
+      <a class="text-sm opacity-80 underline hover:opacity-100" href="mailto:support@smartcoretechnology.co.uk">
+        support@smartcoretechnology.co.uk
+      </a>
+    </footer>
+  </main>
+
+  <!-- ADMIN PAGE -->
+  <section id="adminPage" class="hidden">
+    <div class="max-w-6xl mx-auto px-4 pt-28 pb-24">
+      <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+        <div class="glass p-6 w-full">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Employee Management</h2>
+              <p id="adminSub" class="mt-1 text-sm" style="color: var(--muted);">Loading…</p>
+            </div>
+            <div class="hidden sm:flex items-center gap-2">
+              <span id="authChip" class="chip hidden">Signed in</span>
+            </div>
+          </div>
+
+          <div class="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <!-- Left: Company selector -->
+            <div class="glass2 p-4">
+              <div class="text-sm font-semibold opacity-90">Company</div>
+              <div class="mt-2 text-sm opacity-70">Select which company you want to manage.</div>
+
+              <div class="mt-3">
+                <label class="text-xs opacity-70">Company</label>
+                <select id="companySelect" class="inp mt-1"></select>
+                <div id="companyWarn" class="mt-2 text-xs text-red-300 hidden"></div>
+              </div>
+
+              <div class="mt-4 flex flex-wrap gap-2">
+                <button id="refreshCompanies" class="rowBtn">Refresh</button>
+                <button id="refreshEmployees" class="rowBtn">Refresh employees</button>
+              </div>
+
+              <div class="mt-4 text-xs opacity-60">
+                Access is allowed if you are:
+                <div class="mt-2 space-y-1">
+                  <div>• a company owner (companies.owner_user_id = your user id)</div>
+                  <div>• or a company admin (profiles.role / profiles.is_admin for that company)</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Middle: Add employee -->
+            <div class="glass2 p-4">
+              <div class="text-sm font-semibold opacity-90">Add employee</div>
+              <div class="mt-2 text-sm opacity-70">Creates a new employee row with status <b>active</b>.</div>
+
+              <div class="mt-3 space-y-3">
+                <div>
+                  <label class="text-xs opacity-70">Full name</label>
+                  <input id="addName" class="inp mt-1" placeholder="e.g. Jamie Smith">
+                </div>
+                <div>
+                  <label class="text-xs opacity-70">Email</label>
+                  <input id="addEmail" class="inp mt-1" type="email" placeholder="e.g. jamie@company.co.uk">
+                </div>
+
+                <button id="addEmployeeBtn" class="w-full px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
+                  Add employee
+                </button>
+
+                <div id="addMsg" class="text-sm text-red-300 hidden"></div>
+              </div>
+            </div>
+
+            <!-- Right: Filters -->
+            <div class="glass2 p-4">
+              <div class="text-sm font-semibold opacity-90">View</div>
+              <div class="mt-2 text-sm opacity-70">Filter by employee status.</div>
+
+              <div class="mt-3 grid grid-cols-1 gap-3">
+                <div>
+                  <label class="text-xs opacity-70">Status</label>
+                  <select id="statusFilter" class="inp mt-1">
+                    <option value="active">Active</option>
+                    <option value="archived">Archived</option>
+                    <option value="all">All</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="text-xs opacity-70">Search</label>
+                  <input id="searchBox" class="inp mt-1" placeholder="Search name or email">
+                </div>
+              </div>
+
+              <div class="mt-4">
+                <div class="text-xs opacity-60">Status rules</div>
+                <div class="mt-2 space-y-2">
+                  <div class="tag"><span class="tagDot green"></span>active</div>
+                  <div class="tag"><span class="tagDot amber"></span>archived</div>
+                </div>
+              </div>
+
+              <div id="permMsg" class="mt-4 text-sm text-red-300 hidden"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Employee list -->
+      <div class="mt-5 glass p-5">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <div class="text-sm font-semibold opacity-90">Employees</div>
+            <div id="empCount" class="mt-1 text-sm opacity-70">0</div>
+          </div>
+          <div class="text-xs opacity-60">
+            Archive keeps the record. Delete removes it permanently from Supabase.
+          </div>
+        </div>
+
+        <div class="mt-4 overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="opacity-70">
+              <tr>
+                <th class="py-2 pr-3">Name</th>
+                <th class="py-2 pr-3">Email</th>
+                <th class="py-2 pr-3">Status</th>
+                <th class="py-2 pr-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="empTbody" class="align-top"></tbody>
+          </table>
+        </div>
+
+        <div id="empMsg" class="mt-4 text-sm text-red-300 hidden"></div>
+      </div>
+
+      <footer class="mt-10 glass2 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div class="text-sm opacity-80">SmartCore Technology</div>
+        <a class="text-sm opacity-80 underline hover:opacity-100" href="mailto:support@smartcoretechnology.co.uk">
+          support@smartcoretechnology.co.uk
+        </a>
+      </footer>
+    </div>
+  </section>
+
+  <!-- MODAL: Login -->
+  <div id="loginModalBackdrop" class="modalBackdrop">
+    <div class="modal glass p-5 sm:p-6" style="max-width: 680px;">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="text-xl sm:text-2xl font-bold">Log in</div>
+          <div class="mt-1 text-sm opacity-75">Use your email and password.</div>
+        </div>
+        <button id="liClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 gap-3">
+        <div>
+          <label class="text-xs opacity-70">Email</label>
+          <input id="liEmail" class="inp mt-1" type="email" placeholder="name@company.co.uk" />
+        </div>
+        <div>
+          <label class="text-xs opacity-70">Password</label>
+          <div class="mt-1 flex gap-2">
+            <input id="liPassword" class="inp" type="password" placeholder="Your password" />
+            <button id="liEye" type="button" class="rowBtn" aria-label="Show/hide password">Show</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="liMsg" class="mt-4 text-sm text-red-300 hidden"></div>
+
+      <div class="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <button id="liLogin" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
+          Log In
+        </button>
+
+        <div class="text-sm opacity-70">
+          <div id="liWrong" class="hidden">
+            <button id="liReset" class="underline hover:opacity-100">Incorrect credentials — Forgot your password?</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /******************************************************************
+      UTIL
+    ******************************************************************/
+    const $ = (id) => document.getElementById(id);
+
+    function show(el){ el.classList.remove("hidden"); }
+    function hide(el){ el.classList.add("hidden"); }
+    function setText(el, t){ el.textContent = t; }
+
+    function openModal(backdrop){
+      backdrop.classList.add("show");
+      document.body.classList.add("noScroll");
+    }
+    function closeModal(backdrop){
+      backdrop.classList.remove("show");
+      document.body.classList.remove("noScroll");
+    }
+
+    function showErr(el, msg){
+      el.textContent = msg;
+      el.classList.remove("hidden");
+      el.classList.remove("text-green-300");
+      el.classList.add("text-red-300");
+    }
+    function showOk(el, msg){
+      el.textContent = msg;
+      el.classList.remove("hidden");
+      el.classList.remove("text-red-300");
+      el.classList.add("text-green-300");
+    }
+    function clearMsg(el){
+      el.textContent = "";
+      el.classList.add("hidden");
+      el.classList.remove("text-green-300");
+      el.classList.add("text-red-300");
+    }
+
+    function esc(s){
+      return String(s ?? "")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+
+    /******************************************************************
+      SUPABASE INIT
+    ******************************************************************/
+    const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
+
+    /******************************************************************
+      STATE
+    ******************************************************************/
+    const state = {
+      session: null,
+      user: null,
+      profile: null,
+
+      // companies user can manage
+      companies: [],
+      selectedCompanyId: null,
+
+      // employees list for selected company
+      employees: []
+    };
+
+    /******************************************************************
+      PERMISSIONS
+      - owner: companies.owner_user_id == user.id
+      - admin: profile indicates admin for that company
+        We support a few common patterns:
+          profile.role in ['admin','company_admin','owner']
+          profile.is_admin === true
+          profile.company_id matches company.id
+    ******************************************************************/
+    function isAdminForCompany(company){
+      const p = state.profile;
+      if (!p) return false;
+
+      const role = String(p.role || "").toLowerCase();
+      const roleOk = ["admin","company_admin","owner"].includes(role);
+      const flagOk = (p.is_admin === true) || (p.company_admin === true);
+      const companyMatch = p.company_id && String(p.company_id) === String(company.id);
+
+      // if profile has a "company_id", treat admin only for that company
+      if (p.company_id) return companyMatch && (roleOk || flagOk);
+
+      // if no company_id on profile, allow global admin flags/roles
+      return roleOk || flagOk;
+    }
+
+    function isOwnerOfCompany(company){
+      return String(company.owner_user_id || "") === String(state.user?.id || "");
+    }
+
+    function canManageCompany(company){
+      return isOwnerOfCompany(company) || isAdminForCompany(company);
+    }
+
+    /******************************************************************
+      ROUTING
+    ******************************************************************/
+    function goto(hash){
+      window.location.hash = hash;
+      renderRoute();
+    }
+
+    function renderRoute(){
+      const h = (window.location.hash || "#home").toLowerCase();
+
+      if (h.startsWith("#admin")){
+        hide($("home"));
+        show($("adminPage"));
+      } else {
+        hide($("adminPage"));
+        show($("home"));
+      }
+    }
+
+    /******************************************************************
+      AUTH / UI
+    ******************************************************************/
+    function setAuthedUI(authed){
+      if (authed){
+        hide($("navLogin"));
+        show($("navLogout"));
+        show($("navAdmin"));
+        show($("authChip"));
+      } else {
+        show($("navLogin"));
+        hide($("navLogout"));
+        hide($("navAdmin"));
+        hide($("authChip"));
+      }
+    }
+
+    async function loadSession(){
+      const { data: { session } } = await sb.auth.getSession();
+      state.session = session || null;
+      state.user = session?.user || null;
+      setAuthedUI(!!state.user);
+      return state.user;
+    }
+
+    async function loadProfile(){
+      state.profile = null;
+      if (!state.user) return null;
+
+      // If you do NOT have a profiles table, this will fail safely.
+      // We’ll still allow owner-based access via companies.owner_user_id.
+      try{
+        const { data, error } = await sb
+          .from("profiles")
+          .select("*")
+          .eq("user_id", state.user.id)
+          .maybeSingle();
+
+        if (error) throw error;
+        state.profile = data || null;
+        return state.profile;
+      }catch(_){
+        state.profile = null;
+        return null;
+      }
+    }
+
+    /******************************************************************
+      COMPANIES LOAD
+      - Owner: all companies where owner_user_id == user.id
+      - Admin: if profile.company_id exists, also include that company
+      - (Optional) If you store admins differently, you can extend here.
+    ******************************************************************/
+    async function loadManageableCompanies(){
+      clearMsg($("companyWarn"));
+      clearMsg($("permMsg"));
+
+      if (!state.user){
+        showErr($("permMsg"), "You are not logged in.");
+        state.companies = [];
+        return [];
+      }
+
+      // 1) owner companies
+      const ownerRes = await sb
+        .from("companies")
+        .select("*")
+        .eq("owner_user_id", state.user.id);
+
+      if (ownerRes.error){
+        showErr($("permMsg"), "Could not load companies (RLS or table issue): " + ownerRes.error.message);
+        state.companies = [];
+        return [];
+      }
+
+      let companies = ownerRes.data || [];
+
+      // 2) admin company (if profile.company_id exists)
+      if (state.profile?.company_id){
+        const adminRes = await sb
+          .from("companies")
+          .select("*")
+          .eq("id", state.profile.company_id)
+          .maybeSingle();
+
+        if (!adminRes.error && adminRes.data){
+          const exists = companies.some(c => String(c.id) === String(adminRes.data.id));
+          if (!exists) companies.push(adminRes.data);
+        }
+      }
+
+      // Filter to only those user can manage (owner/admin)
+      companies = companies.filter(canManageCompany);
+
+      state.companies = companies;
+
+      // Populate select
+      const sel = $("companySelect");
+      sel.innerHTML = "";
+
+      if (!companies.length){
+        sel.innerHTML = `<option value="">No accessible companies</option>`;
+        showErr($("permMsg"), "No companies found for your account, or your RLS policies are blocking access.");
+        return [];
+      }
+
+      companies.forEach(c=>{
+        const opt = document.createElement("option");
+        opt.value = c.id;
+        opt.textContent = c.company_name ? `${c.company_name}` : `Company ${c.id}`;
+        sel.appendChild(opt);
+      });
+
+      // Default selection
+      if (!state.selectedCompanyId || !companies.some(c => String(c.id) === String(state.selectedCompanyId))){
+        state.selectedCompanyId = companies[0].id;
+      }
+      sel.value = state.selectedCompanyId;
+
+      setText($("adminSub"), `Signed in as ${state.user.email}. Select a company to manage employees.`);
+      return companies;
+    }
+
+    /******************************************************************
+      EMPLOYEES CRUD
+      Assumptions (adjust column names if yours differ):
+        employees: id, company_id, full_name, email, status (text: 'active'|'archived')
+    ******************************************************************/
+    function getSelectedCompany(){
+      return state.companies.find(c => String(c.id) === String(state.selectedCompanyId));
+    }
+
+    function normalizeStatus(s){
+      const v = String(s || "").toLowerCase();
+      if (v === "archived") return "archived";
+      return "active";
+    }
+
+    async function loadEmployees(){
+      clearMsg($("empMsg"));
+
+      const company = getSelectedCompany();
+      if (!company){
+        state.employees = [];
+        renderEmployees();
+        return [];
+      }
+
+      if (!canManageCompany(company)){
+        showErr($("permMsg"), "You do not have permission to manage this company.");
+        state.employees = [];
+        renderEmployees();
+        return [];
+      }
+
+      const { data, error } = await sb
+        .from("employees")
+        .select("id, company_id, full_name, email, status")
+        .eq("company_id", company.id)
+        .order("full_name", { ascending:true });
+
+      if (error){
+        showErr($("empMsg"), "Could not load employees (RLS or table issue): " + error.message);
+        state.employees = [];
+        renderEmployees();
+        return [];
+      }
+
+      state.employees = (data || []).map(e => ({
+        ...e,
+        status: normalizeStatus(e.status)
+      }));
+
+      renderEmployees();
+      return state.employees;
+    }
+
+    function currentFilters(){
+      return {
+        status: ($("statusFilter").value || "active"),
+        q: ($("searchBox").value || "").trim().toLowerCase()
+      };
+    }
+
+    function renderEmployees(){
+      const tbody = $("empTbody");
+      tbody.innerHTML = "";
+
+      const { status, q } = currentFilters();
+
+      let rows = [...state.employees];
+
+      if (status !== "all"){
+        rows = rows.filter(e => normalizeStatus(e.status) === status);
+      }
+
+      if (q){
+        rows = rows.filter(e =>
+          String(e.full_name || "").toLowerCase().includes(q) ||
+          String(e.email || "").toLowerCase().includes(q)
+        );
+      }
+
+      setText($("empCount"), `${rows.length} shown`);
+
+      if (!rows.length){
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td class="py-4 opacity-60" colspan="4">No employees match your filter.</td>`;
+        tbody.appendChild(tr);
+        return;
+      }
+
+      rows.forEach(e=>{
+        const statusVal = normalizeStatus(e.status);
+        const dotClass = statusVal === "archived" ? "amber" : "green";
+
+        const tr = document.createElement("tr");
+        tr.className = "border-t border-white/10";
+        tr.innerHTML = `
+          <td class="py-3 pr-3">
+            <div class="font-medium">${esc(e.full_name || "(no name)")}</div>
+          </td>
+          <td class="py-3 pr-3">
+            <div class="opacity-90">${esc(e.email || "")}</div>
+          </td>
+          <td class="py-3 pr-3">
+            <span class="tag"><span class="tagDot ${dotClass}"></span>${esc(statusVal)}</span>
+          </td>
+          <td class="py-3 pr-3">
+            <div class="flex flex-wrap gap-2">
+              ${
+                statusVal === "archived"
+                ? `<button class="rowBtn" data-action="unarchive" data-id="${esc(e.id)}">Unarchive</button>`
+                : `<button class="rowBtn" data-action="archive" data-id="${esc(e.id)}">Archive</button>`
+              }
+              <button class="rowBtn danger" data-action="delete" data-id="${esc(e.id)}">Delete</button>
+            </div>
+          </td>
+        `;
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function addEmployee(){
+      clearMsg($("addMsg"));
+      const company = getSelectedCompany();
+      if (!company) return showErr($("addMsg"), "Select a company first.");
+
+      if (!canManageCompany(company)){
+        return showErr($("addMsg"), "You do not have permission to add employees for this company.");
+      }
+
+      const full_name = $("addName").value.trim();
+      const email = $("addEmail").value.trim().toLowerCase();
+
+      if (!full_name) return showErr($("addMsg"), "Enter a full name.");
+      if (!email) return showErr($("addMsg"), "Enter an email.");
+
+      $("addEmployeeBtn").disabled = true;
+      $("addEmployeeBtn").classList.add("opacity-60");
+
+      try{
+        const { error } = await sb
+          .from("employees")
+          .insert([{
+            company_id: company.id,
+            full_name,
+            email,
+            status: "active"
+          }]);
+
+        if (error) throw error;
+
+        $("addName").value = "";
+        $("addEmail").value = "";
+        showOk($("addMsg"), "Employee added.");
+        await loadEmployees();
+
+      }catch(e){
+        showErr($("addMsg"), "Add failed: " + (e.message || e));
+      }finally{
+        $("addEmployeeBtn").disabled = false;
+        $("addEmployeeBtn").classList.remove("opacity-60");
+      }
+    }
+
+    async function setEmployeeStatus(employeeId, status){
+      clearMsg($("empMsg"));
+      const company = getSelectedCompany();
+      if (!company) return;
+
+      if (!canManageCompany(company)){
+        return showErr($("empMsg"), "You do not have permission to change employee status for this company.");
+      }
+
+      const newStatus = normalizeStatus(status);
+
+      const { error } = await sb
+        .from("employees")
+        .update({ status: newStatus })
+        .eq("id", employeeId)
+        .eq("company_id", company.id);
+
+      if (error){
+        showErr($("empMsg"), "Update failed: " + error.message);
+        return;
+      }
+
+      await loadEmployees();
+    }
+
+    async function deleteEmployee(employeeId){
+      clearMsg($("empMsg"));
+      const company = getSelectedCompany();
+      if (!company) return;
+
+      if (!canManageCompany(company)){
+        return showErr($("empMsg"), "You do not have permission to delete employees for this company.");
+      }
+
+      const emp = state.employees.find(x => String(x.id) === String(employeeId));
+      const label = emp ? `${emp.full_name || "Employee"} (${emp.email || ""})` : "this employee";
+
+      const ok = confirm(`Delete ${label}?\n\nThis will permanently remove the record from Supabase.`);
+      if (!ok) return;
+
+      const { error } = await sb
+        .from("employees")
+        .delete()
+        .eq("id", employeeId)
+        .eq("company_id", company.id);
+
+      if (error){
+        showErr($("empMsg"), "Delete failed: " + error.message);
+        return;
+      }
+
+      await loadEmployees();
+    }
+
+    /******************************************************************
+      LOGIN / LOGOUT
+    ******************************************************************/
+    async function login(){
+      clearMsg($("liMsg"));
+      $("liWrong").classList.add("hidden");
+
+      const email = $("liEmail").value.trim().toLowerCase();
+      const password = $("liPassword").value;
+
+      if(!email) return showErr($("liMsg"), "Please enter your email.");
+      if(!password) return showErr($("liMsg"), "Please enter your password.");
+
+      $("liLogin").disabled = true;
+      $("liLogin").classList.add("opacity-60");
+
+      try{
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+        if(error){
+          $("liWrong").classList.remove("hidden");
+          throw new Error(error.message);
+        }
+
+        closeModal($("loginModalBackdrop"));
+
+        await loadSession();
+        await loadProfile();
+        await loadManageableCompanies();
+        await loadEmployees();
+
+        goto("#admin");
+
+      }catch(e){
+        showErr($("liMsg"), String(e.message || "Login failed."));
+      }finally{
+        $("liLogin").disabled = false;
+        $("liLogin").classList.remove("opacity-60");
+      }
+    }
+
+    async function resetPassword(){
+      clearMsg($("liMsg"));
+      const email = $("liEmail").value.trim().toLowerCase();
+      if(!email) return showErr($("liMsg"), "Enter your email above, then click again.");
+      try{
+        const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + "/#home" });
+        if(error) throw new Error(error.message);
+        showOk($("liMsg"), "Password reset email sent. Please check your inbox.");
+      }catch(e){
+        showErr($("liMsg"), String(e.message || "Failed to send reset email."));
+      }
+    }
+
+    async function signOut(){
+      await sb.auth.signOut();
+      state.session = null;
+      state.user = null;
+      state.profile = null;
+      state.companies = [];
+      state.selectedCompanyId = null;
+      state.employees = [];
+      setAuthedUI(false);
+      goto("#home");
+    }
+
+    /******************************************************************
+      WIRING
+    ******************************************************************/
+    function wire(){
+      // Nav
+      $("navHome").onclick = ()=> goto("#home");
+      $("navAdmin").onclick = ()=> goto("#admin");
+      $("navLogin").onclick = ()=> openModal($("loginModalBackdrop"));
+      $("navLogout").onclick = signOut;
+
+      // Home
+      $("homeLogin").onclick = ()=> openModal($("loginModalBackdrop"));
+
+      // Login modal
+      $("liClose").onclick = ()=> closeModal($("loginModalBackdrop"));
+      $("liEye").onclick = ()=>{
+        const p = $("liPassword");
+        const showNow = (p.type === "password");
+        p.type = showNow ? "text" : "password";
+        $("liEye").textContent = showNow ? "Hide" : "Show";
+      };
+      $("liLogin").onclick = login;
+      $("liReset").onclick = resetPassword;
+
+      // Admin actions
+      $("refreshCompanies").onclick = async ()=>{
+        await loadProfile();
+        await loadManageableCompanies();
+        await loadEmployees();
+      };
+      $("refreshEmployees").onclick = loadEmployees;
+
+      $("companySelect").addEventListener("change", async ()=>{
+        state.selectedCompanyId = $("companySelect").value || null;
+        await loadEmployees();
+      });
+
+      $("statusFilter").addEventListener("change", renderEmployees);
+      $("searchBox").addEventListener("input", renderEmployees);
+
+      $("addEmployeeBtn").onclick = addEmployee;
+
+      // Row actions (archive/delete)
+      $("empTbody").addEventListener("click", async (e)=>{
+        const btn = e.target.closest("button[data-action]");
+        if (!btn) return;
+
+        const action = btn.dataset.action;
+        const id = btn.dataset.id;
+
+        if (action === "archive") await setEmployeeStatus(id, "archived");
+        if (action === "unarchive") await setEmployeeStatus(id, "active");
+        if (action === "delete") await deleteEmployee(id);
+      });
+
+      // Close modal on backdrop click
+      $("loginModalBackdrop").addEventListener("click", (e)=>{
+        if (e.target === $("loginModalBackdrop")) closeModal($("loginModalBackdrop"));
+      });
+
+      window.addEventListener("hashchange", renderRoute);
+    }
+
+    /******************************************************************
+      INIT
+    ******************************************************************/
+    async function init(){
+      wire();
+      renderRoute();
+
+      // Load auth if already signed in
+      await loadSession();
+      await loadProfile();
+
+      if (state.user){
+        // show admin nav
+        setAuthedUI(true);
+
+        // pre-load data if user goes to admin
+        await loadManageableCompanies();
+        await loadEmployees();
+
+        // If they land on home but signed in, keep them on home unless they choose admin
+        // If they land on #admin, route will show admin page already.
+      } else {
+        setAuthedUI(false);
+      }
+    }
+
+    init().catch(err=>{
+      console.error(err);
+      alert("Init error: " + (err.message || err));
+    });
+  </script>
+
+  <!-- ==========================================================
+    IMPORTANT: RLS POLICIES (you need these in Supabase or anon won’t work)
+    Put this in Supabase SQL editor and adapt column names if needed:
+
+    -- companies: readable by owner or admins (via profiles)
+    -- employees: CRUD by owner/admin for that company
+
+    -- Example assumes:
+    --   companies(id uuid, owner_user_id uuid, company_name text)
+    --   employees(id uuid, company_id uuid, full_name text, email text, status text)
+    --   profiles(user_id uuid, company_id uuid null, role text null, is_admin boolean null)
+
+    -- Enable RLS
+    -- alter table public.companies enable row level security;
+    -- alter table public.employees enable row level security;
+
+    -- Companies SELECT
+    -- create policy "companies_select_owner_or_admin"
+    -- on public.companies for select
+    -- using (
+    --   owner_user_id = auth.uid()
+    --   OR exists (
+    --     select 1 from public.profiles p
+    --     where p.user_id = auth.uid()
+    --     and (p.is_admin = true OR lower(coalesce(p.role,'')) in ('admin','company_admin','owner'))
+    --     and (p.company_id is null OR p.company_id = companies.id)
+    --   )
+    -- );
+
+    -- Employees SELECT
+    -- create policy "employees_select_owner_or_admin"
+    -- on public.employees for select
+    -- using (
+    --   exists (
+    --     select 1 from public.companies c
+    --     where c.id = employees.company_id
+    --     and (
+    --       c.owner_user_id = auth.uid()
+    --       OR exists (
+    --         select 1 from public.profiles p
+    --         where p.user_id = auth.uid()
+    --         and (p.is_admin = true OR lower(coalesce(p.role,'')) in ('admin','company_admin','owner'))
+    --         and (p.company_id is null OR p.company_id = c.id)
+    --       )
+    --     )
+    --   )
+    -- );
+
+    -- Employees INSERT
+    -- create policy "employees_insert_owner_or_admin"
+    -- on public.employees for insert
+    -- with check (
+    --   exists (
+    --     select 1 from public.companies c
+    --     where c.id = employees.company_id
+    --     and (
+    --       c.owner_user_id = auth.uid()
+    --       OR exists (
+    --         select 1 from public.profiles p
+    --         where p.user_id = auth.uid()
+    --         and (p.is_admin = true OR lower(coalesce(p.role,'')) in ('admin','company_admin','owner'))
+    --         and (p.company_id is null OR p.company_id = c.id)
+    --       )
+    --     )
+    --   )
+    -- );
+
+    -- Employees UPDATE (archive/unarchive)
+    -- create policy "employees_update_owner_or_admin"
+    -- on public.employees for update
+    -- using (
+    --   exists (
+    --     select 1 from public.companies c
+    --     where c.id = employees.company_id
+    --     and (
+    --       c.owner_user_id = auth.uid()
+    --       OR exists (
+    --         select 1 from public.profiles p
+    --         where p.user_id = auth.uid()
+    --         and (p.is_admin = true OR lower(coalesce(p.role,'')) in ('admin','company_admin','owner'))
+    --         and (p.company_id is null OR p.company_id = c.id)
+    --       )
+    --     )
+    --   )
+    -- )
+    -- with check (true);
+
+    -- Employees DELETE (hard delete)
+    -- create policy "employees_delete_owner_or_admin"
+    -- on public.employees for delete
+    -- using (
+    --   exists (
+    --     select 1 from public.companies c
+    --     where c.id = employees.company_id
+    --     and (
+    --       c.owner_user_id = auth.uid()
+    --       OR exists (
+    --         select 1 from public.profiles p
+    --         where p.user_id = auth.uid()
+    --         and (p.is_admin = true OR lower(coalesce(p.role,'')) in ('admin','company_admin','owner'))
+    --         and (p.company_id is null OR p.company_id = c.id)
+    --       )
+    --     )
+    --   )
+    -- );
+
+  ========================================================== -->
+</body>
+</html>
