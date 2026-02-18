@@ -194,6 +194,19 @@
       height: 100%;
     }
 
+    /* Non-selectable “commonly chosen modules” */
+.moduleDisabled{
+  cursor: default !important;
+  opacity: .78;
+}
+.moduleDisabled:hover{
+  background: rgba(255,255,255,.045) !important;
+}
+.moduleDisabled .tickDot{
+  background: rgba(255,255,255,.14) !important;
+  box-shadow: none !important;
+}
+
     /* Custom promo styling */
     .customBadge{
       display:inline-flex;
@@ -373,15 +386,27 @@
         <!-- Modules (hidden until company size chosen) -->
         <div id="modulesWrap" class="mt-8 hidden">
           <div class="fadeUp" data-anim>
-            <h3 class="text-lg font-semibold">System Modules</h3>
-            <p class="mt-1 text-sm" style="color: var(--muted);">Select the modules you want to include in your plan.</p>
+            <h3 class="text-lg font-semibold">Commonly chosen modules</h3>
+<p class="mt-1 text-sm" style="color: var(--muted);">
+  These are examples of popular SmartCore systems. They’re shown to help you understand what we can build — they are not selectable.
+</p>
           </div>
 
           <!-- Standard modules grid (4 across on desktop) -->
           <div id="modulesGrid" class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"></div>
 
           <!-- Custom Module (full-width promo row) -->
-          <div id="customRow" class="mt-3"></div>
+         <!-- Build your own module (full-width selectable) -->
+<div class="mt-6">
+  <div class="fadeUp in" data-anim>
+    <h4 class="text-lg font-semibold">Build your own module</h4>
+    <p class="mt-1 text-sm" style="color: var(--muted);">
+      Tell us what you want built. We’ll scope it properly, then quote and build it personally for your company.
+    </p>
+  </div>
+  <div id="customRow" class="mt-3"></div>
+</div>
+
 
           <!-- Custom module details (only shown when custom selected) -->
           <div id="customBox" class="mt-4 hidden fadeUp" data-anim>
@@ -813,7 +838,7 @@
       },
 
       // Custom module promoted separately (full width)
-      { id:"custom_module", name:"Custom Module – Built Personally For Your Company", price:0,
+      { id:"custom_module", name:"Personalise A Bespoke Module For Your Company", price:0,
         full:`A bespoke SmartCore module designed around your exact workflow. We’ll scope it properly, map the process, then build a clean, reliable system that fits how your business actually runs.`,
         bullets:["Built around your workflow","Clear scoping & requirements","Auditable records & reporting","Designed to scale sensibly","Quoted after scoping"]
       }
@@ -941,46 +966,46 @@
 
   const standardModules = MODULES.filter(m => m.id !== "custom_module");
 
-  // Standard modules (equal height)
+  // Standard modules (NOT selectable) — shown as examples
   standardModules.forEach(m => {
-    const selected = state.selectedModules.has(m.id);
-
     const card = document.createElement("div");
-    card.className = "glass2 p-4 flex flex-col gap-3 hover:bg-white/6 transition cursor-pointer moduleCard";
-    if (selected) card.classList.add("selected");
+    card.className = "glass2 p-4 flex flex-col gap-3 transition moduleCard moduleDisabled";
 
     card.innerHTML = `
       <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="font-semibold leading-tight">${m.name}</div>
-          <div class="text-sm opacity-80 mt-1">${money(m.price)} / month</div>
+        <div class="min-w-0">
+          <div class="customBadge" style="border-color: rgba(255,255,255,.14); background: rgba(255,255,255,.06); opacity:.9;">
+            <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(255,255,255,.35)"></span>
+            Common choice (example)
+          </div>
+          <div class="mt-2 font-semibold leading-tight">${m.name}</div>
+          <div class="text-sm opacity-80 mt-1">${money(m.price)} / month <span class="opacity-60">(example module pricing)</span></div>
         </div>
-        <div class="tickDot mt-1"></div>
+        <div class="tickDot mt-1" title="Not selectable"></div>
       </div>
 
       <div class="flex items-center justify-between gap-3 mt-auto">
         <button class="learnMore px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm whitespace-nowrap">
           Learn more
         </button>
-        <div class="text-xs opacity-60">${selected ? "Selected" : "Click to select"}</div>
+        <div class="text-xs opacity-60">Not selectable</div>
       </div>
     `;
 
-    card.addEventListener("click", (e) => {
-      if (e.target && e.target.classList.contains("learnMore")) return;
-      toggleModule(m.id);
-    });
-
+    // Only “Learn more” opens modal (no selection)
     card.querySelector(".learnMore").addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       openModuleModal(m.id);
     });
 
+    // Optional: allow clicking the whole card to open “Learn more”
+    card.addEventListener("click", () => openModuleModal(m.id));
+
     grid.appendChild(card);
   });
 
-  // Custom full-width promo card
+  // Build your own module (ONLY selectable)
   const customModule = MODULES.find(m => m.id === "custom_module");
   if (customModule){
     const selected = state.selectedModules.has(customModule.id);
@@ -994,7 +1019,7 @@
           <div class="min-w-0">
             <div class="customBadge">
               <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(120,170,255,.85)"></span>
-              Custom build (recommended)
+              Only selectable option
             </div>
 
             <div class="mt-3 text-2xl font-extrabold tracking-tight leading-tight">
@@ -1002,11 +1027,11 @@
             </div>
 
             <div class="mt-2 text-sm opacity-80">
-              <b>Built personally around your workflow</b> — we’ll help scope it properly, then build a system that fits your company.
+              <b>Built personally around your workflow</b> — tell us what you need and we’ll scope it properly.
             </div>
 
             <div class="mt-3 text-sm opacity-80">
-              <span class="opacity-90">Pricing:</span> Quoted after scoping (can be selected alongside any modules above).
+              <span class="opacity-90">Pricing:</span> Quoted after scoping.
             </div>
           </div>
 
@@ -1036,7 +1061,7 @@
     customRow.appendChild(wrap);
   }
 
-  // Show/hide custom details box
+  // Show/hide build-your-own details
   if (state.selectedModules.has("custom_module")) show($("customBox"));
   else hide($("customBox"));
 
@@ -1044,11 +1069,14 @@
 }
 
 
-    function toggleModule(id){
-      if (state.selectedModules.has(id)) state.selectedModules.delete(id);
-      else state.selectedModules.add(id);
-      renderModules();
-    }
+
+   function toggleModule(id){
+  if (id !== "custom_module") return; // only allow build-your-own
+  if (state.selectedModules.has(id)) state.selectedModules.delete(id);
+  else state.selectedModules.add(id);
+  renderModules();
+}
+
 
     function openModuleModal(id){
       const m = MODULES.find(x=>x.id===id);
@@ -1110,18 +1138,28 @@
       updateTotal();
     }
 
-    function computeTotal(){
-      const base = state.size?.price || 0;
-      let mods = 0;
-      state.selectedModules.forEach(id=>{
-        const m = MODULES.find(x=>x.id===id);
-        if (!m) return;
-        // custom module is quoted, so do not add to monthly total
-        if (m.id === "custom_module") return;
-        mods += (m.price || 0);
-      });
-      return base + mods;
-    }
+    function updateTotal(){
+  if(!state.size){
+    setText($("totalText"), "£0 / month");
+    setText($("summaryMini"), "Select a company size to begin.");
+    $("checkoutBtn").textContent = "Continue";
+    return;
+  }
+
+  const total = computeTotal();
+  const hasCustom = state.selectedModules.has("custom_module");
+
+  setText($("totalText"), `${money(total)} / month`);
+  setText(
+    $("summaryMini"),
+    hasCustom
+      ? `${state.size.label} + Build Your Own Module (quoted)`
+      : `${state.size.label} (select “Build Your Own Module” to continue)`
+  );
+
+  $("checkoutBtn").textContent = "Continue";
+}
+
 
     function updateTotal(){
       if(!state.size){
@@ -1179,12 +1217,15 @@
       subjectParts.push(state.size.label);
       const subject = subjectParts.join(" - ");
 
-      const modulesList = selected.length
-        ? selected.map(m => {
-            if (m.id === "custom_module") return `- ${m.name} (quoted after scoping)`;
-            return `- ${m.name} (${money(m.price)}/month)`;
-          }).join("\n")
-        : "- (No modules selected)";
+      const examplesList = MODULES
+  .filter(m => m.id !== "custom_module")
+  .map(m => `- ${m.name}`)
+  .join("\n");
+
+const selectedList = hasCustom
+  ? `- Build Your Own Module (quoted after scoping)`
+  : "- (None — please select Build Your Own Module)";
+
 
       const customBlock = hasCustom ? [
         "",
@@ -1207,10 +1248,14 @@
         headcountLine ? headcountLine : "",
         notesLine ? notesLine : "",
         "",
-        "Selected modules:",
-        modulesList,
-        "",
-        `Estimated monthly total (excluding quoted custom work): ${money(total)} / month`,
+        "Build request:",
+selectedList,
+"",
+"Commonly chosen modules (examples — not selected):",
+examplesList,
+"",
+`Monthly platform total (company size band only): ${money(total)} / month`,
+"Custom build quoted separately after scoping.",
         customBlock,
         "",
         "Please let us know next steps and any information you need from us.",
@@ -1603,4 +1648,5 @@
 
 </body>
 </html>
+
 
