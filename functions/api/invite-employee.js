@@ -1,5 +1,3 @@
-import { createClient } from "@supabase/supabase-js";
-
 export async function onRequestPost(context) {
   try {
     const { request, env } = context;
@@ -7,7 +5,7 @@ export async function onRequestPost(context) {
 
     const email = String(body.email || "").trim().toLowerCase();
     const redirect_to = String(body.redirect_to || "").trim();
-    const company_id = body.company_id;
+    const company_id = body.company_id ?? null;
     const employee_code = String(body.employee_code || "").trim();
 
     if (!email) return json({ error: "Missing email" }, 400);
@@ -15,21 +13,36 @@ export async function onRequestPost(context) {
     if (!env.SUPABASE_URL) return json({ error: "Missing SUPABASE_URL env var" }, 500);
     if (!env.SUPABASE_SERVICE_ROLE) return json({ error: "Missing SUPABASE_SERVICE_ROLE env var" }, 500);
 
-    // Service-role client (server-side only)
-    const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE);
+    // Supabase Admin Invite endpoint
+    const url = `${env.SUPABASE_URL}/auth/v1/admin/users`;
 
-    // Invite email (Supabase sends an email with a secure set-password link)
-    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: redirect_to,
-      data: {
-        company_id,
-        employee_code
-      }
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "apikey": env.SUPABASE_SERVICE_ROLE,
+        "Authorization": `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+      },
+      body: JSON.stringify({
+        email,
+        invite: true,
+        // metadata available in JWT/user metadata
+        user_metadata: { company_id, employee_code },
+        // where the invite link should return
+        redirect_to
+      })
     });
 
-    if (error) return json({ error: error.message }, 400);
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (_) {}
 
-    return json({ ok: true, invited: true, user: data?.user ?? null }, 200);
+    if (!res.ok) {
+      const msg = data?.msg || data?.error_description || data?.error || text;
+      return json({ error: msg }, 400);
+    }
+
+    return json({ ok: true, invited: true, user: data }, 200);
 
   } catch (e) {
     return json({ error: String(e?.message || e) }, 500);
