@@ -50,7 +50,7 @@ export async function onRequestPost(context) {
     // Where the user lands AFTER they click the invite link
     // Your onboarding page should read token=... and also handle the Supabase hash tokens
     const redirectTo =
-      `https://smartcoretechnology.co.uk/onboarding?token=${encodeURIComponent(token)}`;
+      `https://smartcoretechnology.co.uk/onboarding.html?token=${encodeURIComponent(token)}`;
 
     // 1) Insert employee row
     const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/employees`, {
