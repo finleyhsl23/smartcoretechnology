@@ -1,57 +1,87 @@
 export async function onRequestPost(context) {
   try {
-    const { request, env } = context;
-    const body = await request.json().catch(() => ({}));
+    const body = await context.request.json();
 
-    const email = String(body.email || "").trim().toLowerCase();
-    const redirect_to = String(body.redirect_to || "").trim();
-    const company_id = body.company_id ?? null;
-    const employee_code = String(body.employee_code || "").trim();
+    const {
+      company_id,
+      full_name,
+      personal_email,
+      work_email,
+      job_title,
+      is_admin,
+      status,
+      employment_type,
+      notice_period,
+      start_date,
+      employee_code,
+      onboarding_url_base
+    } = body;
 
-    if (!email) return json({ error: "Missing email" }, 400);
-    if (!redirect_to) return json({ error: "Missing redirect_to" }, 400);
-    if (!env.SUPABASE_URL) return json({ error: "Missing SUPABASE_URL env var" }, 500);
-    if (!env.SUPABASE_SERVICE_ROLE) return json({ error: "Missing SUPABASE_SERVICE_ROLE env var" }, 500);
+    if (!company_id) throw new Error("Missing company_id");
+    if (!full_name) throw new Error("Missing full_name");
+    if (!personal_email) throw new Error("Missing personal_email");
+    if (!work_email) throw new Error("Missing work_email");
+    if (!employee_code) throw new Error("Missing employee_code");
 
-    // Supabase Admin Invite endpoint
-    const url = `${env.SUPABASE_URL}/auth/v1/admin/users`;
+    const SUPABASE_URL = context.env.SUPABASE_URL;
+    const SERVICE_ROLE = context.env.SUPABASE_SERVICE_ROLE;
 
-    const res = await fetch(url, {
+    if (!SUPABASE_URL || !SERVICE_ROLE) {
+      throw new Error("Server not configured");
+    }
+
+    // 🔐 Create onboarding token
+    const token = crypto.randomUUID();
+    const expires = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24h
+
+    // 🗄 Insert employee
+    const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/employees`, {
       method: "POST",
       headers: {
-        "content-type": "application/json",
-        "apikey": env.SUPABASE_SERVICE_ROLE,
-        "Authorization": `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+        "apikey": SERVICE_ROLE,
+        "Authorization": `Bearer ${SERVICE_ROLE}`,
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal"
       },
       body: JSON.stringify({
-        email,
-        invite: true,
-        // metadata available in JWT/user metadata
-        user_metadata: { company_id, employee_code },
-        // where the invite link should return
-        redirect_to
+        company_id,
+        full_name,
+        personal_email,
+        work_email,
+        job_title,
+        is_admin,
+        status,
+        employment_type,
+        notice_period,
+        start_date,
+        employee_code,
+        onboarding_token: token,
+        onboarding_expires: expires.toISOString()
       })
     });
 
-    const text = await res.text();
-    let data = null;
-    try { data = JSON.parse(text); } catch (_) {}
-
-    if (!res.ok) {
-      const msg = data?.msg || data?.error_description || data?.error || text;
-      return json({ error: msg }, 400);
+    if (!insertRes.ok) {
+      const errText = await insertRes.text();
+      throw new Error(errText);
     }
 
-    return json({ ok: true, invited: true, user: data }, 200);
+    // 📩 SEND EMAIL (replace with Resend / SendGrid later)
+    const onboardingLink = `${onboarding_url_base}?token=${token}`;
 
-  } catch (e) {
-    return json({ error: String(e?.message || e) }, 500);
+    console.log("Send this email to:", personal_email);
+    console.log("Onboarding link:", onboardingLink);
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+
+  } catch (err) {
+    return new Response(JSON.stringify({
+      error: err.message || "Unknown error"
+    }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" }
+    });
   }
-}
-
-function json(obj, status = 200) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" }
-  });
 }
