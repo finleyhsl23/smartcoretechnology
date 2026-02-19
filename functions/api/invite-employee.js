@@ -40,7 +40,8 @@ export async function onRequestPost(context) {
     if (!work_email) throw new Error("Missing work_email");
     if (!employee_code) throw new Error("Missing employee_code");
 
-    const cleanStatus = String(status || "active").toLowerCase() === "archived" ? "archived" : "active";
+    const cleanStatus =
+      String(status || "active").toLowerCase() === "archived" ? "archived" : "active";
 
     // 24 hours
     const token = crypto.randomUUID();
@@ -80,11 +81,10 @@ export async function onRequestPost(context) {
 
     if (!insertRes.ok) {
       const t = await insertRes.text();
-      throw new Error(`Employee insert failed: ${t}`);
+      return jsonError(400, "Employee insert failed", "insert_employee", t);
     }
 
     // 2) Generate a Supabase invite link for WORK EMAIL
-    // This produces an action_link the employee can click to set password securely.
     const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
       method: "POST",
       headers: {
@@ -101,12 +101,14 @@ export async function onRequestPost(context) {
 
     if (!linkRes.ok) {
       const t = await linkRes.text();
-      throw new Error(`Supabase generate_link failed: ${t}`);
+      return jsonError(400, "Supabase generate_link failed", "generate_link", t);
     }
 
     const linkData = await linkRes.json();
     const inviteLink = linkData?.action_link;
-    if (!inviteLink) throw new Error("Supabase did not return action_link");
+    if (!inviteLink) {
+      return jsonError(400, "Supabase did not return action_link", "generate_link", JSON.stringify(linkData));
+    }
 
     // 3) Email the invite link to PERSONAL EMAIL (Resend)
     const subject = `Complete your SmartCore onboarding`;
@@ -117,7 +119,7 @@ export async function onRequestPost(context) {
         <h2 style="margin:0 0 12px 0;">You’ve been invited to SmartCore</h2>
         <p style="margin:0 0 14px 0;">
           Hi ${escapeHtml(full_name)},<br/>
-          ${safeCompany} has started your onboarding.
+          ${escapeHtml(safeCompany)} has started your onboarding.
         </p>
 
         <p style="margin:0 0 14px 0;">
@@ -158,7 +160,7 @@ export async function onRequestPost(context) {
 
     if (!resendRes.ok) {
       const t = await resendRes.text();
-      throw new Error(`Resend failed: ${t}`);
+      return jsonError(400, "Resend failed", "send_email", t);
     }
 
     return new Response(JSON.stringify({ ok: true }), {
@@ -167,11 +169,20 @@ export async function onRequestPost(context) {
     });
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err?.message || "Unknown error" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" }
-    });
+    return jsonError(400, err?.message || "Unknown error", "exception", null);
   }
+}
+
+function jsonError(status, message, stage, details) {
+  return new Response(
+    JSON.stringify({
+      ok: false,
+      error: message,
+      stage,
+      details
+    }),
+    { status, headers: { "Content-Type": "application/json" } }
+  );
 }
 
 // tiny helper
