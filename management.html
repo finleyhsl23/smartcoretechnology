@@ -133,6 +133,7 @@
       color: var(--text);
       cursor:pointer;
       transition: background .12s ease, transform .12s ease;
+      text-align:left;
     }
     .ddBtn:hover{ background: rgba(255,255,255,.07); transform: translateY(-1px); }
     .ddMenu{
@@ -169,6 +170,10 @@
       box-shadow: 0 0 0 4px rgba(120,170,255,.14);
     }
     .chev{ opacity:.8; }
+
+    .hint{ color: var(--muted); font-size: 12px; opacity:.75; }
+
+    code{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
   </style>
 
   <script>
@@ -179,7 +184,7 @@
 
 <body>
 
-  <!-- NAV -->
+  <!-- NAV (ONLY: Log In when signed out, Sign out when signed in) -->
   <header class="fixed top-4 left-0 right-0 z-40">
     <div class="max-w-6xl mx-auto px-4">
       <div class="glass2 flex items-center justify-between px-4 py-3">
@@ -221,12 +226,12 @@
       </div>
 
       <h1 class="mt-5 font-extrabold tracking-tight leading-[1.02]" style="font-size: clamp(40px, 5vw, 68px);">
-        Company Admin
-        <span style="opacity:.72">Portal</span>
+        Employee
+        <span style="opacity:.72">Management</span>
       </h1>
 
       <p class="mt-4 text-[15px] sm:text-[17px] leading-relaxed" style="color: var(--muted); max-width: 52rem;">
-        Log in to manage your company employees.
+        Log in to manage employees and send onboarding links.
       </p>
 
       <div class="mt-7 flex flex-wrap items-center gap-3">
@@ -284,10 +289,12 @@
             <div id="permMsg" class="mt-4 text-sm text-red-300 hidden"></div>
           </div>
 
-          <!-- Add employee -->
+          <!-- Add employee (STEP 1 only) -->
           <div class="glass2 p-4">
             <div class="text-sm font-semibold opacity-90">Add employee</div>
-            <div class="mt-2 text-sm opacity-70">Creates a new employee and sends them a secure password setup link.</div>
+            <div class="mt-2 text-sm opacity-70">
+              Step 1: add the basics. Step 2 (HR) will open next.
+            </div>
 
             <div class="mt-3 space-y-3">
               <div>
@@ -296,8 +303,8 @@
               </div>
 
               <div>
-                <label class="text-xs opacity-70">Email</label>
-                <input id="addEmail" class="inp mt-1" type="email" placeholder="e.g. jamie@company.co.uk">
+                <label class="text-xs opacity-70">Personal email</label>
+                <input id="addPersonalEmail" class="inp mt-1" type="email" placeholder="e.g. jamie@gmail.com">
               </div>
 
               <div>
@@ -305,19 +312,8 @@
                 <input id="addJobTitle" class="inp mt-1" placeholder="e.g. Fleet Coordinator">
               </div>
 
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="text-xs opacity-70">Admin?</label>
-                  <div id="ddIsAdmin"></div>
-                </div>
-                <div>
-                  <label class="text-xs opacity-70">Initial status</label>
-                  <div id="ddNewStatus"></div>
-                </div>
-              </div>
-
-              <button id="addEmployeeBtn" class="w-full px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-                Add employee & send password link
+              <button id="openHrStepBtn" class="w-full px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
+                Continue (HR details)
               </button>
 
               <div id="addMsg" class="text-sm text-red-300 hidden"></div>
@@ -370,7 +366,7 @@
               <tr>
                 <th class="py-2 pr-3">Employee ID</th>
                 <th class="py-2 pr-3">Name</th>
-                <th class="py-2 pr-3">Email</th>
+                <th class="py-2 pr-3">Work email</th>
                 <th class="py-2 pr-3">Job title</th>
                 <th class="py-2 pr-3">Admin</th>
                 <th class="py-2 pr-3">Status</th>
@@ -393,34 +389,100 @@
     </div>
   </section>
 
-  <!-- SET PASSWORD PAGE (used by invite/recovery link) -->
-  <section id="setPasswordPage" class="hidden">
-    <div class="max-w-3xl mx-auto px-4 pt-28 pb-24">
-      <div class="glass p-7 sm:p-10">
-        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Set your password</h2>
-        <p class="mt-2 text-sm sm:text-[15px]" style="color: var(--muted); max-width: 42rem;">
-          Please create a secure password to finish setting up your account.
-        </p>
-
-        <div class="mt-6 space-y-3">
-          <div>
-            <label class="text-xs opacity-70">New password</label>
-            <input id="pw1" class="inp mt-1" type="password" placeholder="Minimum 8 characters">
+  <!-- MODAL: HR STEP (STEP 2) -->
+  <div id="hrModalBackdrop" class="modalBackdrop">
+    <div class="modal glass p-5 sm:p-6" style="max-width: 820px;">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="text-xl sm:text-2xl font-bold">HR details</div>
+          <div class="mt-1 text-sm opacity-75">
+            Step 2: HR fills these in, then we send a secure onboarding link to the employee’s <b>personal email</b>.
           </div>
-          <div>
-            <label class="text-xs opacity-70">Confirm password</label>
-            <input id="pw2" class="inp mt-1" type="password" placeholder="Repeat password">
+        </div>
+        <button id="hrClose" class="rowBtn">Close</button>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="sm:col-span-2">
+          <div class="glass2 p-4">
+            <div class="text-sm font-semibold opacity-90">Employee basics</div>
+            <div class="mt-2 text-sm opacity-75">
+              <div><span class="opacity-60">Name:</span> <span id="hrPreviewName" class="font-medium"></span></div>
+              <div class="mt-1"><span class="opacity-60">Personal email:</span> <span id="hrPreviewPersonal" class="font-medium"></span></div>
+              <div class="mt-1"><span class="opacity-60">Job title:</span> <span id="hrPreviewJob" class="font-medium"></span></div>
+              <div class="mt-2 hint">Employee ID will be created automatically.</div>
+            </div>
           </div>
+        </div>
 
-          <button id="pwSave" class="mt-2 px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
-            Save password
-          </button>
+        <div class="sm:col-span-2">
+          <label class="text-xs opacity-70">Work email</label>
+          <input id="hrWorkEmail" class="inp mt-1" type="email" placeholder="e.g. jamie@company.co.uk">
+        </div>
 
-          <div id="pwMsg" class="mt-2 text-sm text-red-300 hidden"></div>
+        <div>
+          <label class="text-xs opacity-70">Admin?</label>
+          <div id="ddHrIsAdmin" class="mt-1"></div>
+        </div>
+
+        <div>
+          <label class="text-xs opacity-70">Starting role (status)</label>
+          <div id="ddHrStatus" class="mt-1"></div>
+        </div>
+
+        <div>
+          <label class="text-xs opacity-70">Full time / Part time</label>
+          <div id="ddHrEmployment" class="mt-1"></div>
+        </div>
+
+        <div>
+          <label class="text-xs opacity-70">Notice period</label>
+          <input id="hrNotice" class="inp mt-1" placeholder="e.g. 1 week / 1 month / 3 months">
+        </div>
+
+        <div class="sm:col-span-2">
+          <label class="text-xs opacity-70">Start date</label>
+          <input id="hrStartDate" class="inp mt-1" type="date">
+        </div>
+      </div>
+
+      <div id="hrMsg" class="mt-4 text-sm text-red-300 hidden"></div>
+
+      <div class="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div class="text-xs opacity-60">
+          After continuing, the employee will be asked to fill:
+          Full Name, Title (optional), Pronouns (optional), Gender, DOB, Nationality, NI (optional),
+          Driving Licence (optional), Personal Email, Personal Telephone, Address.
+        </div>
+
+        <button id="hrContinue" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
+          Create employee & send onboarding link
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: After send -->
+  <div id="sentModalBackdrop" class="modalBackdrop">
+    <div class="modal glass p-5 sm:p-6" style="max-width: 720px;">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="text-xl sm:text-2xl font-bold">Invite sent</div>
+          <div class="mt-1 text-sm opacity-75">
+            An email has been sent to the employee’s <b>personal email</b> with a secure link to complete their details and set a password.
+          </div>
+        </div>
+        <button id="sentClose" class="rowBtn">Close</button>
+      </div>
+
+      <div class="mt-5 glass2 p-4">
+        <div class="text-sm font-semibold opacity-90">Next step</div>
+        <div class="mt-2 text-sm opacity-75">
+          Once they complete onboarding, they can sign in using their <b>work email</b>.
         </div>
       </div>
     </div>
-  </section>
+  </div>
 
   <!-- MODAL: Login -->
   <div id="loginModalBackdrop" class="modalBackdrop">
@@ -527,7 +589,7 @@
       btn.type = "button";
       btn.className = "ddBtn";
       btn.innerHTML = `
-        <span class="ddLabel"></span>
+        <span class="ddLabel opacity-90"></span>
         <span class="chev">▾</span>
       `;
 
@@ -540,7 +602,7 @@
         value: value,
         set(v){
           api.value = v;
-          const it = items.find(x => x.value === v) || items[0];
+          const it = items.find(x => String(x.value) === String(v)) || items[0];
           labelEl.textContent = it ? it.label : String(v);
           Array.from(menu.querySelectorAll(".ddItem")).forEach(el=>{
             el.classList.toggle("on", el.dataset.value === String(v));
@@ -573,7 +635,6 @@
         menu.classList.toggle("show");
       });
 
-      // click-outside close
       document.addEventListener("click", (e)=>{
         if (!wrap.contains(e.target)) api.close();
       });
@@ -600,30 +661,21 @@
       employees: [],
 
       ddStatusFilter: null,
-      ddIsAdmin: null,
-      ddNewStatus: null
+
+      // HR modal dropdowns
+      ddHrIsAdmin: null,
+      ddHrStatus: null,
+      ddHrEmployment: null,
+
+      // Temp new employee draft (step1 -> step2)
+      newEmpDraft: null
     };
 
     /******************************************************************
-      ROUTING
-      - if URL contains access_token in hash: show set-password screen
+      UI helpers
     ******************************************************************/
-    function parseHashParams(){
-      const h = window.location.hash || "";
-      // Supabase sends tokens like: #access_token=...&refresh_token=...&type=invite
-      const idx = h.indexOf("access_token=");
-      if (idx === -1) return null;
-      const raw = h.slice(1); // remove #
-      const p = new URLSearchParams(raw);
-      return {
-        access_token: p.get("access_token"),
-        refresh_token: p.get("refresh_token"),
-        type: p.get("type")
-      };
-    }
-
     function showOnly(sectionId){
-      ["home","adminPage","setPasswordPage"].forEach(id=>{
+      ["home","adminPage"].forEach(id=>{
         const el = $(id);
         if (!el) return;
         if (id === sectionId) show(el);
@@ -642,7 +694,7 @@
     }
 
     /******************************************************************
-      PERMISSIONS (same idea as before)
+      Permissions (keep same behaviour, but DO NOT show explanatory text)
     ******************************************************************/
     function isAdminForCompany(company){
       const p = state.profile;
@@ -664,7 +716,7 @@
     }
 
     /******************************************************************
-      LOAD SESSION + PROFILE
+      Session / profile
     ******************************************************************/
     async function loadSession(){
       const { data: { session } } = await sb.auth.getSession();
@@ -684,7 +736,6 @@
           .select("*")
           .eq("user_id", state.user.id)
           .maybeSingle();
-
         if (error) throw error;
         state.profile = data || null;
         return state.profile;
@@ -695,9 +746,7 @@
     }
 
     /******************************************************************
-      COMPANIES
-      - show company name, not id
-      - use good fallbacks in case your column is named differently
+      Companies (show NAME not ID)
     ******************************************************************/
     function companyDisplayName(c){
       return c.company_name || c.name || c.legal_name || c.trading_name || `Company ${String(c.id).slice(0,8)}…`;
@@ -713,7 +762,6 @@
         return [];
       }
 
-      // Pull likely name fields; adjust if your schema differs
       const ownerRes = await sb
         .from("companies")
         .select("id, owner_user_id, company_name, name, legal_name, trading_name")
@@ -748,7 +796,7 @@
 
       if (!companies.length){
         sel.innerHTML = `<option value="">No accessible companies</option>`;
-        showErr($("permMsg"), "No companies found for your account, or access is blocked by RLS.");
+        showErr($("permMsg"), "No companies found for your account.");
         return [];
       }
 
@@ -773,9 +821,8 @@
     }
 
     /******************************************************************
-      EMPLOYEES
-      expected columns:
-        employees: id, company_id, full_name, email, status, is_admin, employee_code, job_title
+      Employees
+      (expects at minimum: id, company_id, full_name, work_email OR email, status, is_admin, employee_code, job_title)
     ******************************************************************/
     function normalizeStatus(s){
       const v = String(s || "").toLowerCase();
@@ -792,15 +839,16 @@
         return [];
       }
       if (!canManageCompany(company)){
-        showErr($("permMsg"), "You do not have permission to manage this company.");
+        showErr($("empMsg"), "You do not have permission to manage this company.");
         state.employees = [];
         renderEmployees();
         return [];
       }
 
+      // Try common column names for work email: work_email preferred; fallback to email
       const { data, error } = await sb
         .from("employees")
-        .select("id, company_id, full_name, email, status, is_admin, employee_code, job_title")
+        .select("id, company_id, full_name, email, work_email, status, is_admin, employee_code, job_title")
         .eq("company_id", company.id)
         .order("full_name", { ascending:true });
 
@@ -835,7 +883,7 @@
       if (q){
         rows = rows.filter(e =>
           String(e.full_name || "").toLowerCase().includes(q) ||
-          String(e.email || "").toLowerCase().includes(q) ||
+          String(e.work_email || e.email || "").toLowerCase().includes(q) ||
           String(e.employee_code || "").toLowerCase().includes(q) ||
           String(e.job_title || "").toLowerCase().includes(q)
         );
@@ -854,13 +902,14 @@
         const statusVal = normalizeStatus(e.status);
         const dotClass = statusVal === "archived" ? "amber" : "green";
         const adminYes = e.is_admin === true;
+        const workEmail = e.work_email || e.email || "";
 
         const tr = document.createElement("tr");
         tr.className = "border-t border-white/10";
         tr.innerHTML = `
           <td class="py-3 pr-3"><div class="font-medium">${esc(e.employee_code || "")}</div></td>
           <td class="py-3 pr-3"><div class="font-medium">${esc(e.full_name || "(no name)")}</div></td>
-          <td class="py-3 pr-3"><div class="opacity-90">${esc(e.email || "")}</div></td>
+          <td class="py-3 pr-3"><div class="opacity-90">${esc(workEmail)}</div></td>
           <td class="py-3 pr-3"><div class="opacity-90">${esc(e.job_title || "")}</div></td>
           <td class="py-3 pr-3"><div class="tag"><span class="tagDot ${adminYes ? "green" : "amber"}"></span>${adminYes ? "yes" : "no"}</div></td>
           <td class="py-3 pr-3"><span class="tag"><span class="tagDot ${dotClass}"></span>${esc(statusVal)}</span></td>
@@ -904,7 +953,7 @@
       if (!company) return;
 
       const emp = state.employees.find(x => String(x.id) === String(employeeId));
-      const label = emp ? `${emp.full_name || "Employee"} (${emp.email || ""})` : "this employee";
+      const label = emp ? `${emp.full_name || "Employee"} (${emp.work_email || emp.email || ""})` : "this employee";
 
       const ok = confirm(`Delete ${label}?\n\nThis will permanently remove the record from Supabase.`);
       if (!ok) return;
@@ -923,11 +972,10 @@
     }
 
     /******************************************************************
-      EMPLOYEE CODE GENERATION
-      - prefix: first 3 letters of company name (letters only)
+      Employee code generation
+      - prefix: first 3 letters of company name
       - suffix: 9 digits
-      - ensure unique by checking employees.employee_code
-      (You should also add a UNIQUE constraint in Supabase.)
+      - checks uniqueness best-effort; you should also enforce UNIQUE in DB.
     ******************************************************************/
     function companyPrefix3(companyName){
       const letters = String(companyName || "")
@@ -935,17 +983,12 @@
         .replace(/[^A-Z]/g, "");
       return (letters + "XXX").slice(0,3);
     }
-
     function randDigits(n){
       let out = "";
-      for (let i=0;i<n;i++){
-        out += String(Math.floor(Math.random()*10));
-      }
+      for (let i=0;i<n;i++) out += String(Math.floor(Math.random()*10));
       return out;
     }
-
     async function generateUniqueEmployeeCode(prefix){
-      // try a few times; collisions should be extremely rare
       for (let i=0;i<12;i++){
         const code = `${prefix}${randDigits(9)}`;
         const { data, error } = await sb
@@ -954,20 +997,21 @@
           .eq("employee_code", code)
           .limit(1);
 
-        if (error){
-          // If RLS blocks this check, we still attempt insert and rely on UNIQUE constraint
-          return code;
-        }
+        if (error) return code; // if RLS blocks the check, rely on UNIQUE constraint
         if (!data || data.length === 0) return code;
       }
-      // fallback: time-based
       return `${prefix}${String(Date.now()).slice(-9)}`;
     }
 
     /******************************************************************
-      ADD EMPLOYEE + SEND PASSWORD LINK
-      - Uses backend: POST /api/invite-employee
-      - Then inserts employee row with status/is_admin/job_title/employee_code
+      Backend call
+      - This MUST be your secure Pages Function.
+      - It must:
+        1) validate current user can manage company
+        2) create employees row + onboarding token
+        3) send email to personal email with link to onboarding page:
+           https://smartcoretechnology.co.uk/onboarding?token=...
+           (or whatever route you use)
     ******************************************************************/
     async function apiPost(path, payload){
       const res = await fetch(path, {
@@ -985,72 +1029,123 @@
       return data ?? {};
     }
 
-    async function addEmployee(){
+    /******************************************************************
+      Add employee flow (Step 1 -> HR Modal -> Create + Send link)
+    ******************************************************************/
+    function openHrStep(){
       clearMsg($("addMsg"));
+      clearMsg($("hrMsg"));
+
       const company = getSelectedCompany();
       if (!company) return showErr($("addMsg"), "Select a company first.");
 
       const full_name = $("addName").value.trim();
-      const email = $("addEmail").value.trim().toLowerCase();
+      const personal_email = $("addPersonalEmail").value.trim().toLowerCase();
       const job_title = $("addJobTitle").value.trim();
-      const is_admin = (state.ddIsAdmin?.value === "yes");
-      const status = normalizeStatus(state.ddNewStatus?.value || "active");
 
       if (!full_name) return showErr($("addMsg"), "Enter a full name.");
-      if (!email) return showErr($("addMsg"), "Enter an email.");
+      if (!personal_email) return showErr($("addMsg"), "Enter a personal email.");
       if (!job_title) return showErr($("addMsg"), "Enter a job title.");
 
-      $("addEmployeeBtn").disabled = true;
-      $("addEmployeeBtn").classList.add("opacity-60");
+      state.newEmpDraft = { full_name, personal_email, job_title };
+
+      $("hrPreviewName").textContent = full_name;
+      $("hrPreviewPersonal").textContent = personal_email;
+      $("hrPreviewJob").textContent = job_title;
+
+      // clear HR fields
+      $("hrWorkEmail").value = "";
+      $("hrNotice").value = "";
+      $("hrStartDate").value = "";
+
+      state.ddHrIsAdmin?.set("no");
+      state.ddHrStatus?.set("active");
+      state.ddHrEmployment?.set("Full Time");
+
+      openModal($("hrModalBackdrop"));
+    }
+
+    async function createEmployeeAndSendOnboarding(){
+      clearMsg($("hrMsg"));
+
+      const company = getSelectedCompany();
+      if (!company) return showErr($("hrMsg"), "Select a company first.");
+
+      const draft = state.newEmpDraft;
+      if (!draft?.full_name || !draft?.personal_email || !draft?.job_title){
+        return showErr($("hrMsg"), "Please start again from Add employee.");
+      }
+
+      const work_email = $("hrWorkEmail").value.trim().toLowerCase();
+      const is_admin = (state.ddHrIsAdmin?.value === "yes");
+      const status = normalizeStatus(state.ddHrStatus?.value || "active");
+      const employment_type = String(state.ddHrEmployment?.value || "").trim() || "Full Time";
+      const notice_period = $("hrNotice").value.trim();
+      const start_date = $("hrStartDate").value || null;
+
+      if (!work_email) return showErr($("hrMsg"), "Enter a work email.");
+      if (!employment_type) return showErr($("hrMsg"), "Select Full Time / Part Time.");
+      if (!start_date) return showErr($("hrMsg"), "Select a start date.");
+
+      $("hrContinue").disabled = true;
+      $("hrContinue").classList.add("opacity-60");
 
       try{
-        // 1) generate code
         const prefix = companyPrefix3(companyDisplayName(company));
         const employee_code = await generateUniqueEmployeeCode(prefix);
 
-        // 2) send invite email via backend (secure)
-        // Your invite redirect will land back on this same site (set-password screen)
-        await apiPost("/api/invite-employee", {
-          email,
-          redirect_to: window.location.origin + window.location.pathname, // returns here with tokens in hash
+        // IMPORTANT: this endpoint should do the secure parts:
+        // - insert employees row (or update if already exists)
+        // - generate token
+        // - send email to PERSONAL email with onboarding link
+        //
+        // We send everything the backend needs:
+        const out = await apiPost("/api/invite-employee", {
           company_id: company.id,
-          employee_code
+
+          // Admin step 1
+          full_name: draft.full_name,
+          personal_email: draft.personal_email,
+          job_title: draft.job_title,
+
+          // HR step 2
+          work_email,
+          is_admin,
+          status,
+          employment_type,
+          notice_period,
+          start_date,
+
+          // ID
+          employee_code,
+
+          // where the email link should point
+          onboarding_url_base: "https://smartcoretechnology.co.uk/onboarding"
         });
 
-        // 3) insert employee record
-        const { error } = await sb
-          .from("employees")
-          .insert([{
-            company_id: company.id,
-            full_name,
-            email,
-            job_title,
-            is_admin,
-            status,
-            employee_code
-          }]);
+        // If your backend returns { ok:true } you're done.
+        // If it returns something else, still treat as success if no throw.
+        closeModal($("hrModalBackdrop"));
+        openModal($("sentModalBackdrop"));
 
-        if (error) throw error;
-
+        // Clear step 1 inputs
         $("addName").value = "";
-        $("addEmail").value = "";
+        $("addPersonalEmail").value = "";
         $("addJobTitle").value = "";
-        state.ddIsAdmin?.set("no");
-        state.ddNewStatus?.set("active");
+        state.newEmpDraft = null;
 
-        showOk($("addMsg"), "Employee added and password link sent.");
         await loadEmployees();
 
       }catch(e){
-        showErr($("addMsg"), "Add failed: " + (e.message || e));
+        showErr($("hrMsg"), "Failed: " + (e.message || e));
       }finally{
-        $("addEmployeeBtn").disabled = false;
-        $("addEmployeeBtn").classList.remove("opacity-60");
+        $("hrContinue").disabled = false;
+        $("hrContinue").classList.remove("opacity-60");
       }
     }
 
     /******************************************************************
-      LOGIN / LOGOUT
+      Login / Logout
     ******************************************************************/
     async function login(){
       clearMsg($("liMsg"));
@@ -1094,7 +1189,9 @@
       const email = $("liEmail").value.trim().toLowerCase();
       if(!email) return showErr($("liMsg"), "Enter your email above, then click again.");
       try{
-        const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + window.location.pathname });
+        const { error } = await sb.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin + window.location.pathname
+        });
         if(error) throw new Error(error.message);
         showOk($("liMsg"), "Password reset email sent. Please check your inbox.");
       }catch(e){
@@ -1112,67 +1209,12 @@
       state.employees = [];
       setAuthedUI(false);
 
-      // redirect to your homepage domain
+      // Redirect to homepage (as requested)
       window.location.href = "https://smartcoretechnology.co.uk";
     }
 
     /******************************************************************
-      SET PASSWORD FLOW (from invite/recovery link)
-    ******************************************************************/
-    async function handleSetPasswordIfPresent(){
-      const params = parseHashParams();
-      if (!params?.access_token || !params?.refresh_token) return false;
-
-      // Set the session from tokens in the hash
-      const { error } = await sb.auth.setSession({
-        access_token: params.access_token,
-        refresh_token: params.refresh_token
-      });
-      if (error){
-        showOnly("setPasswordPage");
-        showErr($("pwMsg"), "This link is invalid or expired. Please request a new password email.");
-        return true;
-      }
-
-      // Show set password page
-      showOnly("setPasswordPage");
-      return true;
-    }
-
-    async function savePassword(){
-      clearMsg($("pwMsg"));
-      const a = $("pw1").value;
-      const b = $("pw2").value;
-
-      if (!a || a.length < 8) return showErr($("pwMsg"), "Password must be at least 8 characters.");
-      if (a !== b) return showErr($("pwMsg"), "Passwords do not match.");
-
-      $("pwSave").disabled = true;
-      $("pwSave").classList.add("opacity-60");
-
-      try{
-        const { error } = await sb.auth.updateUser({ password: a });
-        if (error) throw error;
-
-        showOk($("pwMsg"), "Password set. Redirecting to login…");
-
-        // Clear hash tokens (security) and go home
-        setTimeout(()=>{
-          history.replaceState(null, "", window.location.pathname);
-          showOnly("home");
-          openModal($("loginModalBackdrop"));
-        }, 900);
-
-      }catch(e){
-        showErr($("pwMsg"), "Failed: " + (e.message || e));
-      }finally{
-        $("pwSave").disabled = false;
-        $("pwSave").classList.remove("opacity-60");
-      }
-    }
-
-    /******************************************************************
-      INIT DROPDOWNS
+      Init dropdowns
     ******************************************************************/
     function initDropdowns(){
       state.ddStatusFilter = createDropdown({
@@ -1186,8 +1228,9 @@
         onChange: () => renderEmployees()
       });
 
-      state.ddIsAdmin = createDropdown({
-        mountId: "ddIsAdmin",
+      // HR modal dropdowns (custom)
+      state.ddHrIsAdmin = createDropdown({
+        mountId: "ddHrIsAdmin",
         value: "no",
         items: [
           { value:"no", label:"No", sub:"Standard staff account" },
@@ -1195,25 +1238,37 @@
         ]
       });
 
-      state.ddNewStatus = createDropdown({
-        mountId: "ddNewStatus",
+      state.ddHrStatus = createDropdown({
+        mountId: "ddHrStatus",
         value: "active",
         items: [
           { value:"active", label:"Active", sub:"Employee is currently active" },
           { value:"archived", label:"Archived", sub:"Keep record but hidden by default" }
         ]
       });
+
+      state.ddHrEmployment = createDropdown({
+        mountId: "ddHrEmployment",
+        value: "Full Time",
+        items: [
+          { value:"Full Time", label:"Full Time", sub:"Standard full time contract" },
+          { value:"Part Time", label:"Part Time", sub:"Reduced hours / part time" }
+        ]
+      });
     }
 
     /******************************************************************
-      WIRING
+      Wiring
     ******************************************************************/
     function wire(){
+      // Home -> login
       $("homeLogin").onclick = ()=> openModal($("loginModalBackdrop"));
 
+      // Nav
       $("navLogin").onclick = ()=> openModal($("loginModalBackdrop"));
       $("navLogout").onclick = signOut;
 
+      // Login modal
       $("liClose").onclick = ()=> closeModal($("loginModalBackdrop"));
       $("liEye").onclick = ()=>{
         const p = $("liPassword");
@@ -1228,6 +1283,19 @@
         if (e.target === $("loginModalBackdrop")) closeModal($("loginModalBackdrop"));
       });
 
+      // HR modal close
+      $("hrClose").onclick = ()=> closeModal($("hrModalBackdrop"));
+      $("hrModalBackdrop").addEventListener("click", (e)=>{
+        if (e.target === $("hrModalBackdrop")) closeModal($("hrModalBackdrop"));
+      });
+
+      // Sent modal close
+      $("sentClose").onclick = ()=> closeModal($("sentModalBackdrop"));
+      $("sentModalBackdrop").addEventListener("click", (e)=>{
+        if (e.target === $("sentModalBackdrop")) closeModal($("sentModalBackdrop"));
+      });
+
+      // Refresh
       $("refreshCompanies").onclick = async ()=>{
         await loadProfile();
         await loadManageableCompanies();
@@ -1242,8 +1310,13 @@
 
       $("searchBox").addEventListener("input", renderEmployees);
 
-      $("addEmployeeBtn").onclick = addEmployee;
+      // Step1 -> Step2
+      $("openHrStepBtn").onclick = openHrStep;
 
+      // Step2 -> Create + Send
+      $("hrContinue").onclick = createEmployeeAndSendOnboarding;
+
+      // employee actions
       $("empTbody").addEventListener("click", async (e)=>{
         const btn = e.target.closest("button[data-action]");
         if (!btn) return;
@@ -1255,8 +1328,6 @@
         if (action === "unarchive") await setEmployeeStatus(id, "active");
         if (action === "delete") await deleteEmployee(id);
       });
-
-      $("pwSave").onclick = savePassword;
     }
 
     /******************************************************************
@@ -1265,10 +1336,6 @@
     async function init(){
       initDropdowns();
       wire();
-
-      // if we have invite/recovery tokens, show set password screen
-      const isPw = await handleSetPasswordIfPresent();
-      if (isPw) return;
 
       await loadSession();
       await loadProfile();
