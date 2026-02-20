@@ -106,9 +106,15 @@ export async function onRequestPost(context) {
 
     const linkData = await linkRes.json();
     const inviteLink = linkData?.action_link;
-    if (!inviteLink) {
-      return jsonError(400, "Supabase did not return action_link", "generate_link", JSON.stringify(linkData));
-    }
+
+if (!inviteLink) {
+  return jsonError(400, "Supabase did not return action_link", "generate_link", JSON.stringify(linkData));
+}
+
+// 🔥 FORCE the redirect_to to /onboarding
+const u = new URL(inviteLink);
+u.searchParams.set("redirect_to", redirectTo);
+const fixedInviteLink = u.toString();
 
     // 3) Email the invite link to PERSONAL EMAIL (Resend)
     const subject = `Complete your SmartCore onboarding`;
@@ -128,14 +134,14 @@ export async function onRequestPost(context) {
         </p>
 
         <p style="margin:18px 0;">
-          <a href="${inviteLink}" style="display:inline-block;padding:12px 16px;border-radius:12px;background:#1e3a8a;color:#fff;text-decoration:none;">
+          <a href="${fixedInviteLink}" style="display:inline-block;padding:12px 16px;border-radius:12px;background:#1e3a8a;color:#fff;text-decoration:none;">
             Complete onboarding
           </a>
         </p>
 
         <p style="margin:18px 0 0 0;font-size:13px;color:#425070;">
           If the button doesn’t work, copy and paste this link into your browser:<br/>
-          <span style="word-break:break-all;">${inviteLink}</span>
+          <span style="word-break:break-all;">${fixedInviteLink}</span>
         </p>
 
         <p style="margin:18px 0 0 0;font-size:13px;color:#425070;">
