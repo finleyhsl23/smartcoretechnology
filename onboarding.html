@@ -8,12 +8,18 @@
   <link rel="icon" type="image/png" href="SmartCore Official Logos/SC Icon - Black Background.png">
   <link rel="apple-touch-icon" href="SmartCore Official Logos/SC Icon - Black Background.png">
 
-  <script src="https://cdn.tailwindcss.com"></script>
-
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
+  <!-- 1) DEFINE CONFIG FIRST (BEFORE SUPABASE + BEFORE ANY OTHER JS) -->
+  <script>
+    // ✅ Replace the anon key if yours differs
+    window.__SUPABASE_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+    window.__SUPABASE_ANON = "PASTE_YOUR_ANON_PUBLIC_KEY_HERE";
+  </script>
+
+  <!-- 2) THEN LOAD SUPABASE -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
@@ -42,23 +48,73 @@
         linear-gradient(180deg, var(--bg0), var(--bg1));
       overflow-x:hidden;
     }
-    .glass{
-      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
-      border:1px solid var(--stroke);
-      backdrop-filter: blur(var(--blur));
-      -webkit-backdrop-filter: blur(var(--blur));
-      border-radius: var(--r1);
-      box-shadow: var(--shadow);
-    }
-    .glass2{
-      background: rgba(255,255,255,.045);
+    .wrap{max-width: 980px; margin: 0 auto; padding: 28px 16px 64px;}
+    .topbar{
+      margin-top: 14px;
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      padding: 14px 14px;
+      border-radius: 18px;
       border:1px solid var(--stroke2);
+      background: rgba(255,255,255,.045);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
-      border-radius: var(--r2);
       box-shadow: var(--shadow2);
     }
-    .inp{
+    .brand{display:flex; align-items:center; gap:12px; min-width:0;}
+    .logo{
+      width:40px; height:40px; border-radius: 14px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.25);
+      display:flex; align-items:center; justify-content:center;
+      overflow:hidden;
+      flex: 0 0 auto;
+    }
+    .logo img{width:28px; height:28px; object-fit:contain;}
+    .brand h1{margin:0; font-size:14px; letter-spacing:-.02em;}
+    .brand p{margin:0; font-size:12px; opacity:.72; line-height:1.2}
+    .card{
+      margin-top: 16px;
+      padding: 18px;
+      border-radius: var(--r1);
+      border:1px solid var(--stroke);
+      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
+      box-shadow: var(--shadow);
+    }
+    .pill{
+      display:inline-flex; align-items:center; gap:10px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
+      font-size: 12px;
+      opacity: .92;
+      width: fit-content;
+    }
+    .spin{
+      width: 14px; height: 14px;
+      border-radius: 999px;
+      border: 2px solid rgba(255,255,255,.18);
+      border-top-color: rgba(120,170,255,.95);
+      animation: rot 0.9s linear infinite;
+    }
+    @keyframes rot{ to{ transform: rotate(360deg); } }
+
+    .title{
+      margin: 14px 0 0 0;
+      font-weight: 800;
+      letter-spacing: -.03em;
+      line-height: 1.05;
+      font-size: clamp(28px, 4vw, 40px);
+    }
+    .sub{margin: 10px 0 0 0; color: var(--muted); font-size: 14px; max-width: 56rem;}
+
+    .grid{display:grid; grid-template-columns: 1fr; gap: 12px; margin-top: 16px;}
+    @media (min-width: 820px){ .grid{grid-template-columns: 1fr 1fr;} }
+
+    label{font-size: 12px; opacity:.75;}
+    .inp, .ta, select{
       width:100%;
       border-radius: 14px;
       border:1px solid var(--stroke2);
@@ -66,192 +122,128 @@
       padding: 12px 12px;
       outline:none;
       color: var(--text);
+      box-sizing: border-box;
     }
-    .inp::placeholder{ color: rgba(234,240,255,.45); }
-    .inp:focus{
+    .ta{min-height: 96px; resize: vertical;}
+    .inp::placeholder, .ta::placeholder{ color: rgba(234,240,255,.45); }
+    .inp:focus, .ta:focus, select:focus{
       border-color: rgba(120,170,255,.35);
       box-shadow: 0 0 0 3px rgba(120,170,255,.10);
     }
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top: 14px;}
     .btn{
       padding: 12px 14px;
-      border-radius: 16px;
+      border-radius: 14px;
       border: 1px solid rgba(120,170,255,.35);
       background: rgba(120,170,255,.16);
-      transition: background .12s ease, transform .12s ease;
-      font-size: 14px;
+      color: var(--text);
       font-weight: 600;
+      cursor: pointer;
+      transition: transform .12s ease, background .12s ease;
     }
-    .btn:hover{ background: rgba(120,170,255,.22); transform: translateY(-1px); }
-    .btn:disabled{ opacity:.6; cursor:not-allowed; transform:none; }
+    .btn:hover{ transform: translateY(-1px); background: rgba(120,170,255,.22); }
+    .btn.secondary{
+      border-color: rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
+    }
+    .btn:disabled{opacity:.55; cursor:not-allowed; transform:none;}
+    .msg{margin-top: 12px; font-size: 13px;}
+    .msg.err{color: rgba(255,160,160,.95);}
+    .msg.ok{color: rgba(120,255,190,.95);}
 
-    .rowBtn{
-      padding: 8px 10px;
-      border-radius: 12px;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.05);
-      transition: background .12s ease, transform .12s ease;
+    .hide{display:none !important;}
+    .foot{
+      margin-top: 14px;
+      padding: 14px;
+      border-radius: 18px;
+      border:1px solid var(--stroke2);
+      background: rgba(255,255,255,.04);
+      display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;
       font-size: 13px;
-      white-space: nowrap;
+      opacity:.8;
     }
-    .rowBtn:hover{ background: rgba(255,255,255,.08); transform: translateY(-1px); }
-    .tag{
-      display:inline-flex; align-items:center; gap:8px;
-      padding: 6px 10px; border-radius: 999px;
-      border:1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.05);
-      font-size: 12px; opacity: .95;
-      width: fit-content;
-    }
-    .tagDot{ width:8px; height:8px; border-radius:999px; background: rgba(255,255,255,.35); }
-    .tagDot.green{ background: rgba(80,240,160,.9); box-shadow: 0 0 0 4px rgba(80,240,160,.12); }
-
-    .spinner{
-      width: 18px; height: 18px;
-      border-radius: 999px;
-      border: 2px solid rgba(255,255,255,.25);
-      border-top-color: rgba(120,170,255,.9);
-      animation: spin 1s linear infinite;
-    }
-    @keyframes spin{ to{ transform: rotate(360deg); } }
+    a{color: var(--text); opacity:.9;}
+    a:hover{opacity:1;}
+    code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
   </style>
-
-  <script>
-    // ✅ Set these to your project
-    window.__SUPABASE_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
-    window.__SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
-  </script>
 </head>
 
 <body>
-
-  <!-- NAV -->
-  <header class="fixed top-4 left-0 right-0 z-40">
-    <div class="max-w-4xl mx-auto px-4">
-      <div class="glass2 flex items-center justify-between px-4 py-3">
-        <div class="flex items-center gap-3 min-w-0">
-          <div class="w-10 h-10 rounded-2xl overflow-hidden bg-black/30 border border-white/10 flex items-center justify-center shrink-0">
-            <img
-              src="SmartCore Official Logos/SC Icon - Black Background.png"
-              alt="SmartCore"
-              class="w-8 h-8 object-contain translate-y-[-1px]"
-              onerror="this.style.display='none'"
-            />
-          </div>
-          <div class="min-w-0">
-            <div class="font-semibold tracking-tight leading-tight">
-              SmartCore <span class="opacity-70">Technology</span>
-            </div>
-            <div class="text-xs opacity-70 leading-tight">Onboarding</div>
-          </div>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">
+          <img src="SmartCore Official Logos/SC Icon - Black Background.png" alt="SmartCore" onerror="this.style.display='none'">
         </div>
-
-        <div class="flex items-center gap-2">
-          <button id="btnSignOut" class="hidden rowBtn">Sign out</button>
+        <div style="min-width:0">
+          <h1>SmartCore Technology</h1>
+          <p>Onboarding</p>
         </div>
       </div>
+
+      <button id="btnSignOut" class="btn secondary hide" type="button">Sign out</button>
     </div>
-  </header>
 
-  <main class="max-w-4xl mx-auto px-4 pt-28 pb-24">
-
-    <!-- SCREEN: LOADING -->
-    <section id="screenLoading" class="glass p-7 sm:p-10">
-      <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs opacity-80">
-        <span class="spinner"></span>
-        Please wait…
-      </div>
-
-      <h1 class="mt-5 font-extrabold tracking-tight leading-[1.02]" style="font-size: clamp(30px, 4vw, 44px);">
-        Preparing your onboarding
-      </h1>
-
-      <p id="loadingMsg" class="mt-3 text-[15px] sm:text-[16px] leading-relaxed" style="color: var(--muted);">
-        Validating your link…
-      </p>
-
-      <footer class="mt-10 glass2 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <div class="text-sm opacity-80">SmartCore Technology</div>
-        <a class="text-sm opacity-80 underline hover:opacity-100" href="mailto:support@smartcoretechnology.co.uk">
-          support@smartcoretechnology.co.uk
-        </a>
-      </footer>
-    </section>
-
-    <!-- SCREEN: PASSWORD -->
-    <section id="screenPassword" class="hidden glass p-7 sm:p-10">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs opacity-80">
-            <span class="tagDot green"></span>
-            Signed in securely
-          </div>
-          <h2 class="mt-5 text-2xl sm:text-3xl font-bold tracking-tight">Set your password</h2>
-          <p class="mt-2 text-sm sm:text-[15px]" style="color: var(--muted); max-width: 46rem;">
-            Create a password for your <b>work account</b>. Then you’ll complete your details.
-          </p>
-        </div>
-      </div>
-
-      <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label class="text-xs opacity-70">New password</label>
-          <input id="pw1" class="inp mt-1" type="password" placeholder="Minimum 8 characters">
-        </div>
-        <div>
-          <label class="text-xs opacity-70">Confirm password</label>
-          <input id="pw2" class="inp mt-1" type="password" placeholder="Repeat password">
-        </div>
-      </div>
-
-      <div class="mt-5 flex flex-wrap items-center gap-3">
-        <button id="btnSavePassword" class="btn">Save password</button>
-        <div id="pwMsg" class="text-sm text-red-300 hidden"></div>
+    <!-- LOADING -->
+    <section id="screenLoading" class="card">
+      <div class="pill"><span class="spin"></span> Please wait…</div>
+      <div class="title">Preparing your onboarding</div>
+      <div id="loadingMsg" class="sub">Validating your link…</div>
+      <div class="foot" style="margin-top:18px;">
+        <div>SmartCore Technology</div>
+        <a href="mailto:support@smartcoretechnology.co.uk">support@smartcoretechnology.co.uk</a>
       </div>
     </section>
 
-    <!-- SCREEN: DETAILS -->
-    <section id="screenDetails" class="hidden glass p-7 sm:p-10">
-      <div class="flex items-start justify-between gap-3">
+    <!-- PASSWORD -->
+    <section id="screenPassword" class="card hide">
+      <div class="pill">Step 1 of 2</div>
+      <div class="title">Set your password</div>
+      <div class="sub">Create a secure password to activate your account.</div>
+
+      <div class="grid">
         <div>
-          <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs opacity-80">
-            <span class="tagDot green"></span>
-            Step 2 of 2
-          </div>
-          <h2 class="mt-5 text-2xl sm:text-3xl font-bold tracking-tight">Complete your details</h2>
-          <p class="mt-2 text-sm sm:text-[15px]" style="color: var(--muted); max-width: 52rem;">
-            Fill out your personal details. (Some fields are optional.)
-          </p>
+          <label>New password</label>
+          <input id="pw1" class="inp" type="password" placeholder="Minimum 8 characters">
+        </div>
+        <div>
+          <label>Confirm password</label>
+          <input id="pw2" class="inp" type="password" placeholder="Repeat password">
         </div>
       </div>
 
-      <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div class="sm:col-span-2 glass2 p-4">
-          <div class="text-sm font-semibold opacity-90">Your onboarding record</div>
-          <div class="mt-2 text-sm opacity-75">
-            <div><span class="opacity-60">Company:</span> <span id="prefCompany">—</span></div>
-            <div><span class="opacity-60">Work email:</span> <span id="prefWorkEmail">—</span></div>
-            <div><span class="opacity-60">Job title:</span> <span id="prefJobTitle">—</span></div>
-          </div>
+      <div class="row">
+        <button id="btnSavePassword" class="btn" type="button">Save password</button>
+      </div>
+
+      <div id="pwMsg" class="msg err hide"></div>
+    </section>
+
+    <!-- DETAILS -->
+    <section id="screenDetails" class="card hide">
+      <div class="pill">Step 2 of 2</div>
+      <div class="title">Your details</div>
+      <div class="sub">Please complete the following information. Fields marked optional can be left blank.</div>
+
+      <div class="grid">
+        <div>
+          <label>Full Name</label>
+          <input id="full_name" class="inp" placeholder="e.g. Jamie Smith">
         </div>
 
         <div>
-          <label class="text-xs opacity-70">Full name</label>
-          <input id="f_full_name" class="inp mt-1" placeholder="Your full name">
+          <label>Title (optional)</label>
+          <input id="title" class="inp" placeholder="e.g. Ms / Mr / Dr">
         </div>
 
         <div>
-          <label class="text-xs opacity-70">Title (optional)</label>
-          <input id="f_title" class="inp mt-1" placeholder="e.g. Mr / Mrs / Ms / Mx / Dr">
+          <label>Pronouns (optional)</label>
+          <input id="pronouns" class="inp" placeholder="e.g. she/her, he/him, they/them">
         </div>
 
         <div>
-          <label class="text-xs opacity-70">Pronouns (optional)</label>
-          <input id="f_pronouns" class="inp mt-1" placeholder="e.g. she/her, he/him, they/them">
-        </div>
-
-        <div>
-          <label class="text-xs opacity-70">Gender</label>
-          <select id="f_gender" class="inp mt-1">
+          <label>Gender</label>
+          <select id="gender" class="inp">
             <option value="">Select…</option>
             <option>Female</option>
             <option>Male</option>
@@ -262,398 +254,375 @@
         </div>
 
         <div>
-          <label class="text-xs opacity-70">Date of birth</label>
-          <input id="f_dob" class="inp mt-1" type="date">
+          <label>Date of birth</label>
+          <input id="dob" class="inp" type="date">
         </div>
 
         <div>
-          <label class="text-xs opacity-70">Nationality</label>
-          <input id="f_nationality" class="inp mt-1" placeholder="e.g. British">
+          <label>Nationality</label>
+          <input id="nationality" class="inp" placeholder="e.g. British">
         </div>
 
         <div>
-          <label class="text-xs opacity-70">National Insurance Number (optional)</label>
-          <input id="f_ni" class="inp mt-1" placeholder="e.g. QQ123456C">
+          <label>National Insurance Number (optional)</label>
+          <input id="ni_number" class="inp" placeholder="e.g. QQ123456C">
         </div>
 
         <div>
-          <label class="text-xs opacity-70">Driving Licence Number (optional)</label>
-          <input id="f_dl" class="inp mt-1" placeholder="Driving licence number">
+          <label>Driving Licence Number (optional)</label>
+          <input id="driving_licence_number" class="inp" placeholder="Licence number">
         </div>
 
         <div>
-          <label class="text-xs opacity-70">Personal email</label>
-          <input id="f_personal_email" class="inp mt-1" type="email" placeholder="name@gmail.com">
+          <label>Personal email</label>
+          <input id="personal_email" class="inp" type="email" placeholder="e.g. name@gmail.com">
         </div>
 
         <div>
-          <label class="text-xs opacity-70">Personal telephone</label>
-          <input id="f_phone" class="inp mt-1" placeholder="e.g. 07…">
-        </div>
-
-        <div class="sm:col-span-2">
-          <label class="text-xs opacity-70">Address</label>
-          <textarea id="f_address" class="inp mt-1" rows="3" placeholder="House number, street, town/city, postcode"></textarea>
+          <label>Personal telephone</label>
+          <input id="personal_phone" class="inp" placeholder="e.g. 07…">
         </div>
       </div>
 
-      <div class="mt-6 flex flex-wrap items-center gap-3">
-        <button id="btnSaveDetails" class="btn">Submit details</button>
-        <div id="detailsMsg" class="text-sm text-red-300 hidden"></div>
+      <div style="margin-top:12px;">
+        <label>Address</label>
+        <textarea id="address" class="ta" placeholder="House name/number, street, town/city, postcode"></textarea>
+      </div>
+
+      <div class="row">
+        <button id="btnSubmitDetails" class="btn" type="button">Submit details</button>
+      </div>
+
+      <div id="detailsMsg" class="msg err hide"></div>
+    </section>
+
+    <!-- DONE -->
+    <section id="screenDone" class="card hide">
+      <div class="pill">Complete</div>
+      <div class="title">All set 🎉</div>
+      <div class="sub">Your onboarding has been completed. You can now close this page and sign in using your work email.</div>
+
+      <div class="row">
+        <a class="btn" href="https://smartcoretechnology.co.uk">Go to SmartCore</a>
       </div>
     </section>
 
-    <!-- SCREEN: DONE -->
-    <section id="screenDone" class="hidden glass p-7 sm:p-10">
-      <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs opacity-80">
-        <span class="tagDot green"></span>
-        Completed
+    <!-- ERROR -->
+    <section id="screenError" class="card hide">
+      <div class="pill">Something went wrong</div>
+      <div class="title">We couldn’t complete onboarding</div>
+      <div id="errMsg" class="sub">Error details will appear here.</div>
+
+      <div class="row">
+        <button id="btnRetry" class="btn secondary" type="button">Retry</button>
+        <a class="btn secondary" href="mailto:support@smartcoretechnology.co.uk">Email support</a>
       </div>
 
-      <h2 class="mt-5 text-2xl sm:text-3xl font-bold tracking-tight">You’re all set</h2>
-      <p class="mt-2 text-sm sm:text-[15px]" style="color: var(--muted); max-width: 46rem;">
-        Your onboarding details have been saved. You can now log in using your <b>work email</b>.
-      </p>
-
-      <div class="mt-6 flex flex-wrap gap-3">
-        <a href="/management" class="btn inline-block">Go to login</a>
-        <a href="https://smartcoretechnology.co.uk" class="rowBtn inline-block">Go to main site</a>
-      </div>
-    </section>
-
-    <!-- SCREEN: ERROR -->
-    <section id="screenError" class="hidden glass p-7 sm:p-10">
-      <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-red-400/20 bg-red-400/10 text-xs">
-        <span class="w-2.5 h-2.5 rounded-full bg-red-300"></span>
-        Something went wrong
-      </div>
-
-      <h2 class="mt-5 text-2xl sm:text-3xl font-bold tracking-tight">We couldn’t open your onboarding link</h2>
-      <p id="errMsg" class="mt-2 text-sm sm:text-[15px]" style="color: var(--muted); max-width: 52rem;">
-        —
-      </p>
-
-      <div class="mt-6 flex flex-wrap gap-3">
-        <a href="https://smartcoretechnology.co.uk" class="btn inline-block">Back to main site</a>
-        <a href="mailto:support@smartcoretechnology.co.uk" class="rowBtn inline-block">Contact support</a>
+      <div class="foot" style="margin-top:18px;">
+        <div>Support: <a href="mailto:support@smartcoretechnology.co.uk">support@smartcoretechnology.co.uk</a></div>
+        <div><span style="opacity:.7">Tip:</span> Invite links must include <code>#access_token=…</code></div>
       </div>
     </section>
-
-  </main>
+  </div>
 
   <script>
     /**********************
       UTIL
     **********************/
     const $ = (id) => document.getElementById(id);
+    const show = (id) => $(id).classList.remove("hide");
+    const hide = (id) => $(id).classList.add("hide");
 
-    function show(el){ el.classList.remove("hidden"); }
-    function hide(el){ el.classList.add("hidden"); }
-
-    function showScreen(id){
+    function showOnly(id){
       ["screenLoading","screenPassword","screenDetails","screenDone","screenError"].forEach(x=>{
-        const el = $(x);
-        if (!el) return;
-        if (x === id) show(el); else hide(el);
+        if (x === id) show(x); else hide(x);
       });
     }
 
-    function showErr(msg){
-      showScreen("screenError");
-      $("errMsg").textContent = msg || "Unknown error.";
+    function setMsg(el, txt, ok=false){
+      el.textContent = txt;
+      el.classList.remove("hide");
+      el.classList.toggle("ok", !!ok);
+      el.classList.toggle("err", !ok);
     }
-
-    function showInlineMsg(el, msg, ok=false){
-      el.textContent = msg || "";
-      el.classList.remove("hidden");
-      el.classList.toggle("text-green-300", !!ok);
-      el.classList.toggle("text-red-300", !ok);
-    }
-    function clearInlineMsg(el){
+    function clearMsg(el){
       el.textContent = "";
-      el.classList.add("hidden");
-      el.classList.remove("text-green-300");
-      el.classList.add("text-red-300");
+      el.classList.add("hide");
+      el.classList.remove("ok","err");
     }
 
-    function parseHashParams(){
+    function parseHash(){
+      // Supabase returns: #access_token=...&refresh_token=...&type=invite
       const h = window.location.hash || "";
-      if (!h.includes("access_token=")) return null;
-      const raw = h.startsWith("#") ? h.slice(1) : h;
-      const p = new URLSearchParams(raw);
+      if (!h.startsWith("#")) return {};
+      const params = new URLSearchParams(h.slice(1));
       return {
-        access_token: p.get("access_token"),
-        refresh_token: p.get("refresh_token"),
-        type: p.get("type")
+        access_token: params.get("access_token"),
+        refresh_token: params.get("refresh_token"),
+        type: params.get("type")
       };
     }
 
     function getTokenFromQuery(){
+      // Our custom onboarding token: /onboarding?token=xxxx
       const u = new URL(window.location.href);
-      return u.searchParams.get("token");
+      return u.searchParams.get("token") || "";
     }
 
-    function safeText(v){ return String(v ?? ""); }
+    function safeStr(x){ return String(x ?? "").trim(); }
 
     /**********************
-      SUPABASE
+      SUPABASE INIT (robust)
     **********************/
-    const sb = window.supabase.createClient(window._SUPABASE_URL, window._SUPABASE_ANON);
+    function getSupabaseConfig(){
+      const url = safeStr(window.__SUPABASE_URL);
+      const anon = safeStr(window.__SUPABASE_ANON);
+      return { url, anon };
+    }
 
-    /**********************
-      STATE
-    **********************/
+    function requireSupabaseConfig(){
+      const { url, anon } = getSupabaseConfig();
+      if (!url || !anon || anon === "PASTE_YOUR_ANON_PUBLIC_KEY_HERE"){
+        throw new Error(
+          "Supabase config missing on onboarding page.\n\n" +
+          "Check onboarding.html has window._SUPABASE_URL and window._SUPABASE_ANON set at the top (before loading supabase-js)."
+        );
+      }
+      if (!window.supabase?.createClient){
+        throw new Error("Supabase library not loaded. Check the supabase-js script tag.");
+      }
+      return { url, anon };
+    }
+
+    let sb = null;
     const state = {
-      token: null,
       user: null,
       employeeRow: null,
-      companyName: null
+      onboardingToken: ""
     };
 
     /**********************
-      AUTH: ensure session is set from URL hash
+      AUTH + LINKING
     **********************/
     async function ensureSessionFromHash(){
-      const hp = parseHashParams();
+      const h = parseHash();
 
-      // If invite/verify redirected us with tokens in hash, set them
-      if (hp?.access_token && hp?.refresh_token){
-        const { error } = await sb.auth.setSession({
-          access_token: hp.access_token,
-          refresh_token: hp.refresh_token
-        });
-        if (error) throw new Error("This invite link is invalid or expired. Please request a new link.");
-        // Clean hash tokens from URL (optional but nice)
-        // (Do NOT remove query token)
-        history.replaceState(null, "", window.location.pathname + window.location.search);
+      // If there’s no hash token, we can’t authenticate the invited user.
+      if (!h.access_token || !h.refresh_token) return null;
+
+      // Create client first
+      if (!sb){
+        const { url, anon } = requireSupabaseConfig();
+        sb = window.supabase.createClient(url, anon);
       }
 
-      const { data: { session } } = await sb.auth.getSession();
-      state.user = session?.user || null;
-      return state.user;
+      // Set session from hash tokens
+      const { error } = await sb.auth.setSession({
+        access_token: h.access_token,
+        refresh_token: h.refresh_token
+      });
+      if (error) throw new Error("Invite session error: " + error.message);
+
+      // Clear the hash tokens for security (keeps the page path + query)
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+
+      // Get user
+      const { data: { user }, error: uErr } = await sb.auth.getUser();
+      if (uErr) throw new Error("Could not read user: " + uErr.message);
+      return user || null;
     }
 
-    /**********************
-      LOAD employee row by onboarding token
-      Expected columns in employees:
-        id (uuid PK), company_id, full_name, personal_email, work_email, job_title,
-        onboarding_token, onboarding_expires, user_id,
-        title, pronouns, gender, dob, nationality, ni_number, driving_licence_number, personal_phone, address
-    **********************/
     async function loadEmployeeByToken(){
-      if (!state.token) throw new Error("Missing token. Please use the exact onboarding link from your email.");
+      state.employeeRow = null;
+      const token = state.onboardingToken;
+      if (!token) return null;
+
+      // NOTE: this requires RLS that allows reading employees by onboarding_token
+      // OR you can allow only select of onboarding_token row when token matches.
       const { data, error } = await sb
         .from("employees")
-        .select("id, company_id, full_name, personal_email, work_email, job_title, onboarding_token, onboarding_expires, user_id")
-        .eq("onboarding_token", state.token)
+        .select("*")
+        .eq("onboarding_token", token)
+        .limit(1)
         .maybeSingle();
 
-      if (error) throw error;
+      if (error) throw new Error("Could not validate onboarding token: " + error.message);
+
       state.employeeRow = data || null;
-
-      if (!state.employeeRow) throw new Error("Onboarding token not found. Please request a new link.");
-      if (state.employeeRow.onboarding_expires){
-        const exp = new Date(state.employeeRow.onboarding_expires).getTime();
-        if (Number.isFinite(exp) && Date.now() > exp) throw new Error("This onboarding link has expired. Please request a new link.");
-      }
+      return state.employeeRow;
     }
 
-    async function loadCompanyName(){
-      // Optional: show company name nicely if your companies table has company_name/name
-      try{
-        const { data } = await sb
-          .from("companies")
-          .select("company_name, name, legal_name, trading_name")
-          .eq("id", state.employeeRow.company_id)
-          .maybeSingle();
-        state.companyName = data?.company_name || data?.name || data?.legal_name || data?.trading_name || null;
-      }catch(_){
-        state.companyName = null;
-      }
-    }
+    async function linkEmployeeToUser(){
+      // If no token or no employee row, we cannot reliably link the employee record.
+      if (!state.onboardingToken || !state.user) return false;
 
-    /**********************
-      LINK auth user to employee row (this was the missing “#4”)
-    **********************/
-    async function linkUserToEmployee(){
-      const { data: { user }, error: userErr } = await sb.auth.getUser();
-      if (userErr || !user) throw new Error("Could not read your session. Please open the invite link again.");
-
-      // Safety: ensure invite work email matches session user email
-      const empEmail = String(state.employeeRow.work_email || "").toLowerCase();
-      const sesEmail = String(user.email || "").toLowerCase();
-      if (empEmail && sesEmail && empEmail !== sesEmail){
-        throw new Error("This invite link is for a different work email. Please use the correct invite.");
-      }
-
-      // Link + clear token so it cannot be reused
-      const { error: linkErr } = await sb
+      // This update must be allowed by RLS when onboarding_token matches.
+      const { error } = await sb
         .from("employees")
         .update({
-          user_id: user.id,
+          user_id: state.user.id,
           onboarding_token: null,
           onboarding_expires: null
         })
-        .eq("id", state.employeeRow.id);
+        .eq("onboarding_token", state.onboardingToken);
 
-      if (linkErr) throw linkErr;
+      if (error) throw new Error("Could not link employee to user: " + error.message);
+      return true;
     }
 
     /**********************
-      PASSWORD
+      SCREENS
     **********************/
-    async function savePassword(){
-      clearInlineMsg($("pwMsg"));
+    async function start(){
+      showOnly("screenLoading");
+      $("loadingMsg").textContent = "Validating your link…";
+      clearMsg($("pwMsg"));
+      clearMsg($("detailsMsg"));
 
+      try{
+        // Init client ASAP (and fail cleanly if config missing)
+        const { url, anon } = requireSupabaseConfig();
+        sb = window.supabase.createClient(url, anon);
+
+        // Read onboarding token from query
+        state.onboardingToken = getTokenFromQuery();
+
+        // Ensure session from invite hash (this is REQUIRED to proceed)
+        $("loadingMsg").textContent = "Signing you in securely…";
+        const user = await ensureSessionFromHash();
+        if (!user){
+          throw new Error("No active invite session found. Please open the invite link again (it must include #access_token=...).");
+        }
+        state.user = user;
+
+        // Show sign out button now that we’re authed
+        $("btnSignOut").classList.remove("hide");
+
+        // Validate onboarding token (optional but recommended)
+        if (state.onboardingToken){
+          $("loadingMsg").textContent = "Validating onboarding token…";
+          await loadEmployeeByToken();
+
+          // Prefill some fields if we found the employee row
+          if (state.employeeRow){
+            $("full_name").value = state.employeeRow.full_name || "";
+            $("personal_email").value = state.employeeRow.personal_email || "";
+          }
+        }
+
+        // Go to password screen first (invite flow wants password set)
+        showOnly("screenPassword");
+
+      }catch(e){
+        showOnly("screenError");
+        $("errMsg").textContent = e?.message || String(e);
+      }
+    }
+
+    async function savePassword(){
+      clearMsg($("pwMsg"));
       const a = $("pw1").value || "";
       const b = $("pw2").value || "";
 
-      if (a.length < 8) return showInlineMsg($("pwMsg"), "Password must be at least 8 characters.");
-      if (a !== b) return showInlineMsg($("pwMsg"), "Passwords do not match.");
+      if (a.length < 8) return setMsg($("pwMsg"), "Password must be at least 8 characters.");
+      if (a !== b) return setMsg($("pwMsg"), "Passwords do not match.");
 
       $("btnSavePassword").disabled = true;
 
       try{
         const { error } = await sb.auth.updateUser({ password: a });
-        if (error) throw error;
+        if (error) throw new Error(error.message);
 
-        showInlineMsg($("pwMsg"), "Password saved. Now complete your details…", true);
+        // Link employee record to this auth user (if we have a token)
+        if (state.onboardingToken){
+          await linkEmployeeToUser();
+        }
 
-        // Move to details step
-        setTimeout(()=>{
-          showScreen("screenDetails");
-        }, 400);
+        // Move to details screen
+        showOnly("screenDetails");
 
       }catch(e){
-        showInlineMsg($("pwMsg"), e?.message || "Failed to save password.");
+        setMsg($("pwMsg"), "Failed to set password: " + (e?.message || e));
       }finally{
         $("btnSavePassword").disabled = false;
       }
     }
 
-    /**********************
-      DETAILS
-    **********************/
-    async function saveDetails(){
-      clearInlineMsg($("detailsMsg"));
+    async function submitDetails(){
+      clearMsg($("detailsMsg"));
 
-      // Basic required
-      const full_name = $("f_full_name").value.trim();
-      const gender = $("f_gender").value.trim();
-      const dob = $("f_dob").value; // YYYY-MM-DD or ""
+      // Basic required fields
+      const full_name = safeStr($("full_name").value);
+      const gender = safeStr($("gender").value);
+      const dob = safeStr($("dob").value);
+      const nationality = safeStr($("nationality").value);
+      const personal_email = safeStr($("personal_email").value);
+      const personal_phone = safeStr($("personal_phone").value);
+      const address = safeStr($("address").value);
 
-      const nationality = $("f_nationality").value.trim();
-      const personal_email = $("f_personal_email").value.trim().toLowerCase();
-      const personal_phone = $("f_phone").value.trim();
-      const address = $("f_address").value.trim();
+      if (!full_name) return setMsg($("detailsMsg"), "Full name is required.");
+      if (!gender) return setMsg($("detailsMsg"), "Gender is required.");
+      if (!dob) return setMsg($("detailsMsg"), "Date of birth is required.");
+      if (!nationality) return setMsg($("detailsMsg"), "Nationality is required.");
+      if (!personal_email) return setMsg($("detailsMsg"), "Personal email is required.");
+      if (!personal_phone) return setMsg($("detailsMsg"), "Personal telephone is required.");
+      if (!address) return setMsg($("detailsMsg"), "Address is required.");
 
-      if (!full_name) return showInlineMsg($("detailsMsg"), "Please enter your full name.");
-      if (!gender) return showInlineMsg($("detailsMsg"), "Please select a gender.");
-      if (!dob) return showInlineMsg($("detailsMsg"), "Please enter your date of birth.");
-      if (!nationality) return showInlineMsg($("detailsMsg"), "Please enter your nationality.");
-      if (!personal_email) return showInlineMsg($("detailsMsg"), "Please enter your personal email.");
-      if (!personal_phone) return showInlineMsg($("detailsMsg"), "Please enter your personal telephone.");
-      if (!address) return showInlineMsg($("detailsMsg"), "Please enter your address.");
-
-      const payload = {
-        full_name,
-        title: $("f_title").value.trim() || null,
-        pronouns: $("f_pronouns").value.trim() || null,
-        gender,
-        dob,
-        nationality,
-        ni_number: $("f_ni").value.trim() || null,
-        driving_licence_number: $("f_dl").value.trim() || null,
-        personal_email,
-        personal_phone,
-        address
-      };
-
-      $("btnSaveDetails").disabled = true;
+      $("btnSubmitDetails").disabled = true;
 
       try{
-        // Must update by user_id (best) so user can’t modify someone else
-        const { data: { user } } = await sb.auth.getUser();
-        if (!user?.id) throw new Error("No active session. Please open the invite link again.");
+        // We update the employee row by user_id (best) OR by token (fallback)
+        const payload = {
+          full_name,
+          title: safeStr($("title").value) || null,
+          pronouns: safeStr($("pronouns").value) || null,
+          gender,
+          dob,
+          nationality,
+          ni_number: safeStr($("ni_number").value) || null,
+          driving_licence_number: safeStr($("driving_licence_number").value) || null,
+          personal_email,
+          personal_phone,
+          address
+        };
 
-        const { error } = await sb
-          .from("employees")
-          .update(payload)
-          .eq("user_id", user.id);
+        let q = sb.from("employees").update(payload);
 
-        if (error) throw error;
+        if (state.user?.id){
+          q = q.eq("user_id", state.user.id);
+        } else if (state.onboardingToken){
+          q = q.eq("onboarding_token", state.onboardingToken);
+        } else {
+          throw new Error("Unable to identify employee record to update. Please contact support.");
+        }
 
-        showScreen("screenDone");
+        const { error } = await q;
+        if (error) throw new Error(error.message);
+
+        showOnly("screenDone");
+
       }catch(e){
-        showInlineMsg($("detailsMsg"), e?.message || "Failed to save details.");
+        setMsg($("detailsMsg"), "Could not save details: " + (e?.message || e));
       }finally{
-        $("btnSaveDetails").disabled = false;
+        $("btnSubmitDetails").disabled = false;
       }
     }
 
-    /**********************
-      SIGN OUT
-    **********************/
     async function signOut(){
-      try{ await sb.auth.signOut(); }catch(_){}
+      try{ await sb?.auth.signOut(); }catch(_){}
       window.location.href = "https://smartcoretechnology.co.uk";
     }
 
     /**********************
-      INIT
+      WIRING
     **********************/
-    function fillPrefill(){
-      const emp = state.employeeRow || {};
-      $("prefCompany").textContent = state.companyName || "—";
-      $("prefWorkEmail").textContent = safeText(emp.work_email || "—");
-      $("prefJobTitle").textContent = safeText(emp.job_title || "—");
+    $("btnRetry").addEventListener("click", ()=> start());
+    $("btnSavePassword").addEventListener("click", ()=> savePassword());
+    $("btnSubmitDetails").addEventListener("click", ()=> submitDetails());
+    $("btnSignOut").addEventListener("click", ()=> signOut());
 
-      // Prefill fields (using employee record)
-      $("f_full_name").value = safeText(emp.full_name || "");
-      $("f_personal_email").value = safeText(emp.personal_email || "");
-    }
-
-    async function init(){
-      state.token = getTokenFromQuery();
-
-      showScreen("screenLoading");
-      $("loadingMsg").textContent = "Signing you in securely…";
-
-      try{
-        const user = await ensureSessionFromHash();
-        if (!user){
-          showErr("No active session found. Please open the invite link again (it must include the access token).");
-          return;
-        }
-
-        // Show sign out button
-        show($("btnSignOut"));
-
-        $("loadingMsg").textContent = "Validating onboarding token…";
-        await loadEmployeeByToken();
-
-        $("loadingMsg").textContent = "Linking your account…";
-        await linkUserToEmployee();
-
-        $("loadingMsg").textContent = "Loading your details…";
-        await loadCompanyName();
-        fillPrefill();
-
-        // Go to password step first
-        showScreen("screenPassword");
-
-      }catch(e){
-        console.error(e);
-        showErr(e?.message || "Onboarding link invalid or expired.");
-      }
-    }
-
-    $("btnSignOut").addEventListener("click", signOut);
-    $("btnSavePassword").addEventListener("click", savePassword);
-    $("btnSaveDetails").addEventListener("click", saveDetails);
-
-    init();
+    // Start immediately
+    start();
   </script>
-
 </body>
 </html>
