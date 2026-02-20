@@ -727,23 +727,27 @@
     }
 
     async function loadProfile(){
-      state.profile = null;
-      if (!state.user) return null;
+  state.profile = null;
+  if (!state.user) return null;
 
-      try{
-        const { data, error } = await sb
-          .from("profiles")
-          .select("*")
-          .eq("user_id", state.user.id)
-          .maybeSingle();
-        if (error) throw error;
-        state.profile = data || null;
-        return state.profile;
-      }catch(_){
-        state.profile = null;
-        return null;
-      }
-    }
+  try{
+    const { data, error } = await sb
+      .from("user_profiles")   // ✅ CORRECT TABLE
+      .select("*")
+      .eq("user_id", state.user.id)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    state.profile = data || null;
+    return state.profile;
+
+  }catch(err){
+    console.error("Profile load error:", err);
+    state.profile = null;
+    return null;
+  }
+}
 
     /******************************************************************
       Companies (show NAME not ID)
