@@ -897,10 +897,15 @@
       Permissions
     ******************************************************************/
     function isAdminUser(){
-      const p = state.profile || {};
-      const role = String(p.role || "").toLowerCase();
-      return p.is_admin === true || role === "admin" || role === "company_admin" || role === "owner";
-    }
+  const p = state.profile || {};
+  const role = String(p.role || "").toLowerCase();
+
+  // ✅ Admins can be defined either in user_profiles OR in employees
+  const profileAdmin = (p.is_admin === true) || ["admin","company_admin","owner"].includes(role);
+  const employeeAdmin = (state.myEmployee?.is_admin === true);
+
+  return profileAdmin || employeeAdmin;
+}
 
     function isAdminForCompany(company){
       const p = state.profile;
@@ -996,6 +1001,19 @@
         }
       }
 
+      // ✅ If admin is coming from employees table, include that company too
+if (state.myEmployee?.company_id){
+  const empAdminCompanyRes = await sb
+    .from("companies")
+    .select("id, owner_user_id, company_name, name, legal_name, trading_name")
+    .eq("id", state.myEmployee.company_id)
+    .maybeSingle();
+
+  if (!empAdminCompanyRes.error && empAdminCompanyRes.data){
+    const exists = companies.some(c => String(c.id) === String(empAdminCompanyRes.data.id));
+    if (!exists) companies.push(empAdminCompanyRes.data);
+  }
+}
       companies = companies.filter(canManageCompany);
       state.companies = companies;
 
@@ -1619,15 +1637,17 @@
         await loadSession();
         await loadProfile();
 
-        if (isAdminUser()){
-          await loadManageableCompanies();
-          await loadEmployees();
-          showOnly("adminPage");
-        } else {
-          await loadMyEmployeeAndCompany();
-          renderEmployeePage();
-          showOnly("employeePage");
-        }
+        // ✅ Always load employee row too, so we can detect admin from employees.is_admin
+await loadMyEmployeeAndCompany();
+
+if (isAdminUser()){
+  await loadManageableCompanies();
+  await loadEmployees();
+  showOnly("adminPage");
+} else {
+  renderEmployeePage();
+  showOnly("employeePage");
+}
 
       }catch(e){
         showErr($("liMsg"), String(e.message || "Login failed."));
@@ -1897,19 +1917,20 @@
       await loadProfile();
 
       if (state.user){
-        if (isAdminUser()){
-          await loadManageableCompanies();
-          await loadEmployees();
-          showOnly("adminPage");
-        } else {
-          await loadMyEmployeeAndCompany();
-          renderEmployeePage();
-          showOnly("employeePage");
-        }
-      } else {
-        showOnly("home");
-      }
-    }
+  // ✅ Load both profile and employee before deciding
+  await loadMyEmployeeAndCompany();
+
+  if (isAdminUser()){
+    await loadManageableCompanies();
+    await loadEmployees();
+    showOnly("adminPage");
+  } else {
+    renderEmployeePage();
+    showOnly("employeePage");
+  }
+} else {
+  showOnly("home");
+}
 
     init().catch(err=>{
       console.error(err);
