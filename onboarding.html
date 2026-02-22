@@ -395,51 +395,69 @@
         - ?token=...&type=invite  (OTP)
         - #access_token=... (legacy implicit)
     **********************/
-    async function consumeInviteFromUrl(){
-      const u = new URL(window.location.href);
+    function parseHashTokens(){
+  // legacy / implicit: #access_token=...&refresh_token=...&type=invite
+  const h = window.location.hash || "";
+  if (!h.startsWith("#")) return {};
+  const params = new URLSearchParams(h.slice(1));
+  return {
+    access_token: params.get("access_token"),
+    refresh_token: params.get("refresh_token"),
+    type: params.get("type"),
+    expires_in: params.get("expires_in")
+  };
+}
 
-      // 1) PKCE code flow (common in modern Supabase email links)
-      const code = u.searchParams.get("code");
-      if (code){
-        const { data, error } = await sb.auth.exchangeCodeForSession(window.location.href);
-        if (error) throw new Error("Invite code exchange failed: " + error.message);
-        // clean url
-        u.searchParams.delete("code");
-        history.replaceState(null, "", u.pathname + (u.search ? u.search : "") + u.hash);
-        return data?.session || null;
-      }
+async function consumeInviteFromUrl(){
+  const u = new URL(window.location.href);
 
-      // 2) OTP token flow: token/token_hash + type=invite
-      const type = u.searchParams.get("type");
-      const tokenHash = u.searchParams.get("token") || u.searchParams.get("token_hash");
-      if (type && tokenHash){
-        const { data, error } = await sb.auth.verifyOtp({
-          type,                 // should be "invite" for invites
-          token_hash: tokenHash // Supabase expects token_hash
-        });
-        if (error) throw new Error("Invite verification failed: " + error.message);
+  // 1) PKCE code flow (modern Supabase email links)
+  const code = u.searchParams.get("code");
+  if (code){
+    const { data, error } = await sb.auth.exchangeCodeForSession(window.location.href);
+    if (error) throw new Error("Invite code exchange failed: " + error.message);
 
-        // clean url (remove token params)
-        u.searchParams.delete("token");
-        u.searchParams.delete("token_hash");
-        u.searchParams.delete("type");
-        u.searchParams.delete("error");
-        u.searchParams.delete("error_code");
-        u.searchParams.delete("error_description");
-        history.replaceState(null, "", u.pathname + (u.search ? u.search : "") + u.hash);
+    // clean url
+    u.searchParams.delete("code");
+    history.replaceState(null, "", u.pathname + (u.search ? u.search : ""));
+    return data?.session || null;
+  }
 
-        return data?.session || null;
-      }
+  // 2) OTP token flow: ?type=invite&token=... (or token_hash)
+  const type = u.searchParams.get("type");
+  const tokenHash = u.searchParams.get("token_hash") || u.searchParams.get("token");
+  if (type && tokenHash){
+    const { data, error } = await sb.auth.verifyOtp({
+      type,
+      token_hash: tokenHash
+    });
+    if (error) throw new Error("Invite verification failed: " + error.message);
 
-      // 3) Legacy implicit hash flow (#access_token=...)
-      const { data, error } = await sb.auth.getSessionFromUrl({ storeSession: true });
-      if (error) throw new Error("Invite session parse failed: " + error.message);
-      if (data?.session){
-        // remove hash tokens for safety
-        history.replaceState(null, "", window.location.pathname + window.location.search);
-      }
-      return data?.session || null;
-    }
+    // clean url
+    ["type","token","token_hash","error","error_code","error_description"].forEach(k=>u.searchParams.delete(k));
+    history.replaceState(null, "", u.pathname + (u.search ? u.search : ""));
+    return data?.session || null;
+  }
+
+  // 3) Legacy hash tokens: #access_token=...&refresh_token=...
+  const h = parseHashTokens();
+  if (h.access_token && h.refresh_token){
+    const { error } = await sb.auth.setSession({
+      access_token: h.access_token,
+      refresh_token: h.refresh_token
+    });
+    if (error) throw new Error("Invite session error: " + error.message);
+
+    // remove hash tokens for security
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    const { data } = await sb.auth.getSession();
+    return data?.session || null;
+  }
+
+  // 4) Nothing on the URL, fall back to existing session (if already signed in)
+  const { data } = await sb.auth.getSession();
+  return data?.session || null;
+}
 
     async function loadUser(){
       const { data: { user }, error } = await sb.auth.getUser();
