@@ -90,50 +90,63 @@ export async function onRequestPost(context) {
       return jsonError(400, "Employee insert failed", "insert_employee", t);
     }
 
-    /**********************
-     * 2) Generate a Supabase invite link for WORK EMAIL
-     *    IMPORTANT: This also gives us the auth user id (linkData.user.id)
-     **********************/
-    const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
-      method: "POST",
-      headers: adminHeaders,
-      body: JSON.stringify({
-        type: "invite",
-        email: work_email,
-        options: { redirectTo }
-      })
-    });
+    // 2) Generate a Supabase invite link for WORK EMAIL
+const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
+  method: "POST",
+  headers: {
+    apikey: SERVICE_ROLE,
+    Authorization: `Bearer ${SERVICE_ROLE}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    type: "invite",
+    email: work_email,
+    options: { redirectTo }, // ✅ onboarding.html?token=...
+  }),
+});
 
-    if (!linkRes.ok) {
-      const t = await linkRes.text();
-      return jsonError(400, "Supabase generate_link failed", "generate_link", t);
-    }
+if (!linkRes.ok) {
+  const t = await linkRes.text();
+  return jsonError(400, "Supabase generate_link failed", "generate_link", t);
+}
 
-    const linkData = await linkRes.json();
-    const inviteLink = linkData?.action_link;
-    const userId = linkData?.user?.id;
+const linkData = await linkRes.json();
 
-    if (!inviteLink) {
-      return jsonError(
-        400,
-        "Supabase did not return action_link",
-        "generate_link",
-        JSON.stringify(linkData)
-      );
-    }
-    if (!userId) {
-      return jsonError(
-        400,
-        "Supabase did not return user.id (cannot create profile)",
-        "generate_link",
-        JSON.stringify(linkData)
-      );
-    }
+// ✅ Robust: user id might be top-level OR nested depending on version
+const userId = linkData?.user?.id ?? linkData?.id ?? null;
+const inviteLink = linkData?.action_link ?? null;
 
-    // Keep your "force redirect_to" behaviour (safe)
-    const u = new URL(inviteLink);
-    u.searchParams.set("redirect_to", redirectTo);
-    const fixedInviteLink = u.toString();
+if (!inviteLink) {
+  return jsonError(
+    400,
+    "Supabase did not return action_link",
+    "generate_link",
+    JSON.stringify(linkData)
+  );
+}
+
+if (!userId) {
+  return jsonError(
+    400,
+    "Supabase did not return user id",
+    "generate_link",
+    JSON.stringify(linkData)
+  );
+}
+
+// 🔥 FORCE redirect_to to onboarding (sometimes Supabase returns a default)
+const u = new URL(inviteLink);
+u.searchParams.set("redirect_to", redirectTo);
+const fixedInviteLink = u.toString();
+
+// ✅ IMPORTANT (Option 2):
+// DO NOT create user_profiles here.
+// Let onboarding link employees.user_id, and your DB trigger will upsert user_profiles.
+
+return new Response(
+  JSON.stringify({ ok: true, user_id: userId, invite_link: fixedInviteLink }),
+  { status: 200, headers: { "Content-Type": "application/json" } }
+);
 
     /**********************
      * 3) Create/Upsert user profile NOW (so your app can find them immediately)
