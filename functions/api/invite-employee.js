@@ -236,29 +236,31 @@ return new Response(
       </div>
     `;
 
-    const resendRes = await fetch("https://gbr01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fapi.resend.com%2Femails&data=05%7C02%7Clehanne%40smartfits.co.uk%7Cb95d6f67f2fe4394ada908de723eb0aa%7C0d29c8c8c6a54a13be7976318c2379e7%7C0%7C0%7C639073810768382776%7CUnknown%7CTWFpbGZsb3d8eyJFbXB0eU1hcGkiOnRydWUsIlYiOiIwLjAuMDAwMCIsIlAiOiJXaW4zMiIsIkFOIjoiTWFpbCIsIldUIjoyfQ%3D%3D%7C0%7C%7C%7C&sdata=PRs1d5oPufR4h2irViBZLieQyz7YPLoiXvfFsxX44NU%3D&reserved=0", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        from: FROM_EMAIL,
-        to: [personal_email],
-        subject,
-        html
-      })
-    });
+    const resendRes = await fetch("https://api.resend.com/emails", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${RESEND_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    from: FROM_EMAIL,
+    to: [personal_email],
+    subject,
+    html,
+  }),
+});
 
-    if (!resendRes.ok) {
-      const t = await resendRes.text();
-      return jsonError(400, "Resend failed", "send_email", t);
-    }
+const resendText = await resendRes.text();
 
-    return new Response(JSON.stringify({ ok: true, user_id: userId }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    });
+if (!resendRes.ok) {
+  return jsonError(400, "Resend failed", "send_email", resendText);
+}
+
+// ✅ ONLY RETURN SUCCESS AFTER RESEND WORKED
+return new Response(JSON.stringify({ ok: true }), {
+  status: 200,
+  headers: { "Content-Type": "application/json" },
+});
   } catch (err) {
     return jsonError(400, err?.message || "Unknown error", "exception", null);
   }
