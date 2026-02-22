@@ -29,7 +29,7 @@ export async function onRequestPost(context) {
       notice_period,
       start_date,
 
-      employee_code
+      employee_code,
     } = body;
 
     // Basic validation
@@ -47,15 +47,14 @@ export async function onRequestPost(context) {
     const token = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString();
 
-    // Where the user lands AFTER they click the invite link
+    // ✅ Correct redirect: your onboarding page + token
     const redirectTo =
-      `https://gbr01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fsmartcoretechnology.co.uk%2Fonboarding.html%3Ftoken%3D%24&data=05%7C02%7Clehanne%40smartfits.co.uk%7Cb95d6f67f2fe4394ada908de723eb0aa%7C0d29c8c8c6a54a13be7976318c2379e7%7C0%7C0%7C639073810768358977%7CUnknown%7CTWFpbGZsb3d8eyJFbXB0eU1hcGkiOnRydWUsIlYiOiIwLjAuMDAwMCIsIlAiOiJXaW4zMiIsIkFOIjoiTWFpbCIsIldUIjoyfQ%3D%3D%7C0%7C%7C%7C&sdata=5hVLhvzGjQ8b0q1SO9OMOHzu%2BZkz8Ec5g7oKDRacksg%3D&reserved=0{encodeURIComponent(token)}`;
+      `https://smartcoretechnology.co.uk/onboarding.html?token=${encodeURIComponent(token)}`;
 
-    // Helper headers for Supabase Admin + REST (service role)
     const adminHeaders = {
       apikey: SERVICE_ROLE,
       Authorization: `Bearer ${SERVICE_ROLE}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     };
 
     /**********************
@@ -63,10 +62,7 @@ export async function onRequestPost(context) {
      **********************/
     const insertEmployeeRes = await fetch(`${SUPABASE_URL}/rest/v1/employees`, {
       method: "POST",
-      headers: {
-        ...adminHeaders,
-        Prefer: "return=minimal"
-      },
+      headers: { ...adminHeaders, Prefer: "return=minimal" },
       body: JSON.stringify({
         company_id,
         full_name,
@@ -81,8 +77,8 @@ export async function onRequestPost(context) {
         employee_code,
 
         onboarding_token: token,
-        onboarding_expires: expiresAt
-      })
+        onboarding_expires: expiresAt,
+      }),
     });
 
     if (!insertEmployeeRes.ok) {
@@ -90,118 +86,46 @@ export async function onRequestPost(context) {
       return jsonError(400, "Employee insert failed", "insert_employee", t);
     }
 
-    // 2) Generate a Supabase invite link for WORK EMAIL
-const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
-  method: "POST",
-  headers: {
-    apikey: SERVICE_ROLE,
-    Authorization: `Bearer ${SERVICE_ROLE}`,
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    type: "invite",
-    email: work_email,
-    options: { redirectTo }, // ✅ onboarding.html?token=...
-  }),
-});
-
-if (!linkRes.ok) {
-  const t = await linkRes.text();
-  return jsonError(400, "Supabase generate_link failed", "generate_link", t);
-}
-
-const linkData = await linkRes.json();
-
-// ✅ Robust: user id might be top-level OR nested depending on version
-const userId = linkData?.user?.id ?? linkData?.id ?? null;
-const inviteLink = linkData?.action_link ?? null;
-
-if (!inviteLink) {
-  return jsonError(
-    400,
-    "Supabase did not return action_link",
-    "generate_link",
-    JSON.stringify(linkData)
-  );
-}
-
-if (!userId) {
-  return jsonError(
-    400,
-    "Supabase did not return user id",
-    "generate_link",
-    JSON.stringify(linkData)
-  );
-}
-
-// 🔥 FORCE redirect_to to onboarding (sometimes Supabase returns a default)
-const u = new URL(inviteLink);
-u.searchParams.set("redirect_to", redirectTo);
-const fixedInviteLink = u.toString();
-
-// ✅ IMPORTANT (Option 2):
-// DO NOT create user_profiles here.
-// Let onboarding link employees.user_id, and your DB trigger will upsert user_profiles.
-
-return new Response(
-  JSON.stringify({ ok: true, user_id: userId, invite_link: fixedInviteLink }),
-  { status: 200, headers: { "Content-Type": "application/json" } }
-);
-
     /**********************
-     * 3) Create/Upsert user profile NOW (so your app can find them immediately)
-     *    Requires the SQL fix: user_profiles.user_id UNIQUE + FK -> auth.users(id)
+     * 2) Generate Supabase invite link (Auth)
      **********************/
-    const role = !!is_admin ? "admin" : "user";
-    const active = cleanStatus === "active";
+    const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({
+        type: "invite",
+        email: work_email,
+        options: { redirectTo },
+      }),
+    });
 
-    const upsertProfileRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/user_profiles?on_conflict=user_id`,
-      {
-        method: "POST",
-        headers: {
-          ...adminHeaders,
-          Prefer: "resolution=merge-duplicates,return=minimal"
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          company_id,
-          role,
-          full_name: full_name || null,
-          active
-        })
-      }
-    );
-
-    if (!upsertProfileRes.ok) {
-      const t = await upsertProfileRes.text();
-      return jsonError(400, "user_profiles upsert failed", "upsert_profile", t);
+    if (!linkRes.ok) {
+      const t = await linkRes.text();
+      return jsonError(400, "Supabase generate_link failed", "generate_link", t);
     }
 
-    /**********************
-     * 4) Link employee row to auth user id (so onboarding can update by user_id)
-     **********************/
-    const linkEmployeeRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/employees?onboarding_token=eq.${encodeURIComponent(token)}`,
-      {
-        method: "PATCH",
-        headers: {
-          ...adminHeaders,
-          Prefer: "return=minimal"
-        },
-        body: JSON.stringify({
-          user_id: userId
-        })
-      }
-    );
+    const linkData = await linkRes.json();
 
-    if (!linkEmployeeRes.ok) {
-      const t = await linkEmployeeRes.text();
-      return jsonError(400, "Employee link failed", "link_employee", t);
+    // Supabase returns user id either nested or top-level (depends on version)
+    const userId = linkData?.user?.id ?? linkData?.id ?? null;
+    const inviteLink = linkData?.action_link ?? null;
+
+    if (!inviteLink) {
+      return jsonError(
+        400,
+        "Supabase did not return action_link",
+        "generate_link",
+        JSON.stringify(linkData)
+      );
     }
 
+    // Force redirect_to (Supabase sometimes returns a default)
+    const u = new URL(inviteLink);
+    u.searchParams.set("redirect_to", redirectTo);
+    const fixedInviteLink = u.toString();
+
     /**********************
-     * 5) Email invite link (Resend) to PERSONAL EMAIL
+     * 3) Email invite link (Resend) to PERSONAL EMAIL
      **********************/
     const subject = `Complete your SmartCore onboarding`;
     const safeCompany = company_name || "your company";
@@ -237,30 +161,30 @@ return new Response(
     `;
 
     const resendRes = await fetch("https://api.resend.com/emails", {
-  method: "POST",
-  headers: {
-    Authorization: `Bearer ${RESEND_API_KEY}`,
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    from: FROM_EMAIL,
-    to: [personal_email],
-    subject,
-    html,
-  }),
-});
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: FROM_EMAIL,
+        to: [personal_email],
+        subject,
+        html,
+      }),
+    });
 
-const resendText = await resendRes.text();
+    const resendText = await resendRes.text();
 
-if (!resendRes.ok) {
-  return jsonError(400, "Resend failed", "send_email", resendText);
-}
+    if (!resendRes.ok) {
+      return jsonError(400, "Resend failed", "send_email", resendText);
+    }
 
-// ✅ ONLY RETURN SUCCESS AFTER RESEND WORKED
-return new Response(JSON.stringify({ ok: true }), {
-  status: 200,
-  headers: { "Content-Type": "application/json" },
-});
+    // ✅ Return success only after email is actually sent
+    return new Response(
+      JSON.stringify({ ok: true, user_id: userId, invite_link: fixedInviteLink }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
   } catch (err) {
     return jsonError(400, err?.message || "Unknown error", "exception", null);
   }
@@ -268,12 +192,7 @@ return new Response(JSON.stringify({ ok: true }), {
 
 function jsonError(status, message, stage, details) {
   return new Response(
-    JSON.stringify({
-      ok: false,
-      error: message,
-      stage,
-      details
-    }),
+    JSON.stringify({ ok: false, error: message, stage, details }),
     { status, headers: { "Content-Type": "application/json" } }
   );
 }
