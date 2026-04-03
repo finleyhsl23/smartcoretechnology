@@ -10,7 +10,7 @@ import {
 import { formatDate, isDateInRange } from '../../shared/dates.js';
 
 const auth = await requireAdminPageAccess();
-if (!auth) throw new Error('Unauthorised');
+if (!auth) throw new Error('Unauthorised'); 
 
 const { profile } = auth;
 
