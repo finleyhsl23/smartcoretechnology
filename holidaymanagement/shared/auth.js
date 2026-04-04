@@ -22,12 +22,22 @@ export async function getCurrentProfile() {
   }
 
   const { data, error } = await supabase
-    .from('users')
-    .select('id, full_name, email, role, company_id')
-    .eq('id', session.user.id)
+    .from('user_profiles')
+    .select('*')
+    .eq('user_id', session.user.id)
+    .eq('active', true)
     .single();
 
   if (error) throw error;
 
-  return data;
+  return {
+    ...data,
+    id: data.user_id,
+    full_name:
+      data.full_name ||
+      session.user.user_metadata?.full_name ||
+      session.user.user_metadata?.name ||
+      session.user.email,
+    email: session.user.email
+  };
 }
