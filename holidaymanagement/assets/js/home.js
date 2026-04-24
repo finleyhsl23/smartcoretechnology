@@ -1,39 +1,25 @@
 import { requireAuth, applyRoleUi } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
-import { revealApp, renderEmptyState, showPageError, badgeClass } from '../../shared/ui.js';
+import { revealApp, renderEmptyState } from '../../shared/ui.js';
+import {
+  getMyLeaveBalance,
+  getMyLeaveRequests,
+  getMySickRecords,
+  getDashboardLeaveBreakdown,
+  getEmployeeByUserId
+} from '../../shared/api.js';
+import { formatDate } from '../../shared/dates.js';
 import { isManagerOrAdmin } from '../../shared/roles.js';
-import { getMyLeaveBalance, getMyLeaveRequests, getDashboardLeaveBreakdown, getUpcomingBirthdays } from '../../shared/api.js';
-import { formatDate, formatShortDate } from '../../shared/dates.js';
 
-function renderSimplePeopleList(containerId, items, emptyText, type) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-  if (!items?.length) {
-    renderEmptyState(container, emptyText);
-    return;
-  }
+function renderNameList(items, emptyText) {
+  if (!items.length) return `<div class="empty-state">${emptyText}</div>`;
 
-  container.innerHTML = items.map((item) => `
-    <article class="leave-card">
-      <div class="leave-card-top">
-        <div>
-          <p class="leave-card-title">${item.employee_name || item.name || 'Employee'}</p>
-          <p class="leave-card-subtitle">${formatDate(item.start_date || item.date)}${item.end_date ? ` to ${formatDate(item.end_date)}` : ''}</p>
-        </div>
-        <div class="${badgeClass(type)}">${type}</div>
-      </div>
-      ${item.reason ? `<div class="leave-card-bottom"><p class="leave-card-subtitle">${item.reason}</p></div>` : ''}
-    </article>
+  return items.map((item) => `
+    <div class="mini-list-row">
+      <strong>${item.employee_name || item.display_name || 'Employee'}</strong>
+      <span>${formatDate(item.start_date || item.dob || new Date())}</span>
+    </div>
   `).join('');
-}
-
-function activateAdminPanel(panelId) {
-  document.querySelectorAll('.dashboard-detail-panel').forEach((panel) => {
-    panel.classList.toggle('hidden', panel.id !== panelId);
-  });
-  document.querySelectorAll('.stat-button').forEach((button) => {
-    button.classList.toggle('is-active', button.dataset.panelTarget === panelId);
-  });
 }
 
 async function initHome() {
@@ -44,72 +30,120 @@ async function initHome() {
     const { profile } = auth;
     applyRoleUi(profile);
 
-    document.getElementById('welcomeText').textContent = `Welcome back, ${profile.full_name || profile.email || 'User'}`;
-    document.getElementById('profileName').textContent = profile.full_name || '—';
-    document.getElementById('profileEmail').textContent = profile.email || '—';
-    document.getElementById('profileRole').textContent = profile.role || '—';
-
     document.getElementById('logoutBtn')?.addEventListener('click', async () => {
       await signOut();
       window.location.href = './login.html';
     });
 
     const currentYear = new Date().getFullYear();
-    const [balance, requests] = await Promise.all([
+    const [balance, requests, sickRecords, employee] = await Promise.all([
       getMyLeaveBalance(profile.id, currentYear),
-      getMyLeaveRequests(profile.id)
+      getMyLeaveRequests(profile.id),
+      getMySickRecords(profile.id),
+      getEmployeeByUserId(profile.id)
     ]);
 
-    document.getElementById('profileRemaining').textContent = balance?.remaining_days ?? '0';
-    document.getElementById('profileUsed').textContent = balance?.used_days ?? '0';
-    document.getElementById('profilePending').textContent = requests.filter((item) => item.status === 'pending').length;
+    const welcome = document.getElementById('welcomeText');
+    if (welcome) {
+      welcome.textContent = `Welcome back, ${employee.display_name || profile.full_name || profile.email}`;
+    }
 
-    if (isManagerOrAdmin(profile)) {
-      document.getElementById('adminDashboardSection')?.classList.remove('hidden');
+    const personalProfile = document.getElementById('personalProfile');
+    if (personalProfile) {
+      personalProfile.innerHTML = `
+        <div class="profile-grid">
+          <div><span class="muted">Full Name</span><strong>${employee.display_name || '—'}</strong></div>
+          <div><span class="muted">Employee ID</span><strong>${employee.employee_id || '—'}</strong></div>
+          <div><span class="muted">Job Title</span><strong>${employee.job_title || '—'}</strong></div>
+          <div><span class="muted">Annual Allowance</span><strong>${balance?.total_allowance ?? 0}</strong></div>
+          <div><span class="muted">Used Days</span><strong>${balance?.used_days ?? 0}</strong></div>
+          <div><span class="muted">Remaining Days</span><strong>${balance?.remaining_days ?? 0}</strong></div>
+        </div>
+      `;
+    }
 
-      const [breakdown, birthdays] = await Promise.all([
-        getDashboardLeaveBreakdown(profile.company_id),
-        getUpcomingBirthdays(profile.company_id)
-      ]);
+    document.getElementById('remainingDays').textContent = balance?.remaining_days ?? '0';
+    document.getElementById('usedDays').textContent = balance?.used_days ?? '0';
+    document.getElementById('pendingCount').textContent = requests.filter((item) => item.status === 'pending').length;
+    document.getElementById('sickCount').textContent = sickRecords.length;
 
-      document.getElementById('annualTodayCount').textContent = breakdown.annual.today.length;
-      document.getElementById('sickTodayCount').textContent = breakdown.sick.today.length;
-      document.getElementById('otherTodayCount').textContent = breakdown.other.today.length;
-      document.getElementById('birthdaysCount').textContent = birthdays.length;
+    const recentLeaveList = document.getElementById('recentLeaveList');
+    const recent = requests.slice(0, 5);
 
-      renderSimplePeopleList('annualTodayList', breakdown.annual.today, 'Nobody is on annual leave today.', 'annual');
-      renderSimplePeopleList('annualNext7List', breakdown.annual.next7, 'No annual leave starts in the next 7 days.', 'annual');
-      renderSimplePeopleList('sickTodayList', breakdown.sick.today, 'Nobody is on sick leave today.', 'sick');
-      renderSimplePeopleList('sickNext7List', breakdown.sick.next7, 'No sick leave starts in the next 7 days.', 'sick');
-      renderSimplePeopleList('otherTodayList', breakdown.other.today, 'Nobody is on other leave today.', 'other');
-      renderSimplePeopleList('otherNext7List', breakdown.other.next7, 'No other leave starts in the next 7 days.', 'other');
-
-      const birthdayContainer = document.getElementById('birthdaysNext7List');
-      if (!birthdays.length) {
-        renderEmptyState(birthdayContainer, 'No birthdays in the next 7 days.');
-      } else {
-        birthdayContainer.innerHTML = birthdays.map((item) => `
-          <article class="leave-card">
-            <div class="leave-card-top">
-              <div>
-                <p class="leave-card-title">${item.name}</p>
-                <p class="leave-card-subtitle">${formatShortDate(item.date)} • ${item.daysAway === 0 ? 'Today' : `In ${item.daysAway} day(s)`}</p>
-              </div>
-              <div class="${badgeClass('birthday')}">birthday</div>
+    if (!recent.length) {
+      renderEmptyState(recentLeaveList, 'No leave requests yet.');
+    } else {
+      recentLeaveList.innerHTML = recent.map((item) => `
+        <article class="leave-card">
+          <div class="leave-card-top">
+            <div>
+              <p class="leave-card-title">${item.leave_type === 'annual' ? 'Annual Request' : item.leave_type === 'sick' ? 'Sick Leave' : 'Other Leave'}</p>
+              <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days} day(s)</p>
             </div>
-          </article>
-        `).join('');
-      }
+            <div class="badge badge-${item.status}">${item.status}</div>
+          </div>
+        </article>
+      `).join('');
+    }
 
-      document.querySelectorAll('.stat-button').forEach((button) => {
-        button.addEventListener('click', () => activateAdminPanel(button.dataset.panelTarget));
+    const adminSection = document.getElementById('adminDashboardSection');
+
+    if (isManagerOrAdmin(profile) && adminSection) {
+      adminSection.classList.remove('hidden');
+
+      const breakdown = await getDashboardLeaveBreakdown(profile.company_id);
+
+      document.getElementById('annualLeaveTodayCount').textContent = breakdown.annualToday.length;
+      document.getElementById('sickLeaveTodayCount').textContent = breakdown.sickToday.length;
+      document.getElementById('otherLeaveTodayCount').textContent = breakdown.otherToday.length;
+      document.getElementById('birthdaysNext7Count').textContent = breakdown.birthdaysNext7.length;
+
+      document.getElementById('annualLeaveDetails').innerHTML = `
+        <h3>Today</h3>
+        ${renderNameList(breakdown.annualToday, 'Nobody is on annual leave today.')}
+        <h3 class="sub-heading">In The Next 7 Days</h3>
+        ${renderNameList(breakdown.annualNext7, 'No annual leave in the next 7 days.')}
+      `;
+
+      document.getElementById('sickLeaveDetails').innerHTML = `
+        <h3>Today</h3>
+        ${renderNameList(breakdown.sickToday, 'Nobody is on sick leave today.')}
+        <h3 class="sub-heading">In The Next 7 Days</h3>
+        ${renderNameList(breakdown.sickNext7, 'No sick leave in the next 7 days.')}
+      `;
+
+      document.getElementById('otherLeaveDetails').innerHTML = `
+        <h3>Today</h3>
+        ${renderNameList(breakdown.otherToday, 'Nobody is on other leave today.')}
+        <h3 class="sub-heading">In The Next 7 Days</h3>
+        ${renderNameList(breakdown.otherNext7, 'No other leave in the next 7 days.')}
+      `;
+
+      document.getElementById('birthdaysDetails').innerHTML = breakdown.birthdaysNext7.length
+        ? breakdown.birthdaysNext7.map((employee) => `
+            <div class="mini-list-row">
+              <strong>${employee.display_name}</strong>
+              <span>${employee.job_title || '—'}</span>
+            </div>
+          `).join('')
+        : `<div class="empty-state">No birthdays in the next 7 days.</div>`;
+
+      document.querySelectorAll('.expand-card-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+          const targetId = button.dataset.target;
+          const target = document.getElementById(targetId);
+          if (target) target.classList.toggle('hidden');
+        });
       });
-      activateAdminPanel('annualLeavePanel');
     }
 
     revealApp();
   } catch (error) {
-    showPageError(error, 'Dashboard failed to load');
+    console.error('Home page failed to load:', error);
+    const loader = document.getElementById('appLoader');
+    if (loader) {
+      loader.innerHTML = `<div style="padding:24px;text-align:center;">Dashboard failed to load<br><br>${error.message || 'Unknown error'}</div>`;
+    }
   }
 }
 
