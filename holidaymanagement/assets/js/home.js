@@ -11,14 +11,59 @@ import {
 import { formatDate } from '../../shared/dates.js';
 import { isManagerOrAdmin } from '../../shared/roles.js';
 
-function renderNameList(items, emptyText) {
-  if (!items.length) return `<div class="empty-state">${emptyText}</div>`;
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
 
-  return items.map((item) => `
-    <div class="mini-list-row">
-      <strong>${item.employee_name || item.display_name || 'Employee'}</strong>
-      <span>${formatDate(item.start_date || item.dob || new Date())}</span>
-    </div>
+function leaveTypeLabel(type) {
+  if (type === 'annual') return 'Annual Request';
+  if (type === 'sick') return 'Sick Leave';
+  return 'Other Leave';
+}
+
+function renderLeaveList(containerId, items, emptyText) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  if (!items || !items.length) {
+    renderEmptyState(container, emptyText);
+    return;
+  }
+
+  container.innerHTML = items.map((item) => `
+    <article class="leave-card">
+      <div class="leave-card-top">
+        <div>
+          <p class="leave-card-title">${item.employee_name || item.display_name || 'Employee'}</p>
+          <p class="leave-card-subtitle">${item.job_title || '—'} • ${item.employee_id || '—'}</p>
+          <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days || 0} day(s)</p>
+        </div>
+        <div class="badge badge-${item.leave_type}">${leaveTypeLabel(item.leave_type)}</div>
+      </div>
+    </article>
+  `).join('');
+}
+
+function renderBirthdayList(containerId, items) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  if (!items || !items.length) {
+    renderEmptyState(container, 'No birthdays in the next 7 days.');
+    return;
+  }
+
+  container.innerHTML = items.map((employee) => `
+    <article class="leave-card">
+      <div class="leave-card-top">
+        <div>
+          <p class="leave-card-title">${employee.display_name || employee.full_name || 'Employee'}</p>
+          <p class="leave-card-subtitle">${employee.job_title || '—'} • ${employee.employee_id || '—'}</p>
+        </div>
+        <div class="badge badge-annual">Birthday</div>
+      </div>
+    </article>
   `).join('');
 }
 
@@ -36,6 +81,7 @@ async function initHome() {
     });
 
     const currentYear = new Date().getFullYear();
+
     const [balance, requests, sickRecords, employee] = await Promise.all([
       getMyLeaveBalance(profile.id, currentYear),
       getMyLeaveRequests(profile.id),
@@ -43,115 +89,60 @@ async function initHome() {
       getEmployeeByUserId(profile.id)
     ]);
 
-    const welcome = document.getElementById('welcomeText');
-    if (welcome) {
-      welcome.textContent = `Welcome back, ${employee.display_name || profile.full_name || profile.email}`;
-    }
+    setText('welcomeText', `Welcome back, ${employee.display_name || profile.full_name || profile.email || 'User'}`);
+    setText('profileName', employee.display_name || profile.full_name || '—');
+    setText('profileEmail', profile.email || '—');
+    setText('profileRole', profile.role || '—');
+    setText('profileRemaining', balance?.remaining_days ?? '0');
+    setText('profileUsed', balance?.used_days ?? '0');
+    setText('profilePending', requests.filter((item) => item.status === 'pending').length);
 
-    const personalProfile = document.getElementById('personalProfile');
-    if (personalProfile) {
-      personalProfile.innerHTML = `
-        <div class="profile-grid">
-          <div><span class="muted">Full Name</span><strong>${employee.display_name || '—'}</strong></div>
-          <div><span class="muted">Employee ID</span><strong>${employee.employee_id || '—'}</strong></div>
-          <div><span class="muted">Job Title</span><strong>${employee.job_title || '—'}</strong></div>
-          <div><span class="muted">Annual Allowance</span><strong>${balance?.total_allowance ?? 0}</strong></div>
-          <div><span class="muted">Used Days</span><strong>${balance?.used_days ?? 0}</strong></div>
-          <div><span class="muted">Remaining Days</span><strong>${balance?.remaining_days ?? 0}</strong></div>
-        </div>
-      `;
-    }
-
-    function setText(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = value;
-}
-
-setText('remainingDays', balance?.remaining_days ?? '0');
-setText('usedDays', balance?.used_days ?? '0');
-setText('pendingCount', requests.filter((item) => item.status === 'pending').length);
-setText('sickCount', sickRecords.length);
-setText('annualLeaveTodayCount', breakdown?.annualToday?.length ?? '0');
-setText('sickLeaveTodayCount', breakdown?.sickToday?.length ?? '0');
-setText('otherLeaveTodayCount', breakdown?.otherToday?.length ?? '0');
-setText('birthdaysNext7Count', breakdown?.birthdaysNext7?.length ?? '0');
-
-    const recentLeaveList = document.getElementById('recentLeaveList');
-    const recent = requests.slice(0, 5);
-
-    if (!recent.length) {
-      renderEmptyState(recentLeaveList, 'No leave requests yet.');
-    } else {
-      recentLeaveList.innerHTML = recent.map((item) => `
-        <article class="leave-card">
-          <div class="leave-card-top">
-            <div>
-              <p class="leave-card-title">${item.leave_type === 'annual' ? 'Annual Request' : item.leave_type === 'sick' ? 'Sick Leave' : 'Other Leave'}</p>
-              <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days} day(s)</p>
-            </div>
-            <div class="badge badge-${item.status}">${item.status}</div>
-          </div>
-        </article>
-      `).join('');
-    }
-
-    const adminSection = document.getElementById('adminDashboardSection');
-
-    if (isManagerOrAdmin(profile) && adminSection) {
-      adminSection.classList.remove('hidden');
+    if (isManagerOrAdmin(profile)) {
+      const adminSection = document.getElementById('adminDashboardSection');
+      if (adminSection) adminSection.classList.remove('hidden');
 
       const breakdown = await getDashboardLeaveBreakdown(profile.company_id);
 
-      document.getElementById('annualLeaveTodayCount').textContent = breakdown.annualToday.length;
-      document.getElementById('sickLeaveTodayCount').textContent = breakdown.sickToday.length;
-      document.getElementById('otherLeaveTodayCount').textContent = breakdown.otherToday.length;
-      document.getElementById('birthdaysNext7Count').textContent = breakdown.birthdaysNext7.length;
+      setText('annualTodayCount', breakdown.annualToday.length);
+      setText('sickTodayCount', breakdown.sickToday.length);
+      setText('otherTodayCount', breakdown.otherToday.length);
+      setText('birthdaysCount', breakdown.birthdaysNext7.length);
 
-      document.getElementById('annualLeaveDetails').innerHTML = `
-        <h3>Today</h3>
-        ${renderNameList(breakdown.annualToday, 'Nobody is on annual leave today.')}
-        <h3 class="sub-heading">In The Next 7 Days</h3>
-        ${renderNameList(breakdown.annualNext7, 'No annual leave in the next 7 days.')}
-      `;
+      renderLeaveList('annualTodayList', breakdown.annualToday, 'Nobody is on annual leave today.');
+      renderLeaveList('annualNext7List', breakdown.annualNext7, 'No annual leave in the next 7 days.');
 
-      document.getElementById('sickLeaveDetails').innerHTML = `
-        <h3>Today</h3>
-        ${renderNameList(breakdown.sickToday, 'Nobody is on sick leave today.')}
-        <h3 class="sub-heading">In The Next 7 Days</h3>
-        ${renderNameList(breakdown.sickNext7, 'No sick leave in the next 7 days.')}
-      `;
+      renderLeaveList('sickTodayList', breakdown.sickToday, 'Nobody is on sick leave today.');
+      renderLeaveList('sickNext7List', breakdown.sickNext7, 'No sick leave in the next 7 days.');
 
-      document.getElementById('otherLeaveDetails').innerHTML = `
-        <h3>Today</h3>
-        ${renderNameList(breakdown.otherToday, 'Nobody is on other leave today.')}
-        <h3 class="sub-heading">In The Next 7 Days</h3>
-        ${renderNameList(breakdown.otherNext7, 'No other leave in the next 7 days.')}
-      `;
+      renderLeaveList('otherTodayList', breakdown.otherToday, 'Nobody is on other leave today.');
+      renderLeaveList('otherNext7List', breakdown.otherNext7, 'No other leave in the next 7 days.');
 
-      document.getElementById('birthdaysDetails').innerHTML = breakdown.birthdaysNext7.length
-        ? breakdown.birthdaysNext7.map((employee) => `
-            <div class="mini-list-row">
-              <strong>${employee.display_name}</strong>
-              <span>${employee.job_title || '—'}</span>
-            </div>
-          `).join('')
-        : `<div class="empty-state">No birthdays in the next 7 days.</div>`;
+      renderBirthdayList('birthdaysNext7List', breakdown.birthdaysNext7);
 
-      document.querySelectorAll('.expand-card-btn').forEach((button) => {
+      document.querySelectorAll('[data-panel-target]').forEach((button) => {
         button.addEventListener('click', () => {
-          const targetId = button.dataset.target;
-          const target = document.getElementById(targetId);
-          if (target) target.classList.toggle('hidden');
+          const targetId = button.dataset.panelTarget;
+
+          document.querySelectorAll('.dashboard-detail-panel').forEach((panel) => {
+            panel.classList.add('hidden');
+          });
+
+          document.getElementById(targetId)?.classList.remove('hidden');
         });
       });
     }
 
     revealApp();
   } catch (error) {
-    console.error('Home page failed to load:', error);
+    console.error('Dashboard failed to load:', error);
     const loader = document.getElementById('appLoader');
     if (loader) {
-      loader.innerHTML = `<div style="padding:24px;text-align:center;">Dashboard failed to load<br><br>${error.message || 'Unknown error'}</div>`;
+      loader.innerHTML = `
+        <div style="padding:24px;text-align:center;">
+          <h2>Dashboard failed to load</h2>
+          <p>${error.message || 'Unknown error'}</p>
+        </div>
+      `;
     }
   }
 }
