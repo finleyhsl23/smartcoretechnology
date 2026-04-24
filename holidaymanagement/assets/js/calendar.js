@@ -1,27 +1,26 @@
 import { requireAuth, applyRoleUi } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
-import { revealApp, renderEmptyState, badgeClass, showPageError } from '../../shared/ui.js';
-import { getApprovedLeaveForDate, getApprovedLeaveForMonth } from '../../shared/api.js';
-import { getMonthMatrix, toIsoDate, formatDate } from '../../shared/dates.js';
+import { revealApp, renderEmptyState } from '../../shared/ui.js';
+import { getApprovedLeaveForDate } from '../../shared/api.js';
+import { formatDate } from '../../shared/dates.js';
 
-function getCountMap(items) {
-  const map = new Map();
-  items.forEach((item) => {
-    let current = new Date(item.start_date);
-    const end = new Date(item.end_date);
-    while (current <= end) {
-      const iso = toIsoDate(current);
-      map.set(iso, (map.get(iso) || 0) + 1);
-      current.setDate(current.getDate() + 1);
-    }
-  });
-  return map;
+function getMonthMatrix(year, month) {
+  const firstDay = new Date(year, month, 1);
+  const startDay = firstDay.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const cells = [];
+  for (let i = 0; i < startDay; i += 1) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d += 1) cells.push(new Date(year, month, d));
+
+  return cells;
 }
 
 async function initCalendar() {
   try {
     const auth = await requireAuth();
     if (!auth) return;
+
     const { profile } = auth;
     applyRoleUi(profile);
 
@@ -30,77 +29,89 @@ async function initCalendar() {
       window.location.href = './login.html';
     });
 
-    const picker = document.getElementById('calendarDatePicker');
-    const grid = document.getElementById('calendarGrid');
-    const list = document.getElementById('selectedDateLeaveList');
-    const heading = document.getElementById('selectedDateHeading');
+    const calendarGrid = document.getElementById('calendarGrid');
+    const selectedDateTitle = document.getElementById('selectedDateTitle');
+    const offList = document.getElementById('offList');
+    const monthLabel = document.getElementById('monthLabel');
+    const prevBtn = document.getElementById('prevMonthBtn');
+    const nextBtn = document.getElementById('nextMonthBtn');
 
-    let selectedDate = toIsoDate();
-    picker.value = selectedDate;
+    let current = new Date();
 
-    const monthRequests = await getApprovedLeaveForMonth(profile.company_id);
-    const countMap = getCountMap(monthRequests);
+    async function loadDate(date) {
+      const iso = date.toISOString().slice(0, 10);
+      selectedDateTitle.textContent = `Who is off on ${formatDate(iso)}`;
 
-    async function renderSelectedDate() {
-      const items = await getApprovedLeaveForDate(profile.company_id, selectedDate);
-      heading.textContent = `Who Is Off • ${formatDate(selectedDate)}`;
+      const items = await getApprovedLeaveForDate(profile.company_id, iso);
 
       if (!items.length) {
-        renderEmptyState(list, 'Nobody is off on this date.');
+        renderEmptyState(offList, 'Nobody is off on this date.');
         return;
       }
 
-      list.innerHTML = items.map((item) => `
+      offList.innerHTML = items.map((item) => `
         <article class="leave-card">
           <div class="leave-card-top">
             <div>
-              <p class="leave-card-title">${item.employee_name || 'Employee'}</p>
-              <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)}</p>
+              <p class="leave-card-title">${item.employee_name}</p>
+              <p class="leave-card-subtitle">${item.job_title || '—'} • ${item.employee_id || '—'}</p>
             </div>
-            <div class="${badgeClass(item.leave_type)}">${item.leave_type}</div>
+            <div class="badge badge-${item.leave_type}">${item.leave_type === 'annual' ? 'Annual Request' : item.leave_type === 'sick' ? 'Sick Leave' : 'Other Leave'}</div>
           </div>
           <div class="leave-card-bottom">
-            <p class="leave-card-subtitle">${item.reason || 'No reason provided'}</p>
-            <div class="${badgeClass(item.status)}">${item.status}</div>
+            <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)}</p>
           </div>
         </article>
       `).join('');
     }
 
-    function renderCalendar() {
-      const baseDate = new Date(selectedDate);
-      const monthDays = getMonthMatrix(baseDate);
-      const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    function renderMonth() {
+      const year = current.getFullYear();
+      const month = current.getMonth();
 
-      grid.innerHTML = dayNames.map((name) => `<div class="calendar-day-name">${name}</div>`).join('') +
-        monthDays.map((item) => `
-          <button type="button" class="calendar-day ${item.inMonth ? '' : 'is-outside-month'} ${item.iso === selectedDate ? 'is-selected' : ''}" data-date="${item.iso}">
-            <span>${item.day}</span>
-            <span class="calendar-day-count">${countMap.get(item.iso) || 0} off</span>
+      monthLabel.textContent = new Intl.DateTimeFormat('en-GB', {
+        month: 'long',
+        year: 'numeric'
+      }).format(current);
+
+      const cells = getMonthMatrix(year, month);
+
+      calendarGrid.innerHTML = cells.map((date) => {
+        if (!date) return `<div class="calendar-cell calendar-empty"></div>`;
+
+        const iso = date.toISOString().slice(0, 10);
+        return `
+          <button class="calendar-cell calendar-day" data-date="${iso}">
+            ${date.getDate()}
           </button>
-        `).join('');
+        `;
+      }).join('');
+
+      calendarGrid.querySelectorAll('.calendar-day').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          await loadDate(new Date(btn.dataset.date));
+        });
+      });
     }
 
-    grid.addEventListener('click', async (event) => {
-      const button = event.target.closest('.calendar-day');
-      if (!button) return;
-      selectedDate = button.dataset.date;
-      picker.value = selectedDate;
-      renderCalendar();
-      await renderSelectedDate();
+    prevBtn?.addEventListener('click', () => {
+      current = new Date(current.getFullYear(), current.getMonth() - 1, 1);
+      renderMonth();
     });
 
-    picker.addEventListener('change', async () => {
-      selectedDate = picker.value;
-      renderCalendar();
-      await renderSelectedDate();
+    nextBtn?.addEventListener('click', () => {
+      current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+      renderMonth();
     });
 
-    renderCalendar();
-    await renderSelectedDate();
+    renderMonth();
+    await loadDate(new Date());
+
     revealApp();
   } catch (error) {
-    showPageError(error, 'Calendar failed to load');
+    console.error('Calendar page failed:', error);
+    const loader = document.getElementById('appLoader');
+    if (loader) loader.innerHTML = `<div style="padding:24px;text-align:center;">Calendar failed to load<br><br>${error.message || 'Unknown error'}</div>`;
   }
 }
 
