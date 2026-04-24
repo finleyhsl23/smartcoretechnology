@@ -62,10 +62,19 @@ async function initHome() {
       `;
     }
 
-    document.getElementById('remainingDays').textContent = balance?.remaining_days ?? '0';
-    document.getElementById('usedDays').textContent = balance?.used_days ?? '0';
-    document.getElementById('pendingCount').textContent = requests.filter((item) => item.status === 'pending').length;
-    document.getElementById('sickCount').textContent = sickRecords.length;
+    function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+setText('remainingDays', balance?.remaining_days ?? '0');
+setText('usedDays', balance?.used_days ?? '0');
+setText('pendingCount', requests.filter((item) => item.status === 'pending').length);
+setText('sickCount', sickRecords.length);
+setText('annualLeaveTodayCount', breakdown?.annualToday?.length ?? '0');
+setText('sickLeaveTodayCount', breakdown?.sickToday?.length ?? '0');
+setText('otherLeaveTodayCount', breakdown?.otherToday?.length ?? '0');
+setText('birthdaysNext7Count', breakdown?.birthdaysNext7?.length ?? '0');
 
     const recentLeaveList = document.getElementById('recentLeaveList');
     const recent = requests.slice(0, 5);
