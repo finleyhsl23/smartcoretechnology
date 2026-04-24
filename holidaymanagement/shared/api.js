@@ -1,5 +1,21 @@
 import { supabase, leaveSchema } from './supabase.js';
 
+function getYearStartEnd(year = new Date().getFullYear()) {
+  return {
+    start: `${year}-01-01`,
+    end: `${year}-12-31`
+  };
+}
+
+function safeEmployeeName(employee, fallback = 'Employee') {
+  if (!employee) return fallback;
+  if (employee.full_name) return employee.full_name;
+  const first = employee.first_name || '';
+  const last = employee.last_name || '';
+  const combined = `${first} ${last}`.trim();
+  return combined || employee.name || fallback;
+}
+
 export async function getMyLeaveBalance(userId, year) {
   const { data, error } = await supabase
     .schema(leaveSchema)
@@ -34,23 +50,22 @@ export async function createLeaveRequest(payload) {
     .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Leave request was inserted but no row was returned.');
 
-  if (data?.id) {
-    await supabase
-      .schema(leaveSchema)
-      .from('leave_logs')
-      .insert([{
-        leave_request_id: data.id,
-        action: 'created',
-        performed_by: payload.user_id,
-        details: {
-          leave_type: payload.leave_type,
-          start_date: payload.start_date,
-          end_date: payload.end_date,
-          total_days: payload.total_days
-        }
-      }]);
-  }
+  await supabase
+    .schema(leaveSchema)
+    .from('leave_logs')
+    .insert([{
+      leave_request_id: data.id,
+      action: 'created',
+      performed_by: payload.user_id,
+      details: {
+        leave_type: payload.leave_type,
+        start_date: payload.start_date,
+        end_date: payload.end_date,
+        total_days: payload.total_days
+      }
+    }]);
 
   return data;
 }
@@ -103,30 +118,160 @@ export async function getAllCompanySickRecords(companyId) {
   return data || [];
 }
 
-export async function getEmployeesByUserIds(userIds) {
-  if (!userIds.length) return [];
-
+export async function getEmployeesByCompany(companyId) {
   const { data, error } = await supabase
     .from('employees')
-    .select('user_id, full_name, first_name, last_name, employee_id, job_title, dob')
-    .in('user_id', userIds);
+    .select('*')
+    .eq('company_id', companyId);
 
   if (error) throw error;
-  return data || [];
+
+  return (data || []).map((employee) => ({
+    ...employee,
+    display_name: safeEmployeeName(employee)
+  }));
 }
 
-export async function getLeaveBalancesForUsers(userIds, year) {
-  if (!userIds.length) return [];
+export async function getEmployeeByUserId(userId) {
+  const { data, error } = await supabase
+    .from('employees')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  if (!data) {
+    return {
+      user_id: userId,
+      display_name: 'Employee',
+      employee_id: '—',
+      job_title: '—'
+    };
+  }
+
+  return {
+    ...data,
+    display_name: safeEmployeeName(data)
+  };
+}
+
+export async function enrichRequestsWithEmployeeInfo(requests, companyId) {
+  const employees = await getEmployeesByCompany(companyId);
+  const employeeMap = new Map(employees.map((e) => [e.user_id, e]));
+
+  return requests.map((request) => {
+    const employee = employeeMap.get(request.user_id);
+
+    return {
+      ...request,
+      employee_name: employee?.display_name || 'Employee',
+      employee_id: employee?.employee_id || '—',
+      job_title: employee?.job_title || '—',
+      employee
+    };
+  });
+}
+
+export async function getApprovedLeaveForDate(companyId, isoDate) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .select('*')
+    .eq('company_id', companyId)
+    .eq('status', 'approved')
+    .lte('start_date', isoDate)
+    .gte('end_date', isoDate)
+    .order('start_date', { ascending: true });
+
+  if (error) throw error;
+
+  return enrichRequestsWithEmployeeInfo(data || [], companyId);
+}
+
+export async function getApprovedLeaveInRange(companyId, startDate, endDate) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .select('*')
+    .eq('company_id', companyId)
+    .eq('status', 'approved')
+    .lte('start_date', endDate)
+    .gte('end_date', startDate)
+    .order('start_date', { ascending: true });
+
+  if (error) throw error;
+
+  return enrichRequestsWithEmployeeInfo(data || [], companyId);
+}
+
+export async function getDashboardLeaveBreakdown(companyId) {
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+
+  const next7 = new Date(today);
+  next7.setDate(next7.getDate() + 7);
+  const next7Iso = next7.toISOString().slice(0, 10);
+
+  const approved = await getApprovedLeaveInRange(companyId, todayIso, next7Iso);
+  const employees = await getEmployeesByCompany(companyId);
+
+  const annualToday = approved.filter((r) => r.leave_type === 'annual' && r.start_date <= todayIso && r.end_date >= todayIso);
+  const sickToday = approved.filter((r) => r.leave_type === 'sick' && r.start_date <= todayIso && r.end_date >= todayIso);
+  const otherToday = approved.filter((r) => r.leave_type === 'other' && r.start_date <= todayIso && r.end_date >= todayIso);
+
+  const annualNext7 = approved.filter((r) => r.leave_type === 'annual');
+  const sickNext7 = approved.filter((r) => r.leave_type === 'sick');
+  const otherNext7 = approved.filter((r) => r.leave_type === 'other');
+
+  const birthdaysNext7 = employees.filter((employee) => {
+    if (!employee.dob) return false;
+
+    const dob = new Date(employee.dob);
+    const month = dob.getMonth();
+    const day = dob.getDate();
+
+    for (let i = 0; i <= 7; i += 1) {
+      const check = new Date(today);
+      check.setDate(today.getDate() + i);
+      if (check.getMonth() === month && check.getDate() === day) {
+        return true;
+      }
+    }
+
+    return false;
+  });
+
+  return {
+    annualToday,
+    sickToday,
+    otherToday,
+    annualNext7,
+    sickNext7,
+    otherNext7,
+    birthdaysNext7
+  };
+}
+
+export async function getEmployeeLeaveSummary(userId, year = new Date().getFullYear()) {
+  const balance = await getMyLeaveBalance(userId, year);
+  const { start, end } = getYearStartEnd(year);
 
   const { data, error } = await supabase
     .schema(leaveSchema)
-    .from('leave_balances')
-    .select('user_id, total_allowance, used_days, remaining_days, year')
-    .eq('year', year)
-    .in('user_id', userIds);
+    .from('leave_requests')
+    .select('*')
+    .eq('user_id', userId)
+    .gte('start_date', start)
+    .lte('end_date', end)
+    .order('start_date', { ascending: false });
 
   if (error) throw error;
-  return data || [];
+
+  return {
+    balance,
+    requests: data || []
+  };
 }
 
 export async function approveLeaveRequest(request, approverId) {
@@ -163,7 +308,7 @@ export async function approveLeaveRequest(request, approverId) {
 
     if (balance) {
       const usedDays = Number(balance.used_days || 0) + Number(request.total_days || 0);
-      const remainingDays = Number(balance.total_allowance || 0) - usedDays;
+      const remainingDays = Math.max(0, Number(balance.total_allowance || 0) - usedDays);
 
       const { error: balanceError } = await supabase
         .schema(leaveSchema)
