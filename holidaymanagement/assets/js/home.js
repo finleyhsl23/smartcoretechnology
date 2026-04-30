@@ -16,6 +16,20 @@ function setText(id, value) {
   if (el) el.textContent = value;
 }
 
+function capitalise(value) {
+  if (!value) return '—';
+  return String(value).charAt(0).toUpperCase() + String(value).slice(1).toLowerCase();
+}
+
+function getDisplayName(employee, profile) {
+  if (employee?.display_name && employee.display_name !== 'Employee') return employee.display_name;
+  if (employee?.full_name) return employee.full_name;
+  if (profile?.full_name) return profile.full_name;
+  if (profile?.name) return profile.name;
+  if (profile?.email) return profile.email;
+  return 'Employee';
+}
+
 function leaveTypeLabel(type) {
   if (type === 'annual') return 'Annual Request';
   if (type === 'sick') return 'Sick Leave';
@@ -89,10 +103,12 @@ async function initHome() {
       getEmployeeByUserId(profile.id)
     ]);
 
-    setText('welcomeText', `Welcome back, ${employee.display_name || profile.full_name || profile.email || 'User'}`);
-    setText('profileName', employee.display_name || profile.full_name || '—');
+    const displayName = getDisplayName(employee, profile);
+
+    setText('welcomeText', `Welcome back, ${displayName}`);
+    setText('profileName', displayName);
     setText('profileEmail', profile.email || '—');
-    setText('profileRole', profile.role || '—');
+    setText('profileRole', capitalise(profile.role));
     setText('profileRemaining', balance?.remaining_days ?? '0');
     setText('profileUsed', balance?.used_days ?? '0');
     setText('profilePending', requests.filter((item) => item.status === 'pending').length);
@@ -119,15 +135,28 @@ async function initHome() {
 
       renderBirthdayList('birthdaysNext7List', breakdown.birthdaysNext7);
 
+      document.querySelectorAll('.dashboard-detail-panel').forEach((panel) => {
+        panel.classList.add('hidden');
+      });
+
       document.querySelectorAll('[data-panel-target]').forEach((button) => {
         button.addEventListener('click', () => {
           const targetId = button.dataset.panelTarget;
+          const target = document.getElementById(targetId);
+          const isAlreadyOpen = target && !target.classList.contains('hidden');
 
           document.querySelectorAll('.dashboard-detail-panel').forEach((panel) => {
             panel.classList.add('hidden');
           });
 
-          document.getElementById(targetId)?.classList.remove('hidden');
+          document.querySelectorAll('[data-panel-target]').forEach((btn) => {
+            btn.classList.remove('active-stat-button');
+          });
+
+          if (!isAlreadyOpen && target) {
+            target.classList.remove('hidden');
+            button.classList.add('active-stat-button');
+          }
         });
       });
     }
