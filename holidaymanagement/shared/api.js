@@ -10,10 +10,34 @@ function getYearStartEnd(year = new Date().getFullYear()) {
 function safeEmployeeName(employee, fallback = 'Employee') {
   if (!employee) return fallback;
   if (employee.full_name) return employee.full_name;
+  if (employee.name) return employee.name;
+
   const first = employee.first_name || '';
   const last = employee.last_name || '';
   const combined = `${first} ${last}`.trim();
-  return combined || employee.name || fallback;
+
+  return combined || fallback;
+}
+
+function normaliseEmployee(employee) {
+  if (!employee) return null;
+
+  return {
+    ...employee,
+    display_name: safeEmployeeName(employee),
+    employee_code: employee.employee_code || employee.employee_id || '—',
+    employee_id: employee.employee_code || employee.employee_id || '—',
+    primary_email: employee.work_email || employee.email || employee.personal_email || '—',
+    primary_phone: employee.personal_phone || employee.phone || '—',
+    address_full: [
+      employee.address_line1,
+      employee.address_line2,
+      employee.address_city,
+      employee.address_county,
+      employee.address_postcode,
+      employee.address_country
+    ].filter(Boolean).join(', ') || employee.address || '—'
+  };
 }
 
 export async function getMyLeaveBalance(userId, year) {
@@ -50,7 +74,7 @@ export async function createLeaveRequest(payload) {
     .maybeSingle();
 
   if (error) throw error;
-  if (!data) throw new Error('Leave request was inserted but no row was returned.');
+  if (!data) throw new Error('Leave request was created but no row was returned.');
 
   await supabase
     .schema(leaveSchema)
@@ -125,11 +149,7 @@ export async function getEmployeesByCompany(companyId) {
     .eq('company_id', companyId);
 
   if (error) throw error;
-
-  return (data || []).map((employee) => ({
-    ...employee,
-    display_name: safeEmployeeName(employee)
-  }));
+  return (data || []).map(normaliseEmployee);
 }
 
 export async function getEmployeeByUserId(userId) {
@@ -145,30 +165,33 @@ export async function getEmployeeByUserId(userId) {
     return {
       user_id: userId,
       display_name: 'Employee',
+      employee_code: '—',
       employee_id: '—',
-      job_title: '—'
+      job_title: '—',
+      primary_email: '—',
+      primary_phone: '—',
+      address_full: '—'
     };
   }
 
-  return {
-    ...data,
-    display_name: safeEmployeeName(data)
-  };
+  return normaliseEmployee(data);
 }
 
 export async function enrichRequestsWithEmployeeInfo(requests, companyId) {
   const employees = await getEmployeesByCompany(companyId);
-  const employeeMap = new Map(employees.map((e) => [e.user_id, e]));
+  const employeeMap = new Map(employees.map((employee) => [employee.user_id, employee]));
 
   return requests.map((request) => {
     const employee = employeeMap.get(request.user_id);
 
     return {
       ...request,
+      employee,
       employee_name: employee?.display_name || 'Employee',
-      employee_id: employee?.employee_id || '—',
+      employee_id: employee?.employee_code || '—',
+      employee_code: employee?.employee_code || '—',
       job_title: employee?.job_title || '—',
-      employee
+      employee_email: employee?.primary_email || '—'
     };
   });
 }
@@ -185,7 +208,6 @@ export async function getApprovedLeaveForDate(companyId, isoDate) {
     .order('start_date', { ascending: true });
 
   if (error) throw error;
-
   return enrichRequestsWithEmployeeInfo(data || [], companyId);
 }
 
@@ -201,7 +223,6 @@ export async function getApprovedLeaveInRange(companyId, startDate, endDate) {
     .order('start_date', { ascending: true });
 
   if (error) throw error;
-
   return enrichRequestsWithEmployeeInfo(data || [], companyId);
 }
 
@@ -216,9 +237,11 @@ export async function getDashboardLeaveBreakdown(companyId) {
   const approved = await getApprovedLeaveInRange(companyId, todayIso, next7Iso);
   const employees = await getEmployeesByCompany(companyId);
 
-  const annualToday = approved.filter((r) => r.leave_type === 'annual' && r.start_date <= todayIso && r.end_date >= todayIso);
-  const sickToday = approved.filter((r) => r.leave_type === 'sick' && r.start_date <= todayIso && r.end_date >= todayIso);
-  const otherToday = approved.filter((r) => r.leave_type === 'other' && r.start_date <= todayIso && r.end_date >= todayIso);
+  const isToday = (request) => request.start_date <= todayIso && request.end_date >= todayIso;
+
+  const annualToday = approved.filter((r) => r.leave_type === 'annual' && isToday(r));
+  const sickToday = approved.filter((r) => r.leave_type === 'sick' && isToday(r));
+  const otherToday = approved.filter((r) => r.leave_type === 'other' && isToday(r));
 
   const annualNext7 = approved.filter((r) => r.leave_type === 'annual');
   const sickNext7 = approved.filter((r) => r.leave_type === 'sick');
@@ -228,13 +251,14 @@ export async function getDashboardLeaveBreakdown(companyId) {
     if (!employee.dob) return false;
 
     const dob = new Date(employee.dob);
-    const month = dob.getMonth();
-    const day = dob.getDate();
+    const dobMonth = dob.getMonth();
+    const dobDay = dob.getDate();
 
     for (let i = 0; i <= 7; i += 1) {
       const check = new Date(today);
       check.setDate(today.getDate() + i);
-      if (check.getMonth() === month && check.getDate() === day) {
+
+      if (check.getMonth() === dobMonth && check.getDate() === dobDay) {
         return true;
       }
     }
