@@ -13,7 +13,8 @@ import { isManagerOrAdmin } from '../../shared/roles.js';
 
 function setText(id, value) {
   const el = document.getElementById(id);
-  if (el) el.textContent = value; 
+  if (el) el.textContent = value;
+}
 
 function capitalise(value) {
   if (!value) return '—';
