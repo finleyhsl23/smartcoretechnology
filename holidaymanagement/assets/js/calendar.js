@@ -58,11 +58,11 @@ function buildCalendar(selectedIsoDate) {
 
   let html = '';
 
-  for (let i = 0; i < startDay; i++) {
+  for (let i = 0; i < startDay; i += 1) {
     html += `<div class="calendar-cell calendar-empty"></div>`;
   }
 
-  for (let day = 1; day <= daysInMonth; day++) {
+  for (let day = 1; day <= daysInMonth; day += 1) {
     const date = new Date(year, month, day);
     const iso = toIsoDate(date);
     const active = iso === selectedIsoDate ? ' active-calendar-day' : '';
@@ -78,94 +78,95 @@ function buildCalendar(selectedIsoDate) {
 }
 
 async function initCalendar() {
-  const auth = await requireAuth();
-  if (!auth) return;
+  try {
+    const auth = await requireAuth();
+    if (!auth) return;
 
-  const { profile } = auth;
-  applyRoleUi(profile);
+    const { profile } = auth;
+    applyRoleUi(profile);
 
-  document.getElementById('logoutBtn')?.addEventListener('click', async () => {
-    await signOut();
-    window.location.href = './login.html';
-  });
+    document.getElementById('logoutBtn')?.addEventListener('click', async () => {
+      await signOut();
+      window.location.href = './login.html';
+    });
 
-  const grid = document.getElementById('calendarGrid');
-  const datePicker = document.getElementById('calendarDatePicker');
-  const heading = document.getElementById('selectedDateHeading');
-  const list = document.getElementById('selectedDateLeaveList');
-  const prevBtn = document.getElementById('prevMonthBtn');
-  const nextBtn = document.getElementById('nextMonthBtn');
+    const grid = document.getElementById('calendarGrid');
+    const datePicker = document.getElementById('calendarDatePicker');
+    const findDateBtn = document.getElementById('findDateBtn');
+    const heading = document.getElementById('selectedDateHeading');
+    const list = document.getElementById('selectedDateLeaveList');
+    const prevBtn = document.getElementById('prevMonthBtn');
+    const nextBtn = document.getElementById('nextMonthBtn');
 
-  let selectedIsoDate = toIsoDate(new Date());
+    let selectedIsoDate = toIsoDate(new Date());
 
-  async function loadDate(isoDate) {
-    selectedIsoDate = isoDate;
+    async function loadDate(isoDate) {
+      selectedIsoDate = isoDate;
 
-    if (datePicker) datePicker.value = isoDate;
-    if (heading) heading.textContent = `Who Is Off On ${longDate(isoDate)}`;
+      if (datePicker) datePicker.value = isoDate;
+      if (heading) heading.textContent = `Who Is Off On ${longDate(isoDate)}`;
 
-    buildCalendar(isoDate);
+      buildCalendar(isoDate);
 
-    const items = await getApprovedLeaveForDate(profile.company_id, isoDate);
+      const items = await getApprovedLeaveForDate(profile.company_id, isoDate);
 
-    if (!items.length) {
-      renderEmptyState(list, 'Nobody is off on this date.');
-      return;
-    }
+      if (!items.length) {
+        renderEmptyState(list, 'Nobody is off on this date.');
+        return;
+      }
 
-    list.innerHTML = items.map((item) => `
-      <article class="leave-card">
-        <div class="leave-card-top">
-          <div>
-            <p class="leave-card-title">${item.employee_name || 'Employee'}</p>
-            <p class="leave-card-subtitle">${item.job_title || '—'} • ${item.employee_id || '—'}</p>
-            <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)}</p>
+      list.innerHTML = items.map((item) => `
+        <article class="leave-card">
+          <div class="leave-card-top">
+            <div>
+              <p class="leave-card-title">${item.employee_name || 'Employee'}</p>
+              <p class="leave-card-subtitle">${item.job_title || '—'} • ${item.employee_id || '—'}</p>
+              <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)}</p>
+            </div>
+            <div class="badge badge-${item.leave_type}">${leaveTypeLabel(item.leave_type)}</div>
           </div>
-          <div class="badge badge-${item.leave_type}">${leaveTypeLabel(item.leave_type)}</div>
-        </div>
-      </article>
-    `).join('');
-  }
-
-  grid?.addEventListener('click', async (event) => {
-    const button = event.target.closest('.calendar-day');
-    if (!button) return;
-
-    await loadDate(button.dataset.date);
-  });
-
-  datePicker?.addEventListener('change', async () => {
-    if (datePicker.value) {
-      await loadDate(datePicker.value);
+        </article>
+      `).join('');
     }
-  });
 
-  prevBtn?.addEventListener('click', async () => {
-    const current = parseIsoDate(selectedIsoDate);
-    const previous = new Date(current.getFullYear(), current.getMonth() - 1, 1);
-    await loadDate(toIsoDate(previous));
-  });
+    grid?.addEventListener('click', async (event) => {
+      const button = event.target.closest('.calendar-day');
+      if (!button) return;
+      await loadDate(button.dataset.date);
+    });
 
-  nextBtn?.addEventListener('click', async () => {
-    const current = parseIsoDate(selectedIsoDate);
-    const next = new Date(current.getFullYear(), current.getMonth() + 1, 1);
-    await loadDate(toIsoDate(next));
-  });
+    findDateBtn?.addEventListener('click', async () => {
+      if (datePicker?.value) {
+        await loadDate(datePicker.value);
+      }
+    });
 
-  await loadDate(selectedIsoDate);
-  revealApp();
+    prevBtn?.addEventListener('click', async () => {
+      const current = parseIsoDate(selectedIsoDate);
+      const previous = new Date(current.getFullYear(), current.getMonth() - 1, 1);
+      await loadDate(toIsoDate(previous));
+    });
+
+    nextBtn?.addEventListener('click', async () => {
+      const current = parseIsoDate(selectedIsoDate);
+      const next = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+      await loadDate(toIsoDate(next));
+    });
+
+    await loadDate(selectedIsoDate);
+    revealApp();
+  } catch (error) {
+    console.error('Calendar failed:', error);
+    const loader = document.getElementById('appLoader');
+    if (loader) {
+      loader.innerHTML = `
+        <div style="padding:24px;text-align:center;">
+          <h2>Calendar failed to load</h2>
+          <p>${error.message || 'Unknown error'}</p>
+        </div>
+      `;
+    }
+  }
 }
 
-initCalendar().catch((error) => {
-  console.error('Calendar failed:', error);
-
-  const loader = document.getElementById('appLoader');
-  if (loader) {
-    loader.innerHTML = `
-      <div style="padding:24px;text-align:center;">
-        <h2>Calendar failed to load</h2>
-        <p>${error.message || 'Unknown error'}</p>
-      </div>
-    `;
-  }
-});
+initCalendar();
