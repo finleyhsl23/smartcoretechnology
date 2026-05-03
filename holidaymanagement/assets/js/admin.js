@@ -1,15 +1,17 @@
 import { requireAdminPageAccess } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
-import { revealApp, renderEmptyState } from '../../shared/ui.js';
+import { revealApp, renderEmptyState, showMessage } from '../../shared/ui.js';
 import {
   getAllCompanyLeaveRequests,
   getAllCompanySickRecords,
   approveLeaveRequest,
   rejectLeaveRequest,
   enrichRequestsWithEmployeeInfo,
-  getEmployeeLeaveSummary
+  getEmployeeLeaveSummary,
+  searchEmployees,
+  createManualAbsence
 } from '../../shared/api.js';
-import { formatDate, isDateInRange } from '../../shared/dates.js';
+import { formatDate, calculateBusinessDays, isDateInRange } from '../../shared/dates.js';
 
 function leaveTypeLabel(value) {
   if (value === 'annual') return 'Annual Request';
@@ -17,21 +19,53 @@ function leaveTypeLabel(value) {
   return 'Other Leave';
 }
 
-function capitalise(value) {
-  if (!value) return '—';
-  return String(value).charAt(0).toUpperCase() + String(value).slice(1).toLowerCase();
+function calendarDays(startDate, endDate) {
+  if (!startDate || !endDate) return 0;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (end < start) return 0;
+  return Math.ceil((end - start) / 86400000) + 1;
 }
 
-function safeValue(value) {
-  if (value === null || value === undefined || value === '') return '—';
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  return String(value);
+function getCustomSelectValue(id) {
+  return document.getElementById(id)?.dataset.value || 'all';
 }
 
-function prettifyKey(key) {
-  return key
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+function setCustomSelectValue(selectEl, value, label) {
+  selectEl.dataset.value = value;
+  const span = selectEl.querySelector('.custom-select-trigger span');
+  if (span) span.textContent = label;
+}
+
+function setupCustomSelects(onChange) {
+  document.querySelectorAll('.custom-select').forEach((selectEl) => {
+    const trigger = selectEl.querySelector('.custom-select-trigger');
+    const menu = selectEl.querySelector('.custom-select-menu');
+
+    trigger?.addEventListener('click', (event) => {
+      event.stopPropagation();
+
+      document.querySelectorAll('.custom-select.open').forEach((openSelect) => {
+        if (openSelect !== selectEl) openSelect.classList.remove('open');
+      });
+
+      selectEl.classList.toggle('open');
+    });
+
+    menu?.querySelectorAll('button[data-value]').forEach((option) => {
+      option.addEventListener('click', () => {
+        setCustomSelectValue(selectEl, option.dataset.value, option.textContent.trim());
+        selectEl.classList.remove('open');
+        if (typeof onChange === 'function') onChange(selectEl);
+      });
+    });
+  });
+
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.custom-select.open').forEach((selectEl) => {
+      selectEl.classList.remove('open');
+    });
+  });
 }
 
 function openModal(id) {
@@ -42,157 +76,35 @@ function closeModal(id) {
   document.getElementById(id)?.classList.add('hidden');
 }
 
-function renderEmployeeProfile(employee) {
-  const body = document.getElementById('employeeProfileBody');
-  const title = document.getElementById('employeeProfileTitle');
+function valueOrDash(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  return String(value);
+}
 
-  if (!body) return;
-
-  if (!employee) {
-    body.innerHTML = '<div class="empty-state">No employee profile found. Make sure public.employees.user_id is linked to this user.</div>';
-    return;
-  }
-
-  if (title) title.textContent = employee.display_name || employee.full_name || 'Employee Profile';
-
-  const preferredOrder = [
-    'employee_code',
-    'full_name',
-    'job_title',
-    'role',
-    'status',
-    'work_email',
-    'email',
-    'personal_email',
-    'personal_phone',
-    'employment_type',
-    'notice_period',
-    'start_date',
-    'dob',
-    'title',
-    'pronouns',
-    'gender',
-    'nationality',
-    'ni_number',
-    'driving_licence_number',
-    'address_line1',
-    'address_line2',
-    'address_city',
-    'address_county',
-    'address_postcode',
-    'address_country',
-    'onboarding_status',
-    'is_admin',
-    'created_at',
-    'user_id',
-    'company_id',
-    'id'
-  ];
-
-  const allKeys = Object.keys(employee);
-  const orderedKeys = [
-    ...preferredOrder.filter((key) => allKeys.includes(key)),
-    ...allKeys.filter((key) => !preferredOrder.includes(key) && !['display_name', 'employee_id', 'primary_email', 'primary_phone', 'address_full'].includes(key))
-  ];
-
-  body.innerHTML = `
-    <div class="employee-profile-hero">
-      <div>
-        <h3>${employee.display_name || employee.full_name || 'Employee'}</h3>
-        <p>${employee.employee_code || '—'} • ${employee.job_title || '—'}</p>
-      </div>
-      <div class="badge badge-approved">${capitalise(employee.status || 'active')}</div>
-    </div>
-
-    <div class="employee-profile-grid">
-      ${orderedKeys.map((key) => `
-        <div class="detail-tile">
-          <span class="detail-label">${prettifyKey(key)}</span>
-          <strong>${safeValue(employee[key])}</strong>
-        </div>
-      `).join('')}
+function renderDetailTile(label, value) {
+  return `
+    <div class="detail-tile">
+      <span class="detail-label">${label}</span>
+      <div class="detail-value">${valueOrDash(value)}</div>
     </div>
   `;
 }
 
-async function renderRequestModal(request) {
-  const modalTitle = document.getElementById('modalTitle');
-  const modalSubtitle = document.getElementById('modalSubtitle');
-  const body = document.getElementById('requestModalBody');
+function renderEmployeeProfile(employee) {
+  const container = document.getElementById('employeeProfileContent');
+  if (!container) return;
 
-  if (!body) return;
+  if (!employee) {
+    container.innerHTML = `<div class="empty-state">No employee profile found.</div>`;
+    return;
+  }
 
-  const summary = await getEmployeeLeaveSummary(request.user_id);
+  const entries = Object.entries(employee).filter(([key]) => !['display_name'].includes(key));
 
-  if (modalTitle) modalTitle.textContent = `${request.employee_name} • ${leaveTypeLabel(request.leave_type)}`;
-  if (modalSubtitle) modalSubtitle.textContent = `${formatDate(request.start_date)} to ${formatDate(request.end_date)} • ${request.total_days} day(s)`;
-
-  const historyHtml = (summary.requests || []).slice(0, 8).map((entry) => `
-    <article class="leave-card">
-      <div class="leave-card-top">
-        <div>
-          <p class="leave-card-title">${leaveTypeLabel(entry.leave_type)}</p>
-          <p class="leave-card-subtitle">${formatDate(entry.start_date)} to ${formatDate(entry.end_date)} • ${entry.total_days} day(s)</p>
-        </div>
-        <div class="badge badge-${entry.status}">${entry.status}</div>
-      </div>
-    </article>
-  `).join('') || '<div class="empty-state">No recent leave history found.</div>';
-
-  body.innerHTML = `
-    <div class="modal-grid">
-      <div class="detail-tile">
-        <span class="detail-label">Full Name</span>
-        <strong>${request.employee_name || 'Employee'}</strong>
-      </div>
-      <div class="detail-tile">
-        <span class="detail-label">Employee ID</span>
-        <strong>${request.employee_code || request.employee_id || '—'}</strong>
-      </div>
-      <div class="detail-tile">
-        <span class="detail-label">Job Title</span>
-        <strong>${request.job_title || '—'}</strong>
-      </div>
-      <div class="detail-tile">
-        <span class="detail-label">Annual Allowance</span>
-        <strong>${summary.balance?.total_allowance ?? 0}</strong>
-      </div>
-      <div class="detail-tile">
-        <span class="detail-label">Used Days</span>
-        <strong>${summary.balance?.used_days ?? 0}</strong>
-      </div>
-      <div class="detail-tile">
-        <span class="detail-label">Remaining Days</span>
-        <strong>${summary.balance?.remaining_days ?? 0}</strong>
-      </div>
-    </div>
-
-    <div class="modal-section">
-      <h3>Request Reason</h3>
-      <p class="modal-text-box">${request.reason || 'No reason provided.'}</p>
-    </div>
-
-    <div class="modal-section">
-      <h3>Notes</h3>
-      <p class="modal-text-box">${request.notes || 'No notes added.'}</p>
-    </div>
-
-    <div class="modal-section">
-      <button class="btn btn-primary" type="button" id="viewEmployeeProfileBtn">View Employee Profile</button>
-    </div>
-
-    <div class="modal-section">
-      <h3>Recent Leave History</h3>
-      <div class="compact-list">${historyHtml}</div>
-    </div>
-  `;
-
-  document.getElementById('viewEmployeeProfileBtn')?.addEventListener('click', () => {
-    renderEmployeeProfile(request.employee);
-    openModal('employeeProfileModal');
-  });
-
-  openModal('requestModal');
+  container.innerHTML = entries.map(([key, value]) => {
+    const label = key.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+    return renderDetailTile(label, value);
+  }).join('');
 }
 
 async function initAdmin() {
@@ -202,35 +114,75 @@ async function initAdmin() {
 
     const { profile } = auth;
 
+    let requests = [];
+    let selectedRequest = null;
+    let pendingAction = null;
+    let selectedEmployee = null;
+
+    const adminLeaveList = document.getElementById('adminLeaveList');
+    const confirmRequestActionBtn = document.getElementById('confirmRequestActionBtn');
+    const requestActionNote = document.getElementById('requestActionNote');
+    const employeeSearchInput = document.getElementById('employeeSearchInput');
+    const employeeSearchResults = document.getElementById('employeeSearchResults');
+    const selectedEmployeeBox = document.getElementById('selectedEmployeeBox');
+    const manualAbsenceForm = document.getElementById('manualAbsenceForm');
+    const manualStartDate = document.getElementById('manualStartDate');
+    const manualEndDate = document.getElementById('manualEndDate');
+    const manualTotalDays = document.getElementById('manualTotalDays');
+
     document.getElementById('logoutBtn')?.addEventListener('click', async () => {
       await signOut();
       window.location.href = './login.html';
     });
 
-    document.getElementById('closeRequestModal')?.addEventListener('click', () => closeModal('requestModal'));
-    document.getElementById('closeEmployeeProfileModal')?.addEventListener('click', () => closeModal('employeeProfileModal'));
+    document.querySelectorAll('[data-close-modal]').forEach((button) => {
+      button.addEventListener('click', () => closeModal(button.dataset.closeModal));
+    });
 
-    const adminLeaveList = document.getElementById('adminLeaveList');
-    const statusFilter = document.getElementById('adminStatusFilter');
-    const typeFilter = document.getElementById('adminTypeFilter');
+    document.getElementById('openManualAbsenceBtn')?.addEventListener('click', () => {
+      selectedEmployee = null;
+      manualAbsenceForm?.reset();
+      if (selectedEmployeeBox) {
+        selectedEmployeeBox.classList.add('hidden');
+        selectedEmployeeBox.innerHTML = '';
+      }
+      if (employeeSearchResults) {
+        employeeSearchResults.classList.add('hidden');
+        employeeSearchResults.innerHTML = '';
+      }
+      const authorisingUser = profile.full_name || profile.email || 'Signed in admin';
+      document.getElementById('manualAuthorisingUser').value = authorisingUser;
+      setCustomSelectValue(document.getElementById('manualAbsenceTypeSelect'), 'annual', 'Annual Request');
+      openModal('manualAbsenceModal');
+    });
 
-    let requests = await getAllCompanyLeaveRequests(profile.company_id);
-    requests = await enrichRequestsWithEmployeeInfo(requests, profile.company_id);
+    setupCustomSelects((selectEl) => {
+      if (selectEl.id === 'adminStatusSelect' || selectEl.id === 'adminTypeSelect') {
+        renderList();
+      }
+      if (selectEl.id === 'manualAbsenceTypeSelect') {
+        updateManualDays();
+      }
+    });
 
-    const sickRecords = await getAllCompanySickRecords(profile.company_id);
+    async function loadData() {
+      requests = await getAllCompanyLeaveRequests(profile.company_id);
+      requests = await enrichRequestsWithEmployeeInfo(requests, profile.company_id);
 
-    function updateStats() {
+      const sickRecords = await getAllCompanySickRecords(profile.company_id);
       const todayIso = new Date().toISOString().slice(0, 10);
 
       document.getElementById('adminPendingCount').textContent = requests.filter((item) => item.status === 'pending').length;
       document.getElementById('adminApprovedToday').textContent = requests.filter((item) => item.status === 'approved' && item.approved_at && item.approved_at.slice(0, 10) === todayIso).length;
       document.getElementById('adminOffToday').textContent = requests.filter((item) => item.status === 'approved' && isDateInRange(todayIso, item.start_date, item.end_date)).length;
       document.getElementById('adminSickToday').textContent = sickRecords.filter((item) => item.sick_date === todayIso).length;
+
+      renderList();
     }
 
     function renderList() {
-      const statusValue = statusFilter.value;
-      const typeValue = typeFilter.value;
+      const statusValue = getCustomSelectValue('adminStatusSelect');
+      const typeValue = getCustomSelectValue('adminTypeSelect');
 
       const filtered = requests.filter((item) => {
         const statusMatch = statusValue === 'all' || item.status === statusValue;
@@ -248,10 +200,10 @@ async function initAdmin() {
           <div class="leave-card-top">
             <div>
               <p class="leave-card-title">${item.employee_name} • ${leaveTypeLabel(item.leave_type)}</p>
-              <p class="leave-card-subtitle">${item.employee_code || item.employee_id || '—'} • ${item.job_title || '—'} • ${item.employee_email || '—'}</p>
+              <p class="leave-card-subtitle">${item.employee_id || '—'} • ${item.job_title || '—'}</p>
               <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days} day(s)</p>
             </div>
-            <div class="badge badge-${item.status}">${capitalise(item.status)}</div>
+            <div class="badge badge-${item.status}">${item.status}</div>
           </div>
 
           <div class="leave-card-bottom admin-request-bottom">
@@ -281,51 +233,203 @@ async function initAdmin() {
       if (!button) return;
 
       const action = button.dataset.action;
-      const requestId = button.dataset.id;
-      const request = requests.find((item) => item.id === requestId);
+      const request = requests.find((item) => item.id === button.dataset.id);
       if (!request) return;
 
-      try {
-        button.disabled = true;
+      selectedRequest = request;
 
-        if (action === 'more-info') {
-          await renderRequestModal(request);
-          return;
-        }
+      if (action === 'approve' || action === 'reject') {
+        pendingAction = action;
+        requestActionNote.value = '';
+        document.getElementById('requestActionTitle').textContent = action === 'approve' ? 'Approve Request' : 'Reject Request';
+        document.getElementById('requestActionSubtitle').textContent = `${request.employee_name} • ${leaveTypeLabel(request.leave_type)}`;
+        openModal('requestActionModal');
+        return;
+      }
 
-        if (action === 'approve') {
-          await approveLeaveRequest(request, profile.id);
-        }
+      if (action === 'more-info') {
+        const summary = await getEmployeeLeaveSummary(request);
 
-        if (action === 'reject') {
-          const notes = window.prompt('Optional rejection note:') || '';
-          await rejectLeaveRequest(request.id, profile.id, notes);
-        }
+        document.getElementById('infoEmployeeName').textContent = request.employee_name;
+        document.getElementById('infoEmployeeSubtitle').textContent = `${request.employee_id || '—'} • ${request.job_title || '—'}`;
 
-        requests = await getAllCompanyLeaveRequests(profile.company_id);
-        requests = await enrichRequestsWithEmployeeInfo(requests, profile.company_id);
+        document.getElementById('requestInfoContent').innerHTML = `
+          <div class="modal-grid">
+            ${renderDetailTile('Request Type', leaveTypeLabel(request.leave_type))}
+            ${renderDetailTile('Status', request.status)}
+            ${renderDetailTile('Total Days', request.total_days)}
+            ${renderDetailTile('Start Date', formatDate(request.start_date))}
+            ${renderDetailTile('End Date', formatDate(request.end_date))}
+            ${renderDetailTile('Annual Allowance', summary.balance?.total_allowance ?? '—')}
+            ${renderDetailTile('Used Days', summary.balance?.used_days ?? '—')}
+            ${renderDetailTile('Remaining Days', summary.balance?.remaining_days ?? '—')}
+            ${renderDetailTile('Approved At', request.approved_at ? formatDate(request.approved_at) : '—')}
+          </div>
 
-        updateStats();
-        renderList();
-      } catch (error) {
-        console.error(error);
-        alert(error.message || 'Unable to update the request.');
-      } finally {
-        button.disabled = false;
+          <div class="modal-section">
+            <h3>Reason</h3>
+            <p class="muted">${request.reason || 'No reason provided'}</p>
+          </div>
+
+          <div class="modal-section">
+            <h3>Notes</h3>
+            <p class="muted">${request.notes || 'No notes added'}</p>
+          </div>
+
+          <div class="modal-section">
+            <h3>Recent Leave History</h3>
+            <div class="card-list compact-list">
+              ${
+                summary.requests.length
+                  ? summary.requests.slice(0, 8).map((entry) => `
+                    <article class="leave-card">
+                      <p class="leave-card-title">${leaveTypeLabel(entry.leave_type)} • ${entry.status}</p>
+                      <p class="leave-card-subtitle">${formatDate(entry.start_date)} to ${formatDate(entry.end_date)} • ${entry.total_days} day(s)</p>
+                    </article>
+                  `).join('')
+                  : '<div class="empty-state">No leave history found.</div>'
+              }
+            </div>
+          </div>
+        `;
+
+        document.getElementById('viewEmployeeProfileBtn').onclick = () => {
+          document.getElementById('employeeProfileTitle').textContent = request.employee_name;
+          renderEmployeeProfile(request.employee);
+          openModal('employeeProfileModal');
+        };
+
+        openModal('requestInfoModal');
       }
     });
 
-    statusFilter?.addEventListener('change', renderList);
-    typeFilter?.addEventListener('change', renderList);
+    confirmRequestActionBtn?.addEventListener('click', async () => {
+      if (!selectedRequest || !pendingAction) return;
 
-    updateStats();
-    renderList();
+      try {
+        confirmRequestActionBtn.disabled = true;
+        const note = requestActionNote.value.trim();
+
+        if (pendingAction === 'approve') {
+          await approveLeaveRequest(selectedRequest, profile.id, note);
+        } else {
+          await rejectLeaveRequest(selectedRequest, profile.id, note);
+        }
+
+        closeModal('requestActionModal');
+        await loadData();
+      } catch (error) {
+        alert(error.message || 'Unable to update request.');
+      } finally {
+        confirmRequestActionBtn.disabled = false;
+      }
+    });
+
+    let searchTimer;
+
+    employeeSearchInput?.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+
+      searchTimer = setTimeout(async () => {
+        const term = employeeSearchInput.value.trim();
+
+        if (term.length < 2) {
+          employeeSearchResults.classList.add('hidden');
+          employeeSearchResults.innerHTML = '';
+          return;
+        }
+
+        const results = await searchEmployees(profile.company_id, term);
+
+        if (!results.length) {
+          employeeSearchResults.classList.remove('hidden');
+          employeeSearchResults.innerHTML = `<div class="search-result-empty">No employees found.</div>`;
+          return;
+        }
+
+        employeeSearchResults.classList.remove('hidden');
+        employeeSearchResults.innerHTML = results.map((employee) => `
+          <button type="button" class="search-result-item" data-id="${employee.id}">
+            <strong>${employee.display_name}</strong>
+            <span>${employee.employee_code || '—'} • ${employee.job_title || '—'}</span>
+          </button>
+        `).join('');
+
+        employeeSearchResults.querySelectorAll('.search-result-item').forEach((item) => {
+          item.addEventListener('click', () => {
+            selectedEmployee = results.find((employee) => employee.id === item.dataset.id);
+            employeeSearchInput.value = selectedEmployee.display_name;
+            employeeSearchResults.classList.add('hidden');
+
+            selectedEmployeeBox.classList.remove('hidden');
+            selectedEmployeeBox.innerHTML = `
+              <strong>${selectedEmployee.display_name}</strong>
+              <span>${selectedEmployee.employee_code || '—'} • ${selectedEmployee.job_title || '—'}</span>
+            `;
+          });
+        });
+      }, 250);
+    });
+
+    function updateManualDays() {
+      const type = getCustomSelectValue('manualAbsenceTypeSelect');
+      const start = manualStartDate.value;
+      const end = manualEndDate.value;
+
+      const total = type === 'annual'
+        ? calculateBusinessDays(start, end)
+        : calendarDays(start, end);
+
+      manualTotalDays.value = total > 0 ? String(total) : '';
+    }
+
+    manualStartDate?.addEventListener('change', updateManualDays);
+    manualEndDate?.addEventListener('change', updateManualDays);
+
+    manualAbsenceForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      try {
+        if (!selectedEmployee) {
+          showMessage('manualAbsenceMessage', 'Please select an employee.', 'error');
+          return;
+        }
+
+        if (!manualStartDate.value || !manualEndDate.value || !manualTotalDays.value) {
+          showMessage('manualAbsenceMessage', 'Please complete the dates.', 'error');
+          return;
+        }
+
+        await createManualAbsence({
+          employee: selectedEmployee,
+          company_id: profile.company_id,
+          leave_type: getCustomSelectValue('manualAbsenceTypeSelect'),
+          start_date: manualStartDate.value,
+          end_date: manualEndDate.value,
+          total_days: Number(manualTotalDays.value),
+          reason: document.getElementById('manualReason').value.trim(),
+          authorising_name: profile.full_name || profile.email || 'Admin'
+        }, profile.id);
+
+        closeModal('manualAbsenceModal');
+        await loadData();
+      } catch (error) {
+        showMessage('manualAbsenceMessage', error.message || 'Unable to save absence.', 'error');
+      }
+    });
+
+    await loadData();
     revealApp();
   } catch (error) {
     console.error('Admin page failed:', error);
     const loader = document.getElementById('appLoader');
     if (loader) {
-      loader.innerHTML = `<div style="padding:24px;text-align:center;">Admin failed to load<br><br>${error.message || 'Unknown error'}</div>`;
+      loader.innerHTML = `
+        <div style="padding:24px;text-align:center;">
+          <h2>Admin failed to load</h2>
+          <p>${error.message || 'Unknown error'}</p>
+        </div>
+      `;
     }
   }
 }
