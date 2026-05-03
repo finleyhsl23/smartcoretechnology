@@ -5,12 +5,15 @@ import {
   getEmployeesByCompany,
   upsertEmployee,
   archiveEmployee,
-  restoreEmployee
+  restoreEmployee,
+  getMyCompanyInfo,
+  sendEmployeeInvite
 } from '../../shared/api.js';
 
 let profile = null;
+let companyInfo = null;
 let employees = [];
-let editingEmployee = null;
+let savedEmployee = null;
 
 function openModal(id) {
   document.getElementById(id)?.classList.remove('hidden');
@@ -22,6 +25,35 @@ function closeModal(id) {
 
 function getStatusFilter() {
   return document.getElementById('statusFilter')?.dataset.value || 'active';
+}
+
+function generateDigits(length = 9) {
+  let value = '';
+  for (let i = 0; i < length; i += 1) {
+    value += Math.floor(Math.random() * 10);
+  }
+  return value;
+}
+
+function getCompanyPrefix() {
+  const name = companyInfo?.company_name || 'Smartfits';
+  const letters = name.toUpperCase().replace(/[^A-Z]/g, '');
+  return `${letters}XXX`.slice(0, 3);
+}
+
+function generateEmployeeCode() {
+  return `${getCompanyPrefix()}${generateDigits(9)}`;
+}
+
+function generateToken() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function expiresIn12Hours() {
+  const date = new Date();
+  date.setHours(date.getHours() + 12);
+  return date.toISOString();
 }
 
 function setupCustomSelects() {
@@ -61,121 +93,54 @@ function getField(id) {
 }
 
 function getEmployeePayload() {
+  const existingEmployee = savedEmployee || employees.find((employee) => employee.id === getField('employeeId'));
+
   return {
     id: getField('employeeId') || null,
     company_id: profile.company_id,
 
-    employee_code: getField('employeeCode'),
+    employee_code: existingEmployee?.employee_code || generateEmployeeCode(),
+
     full_name: getField('fullName'),
     job_title: getField('jobTitle'),
-    personal_email: getField('personalEmail'),
-    work_email: getField('workEmail'),
+    work_email: getField('workEmail').toLowerCase(),
+    personal_email: getField('personalEmail').toLowerCase(),
     personal_phone: getField('personalPhone'),
     employment_type: getField('employmentType'),
     notice_period: getField('noticePeriod'),
-    start_date: getField('startDate'),
 
-    employment_status: getField('employmentStatus') || 'active',
-    is_admin: getField('isAdmin') === 'true',
     role: getField('role') || 'employee',
-
+    is_admin: getField('isAdmin') === 'true',
     annual_leave_allowance: getField('annualLeaveAllowance') || 23,
-    bank_holiday_region: getField('bankHolidayRegion') || 'england',
-    include_bank_holidays: getField('includeBankHolidays') === 'true',
 
-    title: getField('title'),
-    pronouns: getField('pronouns'),
-    gender: getField('gender'),
-    dob: getField('dob'),
-    nationality: getField('nationality'),
-    ni_number: getField('niNumber'),
-    passport_number: getField('passportNumber'),
-    passport_expiry_date: getField('passportExpiryDate'),
-    driving_licence_number: getField('drivingLicenceNumber'),
+    employment_status: existingEmployee?.employment_status || 'active',
 
-    address_line1: getField('addressLine1'),
-    address_line2: getField('addressLine2'),
-    address_city: getField('addressCity'),
-    address_county: getField('addressCounty'),
-    address_postcode: getField('addressPostcode'),
-    address_country: getField('addressCountry'),
+    bank_holiday_region: 'england',
+    include_bank_holidays: true,
 
-    emergency_contact_name1: getField('emergencyContactName1'),
-    emergency_contact_relationship1: getField('emergencyContactRelationship1'),
-    emergency_contact_email1: getField('emergencyContactEmail1'),
-    emergency_contact_phone1: getField('emergencyContactPhone1'),
-
-    emergency_contact_name2: getField('emergencyContactName2'),
-    emergency_contact_relationship2: getField('emergencyContactRelationship2'),
-    emergency_contact_email2: getField('emergencyContactEmail2'),
-    emergency_contact_phone2: getField('emergencyContactPhone2'),
-
-    onboarding_status: getField('onboardingStatus') || 'not_started',
-    onboarding_token: getField('onboardingToken'),
-    onboarding_expires_at: getField('onboardingExpiresAt')
-      ? new Date(getField('onboardingExpiresAt')).toISOString()
-      : null
+    onboarding_status: 'in_progress',
+    onboarding_token: existingEmployee?.onboarding_token || generateToken(),
+    onboarding_expires_at: existingEmployee?.onboarding_expires_at || expiresIn12Hours()
   };
 }
 
 function fillEmployeeForm(employee = null) {
-  editingEmployee = employee;
+  savedEmployee = employee;
 
   document.getElementById('employeeModalTitle').textContent =
     employee ? 'Edit Employee' : 'Add Employee';
 
   setField('employeeId', employee?.id);
-  setField('employeeCode', employee?.employee_code);
   setField('fullName', employee?.full_name);
   setField('jobTitle', employee?.job_title);
-  setField('personalEmail', employee?.personal_email);
   setField('workEmail', employee?.work_email);
+  setField('personalEmail', employee?.personal_email);
   setField('personalPhone', employee?.personal_phone);
   setField('employmentType', employee?.employment_type);
   setField('noticePeriod', employee?.notice_period);
-  setField('startDate', employee?.start_date);
-
-  setField('employmentStatus', employee?.employment_status || 'active');
-  setField('isAdmin', String(employee?.is_admin || false));
   setField('role', employee?.role || 'employee');
-
+  setField('isAdmin', String(employee?.is_admin || false));
   setField('annualLeaveAllowance', employee?.annual_leave_allowance || 23);
-  setField('bankHolidayRegion', employee?.bank_holiday_region || 'england');
-  setField('includeBankHolidays', String(employee?.include_bank_holidays ?? true));
-
-  setField('title', employee?.title);
-  setField('pronouns', employee?.pronouns);
-  setField('gender', employee?.gender);
-  setField('dob', employee?.dob);
-  setField('nationality', employee?.nationality);
-  setField('niNumber', employee?.ni_number);
-  setField('passportNumber', employee?.passport_number);
-  setField('passportExpiryDate', employee?.passport_expiry_date);
-  setField('drivingLicenceNumber', employee?.driving_licence_number);
-
-  setField('addressLine1', employee?.address_line1);
-  setField('addressLine2', employee?.address_line2);
-  setField('addressCity', employee?.address_city);
-  setField('addressCounty', employee?.address_county);
-  setField('addressPostcode', employee?.address_postcode);
-  setField('addressCountry', employee?.address_country || 'United Kingdom');
-
-  setField('emergencyContactName1', employee?.emergency_contact_name1);
-  setField('emergencyContactRelationship1', employee?.emergency_contact_relationship1);
-  setField('emergencyContactEmail1', employee?.emergency_contact_email1);
-  setField('emergencyContactPhone1', employee?.emergency_contact_phone1);
-
-  setField('emergencyContactName2', employee?.emergency_contact_name2);
-  setField('emergencyContactRelationship2', employee?.emergency_contact_relationship2);
-  setField('emergencyContactEmail2', employee?.emergency_contact_email2);
-  setField('emergencyContactPhone2', employee?.emergency_contact_phone2);
-
-  setField('onboardingStatus', employee?.onboarding_status || 'not_started');
-  setField('onboardingToken', employee?.onboarding_token);
-  setField('onboardingExpiresAt', employee?.onboarding_expires_at
-    ? employee.onboarding_expires_at.slice(0, 16)
-    : ''
-  );
 }
 
 function renderEmployees() {
@@ -218,6 +183,7 @@ function renderEmployees() {
 
         <div class="inline-actions">
           <button class="btn btn-secondary" data-action="edit" data-id="${employee.id}" type="button">Edit</button>
+          <button class="btn btn-primary" data-action="invite" data-id="${employee.id}" type="button">Send Invite</button>
           ${
             employee.employment_status === 'archived'
               ? `<button class="btn btn-primary" data-action="restore" data-id="${employee.id}" type="button">Restore</button>`
@@ -234,11 +200,44 @@ async function loadEmployees() {
   renderEmployees();
 }
 
+async function sendInvite(toType) {
+  if (!savedEmployee) return;
+
+  const toEmail =
+    toType === 'personal'
+      ? savedEmployee.personal_email
+      : savedEmployee.work_email;
+
+  if (!toEmail) {
+    showMessage('inviteMessage', 'That email address is missing.', 'error');
+    return;
+  }
+
+  const onboardingUrl =
+    `${window.location.origin}/holidaymanagement/onboarding.html?token=${encodeURIComponent(savedEmployee.onboarding_token)}`;
+
+  try {
+    showMessage('inviteMessage', 'Sending invitation...', 'info');
+
+    await sendEmployeeInvite({
+      to: toEmail,
+      employee_name: savedEmployee.full_name,
+      onboarding_url: onboardingUrl,
+      expires_at: savedEmployee.onboarding_expires_at
+    });
+
+    showMessage('inviteMessage', `Invitation sent to ${toEmail}.`, 'success');
+  } catch (error) {
+    showMessage('inviteMessage', error.message || 'Invitation failed.', 'error');
+  }
+}
+
 async function init() {
   const auth = await requireAdminPageAccess();
   if (!auth) return;
 
   profile = auth.profile;
+  companyInfo = await getMyCompanyInfo();
 
   setupCustomSelects();
 
@@ -270,6 +269,13 @@ async function init() {
       openModal('employeeModal');
     }
 
+    if (button.dataset.action === 'invite') {
+      savedEmployee = employee;
+      document.getElementById('inviteSummary').textContent =
+        `${employee.full_name} • ${employee.personal_email || 'No personal email'} • ${employee.work_email || 'No work email'}`;
+      openModal('inviteModal');
+    }
+
     if (button.dataset.action === 'archive') {
       await archiveEmployee(employee);
       await loadEmployees();
@@ -287,18 +293,32 @@ async function init() {
     try {
       const payload = getEmployeePayload();
 
-      if (!payload.employee_code || !payload.full_name) {
-        showMessage('employeeMessage', 'Employee code and full name are required.', 'error');
+      if (!payload.full_name || !payload.work_email || !payload.personal_email) {
+        showMessage('employeeMessage', 'Full name, work email and personal email are required.', 'error');
         return;
       }
 
-      await upsertEmployee(payload);
-      closeModal('employeeModal');
+      const employeeId = await upsertEmployee(payload);
+
       await loadEmployees();
+
+      savedEmployee =
+        employees.find((employee) => employee.id === employeeId) ||
+        employees.find((employee) => employee.employee_code === payload.employee_code);
+
+      closeModal('employeeModal');
+
+      document.getElementById('inviteSummary').textContent =
+        `${savedEmployee.full_name} • ${savedEmployee.personal_email} • ${savedEmployee.work_email}`;
+
+      openModal('inviteModal');
     } catch (error) {
       showMessage('employeeMessage', error.message || 'Unable to save employee.', 'error');
     }
   });
+
+  document.getElementById('sendPersonalInviteBtn')?.addEventListener('click', () => sendInvite('personal'));
+  document.getElementById('sendWorkInviteBtn')?.addEventListener('click', () => sendInvite('work'));
 
   await loadEmployees();
   revealApp();
@@ -306,6 +326,7 @@ async function init() {
 
 init().catch((error) => {
   console.error(error);
+
   const loader = document.getElementById('appLoader');
   if (loader) {
     loader.innerHTML = `
