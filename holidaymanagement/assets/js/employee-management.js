@@ -17,6 +17,7 @@ let companyInfo = null;
 let employees = [];
 let shiftPatterns = [];
 let savedEmployee = null;
+let selectedAuthoriser = null;
 
 function openModal(id) {
   document.getElementById(id)?.classList.remove('hidden');
@@ -24,6 +25,15 @@ function openModal(id) {
 
 function closeModal(id) {
   document.getElementById(id)?.classList.add('hidden');
+}
+
+function setField(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value ?? '';
+}
+
+function getField(id) {
+  return document.getElementById(id)?.value?.trim() || '';
 }
 
 function getStatusFilter() {
@@ -57,39 +67,6 @@ function expiresIn12Hours() {
   return date.toISOString();
 }
 
-function setField(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.value = value ?? '';
-}
-
-function getField(id) {
-  return document.getElementById(id)?.value?.trim() || '';
-}
-
-function setShiftPattern(patternId) {
-  const pattern = shiftPatterns.find((item) => item.id === patternId);
-  setField('shiftPatternId', patternId || '');
-
-  const box = document.getElementById('selectedShiftBox');
-
-  if (!box) return;
-
-  if (!pattern) {
-    box.innerHTML = `
-      <strong>No shift pattern selected</strong>
-      <span>Press the button below to select or configure one.</span>
-    `;
-    return;
-  }
-
-  box.innerHTML = `
-    <strong>${pattern.name}</strong>
-    <span>${pattern.weekly_hours || '—'} hours/week • ${pattern.annual_allowance_days || 23} AL days</span>
-  `;
-
-  setField('annualLeaveAllowance', pattern.annual_allowance_days || 23);
-}
-
 function setupCustomSelects() {
   document.querySelectorAll('.custom-select').forEach((selectEl) => {
     const trigger = selectEl.querySelector('.custom-select-trigger');
@@ -117,8 +94,79 @@ function setupCustomSelects() {
   });
 }
 
+function updateOwnerAuthoriserUi() {
+  const role = getField('role');
+  const isOwner = role === 'owner';
+
+  const row = document.getElementById('noAuthoriserOwnerRow');
+  const checkbox = document.getElementById('noAuthoriserRequired');
+  const authoriserField = document.getElementById('authoriserField');
+
+  row?.classList.toggle('hidden', !isOwner);
+
+  if (!isOwner) {
+    if (checkbox) checkbox.checked = false;
+    authoriserField?.classList.remove('hidden');
+    return;
+  }
+
+  if (checkbox?.checked) {
+    authoriserField?.classList.add('hidden');
+  } else {
+    authoriserField?.classList.remove('hidden');
+  }
+}
+
+function setAuthoriser(employee) {
+  selectedAuthoriser = employee || null;
+  setField('assignedAuthoriserId', employee?.id || '');
+
+  const box = document.getElementById('selectedAuthoriserBox');
+
+  if (!box) return;
+
+  if (!employee) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+
+  box.classList.remove('hidden');
+  box.innerHTML = `
+    <strong>${employee.full_name || 'Employee'}</strong>
+    <span>${employee.employee_code || '—'} • ${employee.job_title || '—'}</span>
+  `;
+}
+
+function setShiftPattern(patternId) {
+  const pattern = shiftPatterns.find((item) => item.id === patternId);
+  setField('shiftPatternId', patternId || '');
+
+  const box = document.getElementById('selectedShiftBox');
+
+  if (!box) return;
+
+  if (!pattern) {
+    box.innerHTML = `
+      <strong>No shift pattern selected</strong>
+      <span>Press the button below to select or configure one.</span>
+    `;
+    return;
+  }
+
+  box.innerHTML = `
+    <strong>${pattern.name}</strong>
+    <span>${pattern.weekly_hours || '—'} hours/week</span>
+  `;
+}
+
 function getEmployeePayload() {
-  const existingEmployee = savedEmployee || employees.find((employee) => employee.id === getField('employeeId'));
+  const existingEmployee =
+    savedEmployee ||
+    employees.find((employee) => employee.id === getField('employeeId'));
+
+  const isOwner = getField('role') === 'owner';
+  const noAuthoriser = isOwner && document.getElementById('noAuthoriserRequired')?.checked === true;
 
   return {
     id: getField('employeeId') || null,
@@ -140,9 +188,12 @@ function getEmployeePayload() {
     employment_status: getField('employmentStatus') || 'active',
 
     annual_leave_allowance: getField('annualLeaveAllowance') || 23,
-    bank_holiday_region: getField('bankHolidayRegion') || 'england',
+    bank_holiday_region: 'england',
     include_bank_holidays: getField('includeBankHolidays') === 'true',
     shift_pattern_id: getField('shiftPatternId'),
+
+    assigned_authoriser: noAuthoriser ? '' : getField('assignedAuthoriserId'),
+    no_authoriser_required: noAuthoriser,
 
     title: getField('title'),
     pronouns: getField('pronouns'),
@@ -180,19 +231,22 @@ function getEmployeePayload() {
 function fillEmployeeForm(employee = null) {
   savedEmployee = employee;
 
+  const isEditing = !!employee;
+
+  document.querySelectorAll('[data-edit-only]').forEach((section) => {
+    section.classList.toggle('hidden', !isEditing);
+  });
+
   document.getElementById('employeeModalTitle').textContent =
     employee ? 'Edit Employee' : 'Add Employee';
 
-  const isEditing = !!employee;
-
-document.querySelectorAll('[data-edit-only]').forEach((section) => {
-  section.classList.toggle('hidden', !isEditing);
-});
-
-  const newCode = employee?.employee_code || generateEmployeeCode();
+  document.getElementById('employeeModalSubtitle').textContent =
+    employee
+      ? 'Edit all work and personal employee details.'
+      : 'Add the basic HR details. The employee completes personal details during onboarding.';
 
   setField('employeeId', employee?.id);
-  setField('employeeCode', newCode);
+  setField('employeeCode', employee?.employee_code || generateEmployeeCode());
   setField('fullName', employee?.full_name);
   setField('jobTitle', employee?.job_title);
   setField('workEmail', employee?.work_email);
@@ -207,7 +261,6 @@ document.querySelectorAll('[data-edit-only]').forEach((section) => {
   setField('employmentStatus', employee?.employment_status || 'active');
 
   setField('annualLeaveAllowance', employee?.annual_leave_allowance || 23);
-  setField('bankHolidayRegion', employee?.bank_holiday_region || 'england');
   setField('includeBankHolidays', String(employee?.include_bank_holidays ?? true));
 
   setField('title', employee?.title);
@@ -240,7 +293,14 @@ document.querySelectorAll('[data-edit-only]').forEach((section) => {
   setField('onboardingStatus', employee?.onboarding_status || 'in_progress');
   setField('onboardingExpiresAt', employee?.onboarding_expires_at ? employee.onboarding_expires_at.slice(0, 16) : '');
 
+  const authEmployee = employees.find((item) => item.id === employee?.assigned_authoriser);
+  setAuthoriser(authEmployee || null);
+
+  const noAuthoriserCheckbox = document.getElementById('noAuthoriserRequired');
+  if (noAuthoriserCheckbox) noAuthoriserCheckbox.checked = employee?.no_authoriser_required === true;
+
   setShiftPattern(employee?.shift_pattern_id || '');
+  updateOwnerAuthoriserUi();
 }
 
 function renderShiftPatterns() {
@@ -257,9 +317,7 @@ function renderShiftPatterns() {
       <div class="leave-card-top">
         <div>
           <p class="leave-card-title">${pattern.name}</p>
-          <p class="leave-card-subtitle">
-            ${pattern.weekly_hours || '—'} hours/week • ${pattern.annual_allowance_days || 23} AL days
-          </p>
+          <p class="leave-card-subtitle">${pattern.weekly_hours || '—'} hours/week</p>
         </div>
         <button class="btn btn-primary" data-select-shift="${pattern.id}" type="button">Select</button>
       </div>
@@ -294,6 +352,7 @@ function renderEmployees() {
 
   list.innerHTML = filtered.map((employee) => {
     const shift = shiftPatterns.find((pattern) => pattern.id === employee.shift_pattern_id);
+    const auth = employees.find((item) => item.id === employee.assigned_authoriser);
 
     return `
       <article class="leave-card">
@@ -304,7 +363,9 @@ function renderEmployees() {
               ${employee.employee_code || '—'} • ${employee.job_title || '—'} • ${employee.work_email || 'No work email'}
             </p>
             <p class="leave-card-subtitle">
-              ${employee.employment_status} • ${employee.role} • Shift: ${shift?.name || 'Not configured'} • Onboarding: ${employee.onboarding_status}
+              ${employee.employment_status} • ${employee.role} • Shift: ${shift?.name || 'Not configured'} • Authoriser: ${
+                employee.no_authoriser_required ? 'Not required' : (auth?.full_name || 'Not set')
+              }
             </p>
           </div>
 
@@ -341,10 +402,7 @@ async function sendInvite(toType) {
     return;
   }
 
-  const toEmail =
-    toType === 'personal'
-      ? savedEmployee.personal_email
-      : savedEmployee.work_email;
+  const toEmail = toType === 'personal' ? savedEmployee.personal_email : savedEmployee.work_email;
 
   if (!toEmail) {
     showMessage('inviteMessage', 'That email address is missing.', 'error');
@@ -388,6 +446,50 @@ async function init() {
     button.addEventListener('click', () => closeModal(button.dataset.closeModal));
   });
 
+  document.getElementById('role')?.addEventListener('change', updateOwnerAuthoriserUi);
+  document.getElementById('noAuthoriserRequired')?.addEventListener('change', updateOwnerAuthoriserUi);
+
+  document.getElementById('authoriserSearch')?.addEventListener('input', () => {
+    const term = getField('authoriserSearch').toLowerCase();
+    const box = document.getElementById('authoriserResults');
+
+    if (!box) return;
+
+    if (term.length < 2) {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      return;
+    }
+
+    const results = employees
+      .filter((employee) =>
+        employee.full_name?.toLowerCase().includes(term) ||
+        employee.employee_code?.toLowerCase().includes(term) ||
+        employee.work_email?.toLowerCase().includes(term)
+      )
+      .slice(0, 8);
+
+    box.classList.remove('hidden');
+    box.innerHTML = results.length
+      ? results.map((employee) => `
+          <button type="button" class="search-result-item" data-authoriser-id="${employee.id}">
+            <strong>${employee.full_name || 'Employee'}</strong>
+            <span>${employee.employee_code || '—'} • ${employee.job_title || '—'}</span>
+          </button>
+        `).join('')
+      : `<div class="search-result-empty">No employees found.</div>`;
+  });
+
+  document.getElementById('authoriserResults')?.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-authoriser-id]');
+    if (!button) return;
+
+    const employee = employees.find((item) => item.id === button.dataset.authoriserId);
+    setAuthoriser(employee);
+    document.getElementById('authoriserResults')?.classList.add('hidden');
+    setField('authoriserSearch', '');
+  });
+
   document.getElementById('addEmployeeBtn')?.addEventListener('click', () => {
     fillEmployeeForm(null);
     openModal('employeeModal');
@@ -422,10 +524,8 @@ async function init() {
 
     if (button.dataset.action === 'invite') {
       savedEmployee = employee;
-
       document.getElementById('inviteSummary').textContent =
         `${employee.full_name} • ${employee.personal_email || 'No personal email'} • ${employee.work_email || 'No work email'}`;
-
       openModal('inviteModal');
     }
 
@@ -453,6 +553,11 @@ async function init() {
 
       if (!payload.shift_pattern_id) {
         showMessage('employeeMessage', 'Please select or configure a shift pattern before saving.', 'error');
+        return;
+      }
+
+      if (!payload.no_authoriser_required && !payload.assigned_authoriser) {
+        showMessage('employeeMessage', 'Please select an authorising user.', 'error');
         return;
       }
 
@@ -512,7 +617,7 @@ async function init() {
         sunday_end_time: getField('sundayEndTime'),
 
         weekly_hours: Number(getField('shiftWeeklyHours') || 0),
-        annual_allowance_days: Number(getField('shiftAnnualAllowance') || 23)
+        annual_allowance_days: 23
       });
 
       await loadShiftPatterns();
