@@ -395,8 +395,9 @@ async function initAdmin() {
       manualTotalDays.value = total > 0 ? String(total) : '';
 
       const deductRow = document.getElementById('manualDeductAllowance')?.closest('.toggle-row');
-      if (deductRow) deductRow.style.display = type === 'annual' ? 'flex' : 'none';
-    }
+      if (deductRow) {
+  deductRow.style.display = ['annual', 'other'].includes(request.leave_type) ? 'flex' : 'none';
+}
 
     manualStartDate?.addEventListener('change', updateManualDays);
     manualEndDate?.addEventListener('change', updateManualDays);
