@@ -754,3 +754,29 @@ export async function getCompanyHolidays(companyId) {
 
   return [...bankHolidays, ...(data || [])];
 }
+export async function getMyCompanyInfo() {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('get_my_company_info');
+
+  if (error) throw error;
+  return data?.[0] || null;
+}
+
+export async function sendEmployeeInvite(payload) {
+  const response = await fetch('/api/send-employee-invite', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(result.error || 'Invitation could not be sent.');
+  }
+
+  return result;
+}
