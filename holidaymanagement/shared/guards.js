@@ -11,6 +11,19 @@ export async function getSessionOrRedirect() {
   return data.session;
 }
 
+export async function requireGuest() {
+  const { data, error } = await supabase.auth.getSession();
+
+  if (error) {
+    console.warn(error);
+    return;
+  }
+
+  if (data?.session) {
+    window.location.href = './home.html';
+  }
+}
+
 export async function getCurrentProfile() {
   const { data, error } = await supabase
     .schema(leaveSchema)
