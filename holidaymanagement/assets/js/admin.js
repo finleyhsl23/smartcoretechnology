@@ -258,60 +258,76 @@ async function initAdmin() {
       }
 
       if (action === 'more-info') {
-        const summary = await getEmployeeLeaveSummary(request);
+  try {
+    console.log('More Info clicked:', request);
 
-        document.getElementById('infoEmployeeName').textContent = request.employee_name;
-        document.getElementById('infoEmployeeSubtitle').textContent = `${request.employee_id || '—'} • ${request.job_title || '—'}`;
+    const modal = document.getElementById('requestInfoModal');
+    const content = document.getElementById('requestInfoContent');
 
-        document.getElementById('requestInfoContent').innerHTML = `
-          <div class="modal-grid">
-            ${renderDetailTile('Request Type', leaveTypeLabel(request.leave_type))}
-            ${renderDetailTile('Status', request.status)}
-            ${renderDetailTile('Total Days', request.total_days)}
-            ${renderDetailTile('Start Date', formatDate(request.start_date))}
-            ${renderDetailTile('End Date', formatDate(request.end_date))}
-            ${renderDetailTile('Annual Allowance', summary.balance?.total_allowance ?? '—')}
-            ${renderDetailTile('Used Days', summary.balance?.used_days ?? '—')}
-            ${renderDetailTile('Remaining Days', summary.balance?.remaining_days ?? '—')}
-            ${renderDetailTile('Approved At', request.approved_at ? formatDate(request.approved_at) : '—')}
-          </div>
+    if (!modal || !content) {
+      alert('More Info modal is missing from admin.html');
+      return;
+    }
 
-          <div class="modal-section">
-            <h3>Reason</h3>
-            <p class="muted">${request.reason || 'No reason provided'}</p>
-          </div>
+    const summary = await getEmployeeLeaveSummary(request);
 
-          <div class="modal-section">
-            <h3>Notes</h3>
-            <p class="muted">${request.notes || 'No notes added'}</p>
-          </div>
+    document.getElementById('infoEmployeeName').textContent = request.employee_name || 'Employee';
+    document.getElementById('infoEmployeeSubtitle').textContent = `${request.employee_id || '—'} • ${request.job_title || '—'}`;
 
-          <div class="modal-section">
-            <h3>Recent Leave History</h3>
-            <div class="card-list compact-list">
-              ${
-                summary.requests.length
-                  ? summary.requests.slice(0, 8).map((entry) => `
-                    <article class="leave-card">
-                      <p class="leave-card-title">${leaveTypeLabel(entry.leave_type)} • ${entry.status}</p>
-                      <p class="leave-card-subtitle">${formatDate(entry.start_date)} to ${formatDate(entry.end_date)} • ${entry.total_days} day(s)</p>
-                    </article>
-                  `).join('')
-                  : '<div class="empty-state">No leave history found.</div>'
-              }
-            </div>
-          </div>
-        `;
+    content.innerHTML = `
+      <div class="modal-grid">
+        ${renderDetailTile('Request Type', leaveTypeLabel(request.leave_type))}
+        ${renderDetailTile('Status', request.status)}
+        ${renderDetailTile('Total Days', request.total_days)}
+        ${renderDetailTile('Start Date', formatDate(request.start_date))}
+        ${renderDetailTile('End Date', formatDate(request.end_date))}
+        ${renderDetailTile('Annual Allowance', summary.balance?.total_allowance ?? '—')}
+        ${renderDetailTile('Used Days', summary.balance?.used_days ?? '—')}
+        ${renderDetailTile('Remaining Days', summary.balance?.remaining_days ?? '—')}
+        ${renderDetailTile('Approved At', request.approved_at ? formatDate(request.approved_at) : '—')}
+      </div>
 
-        document.getElementById('viewEmployeeProfileBtn').onclick = () => {
-          document.getElementById('employeeProfileTitle').textContent = request.employee_name;
-          renderEmployeeProfile(request.employee);
-          openModal('employeeProfileModal');
-        };
+      <div class="modal-section">
+        <h3>Reason</h3>
+        <p class="muted">${request.reason || 'No reason provided'}</p>
+      </div>
 
-        openModal('requestInfoModal');
-      }
-    });
+      <div class="modal-section">
+        <h3>Notes</h3>
+        <p class="muted">${request.notes || 'No notes added'}</p>
+      </div>
+
+      <div class="modal-section">
+        <h3>Recent Leave History</h3>
+        <div class="card-list compact-list">
+          ${
+            summary.requests.length
+              ? summary.requests.slice(0, 8).map((entry) => `
+                <article class="leave-card">
+                  <p class="leave-card-title">${leaveTypeLabel(entry.leave_type)} • ${entry.status}</p>
+                  <p class="leave-card-subtitle">${formatDate(entry.start_date)} to ${formatDate(entry.end_date)} • ${entry.total_days} day(s)</p>
+                </article>
+              `).join('')
+              : '<div class="empty-state">No leave history found.</div>'
+          }
+        </div>
+      </div>
+    `;
+
+    document.getElementById('viewEmployeeProfileBtn').onclick = () => {
+      document.getElementById('employeeProfileTitle').textContent = request.employee_name || 'Employee';
+      renderEmployeeProfile(request.employee);
+      openModal('employeeProfileModal');
+    };
+
+    openModal('requestInfoModal');
+  } catch (error) {
+    console.error('More Info failed:', error);
+    alert(error.message || 'More Info failed to load.');
+  }
+
+  return;
+}
 
     confirmRequestActionBtn?.addEventListener('click', async () => {
       if (!selectedRequest || !pendingAction) return;
