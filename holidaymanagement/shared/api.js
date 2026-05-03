@@ -1,17 +1,102 @@
 import { supabase, leaveSchema } from './supabase.js';
 
-function safeName(employee, fallback = 'Employee') {
-  if (!employee) return fallback;
-  if (employee.full_name) return employee.full_name;
+export function leaveTypeLabel(value) {
+  if (value === 'annual') return 'Annual Request';
+  if (value === 'sick') return 'Sick Leave';
+  return 'Other Leave';
+}
 
-  const first = employee.first_name || '';
-  const last = employee.last_name || '';
-  const combined = `${first} ${last}`.trim();
+export async function getEmployeesByCompany() {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('get_employees');
 
-  return combined || employee.name || employee.email || employee.work_email || fallback;
+  if (error) throw error;
+
+  return (data || []).map((employee) => ({
+    ...employee,
+    display_name: employee.full_name || 'Employee',
+    employee_id_display: employee.employee_code || '—'
+  }));
+}
+
+export async function searchEmployees(companyId, searchTerm) {
+  const employees = await getEmployeesByCompany(companyId);
+  const term = String(searchTerm || '').toLowerCase();
+
+  return employees
+    .filter((employee) =>
+      JSON.stringify(employee).toLowerCase().includes(term)
+    )
+    .slice(0, 10);
+}
+
+export async function upsertEmployee(payload) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('upsert_employee', {
+      payload
+    });
+
+  if (error) {
+    if (error.message?.includes('MAX_EMPLOYEES_REACHED')) {
+      throw new Error(
+        'Sorry, your plan has reached the maximum number of employees. Please contact support@smartcoretechnology.co.uk to upgrade your plan.'
+      );
+    }
+
+    throw error;
+  }
+
+  return data;
+}
+
+export async function archiveEmployee(employee) {
+  return upsertEmployee({
+    ...employee,
+    employment_status: 'archived'
+  });
+}
+
+export async function restoreEmployee(employee) {
+  return upsertEmployee({
+    ...employee,
+    employment_status: 'active'
+  });
+}
+
+export async function getEmployeeByUserId(userId) {
+  const employees = await getEmployeesByCompany();
+  return employees.find((employee) => employee.user_id === userId) || null;
+}
+
+export async function getShiftPatterns(companyId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('shift_patterns')
+    .select('*')
+    .eq('company_id', companyId)
+    .order('name');
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createShiftPattern(payload) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('shift_patterns')
+    .insert([payload])
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
 }
 
 export async function getMyLeaveBalance(userId, year) {
+  if (!userId) return null;
+
   const { data, error } = await supabase
     .schema(leaveSchema)
     .from('leave_balances')
@@ -21,54 +106,6 @@ export async function getMyLeaveBalance(userId, year) {
     .maybeSingle();
 
   if (error) throw error;
-  return data;
-}
-
-export async function getCompanyHolidays(companyId) {
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .from('company_holidays')
-    .select('holiday_date')
-    .eq('company_id', companyId)
-    .order('holiday_date', { ascending: true });
-
-  if (error) throw error;
-  return data || [];
-}
-
-export async function createLeaveRequest(payload) {
-  const employee = await getEmployeeByUserId(payload.user_id);
-
-  const insertPayload = {
-    ...payload,
-    employee_id: employee?.id || null
-  };
-
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .from('leave_requests')
-    .insert([insertPayload])
-    .select()
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) throw new Error('Leave request was inserted, but no row was returned.');
-
-  await supabase
-    .schema(leaveSchema)
-    .from('leave_logs')
-    .insert([{
-      leave_request_id: data.id,
-      action: 'created',
-      performed_by: payload.user_id,
-      details: {
-        leave_type: payload.leave_type,
-        start_date: payload.start_date,
-        end_date: payload.end_date,
-        total_days: payload.total_days
-      }
-    }]);
-
   return data;
 }
 
@@ -108,243 +145,66 @@ export async function getAllCompanyLeaveRequests(companyId) {
   return data || [];
 }
 
-export async function getAllCompanySickRecords(companyId) {
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .from('sick_records')
-    .select('*')
-    .eq('company_id', companyId)
-    .order('sick_date', { ascending: false });
-
-  if (error) throw error;
-  return data || [];
-}
-
-export async function getEmployeesByCompany(companyId) {
-  const { data, error } = await supabase
-    .from('employees')
-    .select('*')
-    .eq('company_id', companyId)
-    .order('full_name', { ascending: true });
-
-  if (error) throw error;
-
-  return (data || []).map((employee) => ({
-    ...employee,
-    display_name: safeName(employee)
-  }));
-}
-
-export async function searchEmployees(companyId, searchTerm) {
-  const term = String(searchTerm || '').trim();
-
-  if (term.length < 2) return [];
-
-  const { data, error } = await supabase
-    .from('employees')
-    .select('*')
-    .eq('company_id', companyId)
-    .or(`full_name.ilike.%${term}%,employee_code.ilike.%${term}%,work_email.ilike.%${term}%,email.ilike.%${term}%`)
-    .limit(8);
-
-  if (error) throw error;
-
-  return (data || []).map((employee) => ({
-    ...employee,
-    display_name: safeName(employee)
-  }));
-}
-
-export async function getEmployeeByUserId(userId) {
-  if (!userId) return null;
-
-  const { data, error } = await supabase
-    .from('employees')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle();
-
-  if (error) throw error;
-
-  if (!data) return null;
-
-  return {
-    ...data,
-    display_name: safeName(data)
-  };
-}
-
-export async function enrichRequestsWithEmployeeInfo(requests, companyId) {
-  const employees = await getEmployeesByCompany(companyId);
-
+export async function enrichRequestsWithEmployeeInfo(requests) {
+  const employees = await getEmployeesByCompany();
   const byEmployeeId = new Map(employees.map((employee) => [employee.id, employee]));
   const byUserId = new Map(employees.filter((employee) => employee.user_id).map((employee) => [employee.user_id, employee]));
 
   return (requests || []).map((request) => {
-    const employee = byEmployeeId.get(request.employee_id) || byUserId.get(request.user_id);
+    const employee =
+      byEmployeeId.get(request.employee_id) ||
+      byUserId.get(request.user_id);
 
     return {
       ...request,
       employee,
-      employee_name: employee?.display_name || 'Employee',
-      employee_id: employee?.employee_code || employee?.employee_id || '—',
+      employee_name: employee?.full_name || 'Employee',
+      employee_id_display: employee?.employee_code || '—',
       job_title: employee?.job_title || '—'
     };
   });
 }
 
-export async function getApprovedLeaveForDate(companyId, isoDate) {
+export async function createLeaveRequest(payload) {
+  const employee = await getEmployeeByUserId(payload.user_id);
+
+  const insertPayload = {
+    ...payload,
+    employee_id: employee?.id || null,
+    deduct_allowance: payload.leave_type !== 'sick'
+  };
+
   const { data, error } = await supabase
     .schema(leaveSchema)
     .from('leave_requests')
-    .select('*')
-    .eq('company_id', companyId)
-    .eq('status', 'approved')
-    .lte('start_date', isoDate)
-    .gte('end_date', isoDate)
-    .order('start_date', { ascending: true });
+    .insert([insertPayload])
+    .select()
+    .maybeSingle();
 
   if (error) throw error;
-  return enrichRequestsWithEmployeeInfo(data || [], companyId);
-}
-
-export async function getApprovedLeaveInRange(companyId, startDate, endDate) {
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .from('leave_requests')
-    .select('*')
-    .eq('company_id', companyId)
-    .eq('status', 'approved')
-    .lte('start_date', endDate)
-    .gte('end_date', startDate)
-    .order('start_date', { ascending: true });
-
-  if (error) throw error;
-  return enrichRequestsWithEmployeeInfo(data || [], companyId);
-}
-
-export async function getDashboardLeaveBreakdown(companyId) {
-  const today = new Date();
-  const todayIso = today.toISOString().slice(0, 10);
-
-  const next7 = new Date(today);
-  next7.setDate(next7.getDate() + 7);
-  const next7Iso = next7.toISOString().slice(0, 10);
-
-  const approved = await getApprovedLeaveInRange(companyId, todayIso, next7Iso);
-  const employees = await getEmployeesByCompany(companyId);
-
-  const annualToday = approved.filter((r) => r.leave_type === 'annual' && r.start_date <= todayIso && r.end_date >= todayIso);
-  const sickToday = approved.filter((r) => r.leave_type === 'sick' && r.start_date <= todayIso && r.end_date >= todayIso);
-  const otherToday = approved.filter((r) => r.leave_type === 'other' && r.start_date <= todayIso && r.end_date >= todayIso);
-
-  const annualNext7 = approved.filter((r) => r.leave_type === 'annual');
-  const sickNext7 = approved.filter((r) => r.leave_type === 'sick');
-  const otherNext7 = approved.filter((r) => r.leave_type === 'other');
-
-  const birthdaysNext7 = employees.filter((employee) => {
-    if (!employee.dob) return false;
-
-    const dob = new Date(employee.dob);
-    const month = dob.getMonth();
-    const day = dob.getDate();
-
-    for (let i = 0; i <= 7; i += 1) {
-      const check = new Date(today);
-      check.setDate(today.getDate() + i);
-      if (check.getMonth() === month && check.getDate() === day) return true;
-    }
-
-    return false;
-  });
-
-  return {
-    annualToday,
-    sickToday,
-    otherToday,
-    annualNext7,
-    sickNext7,
-    otherNext7,
-    birthdaysNext7
-  };
-}
-
-export async function getEmployeeLeaveSummary(request) {
-  const userId = request.user_id;
-  const employeeUuid = request.employee?.id || null;
-  const year = new Date().getFullYear();
-
-  let balance = null;
-
-  if (userId) {
-    balance = await getMyLeaveBalance(userId, year);
-  }
-
-  let query = supabase
-    .schema(leaveSchema)
-    .from('leave_requests')
-    .select('*')
-    .eq('company_id', request.company_id)
-    .order('start_date', { ascending: false });
-
-  if (employeeUuid) {
-    query = query.eq('employee_id', employeeUuid);
-  } else if (userId) {
-    query = query.eq('user_id', userId);
-  } else {
-    return {
-      balance,
-      requests: []
-    };
-  }
-
-  const { data, error } = await query;
-
-  if (error) throw error;
-
-  return {
-    balance,
-    requests: data || []
-  };
+  return data;
 }
 
 export async function approveLeaveRequest(request, approverId, note = '', deductAllowance = true) {
-  const nowIso = new Date().toISOString();
-
   const { data, error } = await supabase
     .schema(leaveSchema)
     .from('leave_requests')
     .update({
       status: 'approved',
       approved_by: approverId,
-      approved_at: nowIso,
-      notes: note || request.notes || null
+      approved_at: new Date().toISOString(),
+      notes: note || request.notes || null,
+      deduct_allowance: deductAllowance
     })
     .eq('id', request.id)
-    .select('id')
+    .select('*')
     .maybeSingle();
 
   if (error) throw error;
-  if (!data) throw new Error('The request could not be approved. Check RLS/update permissions.');
-
-  await supabase
-    .schema(leaveSchema)
-    .from('leave_logs')
-    .insert([{
-      leave_request_id: request.id,
-      action: 'approved',
-      performed_by: approverId,
-      details: {
-        previous_status: request.status,
-        approved_at: nowIso,
-        note: note || null,
-        deduct_allowance: deductAllowance
-      }
-    }]);
+  if (!data) throw new Error('The request could not be approved.');
 
   if (deductAllowance && ['annual', 'other'].includes(request.leave_type) && request.user_id) {
-    const year = new Date(request.start_date).getFullYear();
-    const balance = await getMyLeaveBalance(request.user_id, year);
+    const balance = await getMyLeaveBalance(request.user_id, new Date(request.start_date).getFullYear());
 
     if (balance) {
       const usedDays = Number(balance.used_days || 0) + Number(request.total_days || 0);
@@ -367,15 +227,13 @@ export async function approveLeaveRequest(request, approverId, note = '', deduct
 }
 
 export async function rejectLeaveRequest(request, approverId, note = '') {
-  const nowIso = new Date().toISOString();
-
   const { data, error } = await supabase
     .schema(leaveSchema)
     .from('leave_requests')
     .update({
       status: 'rejected',
       approved_by: approverId,
-      approved_at: nowIso,
+      approved_at: new Date().toISOString(),
       notes: note || request.notes || null
     })
     .eq('id', request.id)
@@ -383,86 +241,7 @@ export async function rejectLeaveRequest(request, approverId, note = '') {
     .maybeSingle();
 
   if (error) throw error;
-  if (!data) throw new Error('The request could not be rejected. Check RLS/update permissions.');
-
-  await supabase
-    .schema(leaveSchema)
-    .from('leave_logs')
-    .insert([{
-      leave_request_id: request.id,
-      action: 'rejected',
-      performed_by: approverId,
-      details: {
-        rejected_at: nowIso,
-        note: note || null
-      }
-    }]);
+  if (!data) throw new Error('The request could not be rejected.');
 
   return true;
-}
-
-export async function createManualAbsence(payload, authorisingUserId) {
-  const insertPayload = {
-    user_id: payload.employee.user_id || null,
-    employee_id: payload.employee.id,
-    company_id: payload.company_id,
-    leave_type: payload.leave_type,
-    start_date: payload.start_date,
-    end_date: payload.end_date,
-    total_days: payload.total_days,
-    status: 'approved',
-    reason: payload.reason || null,
-    notes: `Manually added by admin.${payload.authorising_name ? ` Authorising user: ${payload.authorising_name}.` : ''}`,
-    approved_by: authorisingUserId,
-    approved_at: new Date().toISOString()
-  };
-
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .from('leave_requests')
-    .insert([insertPayload])
-    .select()
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) throw new Error('Manual absence could not be saved.');
-
-  await supabase
-    .schema(leaveSchema)
-    .from('leave_logs')
-    .insert([{
-      leave_request_id: data.id,
-      action: 'approved',
-      performed_by: authorisingUserId,
-      details: {
-        manual_absence: true,
-        leave_type: payload.leave_type,
-        employee_id: payload.employee.id,
-        reason: payload.reason || null,
-        deduct_allowance: payload.deduct_allowance
-      }
-    }]);
-
-  if (payload.deduct_allowance && ['annual', 'other'].includes(payload.leave_type) && payload.employee.user_id) {
-    const year = new Date(payload.start_date).getFullYear();
-    const balance = await getMyLeaveBalance(payload.employee.user_id, year);
-
-    if (balance) {
-      const usedDays = Number(balance.used_days || 0) + Number(payload.total_days || 0);
-      const remainingDays = Math.max(0, Number(balance.total_allowance || 0) - usedDays);
-
-      const { error: balanceError } = await supabase
-        .schema(leaveSchema)
-        .from('leave_balances')
-        .update({
-          used_days: usedDays,
-          remaining_days: remainingDays
-        })
-        .eq('id', balance.id);
-
-      if (balanceError) throw balanceError;
-    }
-  }
-
-  return data;
 }
