@@ -1,42 +1,57 @@
-import { getSession, getCurrentProfile } from './auth.js';
-import { isManagerOrAdmin } from './roles.js';
+import { supabase, leaveSchema } from './supabase.js';
 
-const LOGIN_PATH = './login.html';
-const HOME_PATH = './home.html';
+export async function getSessionOrRedirect() {
+  const { data, error } = await supabase.auth.getSession();
 
-export async function requireAuth() {
-  const session = await getSession();
-  if (!session) {
-    window.location.href = LOGIN_PATH;
+  if (error || !data.session) {
+    window.location.href = './login.html';
     return null;
   }
 
-  const profile = await getCurrentProfile();
-  return { session, profile };
+  return data.session;
 }
 
-export async function requireGuest() {
-  const session = await getSession();
-  if (session) {
-    window.location.href = HOME_PATH;
-    return false;
+export async function getCurrentProfile() {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('get_current_employee_profile');
+
+  if (error) throw error;
+
+  const profile = data?.[0];
+
+  if (!profile || !profile.active) {
+    throw new Error('Your employee profile is missing or inactive.');
   }
-  return true;
+
+  return profile;
+}
+
+export async function requirePageAccess() {
+  const session = await getSessionOrRedirect();
+  if (!session) return null;
+
+  const profile = await getCurrentProfile();
+
+  return {
+    session,
+    user: session.user,
+    profile
+  };
 }
 
 export async function requireAdminPageAccess() {
-  const auth = await requireAuth();
-  if (!auth) return null;
-  if (!isManagerOrAdmin(auth.profile)) {
-    window.location.href = HOME_PATH;
+  const access = await requirePageAccess();
+  if (!access) return null;
+
+  const isAdmin =
+    access.profile.is_admin === true ||
+    ['admin', 'owner'].includes(String(access.profile.role || '').toLowerCase());
+
+  if (!isAdmin) {
+    window.location.href = './home.html';
     return null;
   }
-  return auth;
-}
 
-export function applyRoleUi(profile) {
-  const adminLink = document.getElementById('adminNavLink');
-  if (!isManagerOrAdmin(profile) && adminLink) {
-    adminLink.style.display = 'none';
-  }
+  return access;
 }
