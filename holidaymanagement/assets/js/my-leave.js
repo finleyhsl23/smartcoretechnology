@@ -1,15 +1,16 @@
 import { requireAuth, applyRoleUi } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
 import { revealApp, renderEmptyState, showPageError } from '../../shared/ui.js';
-import {
-  getMyLeaveRequests,
-  leaveTypeLabel
-} from '../../shared/api.js';
+import { getMyLeaveRequests, leaveTypeLabel } from '../../shared/api.js';
 import { formatDate } from '../../shared/dates.js';
 
-function setText(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = value ?? '—';
+function setText(ids, value) {
+  const idList = Array.isArray(ids) ? ids : [ids];
+
+  idList.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value ?? '—';
+  });
 }
 
 function statusBadge(status) {
@@ -27,16 +28,12 @@ function calculateLeaveStats(profile, requests) {
     )
     .reduce((sum, request) => sum + Number(request.total_days || 0), 0);
 
-  const remaining = Math.max(0, allowance - used);
-  const pending = (requests || []).filter((request) => request.status === 'pending').length;
-  const approved = (requests || []).filter((request) => request.status === 'approved').length;
-
   return {
     allowance,
     used,
-    remaining,
-    pending,
-    approved
+    remaining: Math.max(0, allowance - used),
+    pending: requests.filter((request) => request.status === 'pending').length,
+    approved: requests.filter((request) => request.status === 'approved').length
   };
 }
 
@@ -83,11 +80,6 @@ async function initMyLeavePage() {
       window.location.href = './login.html';
     });
 
-    setText(
-      'myLeaveWelcome',
-      `Welcome back, ${profile.full_name || user.email || 'Employee'}. Here are your leave statistics:`
-    );
-
     let requests = [];
 
     try {
@@ -98,16 +90,19 @@ async function initMyLeavePage() {
 
     const stats = calculateLeaveStats(profile, requests);
 
-    setText('leaveAllowance', stats.allowance);
-    setText('leaveUsed', stats.used);
-    setText('leaveRemaining', stats.remaining);
-    setText('leavePending', stats.pending);
-    setText('leaveApproved', stats.approved);
+    setText(['myLeaveWelcome', 'welcomeText'], `Welcome back, ${profile.full_name || user.email || 'Employee'}. Here are your leave statistics:`);
+
+    setText(['leaveAllowance', 'myAllowance', 'annualAllowance', 'profileAllowance'], stats.allowance);
+    setText(['leaveUsed', 'myUsed', 'annualUsed', 'profileUsed'], stats.used);
+    setText(['leaveRemaining', 'myRemaining', 'annualRemaining', 'profileRemaining'], stats.remaining);
+    setText(['leavePending', 'myPending', 'profilePending'], stats.pending);
+    setText(['leaveApproved', 'myApproved'], stats.approved);
 
     const list =
       document.getElementById('myLeaveList') ||
       document.getElementById('leaveHistoryList') ||
-      document.getElementById('myLeaveRequestsList');
+      document.getElementById('myLeaveRequestsList') ||
+      document.getElementById('requestsList');
 
     renderRequests(list, requests);
 
