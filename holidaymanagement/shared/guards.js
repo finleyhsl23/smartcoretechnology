@@ -27,11 +27,29 @@ export async function getCurrentProfile() {
   return profile;
 }
 
+export function isAdminProfile(profile) {
+  return (
+    profile?.is_admin === true ||
+    ['admin', 'owner'].includes(String(profile?.role || '').toLowerCase())
+  );
+}
+
+export function applyRoleUi(profile) {
+  const isAdmin = isAdminProfile(profile);
+
+  document.querySelectorAll('#adminNavLink, [data-admin-only]').forEach((element) => {
+    element.classList.toggle('hidden', !isAdmin);
+  });
+
+  return isAdmin;
+}
+
 export async function requirePageAccess() {
   const session = await getSessionOrRedirect();
   if (!session) return null;
 
   const profile = await getCurrentProfile();
+  applyRoleUi(profile);
 
   return {
     session,
@@ -44,11 +62,7 @@ export async function requireAdminPageAccess() {
   const access = await requirePageAccess();
   if (!access) return null;
 
-  const isAdmin =
-    access.profile.is_admin === true ||
-    ['admin', 'owner'].includes(String(access.profile.role || '').toLowerCase());
-
-  if (!isAdmin) {
+  if (!isAdminProfile(access.profile)) {
     window.location.href = './home.html';
     return null;
   }
