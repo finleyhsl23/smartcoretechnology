@@ -19,6 +19,11 @@ function leaveTypeLabel(value) {
   return 'Other Leave';
 }
 
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
 function calendarDays(startDate, endDate) {
   if (!startDate || !endDate) return 0;
   const start = new Date(startDate);
