@@ -45,8 +45,14 @@ export function isAdminProfile(profile) {
 export function applyRoleUi(profile) {
   const isAdmin = isAdminProfile(profile);
 
-  document.querySelectorAll('#adminNavLink, [data-admin-only]').forEach((el) => {
+  document.querySelectorAll('#adminNavLink, [data-admin-only], .admin-only-link').forEach((el) => {
     el.classList.toggle('hidden', !isAdmin);
+    el.style.display = isAdmin ? '' : 'none';
+  });
+
+  document.querySelectorAll('a[href="./admin.html"], a[href="./employee-management.html"]').forEach((el) => {
+    el.classList.toggle('hidden', !isAdmin);
+    el.style.display = isAdmin ? '' : 'none';
   });
 
   return isAdmin;
