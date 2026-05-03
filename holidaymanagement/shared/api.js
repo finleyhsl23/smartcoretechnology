@@ -337,7 +337,7 @@ export async function approveLeaveRequest(request, approverId, note = '', deduct
       }
     }]);
 
-  if (deductAllowance && request.leave_type === 'annual' && request.user_id) {
+  if (deductAllowance && ['annual', 'other'].includes(request.leave_type) && request.user_id) {
     const year = new Date(request.start_date).getFullYear();
     const balance = await getMyLeaveBalance(request.user_id, year);
 
@@ -438,7 +438,7 @@ export async function createManualAbsence(payload, authorisingUserId) {
       }
     }]);
 
-  if (payload.deduct_allowance && payload.leave_type === 'annual' && payload.employee.user_id) {
+  if (payload.deduct_allowance && ['annual', 'other'].includes(payload.leave_type) && payload.employee.user_id) {
     const year = new Date(payload.start_date).getFullYear();
     const balance = await getMyLeaveBalance(payload.employee.user_id, year);
 
