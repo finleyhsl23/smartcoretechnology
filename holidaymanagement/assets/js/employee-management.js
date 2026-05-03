@@ -183,6 +183,12 @@ function fillEmployeeForm(employee = null) {
   document.getElementById('employeeModalTitle').textContent =
     employee ? 'Edit Employee' : 'Add Employee';
 
+  const isEditing = !!employee;
+
+document.querySelectorAll('[data-edit-only]').forEach((section) => {
+  section.classList.toggle('hidden', !isEditing);
+});
+
   const newCode = employee?.employee_code || generateEmployeeCode();
 
   setField('employeeId', employee?.id);
