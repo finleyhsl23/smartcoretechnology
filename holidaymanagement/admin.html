@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Leave Admin Panel</title>
-  <link rel="icon" href="/images/smartfitsfavicon" />
-  <link rel="stylesheet" href="/holidaymanagement/assets/css/holidaymanagement.css?v=4" />
+  <link rel="icon" href="/images/smartfitsfavicon.png" />
+  <link rel="stylesheet" href="/holidaymanagement/assets/css/holidaymanagement.css" />
 </head>
 <body class="app-page">
   <div id="appLoader" class="page-loader">Loading admin panel...</div>
@@ -16,7 +16,7 @@
         <img src="/images/smartfitslogo.png" alt="Smartfits" class="sidebar-logo" />
         <div>
           <h2>Holiday Management</h2>
-          <p class="muted small">Built By SmartCore Technology</p>
+          <p class="muted small">SmartCore / Smartfits</p>
         </div>
       </div>
 
@@ -25,7 +25,7 @@
         <a href="./calendar.html" class="nav-link">Calendar</a>
         <a href="./request.html" class="nav-link">Request Leave</a>
         <a href="./my-leave.html" class="nav-link">My Leave</a>
-        <a href="./admin.html" class="nav-link active">Admin</a>
+        <a href="./admin.html" class="nav-link active" id="adminNavLink">Admin</a>
       </nav>
 
       <button class="btn btn-secondary btn-block" id="logoutBtn">Sign Out</button>
@@ -35,8 +35,12 @@
       <header class="topbar glass-card">
         <div>
           <h1>Admin Panel</h1>
-          <p class="muted">Review requests and view employee leave information.</p>
+          <p class="muted">Review, approve, reject, and manually add absences.</p>
         </div>
+
+        <button class="btn btn-primary" id="openManualAbsenceBtn" type="button">
+          Add Manual Absence
+        </button>
       </header>
 
       <section class="stats-grid">
@@ -61,28 +65,33 @@
       <section class="content-grid single-column">
         <div class="glass-card panel">
           <div class="panel-header panel-stack-mobile">
-            <div>
-              <h2>Leave Requests</h2>
-              <p class="muted">Open each request to see employee details, notes and leave history.</p>
-            </div>
+            <h2>Leave Requests</h2>
 
             <div class="filters-inline">
-              <div class="custom-select-wrap">
-                <select id="adminStatusFilter">
-                  <option value="all">All Statuses</option>
-                  <option value="pending">Pending</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
-                </select>
+              <div class="custom-select" data-name="status" data-value="all" id="adminStatusSelect">
+                <button class="custom-select-trigger" type="button">
+                  <span>All Statuses</span>
+                  <b>⌄</b>
+                </button>
+                <div class="custom-select-menu">
+                  <button type="button" data-value="all">All Statuses</button>
+                  <button type="button" data-value="pending">Pending</button>
+                  <button type="button" data-value="approved">Approved</button>
+                  <button type="button" data-value="rejected">Rejected</button>
+                </div>
               </div>
 
-              <div class="custom-select-wrap">
-                <select id="adminTypeFilter">
-                  <option value="all">All Types</option>
-                  <option value="annual">Annual Request</option>
-                  <option value="sick">Sick Leave</option>
-                  <option value="other">Other Leave</option>
-                </select>
+              <div class="custom-select" data-name="type" data-value="all" id="adminTypeSelect">
+                <button class="custom-select-trigger" type="button">
+                  <span>All Types</span>
+                  <b>⌄</b>
+                </button>
+                <div class="custom-select-menu">
+                  <button type="button" data-value="all">All Types</button>
+                  <button type="button" data-value="annual">Annual Request</button>
+                  <button type="button" data-value="sick">Sick Leave</button>
+                  <button type="button" data-value="other">Other Leave</button>
+                </div>
               </div>
             </div>
           </div>
@@ -93,34 +102,129 @@
     </main>
   </div>
 
-  <div id="requestModal" class="modal-backdrop hidden">
-    <div class="glass-card modal-card">
+  <div class="modal-backdrop hidden" id="requestActionModal">
+    <div class="modal-card glass-card">
       <div class="modal-header">
         <div>
-          <h2 id="modalTitle">Request Details</h2>
-          <p class="muted" id="modalSubtitle"></p>
+          <h2 id="requestActionTitle">Confirm action</h2>
+          <p class="muted" id="requestActionSubtitle">Add a note if needed.</p>
         </div>
-        <button class="btn btn-secondary" type="button" id="closeRequestModal">Close</button>
+        <button class="btn btn-secondary" type="button" data-close-modal="requestActionModal">Close</button>
       </div>
 
-      <div id="requestModalBody"></div>
+      <div class="field">
+        <label for="requestActionNote">Optional note</label>
+        <textarea id="requestActionNote" rows="5" placeholder="Add a note for this request..."></textarea>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" type="button" data-close-modal="requestActionModal">Cancel</button>
+        <button class="btn btn-primary" type="button" id="confirmRequestActionBtn">Confirm</button>
+      </div>
     </div>
   </div>
 
-  <div id="employeeProfileModal" class="modal-backdrop hidden">
-    <div class="glass-card modal-card modal-card-wide">
+  <div class="modal-backdrop hidden" id="requestInfoModal">
+    <div class="modal-card glass-card">
+      <div class="modal-header">
+        <div>
+          <h2 id="infoEmployeeName">Request Details</h2>
+          <p class="muted" id="infoEmployeeSubtitle">Employee information and request notes.</p>
+        </div>
+        <button class="btn btn-secondary" type="button" data-close-modal="requestInfoModal">Close</button>
+      </div>
+
+      <div id="requestInfoContent"></div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" type="button" data-close-modal="requestInfoModal">Close</button>
+        <button class="btn btn-primary" type="button" id="viewEmployeeProfileBtn">View Employee Profile</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="employeeProfileModal">
+    <div class="modal-card glass-card">
       <div class="modal-header">
         <div>
           <h2 id="employeeProfileTitle">Employee Profile</h2>
           <p class="muted">Full employee record from public.employees.</p>
         </div>
-        <button class="btn btn-secondary" type="button" id="closeEmployeeProfileModal">Close</button>
+        <button class="btn btn-secondary" type="button" data-close-modal="employeeProfileModal">Close</button>
       </div>
 
-      <div id="employeeProfileBody"></div>
+      <div id="employeeProfileContent" class="employee-profile-grid"></div>
     </div>
   </div>
 
-  <script type="module" src="/holidaymanagement/assets/js/admin.js?v=4"></script>
+  <div class="modal-backdrop hidden" id="manualAbsenceModal">
+    <div class="modal-card glass-card">
+      <div class="modal-header">
+        <div>
+          <h2>Add Manual Absence</h2>
+          <p class="muted">Add annual leave, sick leave, or other absence directly for an employee.</p>
+        </div>
+        <button class="btn btn-secondary" type="button" data-close-modal="manualAbsenceModal">Close</button>
+      </div>
+
+      <form id="manualAbsenceForm" class="form-grid">
+        <div class="field full-width">
+          <label for="employeeSearchInput">Employee name</label>
+          <input id="employeeSearchInput" type="text" placeholder="Start typing an employee name..." autocomplete="off" />
+          <div id="employeeSearchResults" class="search-results hidden"></div>
+          <div id="selectedEmployeeBox" class="selected-employee-box hidden"></div>
+        </div>
+
+        <div class="field">
+          <label>Absence type</label>
+          <div class="custom-select" data-name="manualAbsenceType" data-value="annual" id="manualAbsenceTypeSelect">
+            <button class="custom-select-trigger" type="button">
+              <span>Annual Request</span>
+              <b>⌄</b>
+            </button>
+            <div class="custom-select-menu">
+              <button type="button" data-value="annual">Annual Request</button>
+              <button type="button" data-value="sick">Sick Leave</button>
+              <button type="button" data-value="other">Other Leave</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="manualStartDate">Start Date</label>
+          <input id="manualStartDate" type="date" required />
+        </div>
+
+        <div class="field">
+          <label for="manualEndDate">End Date</label>
+          <input id="manualEndDate" type="date" required />
+        </div>
+
+        <div class="field">
+          <label for="manualTotalDays">Total Days</label>
+          <input id="manualTotalDays" type="text" readonly />
+        </div>
+
+        <div class="field full-width">
+          <label for="manualReason">Reason for absence</label>
+          <textarea id="manualReason" rows="4" placeholder="Reason for absence..."></textarea>
+        </div>
+
+        <div class="field full-width">
+          <label>Authorising user</label>
+          <input id="manualAuthorisingUser" type="text" readonly />
+        </div>
+
+        <div class="full-width modal-actions">
+          <button class="btn btn-secondary" type="button" data-close-modal="manualAbsenceModal">Cancel</button>
+          <button class="btn btn-primary" type="submit">Save Absence</button>
+        </div>
+      </form>
+
+      <div id="manualAbsenceMessage" class="form-message"></div>
+    </div>
+  </div>
+
+  <script type="module" src="/holidaymanagement/assets/js/admin.js"></script>
 </body>
 </html>
