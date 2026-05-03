@@ -303,7 +303,7 @@ export async function getEmployeeLeaveSummary(request) {
   };
 }
 
-export async function approveLeaveRequest(request, approverId, note = '') {
+export async function approveLeaveRequest(request, approverId, note = '', deductAllowance = true) {
   const nowIso = new Date().toISOString();
 
   const { data, error } = await supabase
@@ -332,11 +332,12 @@ export async function approveLeaveRequest(request, approverId, note = '') {
       details: {
         previous_status: request.status,
         approved_at: nowIso,
-        note: note || null
+        note: note || null,
+        deduct_allowance: deductAllowance
       }
     }]);
 
-  if (request.leave_type === 'annual' && request.user_id) {
+  if (deductAllowance && request.leave_type === 'annual' && request.user_id) {
     const year = new Date(request.start_date).getFullYear();
     const balance = await getMyLeaveBalance(request.user_id, year);
 
@@ -355,19 +356,6 @@ export async function approveLeaveRequest(request, approverId, note = '') {
 
       if (balanceError) throw balanceError;
     }
-  }
-
-  if (request.leave_type === 'sick') {
-    await supabase
-      .schema(leaveSchema)
-      .from('sick_records')
-      .insert([{
-        user_id: request.user_id || approverId,
-        company_id: request.company_id,
-        leave_request_id: request.id,
-        sick_date: request.start_date,
-        notes: note || request.notes || request.reason || null
-      }]);
   }
 
   return true;
@@ -445,9 +433,31 @@ export async function createManualAbsence(payload, authorisingUserId) {
         manual_absence: true,
         leave_type: payload.leave_type,
         employee_id: payload.employee.id,
-        reason: payload.reason || null
+        reason: payload.reason || null,
+        deduct_allowance: payload.deduct_allowance
       }
     }]);
+
+  if (payload.deduct_allowance && payload.leave_type === 'annual' && payload.employee.user_id) {
+    const year = new Date(payload.start_date).getFullYear();
+    const balance = await getMyLeaveBalance(payload.employee.user_id, year);
+
+    if (balance) {
+      const usedDays = Number(balance.used_days || 0) + Number(payload.total_days || 0);
+      const remainingDays = Math.max(0, Number(balance.total_allowance || 0) - usedDays);
+
+      const { error: balanceError } = await supabase
+        .schema(leaveSchema)
+        .from('leave_balances')
+        .update({
+          used_days: usedDays,
+          remaining_days: remainingDays
+        })
+        .eq('id', balance.id);
+
+      if (balanceError) throw balanceError;
+    }
+  }
 
   return data;
 }
