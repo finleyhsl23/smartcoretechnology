@@ -1,8 +1,11 @@
 import { supabase, leaveSchema } from '../../shared/supabase.js';
 import { showMessage } from '../../shared/ui.js';
+import { completeEmployeeOnboarding } from '../../shared/api.js';
 
 const params = new URLSearchParams(window.location.search);
 const token = params.get('token');
+
+let onboardingEmployee = null;
 
 function showOnly(id) {
   ['loadingState', 'expiredState', 'completeState', 'onboardingForm'].forEach((item) => {
@@ -33,10 +36,10 @@ async function loadInvite() {
     return;
   }
 
-  const employee = data[0];
+  onboardingEmployee = data[0];
 
   document.getElementById('employeeIntro').textContent =
-    `Hello ${employee.full_name || 'there'}, please complete the rest of your employee details.`;
+    `Hello ${onboardingEmployee.full_name || 'there'}, please create your password and complete the rest of your employee details. Your login email will be ${onboardingEmployee.personal_email}.`;
 
   showOnly('onboardingForm');
 }
@@ -45,6 +48,19 @@ document.getElementById('onboardingForm')?.addEventListener('submit', async (eve
   event.preventDefault();
 
   try {
+    const password = getValue('password');
+    const confirmPassword = getValue('confirmPassword');
+
+    if (password.length < 8) {
+      showMessage('onboardingMessage', 'Password must be at least 8 characters.', 'error');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      showMessage('onboardingMessage', 'Passwords do not match.', 'error');
+      return;
+    }
+
     const payload = {
       title: getValue('title'),
       pronouns: getValue('pronouns'),
@@ -74,14 +90,15 @@ document.getElementById('onboardingForm')?.addEventListener('submit', async (eve
       emergency_contact_phone2: getValue('emergencyContactPhone2')
     };
 
-    const { error } = await supabase
-      .schema(leaveSchema)
-      .rpc('complete_employee_onboarding', {
-        invite_token: token,
-        payload
-      });
+    showMessage('onboardingMessage', 'Creating your login and saving your details...', 'info');
 
-    if (error) throw error;
+    await completeEmployeeOnboarding({
+      token,
+      personal_email: onboardingEmployee.personal_email,
+      password,
+      employee_name: onboardingEmployee.full_name,
+      payload
+    });
 
     showOnly('completeState');
   } catch (error) {
