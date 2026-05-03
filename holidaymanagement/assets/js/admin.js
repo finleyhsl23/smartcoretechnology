@@ -23,12 +23,9 @@ function setText(id, value) {
 
 function calendarDays(startDate, endDate) {
   if (!startDate || !endDate) return 0;
-
   const start = new Date(startDate);
   const end = new Date(endDate);
-
   if (end < start) return 0;
-
   return Math.ceil((end - start) / 86400000) + 1;
 }
 
@@ -38,9 +35,7 @@ function getCustomSelectValue(id) {
 
 function setCustomSelectValue(selectEl, value, label) {
   if (!selectEl) return;
-
   selectEl.dataset.value = value;
-
   const span = selectEl.querySelector('.custom-select-trigger span');
   if (span) span.textContent = label;
 }
@@ -52,13 +47,9 @@ function setupCustomSelects(onChange) {
 
     trigger?.addEventListener('click', (event) => {
       event.stopPropagation();
-
       document.querySelectorAll('.custom-select.open').forEach((openSelect) => {
-        if (openSelect !== selectEl) {
-          openSelect.classList.remove('open');
-        }
+        if (openSelect !== selectEl) openSelect.classList.remove('open');
       });
-
       selectEl.classList.toggle('open');
     });
 
@@ -66,10 +57,7 @@ function setupCustomSelects(onChange) {
       option.addEventListener('click', () => {
         setCustomSelectValue(selectEl, option.dataset.value, option.textContent.trim());
         selectEl.classList.remove('open');
-
-        if (typeof onChange === 'function') {
-          onChange(selectEl);
-        }
+        if (typeof onChange === 'function') onChange(selectEl);
       });
     });
   });
@@ -112,19 +100,11 @@ function renderEmployeeProfile(employee) {
     return;
   }
 
-  const hiddenKeys = new Set([
-    'display_name',
-    'employee_name',
-    'employee_id_display'
-  ]);
-
+  const hiddenKeys = new Set(['display_name', 'employee_name', 'employee_id_display']);
   const entries = Object.entries(employee).filter(([key]) => !hiddenKeys.has(key));
 
   container.innerHTML = entries.map(([key, value]) => {
-    const label = key
-      .replaceAll('_', ' ')
-      .replace(/\b\w/g, (char) => char.toUpperCase());
-
+    const label = key.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
     return renderDetailTile(label, value);
   }).join('');
 }
@@ -134,18 +114,14 @@ function setDeductAllowanceVisibility(action, leaveType) {
   const checkbox = document.getElementById('requestDeductAllowance');
   const row = document.getElementById('requestDeductAllowanceRow');
 
-  const shouldShow =
-    action === 'approve' &&
-    ['annual', 'other'].includes(leaveType);
+  const shouldShow = action === 'approve' && ['annual', 'other'].includes(leaveType);
 
   if (actionModal) {
     actionModal.dataset.actionType = action;
     actionModal.dataset.leaveType = leaveType;
   }
 
-  if (checkbox) {
-    checkbox.checked = true;
-  }
+  if (checkbox) checkbox.checked = true;
 
   if (row) {
     row.classList.toggle('hidden', !shouldShow);
@@ -171,7 +147,8 @@ async function initAdmin() {
     const auth = await requireAdminPageAccess();
     if (!auth) return;
 
-    const { profile } = auth;
+    const { profile, user } = auth;
+    const authUserId = profile.user_id || profile.auth_user_id || user.id;
 
     let requests = [];
     let selectedRequest = null;
@@ -199,13 +176,8 @@ async function initAdmin() {
     });
 
     setupCustomSelects((selectEl) => {
-      if (selectEl.id === 'adminStatusSelect' || selectEl.id === 'adminTypeSelect') {
-        renderList();
-      }
-
-      if (selectEl.id === 'manualAbsenceTypeSelect') {
-        updateManualDays();
-      }
+      if (selectEl.id === 'adminStatusSelect' || selectEl.id === 'adminTypeSelect') renderList();
+      if (selectEl.id === 'manualAbsenceTypeSelect') updateManualDays();
     });
 
     async function loadData() {
@@ -213,18 +185,15 @@ async function initAdmin() {
       requests = await enrichRequestsWithEmployeeInfo(requests, profile.company_id);
 
       let sickRecords = [];
-
       try {
         sickRecords = await getAllCompanySickRecords(profile.company_id);
       } catch (error) {
         console.warn('Sick records failed to load:', error);
-        sickRecords = [];
       }
 
       const todayIso = new Date().toISOString().slice(0, 10);
 
       setText('adminPendingCount', requests.filter((request) => request.status === 'pending').length);
-
       setText('adminCancelCount', requests.filter((request) => request.status === 'cancel_requested').length);
 
       setText(
@@ -286,7 +255,6 @@ async function initAdmin() {
               <p class="leave-card-subtitle">${item.employee_id_display || item.employee_id || '—'} • ${item.job_title || '—'}</p>
               <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days} day(s)</p>
             </div>
-
             <div class="badge badge-${item.status}">${item.status}</div>
           </div>
 
@@ -294,11 +262,7 @@ async function initAdmin() {
             <div>
               <p class="leave-card-subtitle"><strong>Reason:</strong> ${item.reason || 'No reason provided'}</p>
               <p class="leave-card-subtitle"><strong>Notes:</strong> ${item.notes || 'No notes added'}</p>
-              ${
-                item.cancellation_reason
-                  ? `<p class="leave-card-subtitle"><strong>Cancellation reason:</strong> ${item.cancellation_reason}</p>`
-                  : ''
-              }
+              ${item.cancellation_reason ? `<p class="leave-card-subtitle"><strong>Cancellation reason:</strong> ${item.cancellation_reason}</p>` : ''}
             </div>
 
             <div class="inline-actions">
@@ -342,17 +306,13 @@ async function initAdmin() {
 
       const action = button.dataset.action;
       const request = requests.find((item) => item.id === button.dataset.id);
-
       if (!request) return;
 
       selectedRequest = request;
 
       if (['approve', 'reject', 'cancel', 'approve-cancel', 'reject-cancel'].includes(action)) {
         pendingAction = action;
-
-        if (requestActionNote) {
-          requestActionNote.value = '';
-        }
+        if (requestActionNote) requestActionNote.value = '';
 
         const titles = {
           approve: 'Approve Request',
@@ -364,7 +324,6 @@ async function initAdmin() {
 
         setText('requestActionTitle', titles[action] || 'Confirm Action');
         setText('requestActionSubtitle', `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)}`);
-
         setDeductAllowanceVisibility(action, request.leave_type);
 
         openModal('requestActionModal');
@@ -427,38 +386,9 @@ async function initAdmin() {
               <p class="muted">${request.notes || 'No notes added'}</p>
             </div>
 
-            ${
-              request.cancellation_reason
-                ? `
-                  <div class="modal-section">
-                    <h3>Cancellation Reason</h3>
-                    <p class="muted">${request.cancellation_reason}</p>
-                  </div>
-                `
-                : ''
-            }
-
-            ${
-              request.cancel_admin_reason
-                ? `
-                  <div class="modal-section">
-                    <h3>Admin Cancellation Reason</h3>
-                    <p class="muted">${request.cancel_admin_reason}</p>
-                  </div>
-                `
-                : ''
-            }
-
-            ${
-              request.amendment_reason
-                ? `
-                  <div class="modal-section">
-                    <h3>Amendment Reason</h3>
-                    <p class="muted">${request.amendment_reason}</p>
-                  </div>
-                `
-                : ''
-            }
+            ${request.cancellation_reason ? `<div class="modal-section"><h3>Cancellation Reason</h3><p class="muted">${request.cancellation_reason}</p></div>` : ''}
+            ${request.cancel_admin_reason ? `<div class="modal-section"><h3>Admin Cancellation Reason</h3><p class="muted">${request.cancel_admin_reason}</p></div>` : ''}
+            ${request.amendment_reason ? `<div class="modal-section"><h3>Amendment Reason</h3><p class="muted">${request.amendment_reason}</p></div>` : ''}
 
             <div class="modal-section">
               <h3>Recent Leave History</h3>
@@ -482,8 +412,6 @@ async function initAdmin() {
           console.error('More Info failed:', error);
           alert(error.message || 'More Info failed to load.');
         }
-
-        return;
       }
     });
 
@@ -497,24 +425,21 @@ async function initAdmin() {
         const deductAllowance = document.getElementById('requestDeductAllowance')?.checked ?? true;
 
         if (pendingAction === 'approve') {
-          await approveLeaveRequest(selectedRequest, profile.id, note, deductAllowance);
+          await approveLeaveRequest(selectedRequest, authUserId, note, deductAllowance);
         }
 
         if (pendingAction === 'reject') {
-          await rejectLeaveRequest(selectedRequest, profile.id, note);
+          await rejectLeaveRequest(selectedRequest, authUserId, note);
         }
 
         if (pendingAction === 'cancel' || pendingAction === 'approve-cancel') {
-          await cancelLeaveRequestAdmin(selectedRequest, profile.id, note);
+          await cancelLeaveRequestAdmin(selectedRequest, authUserId, note);
         }
 
         if (pendingAction === 'reject-cancel') {
           await approveLeaveRequest(
-            {
-              ...selectedRequest,
-              status: 'pending'
-            },
-            profile.id,
+            { ...selectedRequest, status: 'pending' },
+            authUserId,
             note,
             selectedRequest.deduct_allowance
           );
@@ -550,11 +475,7 @@ async function initAdmin() {
         authorisingInput.value = profile.full_name || profile.email || 'Signed in admin';
       }
 
-      setCustomSelectValue(
-        document.getElementById('manualAbsenceTypeSelect'),
-        'annual',
-        'Annual Request'
-      );
+      setCustomSelectValue(document.getElementById('manualAbsenceTypeSelect'), 'annual', 'Annual Request');
 
       const manualDeductRow = document.getElementById('manualDeductAllowance')?.closest('.toggle-row');
       if (manualDeductRow) {
@@ -601,7 +522,6 @@ async function initAdmin() {
           employeeSearchResults.querySelectorAll('.search-result-item').forEach((item) => {
             item.addEventListener('click', () => {
               selectedEmployee = results.find((employee) => employee.id === item.dataset.id);
-
               if (!selectedEmployee) return;
 
               employeeSearchInput.value = selectedEmployee.display_name || selectedEmployee.full_name || 'Employee';
@@ -633,10 +553,9 @@ async function initAdmin() {
       const start = manualStartDate.value;
       const end = manualEndDate.value;
 
-      const total =
-        type === 'annual'
-          ? calculateBusinessDays(start, end)
-          : calendarDays(start, end);
+      const total = type === 'annual'
+        ? calculateBusinessDays(start, end)
+        : calendarDays(start, end);
 
       manualTotalDays.value = total > 0 ? String(total) : '';
 
@@ -657,7 +576,6 @@ async function initAdmin() {
 
     function updateAmendDays() {
       if (!amendStart || !amendEnd || !amendTotal) return;
-
       const total = calculateBusinessDays(amendStart.value, amendEnd.value);
       amendTotal.value = total > 0 ? String(total) : '';
     }
@@ -667,11 +585,10 @@ async function initAdmin() {
 
     document.getElementById('amendForm')?.addEventListener('submit', async (event) => {
       event.preventDefault();
-
       if (!selectedRequest) return;
 
       try {
-        await amendLeaveRequestAdmin(selectedRequest, profile.id, {
+        await amendLeaveRequestAdmin(selectedRequest, authUserId, {
           start_date: amendStart?.value,
           end_date: amendEnd?.value,
           total_days: Number(amendTotal?.value || 0),
@@ -709,7 +626,7 @@ async function initAdmin() {
           reason: document.getElementById('manualReason')?.value?.trim() || '',
           authorising_name: profile.full_name || profile.email || 'Admin',
           deduct_allowance: document.getElementById('manualDeductAllowance')?.checked ?? true
-        }, profile.id);
+        }, authUserId);
 
         closeModal('manualAbsenceModal');
         await loadData();
