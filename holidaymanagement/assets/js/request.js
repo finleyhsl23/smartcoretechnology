@@ -9,8 +9,11 @@ async function initRequestPage() {
     const auth = await requireAuth();
     if (!auth) return;
 
-    const { profile } = auth;
+    const { profile, user } = auth;
     applyRoleUi(profile);
+
+    const authUserId = profile.user_id || profile.auth_user_id || user.id;
+    const employeeId = profile.employee_id || profile.id;
 
     document.getElementById('logoutBtn')?.addEventListener('click', async () => {
       await signOut();
@@ -18,11 +21,31 @@ async function initRequestPage() {
     });
 
     const currentYear = new Date().getFullYear();
-    const balance = await getMyLeaveBalance(profile.id, currentYear);
+
+    let balance = null;
+
+    try {
+      balance = await getMyLeaveBalance(authUserId, currentYear);
+    } catch (error) {
+      console.warn('Balance failed:', error);
+    }
+
+    const fallbackAllowance = Number(profile.annual_leave_allowance || 0);
+    const fallbackUsed = Number(balance?.used_days || 0);
+    const fallbackRemaining = Math.max(0, fallbackAllowance - fallbackUsed);
+
+    const remainingDays =
+      balance?.remaining_days ??
+      balance?.remaining ??
+      fallbackRemaining;
+
+    const balancePreview = document.getElementById('balancePreview');
+    if (balancePreview) {
+      balancePreview.textContent = remainingDays;
+    }
+
     const holidays = await getCompanyHolidays(profile.company_id);
     const holidayDates = holidays.map((item) => item.holiday_date);
-
-    document.getElementById('balancePreview').textContent = balance?.remaining_days ?? '0';
 
     const form = document.getElementById('leaveRequestForm');
     const submitButton = form?.querySelector('button[type="submit"]');
@@ -35,6 +58,7 @@ async function initRequestPage() {
       const leaveType = leaveTypeEl.value;
       const startDate = startDateEl.value;
       const endDate = endDateEl.value;
+
       if (!startDate || !endDate) {
         totalDaysEl.value = '';
         return;
@@ -67,26 +91,27 @@ async function initRequestPage() {
         return;
       }
 
-      if (leaveType === 'annual' && balance && totalDays > Number(balance.remaining_days || 0)) {
+      if (leaveType === 'annual' && totalDays > Number(remainingDays || 0)) {
         showMessage('requestMessage', 'This request is greater than your remaining annual leave.', 'error');
         return;
       }
 
       try {
         setLoadingButton(submitButton, true, 'Submitting...');
-          await createLeaveRequest({
-  user_id: profile.user_id,
-  employee_id: profile.employee_id || profile.id,
-  company_id: profile.company_id,
-  leave_type: leaveType,
-  start_date: startDate,
-  end_date: endDate,
-  total_days: totalDays,
-  status: 'pending',
-  reason: reason || null,
-  notes: notes || null,
-  deduct_allowance: leaveType !== 'sick'
-});
+
+        await createLeaveRequest({
+          user_id: authUserId,
+          employee_id: employeeId,
+          company_id: profile.company_id,
+          leave_type: leaveType,
+          start_date: startDate,
+          end_date: endDate,
+          total_days: totalDays,
+          status: 'pending',
+          reason: reason || null,
+          notes: notes || null,
+          deduct_allowance: leaveType !== 'sick'
+        });
 
         form.reset();
         totalDaysEl.value = '';
