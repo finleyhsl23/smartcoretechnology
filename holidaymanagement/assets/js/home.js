@@ -1,39 +1,35 @@
-import { requireAuth, applyRoleUi } from '../../shared/guards.js';
+import { requireAuth, isAdminProfile } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
 import { revealApp, renderEmptyState } from '../../shared/ui.js';
 import {
+  getDashboardLeaveBreakdown,
   getMyLeaveBalance,
   getMyLeaveRequests,
-  getMySickRecords,
-  getDashboardLeaveBreakdown,
-  getEmployeeByUserId
+  leaveTypeLabel
 } from '../../shared/api.js';
 import { formatDate } from '../../shared/dates.js';
-import { isManagerOrAdmin } from '../../shared/roles.js';
 
 function setText(id, value) {
   const el = document.getElementById(id);
-  if (el) el.textContent = value;
+  if (el) el.textContent = value ?? '—';
 }
 
-function capitalise(value) {
-  if (!value) return '—';
-  return String(value).charAt(0).toUpperCase() + String(value).slice(1).toLowerCase();
+function show(id) {
+  document.getElementById(id)?.classList.remove('hidden');
 }
 
-function getDisplayName(employee, profile) {
-  if (employee?.display_name && employee.display_name !== 'Employee') return employee.display_name;
-  if (employee?.full_name) return employee.full_name;
-  if (profile?.full_name) return profile.full_name;
-  if (profile?.name) return profile.name;
-  if (profile?.email) return profile.email;
-  return 'Employee';
+function hide(id) {
+  document.getElementById(id)?.classList.add('hidden');
 }
 
-function leaveTypeLabel(type) {
-  if (type === 'annual') return 'Annual Request';
-  if (type === 'sick') return 'Sick Leave';
-  return 'Other Leave';
+function titleCase(value) {
+  const text = String(value || '').trim();
+  if (!text) return '—';
+  return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+}
+
+function isTodayInRange(item, todayIso) {
+  return item.start_date <= todayIso && item.end_date >= todayIso;
 }
 
 function renderLeaveList(containerId, items, emptyText) {
@@ -47,14 +43,13 @@ function renderLeaveList(containerId, items, emptyText) {
 
   container.innerHTML = items.map((item) => `
     <article class="leave-card">
-      <div class="leave-card-top">
-        <div>
-          <p class="leave-card-title">${item.employee_name || item.display_name || 'Employee'}</p>
-          <p class="leave-card-subtitle">${item.job_title || '—'} • ${item.employee_id || '—'}</p>
-          <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days || 0} day(s)</p>
-        </div>
-        <div class="badge badge-${item.leave_type}">${leaveTypeLabel(item.leave_type)}</div>
-      </div>
+      <p class="leave-card-title">${item.employee_name || item.display_name || item.full_name || 'Employee'}</p>
+      <p class="leave-card-subtitle">
+        ${leaveTypeLabel(item.leave_type)} • ${formatDate(item.start_date)} to ${formatDate(item.end_date)}
+      </p>
+      <p class="leave-card-subtitle">
+        ${item.total_days || 0} day(s) ${item.reason ? `• ${item.reason}` : ''}
+      </p>
     </article>
   `).join('');
 }
@@ -70,15 +65,31 @@ function renderBirthdayList(containerId, items) {
 
   container.innerHTML = items.map((employee) => `
     <article class="leave-card">
-      <div class="leave-card-top">
-        <div>
-          <p class="leave-card-title">${employee.display_name || employee.full_name || 'Employee'}</p>
-          <p class="leave-card-subtitle">${employee.job_title || '—'} • ${employee.employee_id || '—'}</p>
-        </div>
-        <div class="badge badge-annual">Birthday</div>
-      </div>
+      <p class="leave-card-title">${employee.full_name || employee.display_name || 'Employee'}</p>
+      <p class="leave-card-subtitle">
+        Birthday: ${employee.dob ? formatDate(employee.dob) : 'Date not set'}
+      </p>
     </article>
   `).join('');
+}
+
+function setupDashboardPanelClicks() {
+  document.querySelectorAll('[data-panel-target]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const targetId = button.dataset.panelTarget;
+
+      document.querySelectorAll('.dashboard-detail-panel').forEach((panel) => {
+        panel.classList.add('hidden');
+      });
+
+      document.querySelectorAll('.stat-button').forEach((stat) => {
+        stat.classList.remove('active-stat-button');
+      });
+
+      document.getElementById(targetId)?.classList.remove('hidden');
+      button.classList.add('active-stat-button');
+    });
+  });
 }
 
 async function initHome() {
@@ -86,84 +97,115 @@ async function initHome() {
     const auth = await requireAuth();
     if (!auth) return;
 
-    const { profile } = auth;
-    applyRoleUi(profile);
+    const { user, profile } = auth;
+
+    const isAdmin = isAdminProfile(profile);
+    const currentYear = new Date().getFullYear();
+    const todayIso = new Date().toISOString().slice(0, 10);
 
     document.getElementById('logoutBtn')?.addEventListener('click', async () => {
       await signOut();
       window.location.href = './login.html';
     });
 
-    const currentYear = new Date().getFullYear();
+    setupDashboardPanelClicks();
 
-    const [balance, requests, sickRecords, employee] = await Promise.all([
-      getMyLeaveBalance(profile.user_id, currentYear),
-      getMyLeaveRequests(profile.user_id),
-      getMySickRecords(profile.user_id),
-      getEmployeeByUserId(profile.user_id)
-    ]);
-
-    const displayName = getDisplayName(employee, profile);
+    const displayName = profile.full_name || user.email || 'Employee';
+    const displayEmail = profile.work_email || profile.email || profile.personal_email || user.email || '—';
 
     setText('welcomeText', `Welcome back, ${displayName}`);
     setText('profileName', displayName);
-    setText('profileEmail', profile.email || '—');
-    setText('profileRole', capitalise(profile.role));
-    setText('profileRemaining', balance?.remaining_days ?? '0');
-    setText('profileUsed', balance?.used_days ?? '0');
-    setText('profilePending', requests.filter((item) => item.status === 'pending').length);
+    setText('profileEmail', displayEmail);
+    setText('profileRole', titleCase(profile.role));
 
-    if (isManagerOrAdmin(profile)) {
-      const adminSection = document.getElementById('adminDashboardSection');
-      if (adminSection) adminSection.classList.remove('hidden');
+    let balance = null;
+    let myRequests = [];
 
-      const breakdown = await getDashboardLeaveBreakdown(profile.company_id);
-
-      setText('annualTodayCount', breakdown.annualToday.length);
-      setText('sickTodayCount', breakdown.sickToday.length);
-      setText('otherTodayCount', breakdown.otherToday.length);
-      setText('birthdaysCount', breakdown.birthdaysNext7.length);
-
-      renderLeaveList('annualTodayList', breakdown.annualToday, 'Nobody is on annual leave today.');
-      renderLeaveList('annualNext7List', breakdown.annualNext7, 'No annual leave in the next 7 days.');
-
-      renderLeaveList('sickTodayList', breakdown.sickToday, 'Nobody is on sick leave today.');
-      renderLeaveList('sickNext7List', breakdown.sickNext7, 'No sick leave in the next 7 days.');
-
-      renderLeaveList('otherTodayList', breakdown.otherToday, 'Nobody is on other leave today.');
-      renderLeaveList('otherNext7List', breakdown.otherNext7, 'No other leave in the next 7 days.');
-
-      renderBirthdayList('birthdaysNext7List', breakdown.birthdaysNext7);
-
-      document.querySelectorAll('.dashboard-detail-panel').forEach((panel) => {
-        panel.classList.add('hidden');
-      });
-
-      document.querySelectorAll('[data-panel-target]').forEach((button) => {
-        button.addEventListener('click', () => {
-          const targetId = button.dataset.panelTarget;
-          const target = document.getElementById(targetId);
-          const isAlreadyOpen = target && !target.classList.contains('hidden');
-
-          document.querySelectorAll('.dashboard-detail-panel').forEach((panel) => {
-            panel.classList.add('hidden');
-          });
-
-          document.querySelectorAll('[data-panel-target]').forEach((btn) => {
-            btn.classList.remove('active-stat-button');
-          });
-
-          if (!isAlreadyOpen && target) {
-            target.classList.remove('hidden');
-            button.classList.add('active-stat-button');
-          }
-        });
-      });
+    try {
+      balance = await getMyLeaveBalance(profile.user_id || user.id, currentYear);
+    } catch (error) {
+      console.warn('Leave balance failed:', error);
     }
+
+    try {
+      myRequests = await getMyLeaveRequests(profile.user_id || user.id);
+    } catch (error) {
+      console.warn('My requests failed:', error);
+    }
+
+    const allowance =
+      Number(balance?.total_allowance ?? balance?.annual_allowance ?? profile.annual_leave_allowance ?? 0);
+
+    const used =
+      Number(balance?.used_days ?? 0);
+
+    const remaining =
+      Number(balance?.remaining_days ?? Math.max(0, allowance - used));
+
+    const pendingRequests = myRequests.filter((request) => request.status === 'pending').length;
+
+    setText('profileRemaining', remaining);
+    setText('profileUsed', used);
+    setText('profilePending', pendingRequests);
+
+    if (!isAdmin) {
+      hide('adminDashboardSection');
+      show('personalProfileSection');
+      revealApp();
+      return;
+    }
+
+    show('adminDashboardSection');
+    show('personalProfileSection');
+
+    let breakdown = {
+      annualToday: [],
+      sickToday: [],
+      otherToday: [],
+      annualNext7: [],
+      sickNext7: [],
+      otherNext7: [],
+      birthdaysNext7: []
+    };
+
+    try {
+      breakdown = await getDashboardLeaveBreakdown(profile.company_id);
+    } catch (error) {
+      console.warn('Dashboard breakdown failed:', error);
+    }
+
+    const annualToday = (breakdown.annualToday || []).filter((item) => isTodayInRange(item, todayIso));
+    const sickToday = (breakdown.sickToday || []).filter((item) => isTodayInRange(item, todayIso));
+    const otherToday = (breakdown.otherToday || []).filter((item) => isTodayInRange(item, todayIso));
+
+    setText('annualTodayCount', annualToday.length);
+    setText('sickTodayCount', sickToday.length);
+    setText('otherTodayCount', otherToday.length);
+    setText('birthdaysCount', breakdown.birthdaysNext7?.length || 0);
+
+    renderLeaveList('annualTodayList', annualToday, 'Nobody is on annual leave today.');
+    renderLeaveList('annualNext7List', breakdown.annualNext7 || [], 'No annual leave in the next 7 days.');
+
+    renderLeaveList('sickTodayList', sickToday, 'Nobody is on sick leave today.');
+    renderLeaveList('sickNext7List', breakdown.sickNext7 || [], 'No sick leave in the next 7 days.');
+
+    renderLeaveList('otherTodayList', otherToday, 'Nobody is on other leave today.');
+    renderLeaveList('otherNext7List', breakdown.otherNext7 || [], 'No other leave in the next 7 days.');
+
+    renderBirthdayList('birthdaysNext7List', breakdown.birthdaysNext7 || []);
+
+    document.querySelectorAll('.dashboard-detail-panel').forEach((panel) => {
+      panel.classList.add('hidden');
+    });
+
+    document.querySelectorAll('.stat-button').forEach((button) => {
+      button.classList.remove('active-stat-button');
+    });
 
     revealApp();
   } catch (error) {
     console.error('Dashboard failed to load:', error);
+
     const loader = document.getElementById('appLoader');
     if (loader) {
       loader.innerHTML = `
