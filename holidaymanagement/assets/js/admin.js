@@ -278,9 +278,7 @@ async function initAdmin() {
         const deductRow = document.getElementById('requestDeductAllowanceRow') || deductBox?.closest('.toggle-row');
 
         if (deductBox) deductBox.checked = true;
-        if (deductRow) {
-          deductRow.style.display = ['annual', 'other'].includes(request.leave_type) ? 'flex' : 'none';
-        }
+        deductRow.style.display = ['annual', 'other'].includes(request.leave_type) ? 'flex' : 'none';
 
         openModal('requestActionModal');
         return;
