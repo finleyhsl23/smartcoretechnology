@@ -3,7 +3,6 @@ import { signOut } from '../../shared/auth.js';
 import { revealApp, renderEmptyState } from '../../shared/ui.js';
 import {
   getDashboardLeaveBreakdown,
-  getMyLeaveBalance,
   getMyLeaveRequests,
   leaveTypeLabel
 } from '../../shared/api.js';
@@ -30,6 +29,22 @@ function titleCase(value) {
 
 function isTodayInRange(item, todayIso) {
   return item.start_date <= todayIso && item.end_date >= todayIso;
+}
+
+function calculateLeaveStats(profile, requests) {
+  const allowance = Number(profile.annual_leave_allowance || 0);
+
+  const used = (requests || [])
+    .filter((request) =>
+      request.status === 'approved' &&
+      request.deduct_allowance !== false &&
+      ['annual', 'other'].includes(request.leave_type)
+    )
+    .reduce((sum, request) => sum + Number(request.total_days || 0), 0);
+
+  const remaining = Math.max(0, allowance - used);
+
+  return { allowance, used, remaining };
 }
 
 function renderLeaveList(containerId, items, emptyText) {
@@ -99,8 +114,8 @@ async function initHome() {
 
     const { user, profile } = auth;
 
+    const authUserId = profile.user_id || profile.auth_user_id || user.id;
     const isAdmin = isAdminProfile(profile);
-    const currentYear = new Date().getFullYear();
     const todayIso = new Date().toISOString().slice(0, 10);
 
     document.getElementById('logoutBtn')?.addEventListener('click', async () => {
@@ -118,34 +133,19 @@ async function initHome() {
     setText('profileEmail', displayEmail);
     setText('profileRole', titleCase(profile.role));
 
-    let balance = null;
     let myRequests = [];
 
     try {
-      balance = await getMyLeaveBalance(profile.user_id || user.id, currentYear);
-    } catch (error) {
-      console.warn('Leave balance failed:', error);
-    }
-
-    try {
-      myRequests = await getMyLeaveRequests(profile.user_id || user.id);
+      myRequests = await getMyLeaveRequests(authUserId);
     } catch (error) {
       console.warn('My requests failed:', error);
     }
 
-    const allowance =
-      Number(balance?.total_allowance ?? balance?.annual_allowance ?? profile.annual_leave_allowance ?? 0);
-
-    const used =
-      Number(balance?.used_days ?? 0);
-
-    const remaining =
-      Number(balance?.remaining_days ?? Math.max(0, allowance - used));
-
+    const stats = calculateLeaveStats(profile, myRequests);
     const pendingRequests = myRequests.filter((request) => request.status === 'pending').length;
 
-    setText('profileRemaining', remaining);
-    setText('profileUsed', used);
+    setText('profileRemaining', stats.remaining);
+    setText('profileUsed', stats.used);
     setText('profilePending', pendingRequests);
 
     if (!isAdmin) {
