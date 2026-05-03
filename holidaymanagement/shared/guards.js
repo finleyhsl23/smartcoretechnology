@@ -1,6 +1,10 @@
 import { supabase, leaveSchema } from './supabase.js';
 
-export async function getSessionOrRedirect() {
+/* =========================
+   SESSION HELPERS
+========================= */
+
+export async function requireAuth() {
   const { data, error } = await supabase.auth.getSession();
 
   if (error || !data.session) {
@@ -24,6 +28,10 @@ export async function requireGuest() {
   }
 }
 
+/* =========================
+   PROFILE
+========================= */
+
 export async function getCurrentProfile() {
   const { data, error } = await supabase
     .schema(leaveSchema)
@@ -40,6 +48,10 @@ export async function getCurrentProfile() {
   return profile;
 }
 
+/* =========================
+   ROLE LOGIC
+========================= */
+
 export function isAdminProfile(profile) {
   return (
     profile?.is_admin === true ||
@@ -50,15 +62,19 @@ export function isAdminProfile(profile) {
 export function applyRoleUi(profile) {
   const isAdmin = isAdminProfile(profile);
 
-  document.querySelectorAll('#adminNavLink, [data-admin-only]').forEach((element) => {
-    element.classList.toggle('hidden', !isAdmin);
+  document.querySelectorAll('#adminNavLink, [data-admin-only]').forEach((el) => {
+    el.classList.toggle('hidden', !isAdmin);
   });
 
   return isAdmin;
 }
 
+/* =========================
+   PAGE ACCESS
+========================= */
+
 export async function requirePageAccess() {
-  const session = await getSessionOrRedirect();
+  const session = await requireAuth();
   if (!session) return null;
 
   const profile = await getCurrentProfile();
