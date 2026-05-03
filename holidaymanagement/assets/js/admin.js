@@ -100,7 +100,7 @@ function renderEmployeeProfile(employee) {
     return;
   }
 
-  const entries = Object.entries(employee).filter(([key]) => !['display_name'].includes(key));
+  const entries = Object.entries(employee).filter(([key]) => key !== 'display_name');
 
   container.innerHTML = entries.map(([key, value]) => {
     const label = key.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
@@ -154,7 +154,14 @@ async function initAdmin() {
         employeeSearchResults.innerHTML = '';
       }
 
-      document.getElementById('manualAuthorisingUser').value = profile.full_name || profile.email || 'Signed in admin';
+      const authorisingInput = document.getElementById('manualAuthorisingUser');
+      if (authorisingInput) {
+        authorisingInput.value = profile.full_name || profile.email || 'Signed in admin';
+      }
+
+      const deductRow = document.getElementById('manualDeductAllowance')?.closest('.toggle-row');
+      if (deductRow) deductRow.style.display = 'flex';
+
       setCustomSelectValue(document.getElementById('manualAbsenceTypeSelect'), 'annual', 'Annual Request');
       openModal('manualAbsenceModal');
     });
@@ -176,10 +183,24 @@ async function initAdmin() {
       const sickRecords = await getAllCompanySickRecords(profile.company_id);
       const todayIso = new Date().toISOString().slice(0, 10);
 
-      document.getElementById('adminPendingCount').textContent = requests.filter((item) => item.status === 'pending').length;
-      document.getElementById('adminApprovedToday').textContent = requests.filter((item) => item.status === 'approved' && item.approved_at && item.approved_at.slice(0, 10) === todayIso).length;
-      document.getElementById('adminOffToday').textContent = requests.filter((item) => item.status === 'approved' && isDateInRange(todayIso, item.start_date, item.end_date)).length;
-      document.getElementById('adminSickToday').textContent = sickRecords.filter((item) => item.sick_date === todayIso).length;
+      document.getElementById('adminPendingCount').textContent =
+        requests.filter((item) => item.status === 'pending').length;
+
+      document.getElementById('adminApprovedToday').textContent =
+        requests.filter((item) =>
+          item.status === 'approved' &&
+          item.approved_at &&
+          item.approved_at.slice(0, 10) === todayIso
+        ).length;
+
+      document.getElementById('adminOffToday').textContent =
+        requests.filter((item) =>
+          item.status === 'approved' &&
+          isDateInRange(todayIso, item.start_date, item.end_date)
+        ).length;
+
+      document.getElementById('adminSickToday').textContent =
+        sickRecords.filter((item) => item.sick_date === todayIso).length;
 
       renderList();
     }
@@ -244,90 +265,101 @@ async function initAdmin() {
 
       if (action === 'approve' || action === 'reject') {
         pendingAction = action;
-        requestActionNote.value = '';
 
-        document.getElementById('requestActionTitle').textContent = action === 'approve' ? 'Approve Request' : 'Reject Request';
-        document.getElementById('requestActionSubtitle').textContent = `${request.employee_name} • ${leaveTypeLabel(request.leave_type)}`;
+        if (requestActionNote) requestActionNote.value = '';
+
+        document.getElementById('requestActionTitle').textContent =
+          action === 'approve' ? 'Approve Request' : 'Reject Request';
+
+        document.getElementById('requestActionSubtitle').textContent =
+          `${request.employee_name} • ${leaveTypeLabel(request.leave_type)}`;
 
         const deductBox = document.getElementById('requestDeductAllowance');
-        deductBox.checked = true;
-        deductBox.closest('.toggle-row').style.display = request.leave_type === 'annual' ? 'flex' : 'none';
+        const deductRow = document.getElementById('requestDeductAllowanceRow') || deductBox?.closest('.toggle-row');
+
+        if (deductBox) deductBox.checked = true;
+        if (deductRow) {
+          deductRow.style.display = ['annual', 'other'].includes(request.leave_type) ? 'flex' : 'none';
+        }
 
         openModal('requestActionModal');
         return;
       }
 
       if (action === 'more-info') {
-  try {
-    console.log('More Info clicked:', request);
+        try {
+          const modal = document.getElementById('requestInfoModal');
+          const content = document.getElementById('requestInfoContent');
 
-    const modal = document.getElementById('requestInfoModal');
-    const content = document.getElementById('requestInfoContent');
-
-    if (!modal || !content) {
-      alert('More Info modal is missing from admin.html');
-      return;
-    }
-
-    const summary = await getEmployeeLeaveSummary(request);
-
-    document.getElementById('infoEmployeeName').textContent = request.employee_name || 'Employee';
-    document.getElementById('infoEmployeeSubtitle').textContent = `${request.employee_id || '—'} • ${request.job_title || '—'}`;
-
-    content.innerHTML = `
-      <div class="modal-grid">
-        ${renderDetailTile('Request Type', leaveTypeLabel(request.leave_type))}
-        ${renderDetailTile('Status', request.status)}
-        ${renderDetailTile('Total Days', request.total_days)}
-        ${renderDetailTile('Start Date', formatDate(request.start_date))}
-        ${renderDetailTile('End Date', formatDate(request.end_date))}
-        ${renderDetailTile('Annual Allowance', summary.balance?.total_allowance ?? '—')}
-        ${renderDetailTile('Used Days', summary.balance?.used_days ?? '—')}
-        ${renderDetailTile('Remaining Days', summary.balance?.remaining_days ?? '—')}
-        ${renderDetailTile('Approved At', request.approved_at ? formatDate(request.approved_at) : '—')}
-      </div>
-
-      <div class="modal-section">
-        <h3>Reason</h3>
-        <p class="muted">${request.reason || 'No reason provided'}</p>
-      </div>
-
-      <div class="modal-section">
-        <h3>Notes</h3>
-        <p class="muted">${request.notes || 'No notes added'}</p>
-      </div>
-
-      <div class="modal-section">
-        <h3>Recent Leave History</h3>
-        <div class="card-list compact-list">
-          ${
-            summary.requests.length
-              ? summary.requests.slice(0, 8).map((entry) => `
-                <article class="leave-card">
-                  <p class="leave-card-title">${leaveTypeLabel(entry.leave_type)} • ${entry.status}</p>
-                  <p class="leave-card-subtitle">${formatDate(entry.start_date)} to ${formatDate(entry.end_date)} • ${entry.total_days} day(s)</p>
-                </article>
-              `).join('')
-              : '<div class="empty-state">No leave history found.</div>'
+          if (!modal || !content) {
+            alert('More Info modal is missing from admin.html');
+            return;
           }
-        </div>
-      </div>
-    `;
 
-    document.getElementById('viewEmployeeProfileBtn').onclick = () => {
-      document.getElementById('employeeProfileTitle').textContent = request.employee_name || 'Employee';
-      renderEmployeeProfile(request.employee);
-      openModal('employeeProfileModal');
-    };
+          const summary = await getEmployeeLeaveSummary(request);
 
-    openModal('requestInfoModal');
-  } catch (error) {
-    console.error('More Info failed:', error);
-    alert(error.message || 'More Info failed to load.');
-  }
+          document.getElementById('infoEmployeeName').textContent = request.employee_name || 'Employee';
+          document.getElementById('infoEmployeeSubtitle').textContent =
+            `${request.employee_id || '—'} • ${request.job_title || '—'}`;
 
-  return;
-}
+          content.innerHTML = `
+            <div class="modal-grid">
+              ${renderDetailTile('Request Type', leaveTypeLabel(request.leave_type))}
+              ${renderDetailTile('Status', request.status)}
+              ${renderDetailTile('Total Days', request.total_days)}
+              ${renderDetailTile('Start Date', formatDate(request.start_date))}
+              ${renderDetailTile('End Date', formatDate(request.end_date))}
+              ${renderDetailTile('Annual Allowance', summary.balance?.total_allowance ?? '—')}
+              ${renderDetailTile('Used Days', summary.balance?.used_days ?? '—')}
+              ${renderDetailTile('Remaining Days', summary.balance?.remaining_days ?? '—')}
+              ${renderDetailTile('Approved At', request.approved_at ? formatDate(request.approved_at) : '—')}
+            </div>
+
+            <div class="modal-section">
+              <h3>Reason</h3>
+              <p class="muted">${request.reason || 'No reason provided'}</p>
+            </div>
+
+            <div class="modal-section">
+              <h3>Notes</h3>
+              <p class="muted">${request.notes || 'No notes added'}</p>
+            </div>
+
+            <div class="modal-section">
+              <h3>Recent Leave History</h3>
+              <div class="card-list compact-list">
+                ${
+                  summary.requests.length
+                    ? summary.requests.slice(0, 8).map((entry) => `
+                      <article class="leave-card">
+                        <p class="leave-card-title">${leaveTypeLabel(entry.leave_type)} • ${entry.status}</p>
+                        <p class="leave-card-subtitle">${formatDate(entry.start_date)} to ${formatDate(entry.end_date)} • ${entry.total_days} day(s)</p>
+                      </article>
+                    `).join('')
+                    : '<div class="empty-state">No leave history found.</div>'
+                }
+              </div>
+            </div>
+          `;
+
+          const profileBtn = document.getElementById('viewEmployeeProfileBtn');
+          if (profileBtn) {
+            profileBtn.onclick = () => {
+              document.getElementById('employeeProfileTitle').textContent = request.employee_name || 'Employee';
+              renderEmployeeProfile(request.employee);
+              openModal('employeeProfileModal');
+            };
+          }
+
+          openModal('requestInfoModal');
+        } catch (error) {
+          console.error('More Info failed:', error);
+          alert(error.message || 'More Info failed to load.');
+        }
+
+        return;
+      }
+    });
 
     confirmRequestActionBtn?.addEventListener('click', async () => {
       if (!selectedRequest || !pendingAction) return;
@@ -335,7 +367,7 @@ async function initAdmin() {
       try {
         confirmRequestActionBtn.disabled = true;
 
-        const note = requestActionNote.value.trim();
+        const note = requestActionNote?.value?.trim() || '';
         const deductAllowance = document.getElementById('requestDeductAllowance')?.checked ?? true;
 
         if (pendingAction === 'approve') {
@@ -412,8 +444,9 @@ async function initAdmin() {
 
       const deductRow = document.getElementById('manualDeductAllowance')?.closest('.toggle-row');
       if (deductRow) {
-  deductRow.style.display = ['annual', 'other'].includes(request.leave_type) ? 'flex' : 'none';
-}
+        deductRow.style.display = ['annual', 'other'].includes(type) ? 'flex' : 'none';
+      }
+    }
 
     manualStartDate?.addEventListener('change', updateManualDays);
     manualEndDate?.addEventListener('change', updateManualDays);
