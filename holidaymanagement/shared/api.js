@@ -271,7 +271,7 @@ export async function getDashboardLeaveBreakdown(companyId) {
 
 export async function getEmployeeLeaveSummary(request) {
   const userId = request.user_id;
-  const employeeId = request.employee_id;
+  const employeeUuid = request.employee?.id || null;
   const year = new Date().getFullYear();
 
   let balance = null;
@@ -287,10 +287,15 @@ export async function getEmployeeLeaveSummary(request) {
     .eq('company_id', request.company_id)
     .order('start_date', { ascending: false });
 
-  if (employeeId) {
-    query = query.eq('employee_id', employeeId);
+  if (employeeUuid) {
+    query = query.eq('employee_id', employeeUuid);
   } else if (userId) {
     query = query.eq('user_id', userId);
+  } else {
+    return {
+      balance,
+      requests: []
+    };
   }
 
   const { data, error } = await query;
