@@ -74,17 +74,19 @@ async function initRequestPage() {
 
       try {
         setLoadingButton(submitButton, true, 'Submitting...');
-        await createLeaveRequest({
-          user_id: profile.id,
-          company_id: profile.company_id,
-          leave_type: leaveType,
-          start_date: startDate,
-          end_date: endDate,
-          total_days: totalDays,
-          status: 'pending',
-          reason: reason || null,
-          notes: notes || null
-        });
+          await createLeaveRequest({
+  user_id: profile.user_id,
+  employee_id: profile.employee_id || profile.id,
+  company_id: profile.company_id,
+  leave_type: leaveType,
+  start_date: startDate,
+  end_date: endDate,
+  total_days: totalDays,
+  status: 'pending',
+  reason: reason || null,
+  notes: notes || null,
+  deduct_allowance: leaveType !== 'sick'
+});
 
         form.reset();
         totalDaysEl.value = '';
