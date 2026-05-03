@@ -1,10 +1,6 @@
 import { supabase, leaveSchema } from './supabase.js';
 
-/* =========================
-   SESSION HELPERS
-========================= */
-
-export async function requireAuth() {
+export async function getSessionOrRedirect() {
   const { data, error } = await supabase.auth.getSession();
 
   if (error || !data.session) {
@@ -16,21 +12,12 @@ export async function requireAuth() {
 }
 
 export async function requireGuest() {
-  const { data, error } = await supabase.auth.getSession();
-
-  if (error) {
-    console.warn(error);
-    return;
-  }
+  const { data } = await supabase.auth.getSession();
 
   if (data?.session) {
     window.location.href = './home.html';
   }
 }
-
-/* =========================
-   PROFILE
-========================= */
 
 export async function getCurrentProfile() {
   const { data, error } = await supabase
@@ -47,10 +34,6 @@ export async function getCurrentProfile() {
 
   return profile;
 }
-
-/* =========================
-   ROLE LOGIC
-========================= */
 
 export function isAdminProfile(profile) {
   return (
@@ -69,26 +52,34 @@ export function applyRoleUi(profile) {
   return isAdmin;
 }
 
-/* =========================
-   PAGE ACCESS
-========================= */
-
-export async function requirePageAccess() {
-  const session = await requireAuth();
+export async function requireAuth() {
+  const session = await getSessionOrRedirect();
   if (!session) return null;
 
   const profile = await getCurrentProfile();
-  applyRoleUi(profile);
+
+  const fixedProfile = {
+    ...profile,
+    auth_user_id: session.user.id,
+    user_id: session.user.id,
+    employee_id: profile.id
+  };
+
+  applyRoleUi(fixedProfile);
 
   return {
     session,
     user: session.user,
-    profile
+    profile: fixedProfile
   };
 }
 
+export async function requirePageAccess() {
+  return requireAuth();
+}
+
 export async function requireAdminPageAccess() {
-  const access = await requirePageAccess();
+  const access = await requireAuth();
   if (!access) return null;
 
   if (!isAdminProfile(access.profile)) {
