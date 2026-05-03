@@ -7,12 +7,15 @@ import {
   archiveEmployee,
   restoreEmployee,
   getMyCompanyInfo,
-  sendEmployeeInvite
+  sendEmployeeInvite,
+  getShiftPatterns,
+  createShiftPattern
 } from '../../shared/api.js';
 
 let profile = null;
 let companyInfo = null;
 let employees = [];
+let shiftPatterns = [];
 let savedEmployee = null;
 
 function openModal(id) {
@@ -92,6 +95,22 @@ function getField(id) {
   return document.getElementById(id)?.value?.trim() || '';
 }
 
+function populateShiftPatterns(selectedId = '') {
+  const select = document.getElementById('shiftPatternId');
+  if (!select) return;
+
+  select.innerHTML = `<option value="">Select a shift pattern...</option>`;
+
+  shiftPatterns.forEach((pattern) => {
+    const option = document.createElement('option');
+    option.value = pattern.id;
+    option.textContent = `${pattern.name} (${pattern.annual_allowance_days || 23} days)`;
+    select.appendChild(option);
+  });
+
+  select.value = selectedId || '';
+}
+
 function getEmployeePayload() {
   const existingEmployee = savedEmployee || employees.find((employee) => employee.id === getField('employeeId'));
 
@@ -112,6 +131,8 @@ function getEmployeePayload() {
     role: getField('role') || 'employee',
     is_admin: getField('isAdmin') === 'true',
     annual_leave_allowance: getField('annualLeaveAllowance') || 23,
+
+    shift_pattern_id: getField('shiftPatternId'),
 
     employment_status: existingEmployee?.employment_status || 'active',
 
@@ -141,6 +162,8 @@ function fillEmployeeForm(employee = null) {
   setField('role', employee?.role || 'employee');
   setField('isAdmin', String(employee?.is_admin || false));
   setField('annualLeaveAllowance', employee?.annual_leave_allowance || 23);
+
+  populateShiftPatterns(employee?.shift_pattern_id || '');
 }
 
 function renderEmployees() {
@@ -168,31 +191,35 @@ function renderEmployees() {
     return;
   }
 
-  list.innerHTML = filtered.map((employee) => `
-    <article class="leave-card">
-      <div class="leave-card-top">
-        <div>
-          <p class="leave-card-title">${employee.full_name || 'Employee'}</p>
-          <p class="leave-card-subtitle">
-            ${employee.employee_code || '—'} • ${employee.job_title || '—'} • ${employee.work_email || 'No work email'}
-          </p>
-          <p class="leave-card-subtitle">
-            ${employee.employment_status} • ${employee.role} • Onboarding: ${employee.onboarding_status}
-          </p>
-        </div>
+  list.innerHTML = filtered.map((employee) => {
+    const shift = shiftPatterns.find((pattern) => pattern.id === employee.shift_pattern_id);
 
-        <div class="inline-actions">
-          <button class="btn btn-secondary" data-action="edit" data-id="${employee.id}" type="button">Edit</button>
-          <button class="btn btn-primary" data-action="invite" data-id="${employee.id}" type="button">Send Invite</button>
-          ${
-            employee.employment_status === 'archived'
-              ? `<button class="btn btn-primary" data-action="restore" data-id="${employee.id}" type="button">Restore</button>`
-              : `<button class="btn btn-danger" data-action="archive" data-id="${employee.id}" type="button">Archive</button>`
-          }
+    return `
+      <article class="leave-card">
+        <div class="leave-card-top">
+          <div>
+            <p class="leave-card-title">${employee.full_name || 'Employee'}</p>
+            <p class="leave-card-subtitle">
+              ${employee.employee_code || '—'} • ${employee.job_title || '—'} • ${employee.work_email || 'No work email'}
+            </p>
+            <p class="leave-card-subtitle">
+              ${employee.employment_status} • ${employee.role} • Shift: ${shift?.name || 'Not configured'} • Onboarding: ${employee.onboarding_status}
+            </p>
+          </div>
+
+          <div class="inline-actions">
+            <button class="btn btn-secondary" data-action="edit" data-id="${employee.id}" type="button">Edit</button>
+            <button class="btn btn-primary" data-action="invite" data-id="${employee.id}" type="button">Send Invite</button>
+            ${
+              employee.employment_status === 'archived'
+                ? `<button class="btn btn-primary" data-action="restore" data-id="${employee.id}" type="button">Restore</button>`
+                : `<button class="btn btn-danger" data-action="archive" data-id="${employee.id}" type="button">Archive</button>`
+            }
+          </div>
         </div>
-      </div>
-    </article>
-  `).join('');
+      </article>
+    `;
+  }).join('');
 }
 
 async function loadEmployees() {
@@ -200,8 +227,18 @@ async function loadEmployees() {
   renderEmployees();
 }
 
+async function loadShiftPatterns() {
+  shiftPatterns = await getShiftPatterns(profile.company_id);
+  populateShiftPatterns(savedEmployee?.shift_pattern_id || '');
+}
+
 async function sendInvite(toType) {
   if (!savedEmployee) return;
+
+  if (!savedEmployee.shift_pattern_id) {
+    showMessage('inviteMessage', 'You must configure/select a shift pattern before sending the onboarding email.', 'error');
+    return;
+  }
 
   const toEmail =
     toType === 'personal'
@@ -255,6 +292,10 @@ async function init() {
     openModal('employeeModal');
   });
 
+  document.getElementById('configureShiftPatternsBtn')?.addEventListener('click', () => {
+    openModal('shiftPatternModal');
+  });
+
   document.getElementById('employeeSearch')?.addEventListener('input', renderEmployees);
 
   document.getElementById('employeesList')?.addEventListener('click', async (event) => {
@@ -271,8 +312,15 @@ async function init() {
 
     if (button.dataset.action === 'invite') {
       savedEmployee = employee;
-      document.getElementById('inviteSummary').textContent =
-        `${employee.full_name} • ${employee.personal_email || 'No personal email'} • ${employee.work_email || 'No work email'}`;
+
+      if (!employee.shift_pattern_id) {
+        document.getElementById('inviteSummary').textContent =
+          `${employee.full_name} needs a shift pattern before an invite can be sent.`;
+      } else {
+        document.getElementById('inviteSummary').textContent =
+          `${employee.full_name} • ${employee.personal_email || 'No personal email'} • ${employee.work_email || 'No work email'}`;
+      }
+
       openModal('inviteModal');
     }
 
@@ -298,6 +346,11 @@ async function init() {
         return;
       }
 
+      if (!payload.shift_pattern_id) {
+        showMessage('employeeMessage', 'Please configure/select a shift pattern before continuing.', 'error');
+        return;
+      }
+
       const employeeId = await upsertEmployee(payload);
 
       await loadEmployees();
@@ -317,9 +370,41 @@ async function init() {
     }
   });
 
+  document.getElementById('shiftPatternForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    try {
+      const pattern = await createShiftPattern({
+        company_id: profile.company_id,
+        name: getField('shiftName'),
+        monday: document.getElementById('shiftMonday').checked,
+        tuesday: document.getElementById('shiftTuesday').checked,
+        wednesday: document.getElementById('shiftWednesday').checked,
+        thursday: document.getElementById('shiftThursday').checked,
+        friday: document.getElementById('shiftFriday').checked,
+        saturday: document.getElementById('shiftSaturday').checked,
+        sunday: document.getElementById('shiftSunday').checked,
+        start_time: getField('shiftStartTime'),
+        end_time: getField('shiftEndTime'),
+        weekly_hours: Number(getField('shiftWeeklyHours') || 0),
+        annual_allowance_days: Number(getField('shiftAnnualAllowance') || 23)
+      });
+
+      await loadShiftPatterns();
+
+      setField('shiftPatternId', pattern.id);
+      setField('annualLeaveAllowance', pattern.annual_allowance_days || 23);
+
+      closeModal('shiftPatternModal');
+    } catch (error) {
+      showMessage('shiftPatternMessage', error.message || 'Unable to save shift pattern.', 'error');
+    }
+  });
+
   document.getElementById('sendPersonalInviteBtn')?.addEventListener('click', () => sendInvite('personal'));
   document.getElementById('sendWorkInviteBtn')?.addEventListener('click', () => sendInvite('work'));
 
+  await loadShiftPatterns();
   await loadEmployees();
   revealApp();
 }
