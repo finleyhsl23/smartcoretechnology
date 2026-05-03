@@ -351,9 +351,16 @@ export async function getDashboardLeaveBreakdown(companyId) {
 export async function createLeaveRequest(payload) {
   const employee = await getEmployeeByUserId(payload.user_id);
 
+  const isOwnerAutoApprove =
+    employee?.role === 'owner' &&
+    employee?.no_authoriser_required === true;
+
   const insertPayload = {
     ...payload,
     employee_id: employee?.id || null,
+    status: isOwnerAutoApprove ? 'approved' : 'pending',
+    approved_at: isOwnerAutoApprove ? new Date().toISOString() : null,
+    approved_by: isOwnerAutoApprove ? payload.user_id : null,
     deduct_allowance: payload.leave_type !== 'sick'
   };
 
@@ -372,15 +379,28 @@ export async function createLeaveRequest(payload) {
     .from('leave_logs')
     .insert([{
       leave_request_id: data.id,
-      action: 'created',
+      action: isOwnerAutoApprove ? 'approved' : 'created',
       performed_by: payload.user_id,
-      details: {
+      details: insertPayload
+    }]);
+
+  if (!isOwnerAutoApprove && employee?.assigned_authoriser) {
+    const employees = await getEmployeesByCompany();
+    const authoriser = employees.find((item) => item.id === employee.assigned_authoriser);
+
+    if (authoriser) {
+      await sendLeaveRequestNotification({
+        to: authoriser.work_email || authoriser.personal_email,
+        authoriser_name: authoriser.full_name,
+        employee_name: employee.full_name,
         leave_type: payload.leave_type,
         start_date: payload.start_date,
         end_date: payload.end_date,
-        total_days: payload.total_days
-      }
-    }]);
+        total_days: payload.total_days,
+        manage_url: `${window.location.origin}/holidaymanagement/admin.html?request=${data.id}`
+      });
+    }
+  }
 
   return data;
 }
