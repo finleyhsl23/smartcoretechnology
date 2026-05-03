@@ -97,10 +97,10 @@ async function initHome() {
     const currentYear = new Date().getFullYear();
 
     const [balance, requests, sickRecords, employee] = await Promise.all([
-      getMyLeaveBalance(profile.id, currentYear),
-      getMyLeaveRequests(profile.id),
-      getMySickRecords(profile.id),
-      getEmployeeByUserId(profile.id)
+      getMyLeaveBalance(profile.user_id, currentYear),
+      getMyLeaveRequests(profile.user_id),
+      getMySickRecords(profile.user_id),
+      getEmployeeByUserId(profile.user_id)
     ]);
 
     const displayName = getDisplayName(employee, profile);
