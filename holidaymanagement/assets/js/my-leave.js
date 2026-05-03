@@ -1,86 +1,110 @@
 import { requireAuth, applyRoleUi } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
-import { revealApp, renderEmptyState, badgeClass } from '../../shared/ui.js';
-import { getMyLeaveBalance, getMyLeaveRequests, getEmployeeByUserId } from '../../shared/api.js';
+import { revealApp, renderEmptyState, showPageError } from '../../shared/ui.js';
+import {
+  getMyLeaveBalance,
+  getMyLeaveRequests,
+  leaveTypeLabel
+} from '../../shared/api.js';
 import { formatDate } from '../../shared/dates.js';
 
-function leaveTypeLabel(type) {
-  if (type === 'annual') return 'Annual Request';
-  if (type === 'sick') return 'Sick Leave';
-  return 'Other Leave';
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value ?? '—';
 }
 
-const auth = await requireAuth();
-if (!auth) throw new Error('Unauthorised');
-
-const { profile } = auth;
-applyRoleUi(profile);
-
-document.getElementById('logoutBtn')?.addEventListener('click', async () => {
-  await signOut();
-  window.location.href = './login.html';
-});
-
-const currentYear = new Date().getFullYear();
-
-const [balance, requests, employee] = await Promise.all([
-  getMyLeaveBalance(profile.id, currentYear),
-  getMyLeaveRequests(profile.id),
-  getEmployeeByUserId(profile.id)
-]);
-
-const name = employee?.display_name && employee.display_name !== 'Employee'
-  ? employee.display_name
-  : profile.full_name || profile.email || 'there';
-
-const welcome = document.getElementById('myLeaveWelcome');
-if (welcome) {
-  welcome.textContent = `Welcome back, ${name}. Here are your leave statistics.`;
+function statusBadge(status) {
+  return `<span class="badge badge-${status}">${status || 'pending'}</span>`;
 }
 
-document.getElementById('annualAllowance').textContent = balance?.total_allowance ?? '0';
-document.getElementById('annualUsed').textContent = balance?.used_days ?? '0';
-document.getElementById('annualRemaining').textContent = balance?.remaining_days ?? '0';
-
-const statusFilter = document.getElementById('statusFilter');
-const typeFilter = document.getElementById('typeFilter');
-const myLeaveList = document.getElementById('myLeaveList');
-
-function renderList() {
-  const statusValue = statusFilter.value;
-  const typeValue = typeFilter.value;
-
-  const filtered = requests.filter((item) => {
-    const statusMatch = statusValue === 'all' || item.status === statusValue;
-    const typeMatch = typeValue === 'all' || item.leave_type === typeValue;
-    return statusMatch && typeMatch;
-  });
-
-  if (!filtered.length) {
-    renderEmptyState(myLeaveList, 'No leave requests match the current filters.');
+function renderRequests(container, requests) {
+  if (!requests || !requests.length) {
+    renderEmptyState(container, 'No leave history yet.');
     return;
   }
 
-  myLeaveList.innerHTML = filtered.map((item) => `
+  container.innerHTML = requests.map((request) => `
     <article class="leave-card">
       <div class="leave-card-top">
         <div>
-          <p class="leave-card-title">${leaveTypeLabel(item.leave_type)}</p>
-          <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days} day(s)</p>
+          <p class="leave-card-title">${leaveTypeLabel(request.leave_type)}</p>
+          <p class="leave-card-subtitle">
+            ${formatDate(request.start_date)} to ${formatDate(request.end_date)} • ${request.total_days || 0} day(s)
+          </p>
         </div>
-        <div class="${badgeClass(item.status)}">${item.status}</div>
+        ${statusBadge(request.status)}
       </div>
 
-      <div class="leave-card-bottom">
-        <div class="${badgeClass(item.leave_type)}">${leaveTypeLabel(item.leave_type)}</div>
-        <p class="leave-card-subtitle">${item.reason || 'No reason provided'}</p>
+      <div class="leave-card-bottom stacked-bottom">
+        <p class="leave-card-subtitle"><strong>Reason:</strong> ${request.reason || 'No reason provided'}</p>
+        <p class="leave-card-subtitle"><strong>Notes:</strong> ${request.notes || 'No notes added'}</p>
       </div>
     </article>
   `).join('');
 }
 
-statusFilter?.addEventListener('change', renderList);
-typeFilter?.addEventListener('change', renderList);
+async function initMyLeavePage() {
+  try {
+    const auth = await requireAuth();
+    if (!auth) return;
 
-renderList();
-revealApp();
+    const { profile, user } = auth;
+    applyRoleUi(profile);
+
+    const authUserId = profile.user_id || profile.auth_user_id || user.id;
+    const currentYear = new Date().getFullYear();
+
+    document.getElementById('logoutBtn')?.addEventListener('click', async () => {
+      await signOut();
+      window.location.href = './login.html';
+    });
+
+    setText('myLeaveWelcome', `Welcome back, ${profile.full_name || user.email || 'Employee'}. Here are your leave statistics:`);
+
+    let balance = null;
+    let requests = [];
+
+    try {
+      balance = await getMyLeaveBalance(authUserId, currentYear);
+    } catch (error) {
+      console.warn('Balance failed:', error);
+    }
+
+    try {
+      requests = await getMyLeaveRequests(authUserId);
+    } catch (error) {
+      console.warn('Leave history failed:', error);
+    }
+
+    const allowance = Number(balance?.total_allowance ?? balance?.annual_allowance ?? profile.annual_leave_allowance ?? 0);
+    const used = Number(balance?.used_days ?? requests
+      .filter((request) =>
+        request.status === 'approved' &&
+        request.deduct_allowance !== false &&
+        ['annual', 'other'].includes(request.leave_type)
+      )
+      .reduce((sum, request) => sum + Number(request.total_days || 0), 0));
+
+    const remaining = Number(balance?.remaining_days ?? Math.max(0, allowance - used));
+    const pending = requests.filter((request) => request.status === 'pending').length;
+    const approved = requests.filter((request) => request.status === 'approved').length;
+
+    setText('leaveAllowance', allowance);
+    setText('leaveUsed', used);
+    setText('leaveRemaining', remaining);
+    setText('leavePending', pending);
+    setText('leaveApproved', approved);
+
+    const list = document.getElementById('myLeaveList') ||
+      document.getElementById('leaveHistoryList') ||
+      document.getElementById('myLeaveRequestsList');
+
+    renderRequests(list, requests);
+
+    revealApp();
+  } catch (error) {
+    showPageError(error, 'My Leave failed to load');
+  }
+}
+
+initMyLeavePage();
