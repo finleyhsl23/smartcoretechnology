@@ -32,6 +32,7 @@ function getCustomSelectValue(id) {
 }
 
 function setCustomSelectValue(selectEl, value, label) {
+  if (!selectEl) return;
   selectEl.dataset.value = value;
   const span = selectEl.querySelector('.custom-select-trigger span');
   if (span) span.textContent = label;
@@ -142,16 +143,18 @@ async function initAdmin() {
     document.getElementById('openManualAbsenceBtn')?.addEventListener('click', () => {
       selectedEmployee = null;
       manualAbsenceForm?.reset();
+
       if (selectedEmployeeBox) {
         selectedEmployeeBox.classList.add('hidden');
         selectedEmployeeBox.innerHTML = '';
       }
+
       if (employeeSearchResults) {
         employeeSearchResults.classList.add('hidden');
         employeeSearchResults.innerHTML = '';
       }
-      const authorisingUser = profile.full_name || profile.email || 'Signed in admin';
-      document.getElementById('manualAuthorisingUser').value = authorisingUser;
+
+      document.getElementById('manualAuthorisingUser').value = profile.full_name || profile.email || 'Signed in admin';
       setCustomSelectValue(document.getElementById('manualAbsenceTypeSelect'), 'annual', 'Annual Request');
       openModal('manualAbsenceModal');
     });
@@ -160,6 +163,7 @@ async function initAdmin() {
       if (selectEl.id === 'adminStatusSelect' || selectEl.id === 'adminTypeSelect') {
         renderList();
       }
+
       if (selectEl.id === 'manualAbsenceTypeSelect') {
         updateManualDays();
       }
@@ -241,8 +245,14 @@ async function initAdmin() {
       if (action === 'approve' || action === 'reject') {
         pendingAction = action;
         requestActionNote.value = '';
+
         document.getElementById('requestActionTitle').textContent = action === 'approve' ? 'Approve Request' : 'Reject Request';
         document.getElementById('requestActionSubtitle').textContent = `${request.employee_name} • ${leaveTypeLabel(request.leave_type)}`;
+
+        const deductBox = document.getElementById('requestDeductAllowance');
+        deductBox.checked = true;
+        deductBox.closest('.toggle-row').style.display = request.leave_type === 'annual' ? 'flex' : 'none';
+
         openModal('requestActionModal');
         return;
       }
@@ -308,10 +318,12 @@ async function initAdmin() {
 
       try {
         confirmRequestActionBtn.disabled = true;
+
         const note = requestActionNote.value.trim();
+        const deductAllowance = document.getElementById('requestDeductAllowance')?.checked ?? true;
 
         if (pendingAction === 'approve') {
-          await approveLeaveRequest(selectedRequest, profile.id, note);
+          await approveLeaveRequest(selectedRequest, profile.id, note, deductAllowance);
         } else {
           await rejectLeaveRequest(selectedRequest, profile.id, note);
         }
@@ -351,7 +363,7 @@ async function initAdmin() {
         employeeSearchResults.innerHTML = results.map((employee) => `
           <button type="button" class="search-result-item" data-id="${employee.id}">
             <strong>${employee.display_name}</strong>
-            <span>${employee.employee_code || '—'} • ${employee.job_title || '—'}</span>
+            <span>${employee.employee_code || employee.employee_id || '—'} • ${employee.job_title || '—'}</span>
           </button>
         `).join('');
 
@@ -364,7 +376,7 @@ async function initAdmin() {
             selectedEmployeeBox.classList.remove('hidden');
             selectedEmployeeBox.innerHTML = `
               <strong>${selectedEmployee.display_name}</strong>
-              <span>${selectedEmployee.employee_code || '—'} • ${selectedEmployee.job_title || '—'}</span>
+              <span>${selectedEmployee.employee_code || selectedEmployee.employee_id || '—'} • ${selectedEmployee.job_title || '—'}</span>
             `;
           });
         });
@@ -381,6 +393,9 @@ async function initAdmin() {
         : calendarDays(start, end);
 
       manualTotalDays.value = total > 0 ? String(total) : '';
+
+      const deductRow = document.getElementById('manualDeductAllowance')?.closest('.toggle-row');
+      if (deductRow) deductRow.style.display = type === 'annual' ? 'flex' : 'none';
     }
 
     manualStartDate?.addEventListener('change', updateManualDays);
@@ -408,7 +423,8 @@ async function initAdmin() {
           end_date: manualEndDate.value,
           total_days: Number(manualTotalDays.value),
           reason: document.getElementById('manualReason').value.trim(),
-          authorising_name: profile.full_name || profile.email || 'Admin'
+          authorising_name: profile.full_name || profile.email || 'Admin',
+          deduct_allowance: document.getElementById('manualDeductAllowance')?.checked ?? true
         }, profile.id);
 
         closeModal('manualAbsenceModal');
