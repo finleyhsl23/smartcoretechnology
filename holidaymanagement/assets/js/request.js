@@ -1,8 +1,28 @@
 import { requireAuth, applyRoleUi } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
 import { revealApp, showMessage, setLoadingButton, showPageError } from '../../shared/ui.js';
-import { getMyLeaveBalance, getCompanyHolidays, createLeaveRequest } from '../../shared/api.js';
+import {
+  getMyLeaveRequests,
+  getCompanyHolidays,
+  createLeaveRequest
+} from '../../shared/api.js';
 import { calculateBusinessDays, calculateCalendarDays } from '../../shared/dates.js';
+
+function calculateLeaveStats(profile, requests) {
+  const allowance = Number(profile.annual_leave_allowance || 0);
+
+  const used = (requests || [])
+    .filter((request) =>
+      request.status === 'approved' &&
+      request.deduct_allowance !== false &&
+      ['annual', 'other'].includes(request.leave_type)
+    )
+    .reduce((sum, request) => sum + Number(request.total_days || 0), 0);
+
+  const remaining = Math.max(0, allowance - used);
+
+  return { allowance, used, remaining };
+}
 
 async function initRequestPage() {
   try {
@@ -20,28 +40,19 @@ async function initRequestPage() {
       window.location.href = './login.html';
     });
 
-    const currentYear = new Date().getFullYear();
-
-    let balance = null;
+    let myRequests = [];
 
     try {
-      balance = await getMyLeaveBalance(authUserId, currentYear);
+      myRequests = await getMyLeaveRequests(authUserId);
     } catch (error) {
-      console.warn('Balance failed:', error);
+      console.warn('Leave requests failed:', error);
     }
 
-    const fallbackAllowance = Number(profile.annual_leave_allowance || 0);
-    const fallbackUsed = Number(balance?.used_days || 0);
-    const fallbackRemaining = Math.max(0, fallbackAllowance - fallbackUsed);
-
-    const remainingDays =
-      balance?.remaining_days ??
-      balance?.remaining ??
-      fallbackRemaining;
+    const stats = calculateLeaveStats(profile, myRequests);
 
     const balancePreview = document.getElementById('balancePreview');
     if (balancePreview) {
-      balancePreview.textContent = remainingDays;
+      balancePreview.textContent = stats.remaining;
     }
 
     const holidays = await getCompanyHolidays(profile.company_id);
@@ -91,7 +102,7 @@ async function initRequestPage() {
         return;
       }
 
-      if (leaveType === 'annual' && totalDays > Number(remainingDays || 0)) {
+      if (leaveType === 'annual' && totalDays > Number(stats.remaining || 0)) {
         showMessage('requestMessage', 'This request is greater than your remaining annual leave.', 'error');
         return;
       }
@@ -115,6 +126,14 @@ async function initRequestPage() {
 
         form.reset();
         totalDaysEl.value = '';
+
+        const refreshedRequests = await getMyLeaveRequests(authUserId);
+        const refreshedStats = calculateLeaveStats(profile, refreshedRequests);
+
+        if (balancePreview) {
+          balancePreview.textContent = refreshedStats.remaining;
+        }
+
         showMessage('requestMessage', 'Leave request submitted successfully.', 'success');
       } catch (error) {
         console.error(error);
