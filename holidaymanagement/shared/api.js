@@ -797,3 +797,20 @@ export async function completeEmployeeOnboarding(payload) {
 
   return result;
 }
+export async function sendLeaveRequestNotification(payload) {
+  const response = await fetch('/api/send-leave-request-notification', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.warn('Leave notification failed:', result);
+  }
+
+  return result;
+}
