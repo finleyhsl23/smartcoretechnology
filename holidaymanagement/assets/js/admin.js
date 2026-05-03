@@ -280,6 +280,26 @@ async function initAdmin() {
         if (deductBox) deductBox.checked = true;
         deductRow.style.display = ['annual', 'other'].includes(request.leave_type) ? 'flex' : 'none';
 
+        const actionModal = document.getElementById('requestActionModal');
+
+if (actionModal) {
+  actionModal.dataset.actionType = action;
+  actionModal.dataset.leaveType = request.leave_type;
+}
+
+const deductBox = document.getElementById('requestDeductAllowance');
+const deductRow = document.getElementById('requestDeductAllowanceRow');
+
+const shouldShowDeduct =
+  action === 'approve' &&
+  ['annual', 'other'].includes(request.leave_type);
+
+if (deductBox) deductBox.checked = true;
+
+if (deductRow) {
+  deductRow.style.display = shouldShowDeduct ? 'flex' : 'none';
+}
+        
         openModal('requestActionModal');
         return;
       }
