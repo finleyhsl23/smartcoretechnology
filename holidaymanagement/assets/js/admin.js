@@ -108,6 +108,28 @@ function renderEmployeeProfile(employee) {
   }).join('');
 }
 
+function setDeductAllowanceVisibility(action, leaveType) {
+  const actionModal = document.getElementById('requestActionModal');
+  const checkbox = document.getElementById('requestDeductAllowance');
+  const row = document.getElementById('requestDeductAllowanceRow');
+
+  const shouldShow =
+    action === 'approve' &&
+    ['annual', 'other'].includes(leaveType);
+
+  if (actionModal) {
+    actionModal.dataset.actionType = action;
+    actionModal.dataset.leaveType = leaveType;
+  }
+
+  if (checkbox) checkbox.checked = true;
+
+  if (row) {
+    row.classList.toggle('hidden', !shouldShow);
+    row.style.display = shouldShow ? 'flex' : 'none';
+  }
+}
+
 async function initAdmin() {
   try {
     const auth = await requireAdminPageAccess();
@@ -159,8 +181,8 @@ async function initAdmin() {
         authorisingInput.value = profile.full_name || profile.email || 'Signed in admin';
       }
 
-      const deductRow = document.getElementById('manualDeductAllowance')?.closest('.toggle-row');
-      if (deductRow) deductRow.style.display = 'flex';
+      const manualDeductRow = document.getElementById('manualDeductAllowance')?.closest('.toggle-row');
+      if (manualDeductRow) manualDeductRow.style.display = 'flex';
 
       setCustomSelectValue(document.getElementById('manualAbsenceTypeSelect'), 'annual', 'Annual Request');
       openModal('manualAbsenceModal');
@@ -274,32 +296,8 @@ async function initAdmin() {
         document.getElementById('requestActionSubtitle').textContent =
           `${request.employee_name} • ${leaveTypeLabel(request.leave_type)}`;
 
-        const deductBox = document.getElementById('requestDeductAllowance');
-        const deductRow = document.getElementById('requestDeductAllowanceRow') || deductBox?.closest('.toggle-row');
+        setDeductAllowanceVisibility(action, request.leave_type);
 
-        if (deductBox) deductBox.checked = true;
-        deductRow.style.display = ['annual', 'other'].includes(request.leave_type) ? 'flex' : 'none';
-
-        const actionModal = document.getElementById('requestActionModal');
-
-if (actionModal) {
-  actionModal.dataset.actionType = action;
-  actionModal.dataset.leaveType = request.leave_type;
-}
-
-const deductBox = document.getElementById('requestDeductAllowance');
-const deductRow = document.getElementById('requestDeductAllowanceRow');
-
-const shouldShowDeduct =
-  action === 'approve' &&
-  ['annual', 'other'].includes(request.leave_type);
-
-if (deductBox) deductBox.checked = true;
-
-if (deductRow) {
-  deductRow.style.display = shouldShowDeduct ? 'flex' : 'none';
-}
-        
         openModal('requestActionModal');
         return;
       }
@@ -460,9 +458,9 @@ if (deductRow) {
 
       manualTotalDays.value = total > 0 ? String(total) : '';
 
-      const deductRow = document.getElementById('manualDeductAllowance')?.closest('.toggle-row');
-      if (deductRow) {
-        deductRow.style.display = ['annual', 'other'].includes(type) ? 'flex' : 'none';
+      const manualDeductRow = document.getElementById('manualDeductAllowance')?.closest('.toggle-row');
+      if (manualDeductRow) {
+        manualDeductRow.style.display = ['annual', 'other'].includes(type) ? 'flex' : 'none';
       }
     }
 
