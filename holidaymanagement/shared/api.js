@@ -599,11 +599,23 @@ export async function approveLeaveRequest(request, approverId, note = '', deduct
       leave_request_id: request.id,
       action: 'approved',
       performed_by: approverId,
-      details: {
-        note,
-        deduct_allowance: deductAllowance
-      }
+      details: { note, deduct_allowance: deductAllowance }
     }]);
+
+  try {
+    await sendLeaveDecisionNotification({
+      status: 'approved',
+      to: request.employee_email || request.personal_email || request.work_email,
+      employee_name: request.employee_name || 'Employee',
+      leave_type: leaveTypeLabel(request.leave_type),
+      start_date: request.start_date,
+      end_date: request.end_date,
+      total_days: request.total_days,
+      note
+    });
+  } catch (notificationError) {
+    console.warn('Approval notification failed:', notificationError);
+  }
 
   return true;
 }
@@ -634,6 +646,21 @@ export async function rejectLeaveRequest(request, approverId, note = '') {
       performed_by: approverId,
       details: { note }
     }]);
+
+  try {
+    await sendLeaveDecisionNotification({
+      status: 'rejected',
+      to: request.employee_email || request.personal_email || request.work_email,
+      employee_name: request.employee_name || 'Employee',
+      leave_type: leaveTypeLabel(request.leave_type),
+      start_date: request.start_date,
+      end_date: request.end_date,
+      total_days: request.total_days,
+      note
+    });
+  } catch (notificationError) {
+    console.warn('Rejection notification failed:', notificationError);
+  }
 
   return true;
 }
