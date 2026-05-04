@@ -58,20 +58,9 @@ export function applyRoleUi(profile) {
   return isAdmin;
 }
 
-export async function requireAuth() {
-  const session = await getSessionOrRedirect();
-  if (!session) return null;
+function setupThemeToggle() {
+  if (document.getElementById('themeToggleBtn')) return;
 
-  const profile = await getCurrentProfile();
-
-  const fixedProfile = {
-    ...profile,
-    auth_user_id: session.user.id,
-    user_id: session.user.id,
-    employee_id: profile.id
-  };
-
- if (!document.getElementById('themeToggleBtn')) {
   const updateThemeLogos = (isLight) => {
     document.querySelectorAll('.sidebar-logo, [data-theme-logo]').forEach((logo) => {
       logo.src = isLight
@@ -90,6 +79,7 @@ export async function requireAuth() {
 
   document.body.classList.toggle('light-mode', isLightStart);
   button.textContent = isLightStart ? 'Switch to dark mode' : 'Switch to light mode';
+
   updateThemeLogos(isLightStart);
 
   button.addEventListener('click', () => {
@@ -100,6 +90,29 @@ export async function requireAuth() {
   });
 
   document.body.appendChild(button);
+}
+
+export async function requireAuth() {
+  const session = await getSessionOrRedirect();
+  if (!session) return null;
+
+  const profile = await getCurrentProfile();
+
+  const fixedProfile = {
+    ...profile,
+    auth_user_id: session.user.id,
+    user_id: session.user.id,
+    employee_id: profile.id
+  };
+
+  setupThemeToggle();
+  applyRoleUi(fixedProfile);
+
+  return {
+    session,
+    user: session.user,
+    profile: fixedProfile
+  };
 }
 
 export async function requirePageAccess() {
