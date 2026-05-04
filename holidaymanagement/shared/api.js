@@ -834,3 +834,14 @@ export async function sendLeaveRequestNotification(payload) {
 
   return result;
 }
+export async function getLeaveAuthoriserNotificationInfo(employeeId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('get_leave_authoriser_notification_info', {
+      p_employee_id: employeeId
+    });
+
+  if (error) throw error;
+
+  return data?.[0] || null;
+}
