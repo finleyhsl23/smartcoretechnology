@@ -12,7 +12,9 @@ import {
   getEmployeeLeaveSummary,
   searchEmployees,
   createManualAbsence,
-  leaveTypeLabel
+  leaveTypeLabel,
+  getLeaveOverlap,
+  sendLeaveCancelNotification
 } from '../../shared/api.js';
 import { formatDate, calculateBusinessDays, isDateInRange } from '../../shared/dates.js';
 
@@ -142,6 +144,48 @@ function renderLeaveHistory(entries) {
   `).join('');
 }
 
+function openWhoElseModal(request, items) {
+  const requestEmployeeUuid = request.employee?.id || request.employee_id;
+
+  const filtered = (items || []).filter((item) => item.employee_id !== requestEmployeeUuid);
+
+  const html = filtered.length
+    ? filtered.map((item) => `
+        <article class="leave-card">
+          <p class="leave-card-title">${item.employee_name || 'Employee'}</p>
+          <p class="leave-card-subtitle">${leaveTypeLabel(item.leave_type)} • ${item.status}</p>
+          <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days || 0} day(s)</p>
+        </article>
+      `).join('')
+    : '<div class="empty-state">Nobody else is off in this period.</div>';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop';
+  modal.innerHTML = `
+    <div class="modal-card glass-card">
+      <div class="modal-header">
+        <div>
+          <h2>Who Else Is Off?</h2>
+          <p class="muted">${formatDate(request.start_date)} to ${formatDate(request.end_date)}</p>
+        </div>
+        <button class="btn btn-secondary" type="button" id="closeWhoElseModal">Close</button>
+      </div>
+
+      <div class="card-list">${html}</div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  document.getElementById('closeWhoElseModal')?.addEventListener('click', () => {
+    modal.remove();
+  });
+
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) modal.remove();
+  });
+}
+
 async function initAdmin() {
   try {
     const auth = await requireAdminPageAccess();
@@ -267,6 +311,7 @@ async function initAdmin() {
 
             <div class="inline-actions">
               <button class="btn btn-secondary" data-action="more-info" data-id="${item.id}" type="button">More Info</button>
+              <button class="btn btn-secondary" data-action="who-else" data-id="${item.id}" type="button">Who Else Is Off?</button>
 
               ${
                 item.status === 'pending'
@@ -309,6 +354,16 @@ async function initAdmin() {
       if (!request) return;
 
       selectedRequest = request;
+
+      if (action === 'who-else') {
+        try {
+          const items = await getLeaveOverlap(profile.company_id, request.start_date, request.end_date);
+          openWhoElseModal(request, items);
+        } catch (error) {
+          alert(error.message || 'Unable to load who else is off.');
+        }
+        return;
+      }
 
       if (['approve', 'reject', 'cancel', 'approve-cancel', 'reject-cancel'].includes(action)) {
         pendingAction = action;
@@ -434,17 +489,17 @@ async function initAdmin() {
 
         if (pendingAction === 'cancel' || pendingAction === 'approve-cancel') {
           await cancelLeaveRequestAdmin(selectedRequest, authUserId, note);
-        }
 
-        await sendLeaveCancelNotification({
-  type: 'admin_cancelled',
-  employee_email: selectedRequest.employee_email || selectedRequest.personal_email || selectedRequest.work_email,
-  employee_name: selectedRequest.employee_name || 'Employee',
-  leave_type: selectedRequest.leave_type,
-  start_date: selectedRequest.start_date,
-  end_date: selectedRequest.end_date,
-  reason: note
-});
+          await sendLeaveCancelNotification({
+            type: 'admin_cancelled',
+            to: selectedRequest.employee_email || selectedRequest.personal_email || selectedRequest.work_email,
+            employee_name: selectedRequest.employee_name || 'Employee',
+            leave_type: selectedRequest.leave_type,
+            start_date: selectedRequest.start_date,
+            end_date: selectedRequest.end_date,
+            reason: note
+          });
+        }
 
         if (pendingAction === 'reject-cancel') {
           await approveLeaveRequest(
