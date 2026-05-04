@@ -71,6 +71,25 @@ export async function requireAuth() {
     employee_id: profile.id
   };
 
+  if (!document.getElementById('themeToggleBtn')) {
+  const button = document.createElement('button');
+  button.id = 'themeToggleBtn';
+  button.className = 'btn theme-toggle-btn';
+  button.type = 'button';
+
+  const savedTheme = localStorage.getItem('holidayTheme') || 'dark';
+  document.body.classList.toggle('light-mode', savedTheme === 'light');
+  button.textContent = savedTheme === 'light' ? 'Switch to dark mode' : 'Switch to light mode';
+
+  button.addEventListener('click', () => {
+    const isLight = document.body.classList.toggle('light-mode');
+    localStorage.setItem('holidayTheme', isLight ? 'light' : 'dark');
+    button.textContent = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+  });
+
+  document.body.appendChild(button);
+}
+  
   applyRoleUi(fixedProfile);
 
   return {
