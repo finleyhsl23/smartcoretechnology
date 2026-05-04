@@ -357,7 +357,7 @@ export async function createLeaveRequest(payload) {
 
   const insertPayload = {
     ...payload,
-    employee_id: employee?.id || null,
+    employee_id: payload.employee_id || employee?.id || null,
     status: isOwnerAutoApprove ? 'approved' : 'pending',
     approved_at: isOwnerAutoApprove ? new Date().toISOString() : null,
     approved_by: isOwnerAutoApprove ? payload.user_id : null,
@@ -384,21 +384,26 @@ export async function createLeaveRequest(payload) {
       details: insertPayload
     }]);
 
-  if (!isOwnerAutoApprove && employee?.assigned_authoriser) {
-    const employees = await getEmployeesByCompany();
-    const authoriser = employees.find((item) => item.id === employee.assigned_authoriser);
+  if (!isOwnerAutoApprove && insertPayload.employee_id) {
+    try {
+      const notifyInfo = await getLeaveAuthoriserNotificationInfo(insertPayload.employee_id);
 
-    if (authoriser) {
-      await sendLeaveRequestNotification({
-        to: authoriser.work_email || authoriser.personal_email,
-        authoriser_name: authoriser.full_name,
-        employee_name: employee.full_name,
-        leave_type: payload.leave_type,
-        start_date: payload.start_date,
-        end_date: payload.end_date,
-        total_days: payload.total_days,
-        manage_url: `${window.location.origin}/holidaymanagement/admin.html?request=${data.id}`
-      });
+      if (notifyInfo?.authoriser_email) {
+        await sendLeaveRequestNotification({
+          to: notifyInfo.authoriser_email,
+          authoriser_name: notifyInfo.authoriser_name,
+          employee_name: notifyInfo.employee_name,
+          leave_type: payload.leave_type,
+          start_date: payload.start_date,
+          end_date: payload.end_date,
+          total_days: payload.total_days,
+          manage_url: `${window.location.origin}/holidaymanagement/admin.html?request=${data.id}`
+        });
+      } else {
+        console.warn('No authoriser email found for leave request notification.');
+      }
+    } catch (notificationError) {
+      console.warn('Leave notification failed:', notificationError);
     }
   }
 
