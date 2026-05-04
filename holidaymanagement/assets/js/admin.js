@@ -436,6 +436,16 @@ async function initAdmin() {
           await cancelLeaveRequestAdmin(selectedRequest, authUserId, note);
         }
 
+        await sendLeaveCancelNotification({
+  type: 'admin_cancelled',
+  employee_email: selectedRequest.employee_email || selectedRequest.personal_email || selectedRequest.work_email,
+  employee_name: selectedRequest.employee_name || 'Employee',
+  leave_type: selectedRequest.leave_type,
+  start_date: selectedRequest.start_date,
+  end_date: selectedRequest.end_date,
+  reason: note
+});
+
         if (pendingAction === 'reject-cancel') {
           await approveLeaveRequest(
             { ...selectedRequest, status: 'pending' },
