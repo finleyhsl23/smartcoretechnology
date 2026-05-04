@@ -80,15 +80,48 @@ export async function updateMyEmployeeProfile(profile, updates) {
     id: profile.employee_id || profile.id,
     company_id: profile.company_id,
     user_id: profile.user_id,
+
+    employee_code: profile.employee_code,
     full_name: updates.full_name,
+    job_title: updates.job_title,
+    work_email: updates.work_email,
     personal_email: updates.personal_email,
     personal_phone: updates.personal_phone,
-    work_email: profile.work_email || profile.email || '',
+    employment_type: updates.employment_type,
+    notice_period: updates.notice_period,
+    start_date: updates.start_date,
+
     role: profile.role,
     is_admin: profile.is_admin,
     annual_leave_allowance: profile.annual_leave_allowance,
     employment_status: 'active',
-    onboarding_status: 'complete'
+    onboarding_status: 'complete',
+
+    title: updates.title,
+    pronouns: updates.pronouns,
+    gender: updates.gender,
+    dob: updates.dob,
+    nationality: updates.nationality,
+    ni_number: updates.ni_number,
+    passport_number: updates.passport_number,
+    passport_expiry_date: updates.passport_expiry_date,
+    driving_licence_number: updates.driving_licence_number,
+
+    address_line1: updates.address_line1,
+    address_line2: updates.address_line2,
+    address_city: updates.address_city,
+    address_county: updates.address_county,
+    address_postcode: updates.address_postcode,
+    address_country: updates.address_country,
+
+    emergency_contact_name1: updates.emergency_contact_name1,
+    emergency_contact_relationship1: updates.emergency_contact_relationship1,
+    emergency_contact_email1: updates.emergency_contact_email1,
+    emergency_contact_phone1: updates.emergency_contact_phone1,
+    emergency_contact_name2: updates.emergency_contact_name2,
+    emergency_contact_relationship2: updates.emergency_contact_relationship2,
+    emergency_contact_email2: updates.emergency_contact_email2,
+    emergency_contact_phone2: updates.emergency_contact_phone2
   };
 
   return upsertEmployee(payload);
