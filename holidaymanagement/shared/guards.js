@@ -71,32 +71,35 @@ export async function requireAuth() {
     employee_id: profile.id
   };
 
-  if (!document.getElementById('themeToggleBtn')) {
+ if (!document.getElementById('themeToggleBtn')) {
+  const updateThemeLogos = (isLight) => {
+    document.querySelectorAll('.sidebar-logo, [data-theme-logo]').forEach((logo) => {
+      logo.src = isLight
+        ? '/images/smartfitslogo-lightmode.png'
+        : '/images/smartfitslogo.png';
+    });
+  };
+
   const button = document.createElement('button');
   button.id = 'themeToggleBtn';
   button.className = 'btn theme-toggle-btn';
   button.type = 'button';
 
   const savedTheme = localStorage.getItem('holidayTheme') || 'dark';
-  document.body.classList.toggle('light-mode', savedTheme === 'light');
-  button.textContent = savedTheme === 'light' ? 'Switch to dark mode' : 'Switch to light mode';
+  const isLightStart = savedTheme === 'light';
+
+  document.body.classList.toggle('light-mode', isLightStart);
+  button.textContent = isLightStart ? 'Switch to dark mode' : 'Switch to light mode';
+  updateThemeLogos(isLightStart);
 
   button.addEventListener('click', () => {
     const isLight = document.body.classList.toggle('light-mode');
     localStorage.setItem('holidayTheme', isLight ? 'light' : 'dark');
     button.textContent = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+    updateThemeLogos(isLight);
   });
 
   document.body.appendChild(button);
-}
-  
-  applyRoleUi(fixedProfile);
-
-  return {
-    session,
-    user: session.user,
-    profile: fixedProfile
-  };
 }
 
 export async function requirePageAccess() {
