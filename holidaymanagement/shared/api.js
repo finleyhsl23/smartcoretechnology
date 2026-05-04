@@ -8,7 +8,6 @@ export function leaveTypeLabel(value) {
 
 /* =========================================================
    EMPLOYEES
-   Uses encrypted smartfitsinstallationsltd.employees via RPC
 ========================================================= */
 
 export async function getEmployeesByCompany() {
@@ -33,9 +32,7 @@ export async function searchEmployees(companyId, searchTerm) {
   if (term.length < 2) return [];
 
   return employees
-    .filter((employee) =>
-      JSON.stringify(employee).toLowerCase().includes(term)
-    )
+    .filter((employee) => JSON.stringify(employee).toLowerCase().includes(term))
     .slice(0, 10);
 }
 
@@ -76,6 +73,25 @@ export async function getEmployeeByUserId(userId) {
 
   const employees = await getEmployeesByCompany();
   return employees.find((employee) => employee.user_id === userId) || null;
+}
+
+export async function updateMyEmployeeProfile(profile, updates) {
+  const payload = {
+    id: profile.employee_id || profile.id,
+    company_id: profile.company_id,
+    user_id: profile.user_id,
+    full_name: updates.full_name,
+    personal_email: updates.personal_email,
+    personal_phone: updates.personal_phone,
+    work_email: profile.work_email || profile.email || '',
+    role: profile.role,
+    is_admin: profile.is_admin,
+    annual_leave_allowance: profile.annual_leave_allowance,
+    employment_status: 'active',
+    onboarding_status: 'complete'
+  };
+
+  return upsertEmployee(payload);
 }
 
 /* =========================================================
@@ -206,7 +222,10 @@ export async function enrichRequestsWithEmployeeInfo(requests) {
       display_name: employee?.full_name || 'Employee',
       employee_id_display: employee?.employee_code || '—',
       employee_id: employee?.employee_code || '—',
-      job_title: employee?.job_title || '—'
+      job_title: employee?.job_title || '—',
+      employee_email: employee?.work_email || employee?.personal_email || null,
+      work_email: employee?.work_email || null,
+      personal_email: employee?.personal_email || null
     };
   });
 }
@@ -243,6 +262,19 @@ export async function getApprovedLeaveInRange(companyId, startDate, endDate) {
 
   if (error) throw error;
   return enrichRequestsWithEmployeeInfo(data || []);
+}
+
+export async function getLeaveOverlap(companyId, startDate, endDate) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('get_leave_overlap', {
+      p_company_id: companyId,
+      p_start_date: startDate,
+      p_end_date: endDate
+    });
+
+  if (error) throw error;
+  return data || [];
 }
 
 /* =========================================================
@@ -345,6 +377,57 @@ export async function getDashboardLeaveBreakdown(companyId) {
 }
 
 /* =========================================================
+   NOTIFICATIONS
+========================================================= */
+
+export async function sendLeaveRequestNotification(payload) {
+  const response = await fetch('/api/send-leave-request-notification', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.warn('Leave notification failed:', result);
+  }
+
+  return result;
+}
+
+export async function sendLeaveCancelNotification(payload) {
+  const response = await fetch('/api/send-leave-cancel-notification', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.warn('Cancel notification failed:', result);
+  }
+
+  return result;
+}
+
+export async function getLeaveAuthoriserNotificationInfo(employeeId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('get_leave_authoriser_notification_info', {
+      p_employee_id: employeeId
+    });
+
+  if (error) throw error;
+  return data?.[0] || null;
+}
+
+/* =========================================================
    CREATE REQUESTS
 ========================================================= */
 
@@ -399,8 +482,6 @@ export async function createLeaveRequest(payload) {
           total_days: payload.total_days,
           manage_url: `${window.location.origin}/holidaymanagement/admin.html?request=${data.id}`
         });
-      } else {
-        console.warn('No authoriser email found for leave request notification.');
       }
     } catch (notificationError) {
       console.warn('Leave notification failed:', notificationError);
@@ -453,45 +534,12 @@ export async function createManualAbsence(payload, authorisingUserId) {
       }
     }]);
 
-  await adjustBalance(data, 'deduct');
-
   return data;
 }
 
 /* =========================================================
    APPROVE / REJECT / CANCEL / AMEND
 ========================================================= */
-
-async function adjustBalance(request, direction = 'deduct') {
-  if (!request.deduct_allowance) return;
-  if (!['annual', 'other'].includes(request.leave_type)) return;
-  if (!request.user_id) return;
-
-  const year = new Date(request.start_date).getFullYear();
-  const balance = await getMyLeaveBalance(request.user_id, year);
-
-  if (!balance) return;
-
-  const days = Number(request.total_days || 0);
-
-  const usedDays =
-    direction === 'deduct'
-      ? Number(balance.used_days || 0) + days
-      : Math.max(0, Number(balance.used_days || 0) - days);
-
-  const remainingDays = Math.max(0, Number(balance.total_allowance || 0) - usedDays);
-
-  const { error } = await supabase
-    .schema(leaveSchema)
-    .from('leave_balances')
-    .update({
-      used_days: usedDays,
-      remaining_days: remainingDays
-    })
-    .eq('id', balance.id);
-
-  if (error) throw error;
-}
 
 export async function approveLeaveRequest(request, approverId, note = '', deductAllowance = true) {
   const { data, error } = await supabase
@@ -524,8 +572,6 @@ export async function approveLeaveRequest(request, approverId, note = '', deduct
       }
     }]);
 
-  await adjustBalance(data, 'deduct');
-
   return true;
 }
 
@@ -553,9 +599,7 @@ export async function rejectLeaveRequest(request, approverId, note = '') {
       leave_request_id: request.id,
       action: 'rejected',
       performed_by: approverId,
-      details: {
-        note
-      }
+      details: { note }
     }]);
 
   return true;
@@ -572,13 +616,32 @@ export async function requestLeaveCancellation(request, userId, reason) {
       cancellation_reason: reason || null
     })
     .eq('id', request.id)
-    .select('id')
+    .select()
     .maybeSingle();
 
   if (error) throw error;
   if (!data) throw new Error('Cancellation request could not be submitted.');
 
-  return true;
+  try {
+    const notifyInfo = await getLeaveAuthoriserNotificationInfo(request.employee_id);
+
+    if (notifyInfo?.authoriser_email) {
+      await sendLeaveCancelNotification({
+        to: notifyInfo.authoriser_email,
+        type: 'employee_requested_cancel',
+        employee_name: notifyInfo.employee_name || request.employee_name || 'Employee',
+        leave_type: request.leave_type,
+        start_date: request.start_date,
+        end_date: request.end_date,
+        reason,
+        manage_url: `${window.location.origin}/holidaymanagement/admin.html?request=${request.id}`
+      });
+    }
+  } catch (error) {
+    console.warn('Cancellation email failed:', error);
+  }
+
+  return data;
 }
 
 export async function cancelLeaveRequestAdmin(request, adminId, reason = '') {
@@ -598,8 +661,6 @@ export async function cancelLeaveRequestAdmin(request, adminId, reason = '') {
   if (error) throw error;
   if (!data) throw new Error('Leave could not be cancelled.');
 
-  await adjustBalance(request, 'return');
-
   await supabase
     .schema(leaveSchema)
     .from('leave_logs')
@@ -607,17 +668,29 @@ export async function cancelLeaveRequestAdmin(request, adminId, reason = '') {
       leave_request_id: request.id,
       action: 'cancelled',
       performed_by: adminId,
-      details: {
-        reason
-      }
+      details: { reason }
     }]);
+
+  try {
+    if (request.employee_email || request.personal_email || request.work_email) {
+      await sendLeaveCancelNotification({
+        type: 'admin_cancelled',
+        to: request.employee_email || request.personal_email || request.work_email,
+        employee_name: request.employee_name || 'Employee',
+        leave_type: request.leave_type,
+        start_date: request.start_date,
+        end_date: request.end_date,
+        reason
+      });
+    }
+  } catch (error) {
+    console.warn('Admin cancellation email failed:', error);
+  }
 
   return data;
 }
 
 export async function amendLeaveRequestAdmin(request, adminId, payload) {
-  const oldRequest = { ...request };
-
   const { data, error } = await supabase
     .schema(leaveSchema)
     .from('leave_requests')
@@ -635,11 +708,6 @@ export async function amendLeaveRequestAdmin(request, adminId, payload) {
 
   if (error) throw error;
   if (!data) throw new Error('Leave could not be amended.');
-
-  if (oldRequest.status === 'approved' && oldRequest.deduct_allowance) {
-    await adjustBalance(oldRequest, 'return');
-    await adjustBalance(data, 'deduct');
-  }
 
   await supabase
     .schema(leaveSchema)
@@ -681,10 +749,7 @@ export async function getEmployeeLeaveSummary(request) {
   } else if (userId) {
     query = query.eq('user_id', userId);
   } else {
-    return {
-      balance,
-      requests: []
-    };
+    return { balance, requests: [] };
   }
 
   const { data, error } = await query;
@@ -705,10 +770,7 @@ export async function createSicknessEpisode(payload, adminId) {
   const { data, error } = await supabase
     .schema(leaveSchema)
     .from('sickness_episodes')
-    .insert([{
-      ...payload,
-      created_by: adminId
-    }])
+    .insert([{ ...payload, created_by: adminId }])
     .select()
     .maybeSingle();
 
@@ -773,12 +835,15 @@ export async function getCompanyHolidays(companyId) {
     .eq('company_id', companyId)
     .order('holiday_date', { ascending: true });
 
-  if (error) {
-    return bankHolidays;
-  }
+  if (error) return bankHolidays;
 
   return [...bankHolidays, ...(data || [])];
 }
+
+/* =========================================================
+   COMPANY / ONBOARDING / INVITES
+========================================================= */
+
 export async function getMyCompanyInfo() {
   const { data, error } = await supabase
     .schema(leaveSchema)
@@ -791,9 +856,7 @@ export async function getMyCompanyInfo() {
 export async function sendEmployeeInvite(payload) {
   const response = await fetch('/api/send-employee-invite', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
 
@@ -805,12 +868,11 @@ export async function sendEmployeeInvite(payload) {
 
   return result;
 }
+
 export async function completeEmployeeOnboarding(payload) {
   const response = await fetch('/api/complete-employee-onboarding', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
 
@@ -821,207 +883,4 @@ export async function completeEmployeeOnboarding(payload) {
   }
 
   return result;
-}
-export async function sendLeaveRequestNotification(payload) {
-  const response = await fetch('/api/send-leave-request-notification', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
-
-  const result = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    console.warn('Leave notification failed:', result);
-  }
-
-  return result;
-}
-export async function getLeaveAuthoriserNotificationInfo(employeeId) {
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .rpc('get_leave_authoriser_notification_info', {
-      p_employee_id: employeeId
-    });
-
-  if (error) throw error;
-
-  return data?.[0] || null;
-}
-export async function getLeaveOverlap(companyId, startDate, endDate) {
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .rpc('get_leave_overlap', {
-      p_company_id: companyId,
-      p_start_date: startDate,
-      p_end_date: endDate
-    });
-
-  if (error) throw error;
-  return data || [];
-}
-
-export async function requestLeaveCancellation(request, userId, reason) {
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .from('leave_requests')
-    .update({
-      status: 'cancel_requested',
-      cancellation_requested_at: new Date().toISOString(),
-      cancellation_requested_by: userId,
-      cancellation_reason: reason || null
-    })
-    .eq('id', request.id)
-    .select()
-    .maybeSingle();
-
-  if (error) throw error;
-
-  await sendLeaveCancelNotification({
-    type: 'employee_requested_cancel',
-    request_id: request.id,
-    employee_name: request.employee_name || request.full_name || 'Employee',
-    leave_type: request.leave_type,
-    start_date: request.start_date,
-    end_date: request.end_date,
-    reason,
-    manage_url: `${window.location.origin}/holidaymanagement/admin.html?request=${request.id}`
-  });
-
-  return data;
-}
-
-export async function sendLeaveCancelNotification(payload) {
-  const response = await fetch('/api/send-leave-cancel-notification', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
-
-  const result = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    console.warn('Cancel notification failed:', result);
-  }
-
-  return result;
-}
-
-export async function updateMyEmployeeProfile(profile, updates) {
-  const payload = {
-    id: profile.employee_id || profile.id,
-    company_id: profile.company_id,
-    user_id: profile.user_id,
-    full_name: updates.full_name,
-    personal_email: updates.personal_email,
-    personal_phone: updates.personal_phone,
-    work_email: profile.work_email || profile.email || '',
-    role: profile.role,
-    is_admin: profile.is_admin,
-    annual_leave_allowance: profile.annual_leave_allowance,
-    employment_status: 'active',
-    onboarding_status: 'complete'
-  };
-
-  return upsertEmployee(payload);
-}
-export async function getLeaveOverlap(companyId, startDate, endDate) {
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .rpc('get_leave_overlap', {
-      p_company_id: companyId,
-      p_start_date: startDate,
-      p_end_date: endDate
-    });
-
-  if (error) throw error;
-  return data || [];
-}
-
-export async function getLeaveAuthoriserNotificationInfo(employeeId) {
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .rpc('get_leave_authoriser_notification_info', {
-      p_employee_id: employeeId
-    });
-
-  if (error) throw error;
-  return data?.[0] || null;
-}
-
-export async function sendLeaveCancelNotification(payload) {
-  const response = await fetch('/api/send-leave-cancel-notification', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  const result = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    console.warn('Cancel notification failed:', result);
-  }
-
-  return result;
-}
-
-export async function requestLeaveCancellation(request, userId, reason) {
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .from('leave_requests')
-    .update({
-      status: 'cancel_requested',
-      cancellation_requested_at: new Date().toISOString(),
-      cancellation_requested_by: userId,
-      cancellation_reason: reason || null
-    })
-    .eq('id', request.id)
-    .select()
-    .maybeSingle();
-
-  if (error) throw error;
-
-  try {
-    const notifyInfo = await getLeaveAuthoriserNotificationInfo(request.employee_id);
-
-    if (notifyInfo?.authoriser_email) {
-      await sendLeaveCancelNotification({
-        to: notifyInfo.authoriser_email,
-        type: 'employee_requested_cancel',
-        employee_name: notifyInfo.employee_name || request.employee_name || 'Employee',
-        leave_type: request.leave_type,
-        start_date: request.start_date,
-        end_date: request.end_date,
-        reason,
-        manage_url: `${window.location.origin}/holidaymanagement/admin.html?request=${request.id}`
-      });
-    }
-  } catch (error) {
-    console.warn('Cancellation email failed:', error);
-  }
-
-  return data;
-}
-
-export async function updateMyEmployeeProfile(profile, updates) {
-  const payload = {
-    id: profile.employee_id || profile.id,
-    company_id: profile.company_id,
-    user_id: profile.user_id,
-    full_name: updates.full_name,
-    personal_email: updates.personal_email,
-    personal_phone: updates.personal_phone,
-    work_email: profile.work_email || profile.email || '',
-    role: profile.role,
-    is_admin: profile.is_admin,
-    annual_leave_allowance: profile.annual_leave_allowance,
-    employment_status: 'active',
-    onboarding_status: 'complete'
-  };
-
-  return upsertEmployee(payload);
 }
