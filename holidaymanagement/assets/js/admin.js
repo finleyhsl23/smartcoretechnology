@@ -35,6 +35,12 @@ function getCustomSelectValue(id) {
   return document.getElementById(id)?.dataset.value || 'all';
 }
 
+function statusMatchesFilter(statusValue, status) {
+  if (statusValue === 'all') return true;
+  if (statusValue === 'pending') return ['pending', 'cancel_requested'].includes(status);
+  return status === statusValue;
+}
+
 function setCustomSelectValue(selectEl, value, label) {
   if (!selectEl) return;
   selectEl.dataset.value = value;
@@ -224,6 +230,18 @@ async function initAdmin() {
       if (selectEl.id === 'manualAbsenceTypeSelect') updateManualDays();
     });
 
+    const statusMenu = document.querySelector('#adminStatusSelect .custom-select-menu');
+if (statusMenu) {
+  statusMenu.innerHTML = `
+    <button type="button" data-value="all">All Statuses</button>
+    <button type="button" data-value="pending">Pending</button>
+    <button type="button" data-value="approved">Approved</button>
+    <button type="button" data-value="rejected">Rejected</button>
+    <button type="button" data-value="cancelled">Cancelled</button>
+  `;
+}
+
+setCustomSelectValue(document.getElementById('adminStatusSelect'), 'all', 'All Statuses');
     async function loadData() {
       requests = await getAllCompanyLeaveRequests(profile.company_id);
       requests = await enrichRequestsWithEmployeeInfo(requests, profile.company_id);
@@ -281,7 +299,7 @@ async function initAdmin() {
       const typeValue = getCustomSelectValue('adminTypeSelect');
 
       const filtered = requests.filter((item) => {
-        const statusMatch = statusValue === 'all' || item.status === statusValue;
+        const statusMatch = statusMatchesFilter(statusValue, item.status);
         const typeMatch = typeValue === 'all' || item.leave_type === typeValue;
         return statusMatch && typeMatch;
       });
