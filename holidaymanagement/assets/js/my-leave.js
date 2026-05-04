@@ -1,7 +1,11 @@
 import { requireAuth, applyRoleUi } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
 import { revealApp, renderEmptyState, showPageError } from '../../shared/ui.js';
-import { getMyLeaveRequests, leaveTypeLabel } from '../../shared/api.js';
+import {
+  getMyLeaveRequests,
+  leaveTypeLabel,
+  requestLeaveCancellation
+} from '../../shared/api.js';
 import { formatDate } from '../../shared/dates.js';
 
 function setText(ids, value) {
@@ -32,8 +36,8 @@ function calculateLeaveStats(profile, requests) {
     allowance,
     used,
     remaining: Math.max(0, allowance - used),
-    pending: requests.filter((request) => request.status === 'pending').length,
-    approved: requests.filter((request) => request.status === 'approved').length
+    pending: (requests || []).filter((request) => request.status === 'pending').length,
+    approved: (requests || []).filter((request) => request.status === 'approved').length
   };
 }
 
@@ -60,6 +64,28 @@ function renderRequests(container, requests) {
       <div class="leave-card-bottom stacked-bottom">
         <p class="leave-card-subtitle"><strong>Reason:</strong> ${request.reason || 'No reason provided'}</p>
         <p class="leave-card-subtitle"><strong>Notes:</strong> ${request.notes || 'No notes added'}</p>
+
+        ${
+          request.cancellation_reason
+            ? `<p class="leave-card-subtitle"><strong>Cancellation reason:</strong> ${request.cancellation_reason}</p>`
+            : ''
+        }
+
+        ${
+          request.status === 'approved'
+            ? `<div class="inline-actions">
+                <button class="btn btn-danger" data-cancel-request="${request.id}" type="button">
+                  Request Cancellation
+                </button>
+              </div>`
+            : ''
+        }
+
+        ${
+          request.status === 'cancel_requested'
+            ? `<p class="leave-card-subtitle"><strong>Cancellation pending approval</strong></p>`
+            : ''
+        }
       </div>
     </article>
   `).join('');
@@ -90,7 +116,10 @@ async function initMyLeavePage() {
 
     const stats = calculateLeaveStats(profile, requests);
 
-    setText(['myLeaveWelcome', 'welcomeText'], `Welcome back, ${profile.full_name || user.email || 'Employee'}. Here are your leave statistics:`);
+    setText(
+      ['myLeaveWelcome', 'welcomeText'],
+      `Welcome back, ${profile.full_name || user.email || 'Employee'}. Here are your leave statistics:`
+    );
 
     setText(['leaveAllowance', 'myAllowance', 'annualAllowance', 'profileAllowance'], stats.allowance);
     setText(['leaveUsed', 'myUsed', 'annualUsed', 'profileUsed'], stats.used);
@@ -105,6 +134,29 @@ async function initMyLeavePage() {
       document.getElementById('requestsList');
 
     renderRequests(list, requests);
+
+    list?.addEventListener('click', async (event) => {
+      const button = event.target.closest('button[data-cancel-request]');
+      if (!button) return;
+
+      const request = requests.find((item) => item.id === button.dataset.cancelRequest);
+      if (!request) return;
+
+      const reason = window.prompt('Why do you want to cancel this leave?');
+      if (reason === null) return;
+
+      button.disabled = true;
+      button.textContent = 'Requesting...';
+
+      try {
+        await requestLeaveCancellation(request, authUserId, reason.trim());
+        window.location.reload();
+      } catch (error) {
+        alert(error.message || 'Unable to request cancellation.');
+        button.disabled = false;
+        button.textContent = 'Request Cancellation';
+      }
+    });
 
     revealApp();
   } catch (error) {
