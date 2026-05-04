@@ -19,6 +19,11 @@ function getValue(id) {
   return document.getElementById(id)?.value?.trim() || '';
 }
 
+function setValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value || '';
+}
+
 async function loadInvite() {
   if (!token) {
     showOnly('expiredState');
@@ -38,8 +43,12 @@ async function loadInvite() {
 
   onboardingEmployee = data[0];
 
+  setValue('fullName', onboardingEmployee.full_name);
+  setValue('personalEmail', onboardingEmployee.personal_email);
+  setValue('personalPhone', onboardingEmployee.personal_phone);
+
   document.getElementById('employeeIntro').textContent =
-    `Hello ${onboardingEmployee.full_name || 'there'}, please create your password and complete the rest of your employee details. Your login email will be ${onboardingEmployee.personal_email}.`;
+    `Hello ${onboardingEmployee.full_name || 'there'}, please create your password and complete the rest of your employee details.`;
 
   showOnly('onboardingForm');
 }
@@ -62,6 +71,11 @@ document.getElementById('onboardingForm')?.addEventListener('submit', async (eve
     }
 
     const payload = {
+      full_name: getValue('fullName') || onboardingEmployee.full_name,
+      personal_email: getValue('personalEmail') || onboardingEmployee.personal_email,
+      personal_phone: getValue('personalPhone') || onboardingEmployee.personal_phone,
+      work_email: onboardingEmployee.work_email,
+
       title: getValue('title'),
       pronouns: getValue('pronouns'),
       gender: getValue('gender'),
@@ -94,9 +108,9 @@ document.getElementById('onboardingForm')?.addEventListener('submit', async (eve
 
     await completeEmployeeOnboarding({
       token,
-      personal_email: onboardingEmployee.personal_email,
+      personal_email: payload.personal_email,
       password,
-      employee_name: onboardingEmployee.full_name,
+      employee_name: payload.full_name,
       payload
     });
 
