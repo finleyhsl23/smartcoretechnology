@@ -850,3 +850,82 @@ export async function getLeaveAuthoriserNotificationInfo(employeeId) {
 
   return data?.[0] || null;
 }
+export async function getLeaveOverlap(companyId, startDate, endDate) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('get_leave_overlap', {
+      p_company_id: companyId,
+      p_start_date: startDate,
+      p_end_date: endDate
+    });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function requestLeaveCancellation(request, userId, reason) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .update({
+      status: 'cancel_requested',
+      cancellation_requested_at: new Date().toISOString(),
+      cancellation_requested_by: userId,
+      cancellation_reason: reason || null
+    })
+    .eq('id', request.id)
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+
+  await sendLeaveCancelNotification({
+    type: 'employee_requested_cancel',
+    request_id: request.id,
+    employee_name: request.employee_name || request.full_name || 'Employee',
+    leave_type: request.leave_type,
+    start_date: request.start_date,
+    end_date: request.end_date,
+    reason,
+    manage_url: `${window.location.origin}/holidaymanagement/admin.html?request=${request.id}`
+  });
+
+  return data;
+}
+
+export async function sendLeaveCancelNotification(payload) {
+  const response = await fetch('/api/send-leave-cancel-notification', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.warn('Cancel notification failed:', result);
+  }
+
+  return result;
+}
+
+export async function updateMyEmployeeProfile(profile, updates) {
+  const payload = {
+    id: profile.employee_id || profile.id,
+    company_id: profile.company_id,
+    user_id: profile.user_id,
+    full_name: updates.full_name,
+    personal_email: updates.personal_email,
+    personal_phone: updates.personal_phone,
+    work_email: profile.work_email || profile.email || '',
+    role: profile.role,
+    is_admin: profile.is_admin,
+    annual_leave_allowance: profile.annual_leave_allowance,
+    employment_status: 'active',
+    onboarding_status: 'complete'
+  };
+
+  return upsertEmployee(payload);
+}
