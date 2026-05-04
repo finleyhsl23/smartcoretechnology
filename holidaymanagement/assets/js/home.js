@@ -1,12 +1,16 @@
 import { requireAuth, isAdminProfile } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
-import { revealApp, renderEmptyState } from '../../shared/ui.js';
+import { revealApp, renderEmptyState, showMessage } from '../../shared/ui.js';
 import {
   getDashboardLeaveBreakdown,
   getMyLeaveRequests,
-  leaveTypeLabel
+  leaveTypeLabel,
+  updateMyEmployeeProfile
 } from '../../shared/api.js';
 import { formatDate } from '../../shared/dates.js';
+
+let currentProfile = null;
+let currentUser = null;
 
 function setText(id, value) {
   const el = document.getElementById(id);
@@ -18,6 +22,14 @@ function show(id) {
 }
 
 function hide(id) {
+  document.getElementById(id)?.classList.add('hidden');
+}
+
+function openModal(id) {
+  document.getElementById(id)?.classList.remove('hidden');
+}
+
+function closeModal(id) {
   document.getElementById(id)?.classList.add('hidden');
 }
 
@@ -42,9 +54,11 @@ function calculateLeaveStats(profile, requests) {
     )
     .reduce((sum, request) => sum + Number(request.total_days || 0), 0);
 
-  const remaining = Math.max(0, allowance - used);
-
-  return { allowance, used, remaining };
+  return {
+    allowance,
+    used,
+    remaining: Math.max(0, allowance - used)
+  };
 }
 
 function renderLeaveList(containerId, items, emptyText) {
@@ -107,12 +121,21 @@ function setupDashboardPanelClicks() {
   });
 }
 
+function populateProfileEditForm(profile) {
+  document.getElementById('editProfileFullName').value = profile.full_name || '';
+  document.getElementById('editProfilePersonalEmail').value = profile.personal_email || profile.email || '';
+  document.getElementById('editProfilePersonalPhone').value = profile.personal_phone || '';
+}
+
 async function initHome() {
   try {
     const auth = await requireAuth();
     if (!auth) return;
 
     const { user, profile } = auth;
+
+    currentProfile = profile;
+    currentUser = user;
 
     const authUserId = profile.user_id || profile.auth_user_id || user.id;
     const isAdmin = isAdminProfile(profile);
@@ -121,6 +144,32 @@ async function initHome() {
     document.getElementById('logoutBtn')?.addEventListener('click', async () => {
       await signOut();
       window.location.href = './login.html';
+    });
+
+    document.querySelectorAll('[data-close-modal]').forEach((button) => {
+      button.addEventListener('click', () => closeModal(button.dataset.closeModal));
+    });
+
+    document.getElementById('editProfileBtn')?.addEventListener('click', () => {
+      populateProfileEditForm(currentProfile);
+      openModal('profileEditModal');
+    });
+
+    document.getElementById('profileEditForm')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      try {
+        await updateMyEmployeeProfile(currentProfile, {
+          full_name: document.getElementById('editProfileFullName').value.trim(),
+          personal_email: document.getElementById('editProfilePersonalEmail').value.trim(),
+          personal_phone: document.getElementById('editProfilePersonalPhone').value.trim()
+        });
+
+        showMessage('profileEditMessage', 'Profile updated. Refreshing...', 'success');
+        setTimeout(() => window.location.reload(), 700);
+      } catch (error) {
+        showMessage('profileEditMessage', error.message || 'Unable to update profile.', 'error');
+      }
     });
 
     setupDashboardPanelClicks();
@@ -144,6 +193,7 @@ async function initHome() {
     const stats = calculateLeaveStats(profile, myRequests);
     const pendingRequests = myRequests.filter((request) => request.status === 'pending').length;
 
+    setText('profileAllowance', stats.allowance);
     setText('profileRemaining', stats.remaining);
     setText('profileUsed', stats.used);
     setText('profilePending', pendingRequests);
@@ -193,14 +243,6 @@ async function initHome() {
     renderLeaveList('otherNext7List', breakdown.otherNext7 || [], 'No other leave in the next 7 days.');
 
     renderBirthdayList('birthdaysNext7List', breakdown.birthdaysNext7 || []);
-
-    document.querySelectorAll('.dashboard-detail-panel').forEach((panel) => {
-      panel.classList.add('hidden');
-    });
-
-    document.querySelectorAll('.stat-button').forEach((button) => {
-      button.classList.remove('active-stat-button');
-    });
 
     revealApp();
   } catch (error) {
