@@ -1,7 +1,7 @@
 import { requireAuth, applyRoleUi } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
 import { revealApp, renderEmptyState } from '../../shared/ui.js';
-import { getApprovedLeaveForDate } from '../../shared/api.js';
+import { getApprovedLeaveForDate, getLeaveOverlap } from '../../shared/api.js';
 import { formatDate } from '../../shared/dates.js';
 
 function toIsoDate(date) {
@@ -30,7 +30,18 @@ function leaveTypeLabel(type) {
   return 'Other Leave';
 }
 
-function buildCalendar(selectedIsoDate) {
+function monthStartEnd(selectedIsoDate) {
+  const selectedDate = parseIsoDate(selectedIsoDate);
+  const year = selectedDate.getFullYear();
+  const month = selectedDate.getMonth();
+
+  return {
+    start: toIsoDate(new Date(year, month, 1)),
+    end: toIsoDate(new Date(year, month + 1, 0))
+  };
+}
+
+function buildCalendar(selectedIsoDate, datesWithLeave = new Set()) {
   const grid = document.getElementById('calendarGrid');
   const monthLabel = document.getElementById('monthLabel');
   const selectedDateLabel = document.getElementById('selectedDateLabel');
@@ -66,10 +77,12 @@ function buildCalendar(selectedIsoDate) {
     const date = new Date(year, month, day);
     const iso = toIsoDate(date);
     const active = iso === selectedIsoDate ? ' active-calendar-day' : '';
+    const hasLeave = datesWithLeave.has(iso);
 
     html += `
       <button class="calendar-cell calendar-day${active}" type="button" data-date="${iso}">
         <span class="calendar-day-number">${day}</span>
+        ${hasLeave ? `<span class="calendar-day-dot"></span>` : ''}
       </button>
     `;
   }
@@ -98,7 +111,31 @@ async function initCalendar() {
     const prevBtn = document.getElementById('prevMonthBtn');
     const nextBtn = document.getElementById('nextMonthBtn');
 
+    findDateBtn?.classList.add('btn-white');
+
     let selectedIsoDate = toIsoDate(new Date());
+    let currentMonthDots = new Set();
+
+    async function loadMonthDots(isoDate) {
+      const { start, end } = monthStartEnd(isoDate);
+      const overlap = await getLeaveOverlap(profile.company_id, start, end);
+
+      const dots = new Set();
+
+      overlap
+        .filter((item) => item.status === 'approved')
+        .forEach((item) => {
+          const startDate = parseIsoDate(item.start_date);
+          const endDate = parseIsoDate(item.end_date);
+
+          for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+            const iso = toIsoDate(d);
+            if (iso >= start && iso <= end) dots.add(iso);
+          }
+        });
+
+      currentMonthDots = dots;
+    }
 
     async function loadDate(isoDate) {
       selectedIsoDate = isoDate;
@@ -106,7 +143,8 @@ async function initCalendar() {
       if (datePicker) datePicker.value = isoDate;
       if (heading) heading.textContent = `Who Is Off On ${longDate(isoDate)}`;
 
-      buildCalendar(isoDate);
+      await loadMonthDots(isoDate);
+      buildCalendar(isoDate, currentMonthDots);
 
       const items = await getApprovedLeaveForDate(profile.company_id, isoDate);
 
@@ -136,9 +174,7 @@ async function initCalendar() {
     });
 
     findDateBtn?.addEventListener('click', async () => {
-      if (datePicker?.value) {
-        await loadDate(datePicker.value);
-      }
+      if (datePicker?.value) await loadDate(datePicker.value);
     });
 
     prevBtn?.addEventListener('click', async () => {
@@ -157,6 +193,7 @@ async function initCalendar() {
     revealApp();
   } catch (error) {
     console.error('Calendar failed:', error);
+
     const loader = document.getElementById('appLoader');
     if (loader) {
       loader.innerHTML = `
