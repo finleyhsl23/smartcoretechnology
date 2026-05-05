@@ -4,6 +4,7 @@ import { revealApp, renderEmptyState, showMessage } from '../../shared/ui.js';
 import {
   getDashboardLeaveBreakdown,
   getMyLeaveRequests,
+  getMyLeaveBalance,
   leaveTypeLabel,
   updateMyEmployeeProfile
 } from '../../shared/api.js';
@@ -47,20 +48,10 @@ function titleCase(value) {
   return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
 }
 
-function getAllowance(profile) {
-  return Number(
-    profile.annual_leave_allowance ??
-    profile.total_allowance ??
-    profile.leave_allowance ??
-    profile.allowance ??
-    0
-  );
-}
+function calculateLeaveStatsFromBalance(profile, requests, balance) {
+  const fallbackAllowance = Number(profile.annual_leave_allowance || 0);
 
-function calculateLeaveStats(profile, requests) {
-  const allowance = getAllowance(profile);
-
-  const used = (requests || [])
+  const fallbackUsed = (requests || [])
     .filter((request) =>
       request.status === 'approved' &&
       request.deduct_allowance !== false &&
@@ -68,10 +59,14 @@ function calculateLeaveStats(profile, requests) {
     )
     .reduce((sum, request) => sum + Number(request.total_days || 0), 0);
 
+  const allowance = Number(balance?.total_allowance ?? fallbackAllowance);
+  const used = Number(balance?.used_days ?? fallbackUsed);
+  const remaining = Number(balance?.remaining_days ?? Math.max(0, allowance - used));
+
   return {
     allowance,
     used,
-    remaining: Math.max(0, allowance - used),
+    remaining,
     pending: (requests || []).filter((request) => request.status === 'pending').length
   };
 }
@@ -98,12 +93,12 @@ function renderLeaveList(containerId, items, emptyText) {
   `).join('');
 }
 
-function renderBirthdayList(containerId, items) {
+function renderBirthdayList(containerId, items, emptyText = 'No birthdays in the next 7 days.') {
   const container = document.getElementById(containerId);
   if (!container) return;
 
   if (!items || !items.length) {
-    renderEmptyState(container, 'No birthdays in the next 7 days.');
+    renderEmptyState(container, emptyText);
     return;
   }
 
@@ -111,7 +106,7 @@ function renderBirthdayList(containerId, items) {
     <article class="leave-card">
       <p class="leave-card-title">${employee.full_name || employee.display_name || 'Employee'}</p>
       <p class="leave-card-subtitle">
-        Birthday: ${employee.dob ? formatDate(employee.dob) : 'Date not set'}
+        ${employee.dob ? `Birthday: ${formatDate(employee.dob)}` : employee.start_date ? `Start date: ${formatDate(employee.start_date)}` : 'Date not set'}
       </p>
     </article>
   `).join('');
@@ -156,13 +151,13 @@ function populateEditForm(profile) {
 function getEditPayload() {
   return {
     full_name: getInput('edit_full_name'),
-    job_title: getInput('edit_job_title'),
+    job_title: currentProfile?.job_title || '',
     work_email: getInput('edit_work_email'),
     personal_email: getInput('edit_personal_email'),
     personal_phone: getInput('edit_personal_phone'),
-    employment_type: getInput('edit_employment_type'),
-    notice_period: getInput('edit_notice_period'),
-    start_date: getInput('edit_start_date'),
+    employment_type: currentProfile?.employment_type || '',
+    notice_period: currentProfile?.notice_period || '',
+    start_date: currentProfile?.start_date || '',
 
     title: getInput('edit_title'),
     pronouns: getInput('edit_pronouns'),
@@ -227,6 +222,7 @@ async function initHome() {
     const displayEmail = profile.work_email || profile.email || profile.personal_email || user.email || '—';
     const isAdmin = isAdminProfile(profile);
     const todayIso = new Date().toISOString().slice(0, 10);
+    const currentYear = new Date().getFullYear();
 
     document.getElementById('logoutBtn')?.addEventListener('click', async () => {
       await signOut();
@@ -263,6 +259,7 @@ async function initHome() {
     setText('profileRole', titleCase(profile.role));
 
     let myRequests = [];
+    let balance = null;
 
     try {
       myRequests = await getMyLeaveRequests(authUserId);
@@ -270,9 +267,15 @@ async function initHome() {
       console.warn('My requests failed:', error);
     }
 
-    const stats = calculateLeaveStats(profile, myRequests);
+    try {
+      balance = await getMyLeaveBalance(authUserId, currentYear);
+    } catch (error) {
+      console.warn('Balance failed:', error);
+    }
 
-    setText('profileAllowance', stats.allowance || '—');
+    const stats = calculateLeaveStatsFromBalance(profile, myRequests, balance);
+
+    setText('profileAllowance', stats.allowance);
     setText('profileUsed', stats.used);
     setText('profileRemaining', stats.remaining);
     setText('profilePending', stats.pending);
@@ -294,7 +297,8 @@ async function initHome() {
       annualNext7: [],
       sickNext7: [],
       otherNext7: [],
-      birthdaysNext7: []
+      birthdaysNext7: [],
+      workAnniversariesNext7: []
     };
 
     try {
@@ -311,6 +315,7 @@ async function initHome() {
     setText('sickTodayCount', sickToday.length);
     setText('otherTodayCount', otherToday.length);
     setText('birthdaysCount', breakdown.birthdaysNext7?.length || 0);
+    setText('anniversariesCount', breakdown.workAnniversariesNext7?.length || 0);
 
     renderLeaveList('annualTodayList', annualToday, 'Nobody is on annual leave today.');
     renderLeaveList('annualNext7List', breakdown.annualNext7 || [], 'No annual leave in the next 7 days.');
@@ -322,6 +327,7 @@ async function initHome() {
     renderLeaveList('otherNext7List', breakdown.otherNext7 || [], 'No other leave in the next 7 days.');
 
     renderBirthdayList('birthdaysNext7List', breakdown.birthdaysNext7 || []);
+    renderBirthdayList('anniversariesNext7List', breakdown.workAnniversariesNext7 || [], 'No work anniversaries in the next 7 days.');
 
     revealApp();
   } catch (error) {
