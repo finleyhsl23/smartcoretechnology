@@ -3,6 +3,7 @@ import { signOut } from '../../shared/auth.js';
 import { revealApp, renderEmptyState, showPageError } from '../../shared/ui.js';
 import {
   getMyLeaveRequests,
+  getMyLeaveBalance,
   leaveTypeLabel,
   requestLeaveCancellation
 } from '../../shared/api.js';
@@ -21,10 +22,10 @@ function statusBadge(status) {
   return `<span class="badge badge-${status}">${status || 'pending'}</span>`;
 }
 
-function calculateLeaveStats(profile, requests) {
-  const allowance = Number(profile.annual_leave_allowance || 0);
+function calculateLeaveStats(profile, requests, balance) {
+  const fallbackAllowance = Number(profile.annual_leave_allowance || 0);
 
-  const used = (requests || [])
+  const fallbackUsed = (requests || [])
     .filter((request) =>
       request.status === 'approved' &&
       request.deduct_allowance !== false &&
@@ -32,10 +33,14 @@ function calculateLeaveStats(profile, requests) {
     )
     .reduce((sum, request) => sum + Number(request.total_days || 0), 0);
 
+  const allowance = Number(balance?.total_allowance ?? fallbackAllowance);
+  const used = Number(balance?.used_days ?? fallbackUsed);
+  const remaining = Number(balance?.remaining_days ?? Math.max(0, allowance - used));
+
   return {
     allowance,
     used,
-    remaining: Math.max(0, allowance - used),
+    remaining,
     pending: (requests || []).filter((request) => request.status === 'pending').length,
     approved: (requests || []).filter((request) => request.status === 'approved').length
   };
@@ -100,6 +105,7 @@ async function initMyLeavePage() {
     applyRoleUi(profile);
 
     const authUserId = profile.user_id || profile.auth_user_id || user.id;
+    const currentYear = new Date().getFullYear();
 
     document.getElementById('logoutBtn')?.addEventListener('click', async () => {
       await signOut();
@@ -107,6 +113,7 @@ async function initMyLeavePage() {
     });
 
     let requests = [];
+    let balance = null;
 
     try {
       requests = await getMyLeaveRequests(authUserId);
@@ -114,7 +121,13 @@ async function initMyLeavePage() {
       console.warn('Leave history failed:', error);
     }
 
-    const stats = calculateLeaveStats(profile, requests);
+    try {
+      balance = await getMyLeaveBalance(authUserId, currentYear);
+    } catch (error) {
+      console.warn('Leave balance failed:', error);
+    }
+
+    const stats = calculateLeaveStats(profile, requests, balance);
 
     setText(
       ['myLeaveWelcome', 'welcomeText'],
