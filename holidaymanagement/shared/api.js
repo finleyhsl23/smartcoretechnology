@@ -995,3 +995,33 @@ export async function deleteCompanyHoliday(id) {
 
   if (error) throw error;
 }
+export async function updateCompanyHoliday(id, payload) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('company_holidays')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteEmployeePermanent(employeeId) {
+  const response = await fetch('/api/delete-employee-permanent', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ employee_id: employeeId })
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(result.error || 'Employee could not be deleted.');
+  }
+
+  return result;
+}
