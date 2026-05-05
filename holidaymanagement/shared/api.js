@@ -956,3 +956,42 @@ export async function sendLeaveDecisionNotification(payload) {
 
   return result;
 }
+export async function getAllHolidayDates(companyId) {
+  const bank = await getBankHolidays('england');
+
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('company_holidays')
+    .select('*')
+    .eq('company_id', companyId)
+    .order('holiday_date');
+
+  if (error) throw error;
+
+  return [
+    ...bank.map((item) => ({ ...item, type: 'bank' })),
+    ...(data || []).map((item) => ({ ...item, type: 'company' }))
+  ];
+}
+
+export async function addCompanyHoliday(payload) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('company_holidays')
+    .insert([payload])
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteCompanyHoliday(id) {
+  const { error } = await supabase
+    .schema(leaveSchema)
+    .from('company_holidays')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+}
