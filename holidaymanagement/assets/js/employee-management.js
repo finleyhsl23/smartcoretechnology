@@ -462,6 +462,7 @@ function renderEmployees() {
                 ? `<button class="btn btn-primary" data-action="restore" data-id="${employee.id}" type="button">Restore</button>`
                 : `<button class="btn btn-danger" data-action="archive" data-id="${employee.id}" type="button">Archive</button>`
             }
+            <button class="btn btn-danger" data-action="delete" data-id="${employee.id}" type="button">Delete</button>
           </div>
         </div>
       </article>
@@ -590,30 +591,6 @@ async function init() {
     openModal('employeeModal');
   });
 
-  document.getElementById('deleteEmployeeBtn')?.addEventListener('click', async () => {
-    if (!savedEmployee?.id) return;
-
-    const firstConfirm = confirm(
-      `This will permanently delete ${savedEmployee.full_name || 'this employee'} from the employee database. Continue?`
-    );
-
-    if (!firstConfirm) return;
-
-    const secondConfirm = confirm(
-      'This will also try to delete their auth.users login if they have one. This cannot be undone. Are you absolutely sure?'
-    );
-
-    if (!secondConfirm) return;
-
-    try {
-      await deleteEmployeePermanent(savedEmployee.id);
-      closeModal('employeeModal');
-      await loadEmployees();
-    } catch (error) {
-      showMessage('employeeMessage', error.message || 'Unable to delete employee.', 'error');
-    }
-  });
-
   document.getElementById('openShiftPatternPickerBtn')?.addEventListener('click', () => {
     renderShiftPatterns();
     openModal('shiftPatternModal');
@@ -655,6 +632,23 @@ async function init() {
 
     if (button.dataset.action === 'restore') {
       await restoreEmployee(employee);
+      await loadEmployees();
+    }
+
+    if (button.dataset.action === 'delete') {
+      const firstConfirm = confirm(
+        `This will permanently delete ${employee.full_name || 'this employee'} from the employee database. Continue?`
+      );
+
+      if (!firstConfirm) return;
+
+      const secondConfirm = confirm(
+        'This will also try to delete their auth.users login if they have one. This cannot be undone. Are you absolutely sure?'
+      );
+
+      if (!secondConfirm) return;
+
+      await deleteEmployeePermanent(employee.id);
       await loadEmployees();
     }
   });
