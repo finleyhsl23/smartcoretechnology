@@ -9,7 +9,8 @@ import {
   getMyCompanyInfo,
   sendEmployeeInvite,
   getShiftPatterns,
-  createShiftPattern
+  createShiftPattern,
+  deleteEmployeePermanent
 } from '../../shared/api.js';
 
 function roundToNearestHalf(value) {
@@ -131,6 +132,52 @@ function setupCustomSelects() {
   });
 }
 
+function syncEmploymentTypeInputs(value = '') {
+  const select = document.getElementById('employmentTypeSelect');
+  const other = document.getElementById('employmentTypeOther');
+  const hidden = document.getElementById('employmentType');
+
+  const standardValues = ['Full Time', 'Part Time'];
+
+  if (standardValues.includes(value)) {
+    select.value = value;
+    other.classList.add('hidden');
+    other.value = '';
+    hidden.value = value;
+    return;
+  }
+
+  if (value) {
+    select.value = 'Other';
+    other.classList.remove('hidden');
+    other.value = value;
+    hidden.value = value;
+    return;
+  }
+
+  select.value = 'Full Time';
+  other.classList.add('hidden');
+  other.value = '';
+  hidden.value = 'Full Time';
+}
+
+function updateEmploymentTypeFromUi() {
+  const select = document.getElementById('employmentTypeSelect');
+  const other = document.getElementById('employmentTypeOther');
+  const hidden = document.getElementById('employmentType');
+
+  if (!select || !other || !hidden) return;
+
+  if (select.value === 'Other') {
+    other.classList.remove('hidden');
+    hidden.value = other.value.trim();
+  } else {
+    other.classList.add('hidden');
+    other.value = '';
+    hidden.value = select.value;
+  }
+}
+
 function updateOwnerAuthoriserUi() {
   const role = getField('role');
   const isOwner = role === 'owner';
@@ -196,6 +243,8 @@ function setShiftPattern(patternId) {
 }
 
 function getEmployeePayload() {
+  updateEmploymentTypeFromUi();
+
   const existingEmployee =
     savedEmployee ||
     employees.find((employee) => employee.id === getField('employeeId'));
@@ -287,7 +336,7 @@ function fillEmployeeForm(employee = null) {
   setField('workEmail', employee?.work_email);
   setField('personalEmail', employee?.personal_email);
   setField('personalPhone', employee?.personal_phone);
-  setField('employmentType', employee?.employment_type || 'Full Time');
+  syncEmploymentTypeInputs(employee?.employment_type || 'Full Time');
   setField('noticePeriod', employee?.notice_period);
   setField('startDate', employee?.start_date);
 
@@ -481,7 +530,11 @@ async function init() {
   document.getElementById('startDate')?.addEventListener('change', updateStartDateAllowanceHint);
   document.getElementById('annualLeaveAllowance')?.addEventListener('input', updateStartDateAllowanceHint);
 
+  document.getElementById('employmentTypeSelect')?.addEventListener('change', updateEmploymentTypeFromUi);
+  document.getElementById('employmentTypeOther')?.addEventListener('input', updateEmploymentTypeFromUi);
+
   updateStartDateAllowanceHint();
+  updateEmploymentTypeFromUi();
 
   document.querySelectorAll('[data-close-modal]').forEach((button) => {
     button.addEventListener('click', () => closeModal(button.dataset.closeModal));
@@ -537,6 +590,30 @@ async function init() {
     openModal('employeeModal');
   });
 
+  document.getElementById('deleteEmployeeBtn')?.addEventListener('click', async () => {
+    if (!savedEmployee?.id) return;
+
+    const firstConfirm = confirm(
+      `This will permanently delete ${savedEmployee.full_name || 'this employee'} from the employee database. Continue?`
+    );
+
+    if (!firstConfirm) return;
+
+    const secondConfirm = confirm(
+      'This will also try to delete their auth.users login if they have one. This cannot be undone. Are you absolutely sure?'
+    );
+
+    if (!secondConfirm) return;
+
+    try {
+      await deleteEmployeePermanent(savedEmployee.id);
+      closeModal('employeeModal');
+      await loadEmployees();
+    } catch (error) {
+      showMessage('employeeMessage', error.message || 'Unable to delete employee.', 'error');
+    }
+  });
+
   document.getElementById('openShiftPatternPickerBtn')?.addEventListener('click', () => {
     renderShiftPatterns();
     openModal('shiftPatternModal');
@@ -590,6 +667,11 @@ async function init() {
 
       if (!payload.full_name || !payload.work_email || !payload.personal_email) {
         showMessage('employeeMessage', 'Full name, work email and personal email are required.', 'error');
+        return;
+      }
+
+      if (!payload.employment_type) {
+        showMessage('employeeMessage', 'Please select an employment type.', 'error');
         return;
       }
 
