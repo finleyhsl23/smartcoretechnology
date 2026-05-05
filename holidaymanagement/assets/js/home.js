@@ -93,7 +93,7 @@ function renderLeaveList(containerId, items, emptyText) {
   `).join('');
 }
 
-function renderBirthdayList(containerId, items, emptyText = 'No birthdays in the next 7 days.') {
+function renderBirthdayList(containerId, items, emptyText = 'No birthdays in the next 7 days.', type = 'birthday') {
   const container = document.getElementById(containerId);
   if (!container) return;
 
@@ -102,14 +102,19 @@ function renderBirthdayList(containerId, items, emptyText = 'No birthdays in the
     return;
   }
 
-  container.innerHTML = items.map((employee) => `
-    <article class="leave-card">
-      <p class="leave-card-title">${employee.full_name || employee.display_name || 'Employee'}</p>
-      <p class="leave-card-subtitle">
-        ${employee.dob ? `Birthday: ${formatDate(employee.dob)}` : employee.start_date ? `Start date: ${formatDate(employee.start_date)}` : 'Date not set'}
-      </p>
-    </article>
-  `).join('');
+  container.innerHTML = items.map((employee) => {
+    const label = type === 'anniversary' ? 'Start date' : 'Birthday';
+    const date = type === 'anniversary' ? employee.start_date : employee.dob;
+
+    return `
+      <article class="leave-card">
+        <p class="leave-card-title">${employee.full_name || employee.display_name || 'Employee'}</p>
+        <p class="leave-card-subtitle">
+          ${date ? `${label}: ${formatDate(date)}` : 'Date not set'}
+        </p>
+      </article>
+    `;
+  }).join('');
 }
 
 function populateEditForm(profile) {
@@ -327,7 +332,7 @@ async function initHome() {
     renderLeaveList('otherNext7List', breakdown.otherNext7 || [], 'No other leave in the next 7 days.');
 
     renderBirthdayList('birthdaysNext7List', breakdown.birthdaysNext7 || []);
-    renderBirthdayList('anniversariesNext7List', breakdown.workAnniversariesNext7 || [], 'No work anniversaries in the next 7 days.');
+    renderBirthdayList('anniversariesNext7List', breakdown.workAnniversariesNext7 || [], 'No work anniversaries in the next 7 days.', 'anniversary');
 
     revealApp();
   } catch (error) {
