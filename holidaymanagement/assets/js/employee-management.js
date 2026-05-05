@@ -12,6 +12,38 @@ import {
   createShiftPattern
 } from '../../shared/api.js';
 
+function roundToNearestHalf(value) {
+  return Math.round(Number(value || 0) * 2) / 2;
+}
+
+function calculateProratedAllowance(annualAllowance, startDate) {
+  const allowance = Number(annualAllowance || 0);
+  if (!allowance) return 0;
+  if (!startDate) return allowance;
+
+  const today = new Date();
+  const start = new Date(startDate);
+  const currentYear = today.getFullYear();
+  const startYear = start.getFullYear();
+
+  if (startYear < currentYear) return allowance;
+  if (startYear > currentYear) return 0;
+
+  const monthsLeft = 12 - start.getMonth();
+  return roundToNearestHalf((allowance / 12) * monthsLeft);
+}
+
+function updateStartDateAllowanceHint() {
+  const hint = document.getElementById('startDateAllowanceHint');
+  const startDate = document.getElementById('startDate')?.value;
+  const allowance = document.getElementById('annualLeaveAllowance')?.value || 23;
+
+  if (!hint) return;
+
+  const calculated = calculateProratedAllowance(allowance, startDate);
+  hint.textContent = `This person will have ${calculated} days of annual leave allowance this year.`;
+}
+
 let profile = null;
 let companyInfo = null;
 let employees = [];
@@ -74,6 +106,11 @@ function setupCustomSelects() {
 
     trigger?.addEventListener('click', (event) => {
       event.stopPropagation();
+
+      document.querySelectorAll('.custom-select.open').forEach((openSelect) => {
+        if (openSelect !== selectEl) openSelect.classList.remove('open');
+      });
+
       selectEl.classList.toggle('open');
     });
 
@@ -122,7 +159,6 @@ function setAuthoriser(employee) {
   setField('assignedAuthoriserId', employee?.id || '');
 
   const box = document.getElementById('selectedAuthoriserBox');
-
   if (!box) return;
 
   if (!employee) {
@@ -143,7 +179,6 @@ function setShiftPattern(patternId) {
   setField('shiftPatternId', patternId || '');
 
   const box = document.getElementById('selectedShiftBox');
-
   if (!box) return;
 
   if (!pattern) {
@@ -187,7 +222,7 @@ function getEmployeePayload() {
     is_admin: getField('isAdmin') === 'true',
     employment_status: getField('employmentStatus') || 'active',
 
-    annual_leave_allowance: getField('annualLeaveAllowance') || 23,
+    annual_leave_allowance: Number(getField('annualLeaveAllowance') || 23),
     bank_holiday_region: 'england',
     include_bank_holidays: getField('includeBankHolidays') === 'true',
     shift_pattern_id: getField('shiftPatternId'),
@@ -252,7 +287,7 @@ function fillEmployeeForm(employee = null) {
   setField('workEmail', employee?.work_email);
   setField('personalEmail', employee?.personal_email);
   setField('personalPhone', employee?.personal_phone);
-  setField('employmentType', employee?.employment_type);
+  setField('employmentType', employee?.employment_type || 'Full Time');
   setField('noticePeriod', employee?.notice_period);
   setField('startDate', employee?.start_date);
 
@@ -301,6 +336,7 @@ function fillEmployeeForm(employee = null) {
 
   setShiftPattern(employee?.shift_pattern_id || '');
   updateOwnerAuthoriserUi();
+  updateStartDateAllowanceHint();
 }
 
 function renderShiftPatterns() {
@@ -363,7 +399,7 @@ function renderEmployees() {
               ${employee.employee_code || '—'} • ${employee.job_title || '—'} • ${employee.work_email || 'No work email'}
             </p>
             <p class="leave-card-subtitle">
-              ${employee.employment_status} • ${employee.role} • Shift: ${shift?.name || 'Not configured'} • Authoriser: ${
+              ${employee.employment_status || 'active'} • ${employee.role || 'employee'} • Shift: ${shift?.name || 'Not configured'} • Authoriser: ${
                 employee.no_authoriser_required ? 'Not required' : (auth?.full_name || 'Not set')
               }
             </p>
@@ -442,6 +478,11 @@ async function init() {
     window.location.href = './login.html';
   });
 
+  document.getElementById('startDate')?.addEventListener('change', updateStartDateAllowanceHint);
+  document.getElementById('annualLeaveAllowance')?.addEventListener('input', updateStartDateAllowanceHint);
+
+  updateStartDateAllowanceHint();
+
   document.querySelectorAll('[data-close-modal]').forEach((button) => {
     button.addEventListener('click', () => closeModal(button.dataset.closeModal));
   });
@@ -492,6 +533,7 @@ async function init() {
 
   document.getElementById('addEmployeeBtn')?.addEventListener('click', () => {
     fillEmployeeForm(null);
+    updateStartDateAllowanceHint();
     openModal('employeeModal');
   });
 
@@ -548,6 +590,11 @@ async function init() {
 
       if (!payload.full_name || !payload.work_email || !payload.personal_email) {
         showMessage('employeeMessage', 'Full name, work email and personal email are required.', 'error');
+        return;
+      }
+
+      if (!payload.start_date) {
+        showMessage('employeeMessage', 'Start date is required.', 'error');
         return;
       }
 
