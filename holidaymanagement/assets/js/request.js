@@ -3,6 +3,7 @@ import { signOut } from '../../shared/auth.js';
 import { revealApp, showMessage, setLoadingButton, showPageError, renderEmptyState } from '../../shared/ui.js';
 import {
   getMyLeaveRequests,
+  getMyLeaveBalance,
   getCompanyHolidays,
   createLeaveRequest,
   getLeaveOverlap,
@@ -10,10 +11,10 @@ import {
 } from '../../shared/api.js';
 import { calculateBusinessDays, calculateCalendarDays, formatDate } from '../../shared/dates.js';
 
-function calculateLeaveStats(profile, requests) {
-  const allowance = Number(profile.annual_leave_allowance || 0);
+function calculateLeaveStats(profile, requests, balance) {
+  const fallbackAllowance = Number(profile.annual_leave_allowance || 0);
 
-  const used = (requests || [])
+  const fallbackUsed = (requests || [])
     .filter((request) =>
       request.status === 'approved' &&
       request.deduct_allowance !== false &&
@@ -21,10 +22,14 @@ function calculateLeaveStats(profile, requests) {
     )
     .reduce((sum, request) => sum + Number(request.total_days || 0), 0);
 
+  const allowance = Number(balance?.total_allowance ?? fallbackAllowance);
+  const used = Number(balance?.used_days ?? fallbackUsed);
+  const remaining = Number(balance?.remaining_days ?? Math.max(0, allowance - used));
+
   return {
     allowance,
     used,
-    remaining: Math.max(0, allowance - used)
+    remaining
   };
 }
 
@@ -46,6 +51,7 @@ async function initRequestPage() {
 
     const authUserId = profile.user_id || profile.auth_user_id || user.id;
     const employeeId = profile.employee_id || profile.id;
+    const currentYear = new Date().getFullYear();
 
     document.getElementById('logoutBtn')?.addEventListener('click', async () => {
       await signOut();
@@ -57,6 +63,7 @@ async function initRequestPage() {
     });
 
     let myRequests = [];
+    let balance = null;
 
     try {
       myRequests = await getMyLeaveRequests(authUserId);
@@ -64,7 +71,13 @@ async function initRequestPage() {
       console.warn('Leave requests failed:', error);
     }
 
-    const stats = calculateLeaveStats(profile, myRequests);
+    try {
+      balance = await getMyLeaveBalance(authUserId, currentYear);
+    } catch (error) {
+      console.warn('Leave balance failed:', error);
+    }
+
+    let stats = calculateLeaveStats(profile, myRequests, balance);
 
     const balancePreview = document.getElementById('balancePreview');
     if (balancePreview) balancePreview.textContent = stats.remaining;
@@ -174,9 +187,17 @@ async function initRequestPage() {
         totalDaysEl.value = '';
 
         const refreshedRequests = await getMyLeaveRequests(authUserId);
-        const refreshedStats = calculateLeaveStats(profile, refreshedRequests);
+        let refreshedBalance = null;
 
-        if (balancePreview) balancePreview.textContent = refreshedStats.remaining;
+        try {
+          refreshedBalance = await getMyLeaveBalance(authUserId, currentYear);
+        } catch (error) {
+          console.warn('Refreshed balance failed:', error);
+        }
+
+        stats = calculateLeaveStats(profile, refreshedRequests, refreshedBalance);
+
+        if (balancePreview) balancePreview.textContent = stats.remaining;
 
         showMessage('requestMessage', 'Leave request submitted successfully.', 'success');
       } catch (error) {
