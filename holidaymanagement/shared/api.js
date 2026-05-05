@@ -1025,3 +1025,15 @@ export async function deleteEmployeePermanent(employeeId) {
 
   return result;
 }
+export async function updateBankHoliday(id, payload) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('bank_holidays')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
