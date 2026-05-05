@@ -270,16 +270,13 @@ export async function enrichRequestsWithEmployeeInfo(requests) {
 export async function getApprovedLeaveForDate(companyId, isoDate) {
   const { data, error } = await supabase
     .schema(leaveSchema)
-    .from('leave_requests')
-    .select('*')
-    .eq('company_id', companyId)
-    .eq('status', 'approved')
-    .lte('start_date', isoDate)
-    .gte('end_date', isoDate)
-    .order('start_date', { ascending: true });
+    .rpc('get_calendar_leave_for_date', {
+      p_company_id: companyId,
+      p_date: isoDate
+    });
 
   if (error) throw error;
-  return enrichRequestsWithEmployeeInfo(data || []);
+  return data || [];
 }
 
 export async function getApprovedLeaveInRange(companyId, startDate, endDate) {
