@@ -5,6 +5,7 @@ import {
   getAllHolidayDates,
   addCompanyHoliday,
   updateCompanyHoliday,
+  updateBankHoliday,
   deleteCompanyHoliday
 } from '../../shared/api.js';
 import { formatDate } from '../../shared/dates.js';
@@ -13,6 +14,7 @@ let profile = null;
 let holidays = [];
 let selectedDate = new Date();
 let visibleCount = 30;
+let editingHoliday = null;
 
 function toIsoDate(date) {
   const copy = new Date(date);
@@ -118,25 +120,19 @@ function renderHolidayList() {
           </p>
         </div>
 
-        ${
-          holiday.type === 'company'
-            ? `
-              <div class="inline-actions">
-                <button class="btn btn-secondary icon-btn" data-edit-holiday="${holiday.id}" type="button" title="Edit holiday">✎</button>
-                <button class="btn btn-danger icon-btn" data-delete-holiday="${holiday.id}" type="button" title="Delete holiday">×</button>
-              </div>
-            `
-            : `<span class="badge">Bank Holiday</span>`
-        }
+        <div class="inline-actions">
+          <button class="btn btn-secondary icon-btn" data-edit-holiday="${holiday.id}" data-type="${holiday.type}" type="button" title="Edit holiday">✎</button>
+          ${
+            holiday.type === 'company'
+              ? `<button class="btn btn-danger icon-btn" data-delete-holiday="${holiday.id}" type="button" title="Delete holiday">×</button>`
+              : ''
+          }
+        </div>
       </div>
     </article>
   `).join('');
 
-  if (future.length > visibleCount) {
-    loadMoreBtn?.classList.remove('hidden');
-  } else {
-    loadMoreBtn?.classList.add('hidden');
-  }
+  loadMoreBtn?.classList.toggle('hidden', future.length <= visibleCount);
 }
 
 function openHolidayDateModal(isoDate) {
@@ -162,11 +158,7 @@ function openHolidayDateModal(isoDate) {
             </p>
           </div>
 
-          ${
-            holiday.type === 'company'
-              ? `<button class="btn btn-secondary" data-edit-holiday-from-view="${holiday.id}" type="button">Edit</button>`
-              : `<span class="badge">Bank Holiday</span>`
-          }
+          <button class="btn btn-secondary" data-edit-holiday-from-view="${holiday.id}" data-type="${holiday.type}" type="button">Edit</button>
         </div>
       </article>
     `).join('');
@@ -176,11 +168,23 @@ function openHolidayDateModal(isoDate) {
 }
 
 function openEditModal(holiday) {
-  if (!holiday || holiday.type !== 'company') return;
+  if (!holiday) return;
+
+  editingHoliday = holiday;
 
   document.getElementById('editHolidayId').value = holiday.id;
   document.getElementById('editHolidayName').value = getHolidayName(holiday);
   document.getElementById('editHolidayDate').value = holiday.holiday_date;
+
+  const deleteBtn = document.getElementById('deleteHolidayBtn');
+  if (deleteBtn) {
+    deleteBtn.classList.toggle('hidden', holiday.type === 'bank');
+  }
+
+  const title = document.querySelector('#holidayEditModal h2');
+  if (title) {
+    title.textContent = holiday.type === 'bank' ? 'Edit Bank Holiday' : 'Edit Company Holiday';
+  }
 
   showMessage('holidayEditMessage', '');
   openModal('holidayEditModal');
@@ -220,7 +224,6 @@ async function init() {
   document.getElementById('holidayCalendarGrid')?.addEventListener('click', (event) => {
     const button = event.target.closest('.holiday-calendar-day');
     if (!button) return;
-
     openHolidayDateModal(button.dataset.date);
   });
 
@@ -228,7 +231,7 @@ async function init() {
     const button = event.target.closest('button[data-edit-holiday-from-view]');
     if (!button) return;
 
-    const holiday = holidays.find((item) => item.id === button.dataset.editHolidayFromView);
+    const holiday = holidays.find((item) => item.id === button.dataset.editHolidayFromView && item.type === button.dataset.type);
 
     closeModal('holidayViewModal');
     openEditModal(holiday);
@@ -259,7 +262,7 @@ async function init() {
     const deleteBtn = event.target.closest('button[data-delete-holiday]');
 
     if (editBtn) {
-      const holiday = holidays.find((item) => item.id === editBtn.dataset.editHoliday);
+      const holiday = holidays.find((item) => item.id === editBtn.dataset.editHoliday && item.type === editBtn.dataset.type);
       openEditModal(holiday);
       return;
     }
@@ -279,13 +282,20 @@ async function init() {
     event.preventDefault();
 
     try {
-      const id = document.getElementById('editHolidayId').value;
+      if (!editingHoliday) return;
 
-      await updateCompanyHoliday(id, {
+      const payload = {
         name: document.getElementById('editHolidayName').value.trim(),
         holiday_date: document.getElementById('editHolidayDate').value
-      });
+      };
 
+      if (editingHoliday.type === 'bank') {
+        await updateBankHoliday(editingHoliday.id, payload);
+      } else {
+        await updateCompanyHoliday(editingHoliday.id, payload);
+      }
+
+      editingHoliday = null;
       closeModal('holidayEditModal');
       await loadHolidays();
     } catch (error) {
@@ -294,12 +304,14 @@ async function init() {
   });
 
   document.getElementById('deleteHolidayBtn')?.addEventListener('click', async () => {
-    const id = document.getElementById('editHolidayId').value;
+    if (!editingHoliday || editingHoliday.type !== 'company') return;
+
     const name = document.getElementById('editHolidayName').value || 'this holiday';
 
     if (!confirm(`Delete ${name}?`)) return;
 
-    await deleteCompanyHoliday(id);
+    await deleteCompanyHoliday(editingHoliday.id);
+    editingHoliday = null;
     closeModal('holidayEditModal');
     await loadHolidays();
   });
