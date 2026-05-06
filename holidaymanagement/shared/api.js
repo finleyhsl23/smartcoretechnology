@@ -1037,3 +1037,42 @@ export async function updateBankHoliday(id, payload) {
   if (error) throw error;
   return data;
 }
+export async function getEmployeeAllLeave(employeeId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .order('start_date', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function sendSupportLeaveApprovedEmail(payload) {
+  const response = await fetch('/api/send-support-leave-approved-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.warn('Support approval email failed:', result);
+  }
+
+  return result;
+}
+
+export async function getEmployeeLeaveReport(employeeId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .order('start_date', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
