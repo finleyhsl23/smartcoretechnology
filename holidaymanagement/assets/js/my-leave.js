@@ -100,61 +100,65 @@ function calculateLeaveStats(profile, requests, balance) {
 function renderRequests(container, requests) {
   if (!container) return;
 
-  const statusFilter = getCustomSelectValue('myLeaveStatusSelect');
-  const typeFilter = getCustomSelectValue('myLeaveTypeSelect');
-
-  let filtered = [...(requests || [])];
-
-  if (statusFilter !== 'all') {
-    filtered = filtered.filter((request) => request.status === statusFilter);
-  }
-
-  if (typeFilter !== 'all') {
-    filtered = filtered.filter((request) => request.leave_type === typeFilter);
-  }
-
-  if (!filtered.length) {
-    renderEmptyState(container, 'No leave history found for these filters.');
+  if (!requests || !requests.length) {
+    renderEmptyState(container, 'No leave history yet.');
     return;
   }
 
-  container.innerHTML = filtered.map((request) => `
+  container.innerHTML = requests.map((request) => `
     <article class="leave-card">
       <div class="leave-card-top">
-        <div>
+        <div class="leave-card-main">
           <p class="leave-card-title">${leaveTypeLabel(request.leave_type)}</p>
+
           <p class="leave-card-subtitle">
             ${formatDate(request.start_date)} to ${formatDate(request.end_date)} • ${request.total_days || 0} day(s)
           </p>
+
+          <p class="leave-card-subtitle">
+            <strong>Reason:</strong> ${request.reason || 'No reason provided'}
+          </p>
+
+          <p class="leave-card-subtitle">
+            <strong>Notes:</strong> ${request.notes || 'No notes added'}
+          </p>
+
+          ${
+            request.cancellation_reason
+              ? `
+                <p class="leave-card-subtitle">
+                  <strong>Cancellation reason:</strong> ${request.cancellation_reason}
+                </p>
+              `
+              : ''
+          }
+
+          ${
+            request.status === 'cancel_requested'
+              ? `
+                <p class="leave-card-subtitle">
+                  <strong>Cancellation pending approval</strong>
+                </p>
+              `
+              : ''
+          }
         </div>
-        ${statusBadge(request.status)}
-      </div>
 
-      <div class="leave-card-bottom stacked-bottom">
-        <p class="leave-card-subtitle"><strong>Reason:</strong> ${request.reason || 'No reason provided'}</p>
-        <p class="leave-card-subtitle"><strong>Notes:</strong> ${request.notes || 'No notes added'}</p>
+        <div class="leave-card-actions">
+          ${statusBadge(request.status)}
 
-        ${
-          request.cancellation_reason
-            ? `<p class="leave-card-subtitle"><strong>Cancellation reason:</strong> ${request.cancellation_reason}</p>`
-            : ''
-        }
-
-        ${
-          request.status === 'approved'
-            ? `<div class="inline-actions">
-                <button class="btn btn-danger" data-cancel-request="${request.id}" type="button">
+          ${
+            request.status === 'approved'
+              ? `
+                <button class="btn btn-danger"
+                  data-cancel-request="${request.id}"
+                  type="button">
                   Request Cancellation
                 </button>
-              </div>`
-            : ''
-        }
-
-        ${
-          request.status === 'cancel_requested'
-            ? `<p class="leave-card-subtitle"><strong>Cancellation pending approval</strong></p>`
-            : ''
-        }
+              `
+              : ''
+          }
+        </div>
       </div>
     </article>
   `).join('');
