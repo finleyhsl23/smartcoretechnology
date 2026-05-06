@@ -152,9 +152,8 @@ function setupCustomSelects() {
       option.addEventListener('click', () => {
         selectEl.dataset.value = option.dataset.value;
 
-        const label = option.textContent.trim();
         const span = selectEl.querySelector('.custom-select-trigger span');
-        if (span) span.textContent = label;
+        if (span) span.textContent = option.textContent.trim();
 
         selectEl.classList.remove('open');
         renderEmployees();
@@ -433,9 +432,7 @@ function renderDetailGroup(containerId, rows) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  container.innerHTML = rows
-    .map((row) => detailTile(row.label, row.value))
-    .join('');
+  container.innerHTML = rows.map((row) => detailTile(row.label, row.value)).join('');
 }
 
 function renderViewEmployeeDetails(employee) {
@@ -490,49 +487,6 @@ function renderViewEmployeeDetails(employee) {
   ]);
 }
 
-function renderViewLeaveList(items) {
-  const list = document.getElementById('viewLeaveList');
-  if (!list) return;
-
-  if (!items.length) {
-    renderEmptyState(list, 'No leave records found for this year.');
-    return;
-  }
-
-  list.innerHTML = items.map((item) => `
-    <article class="leave-card">
-      <div class="leave-card-top">
-        <div>
-          <p class="leave-card-title">${leaveTypeLabel(item.leave_type)} • ${item.status}</p>
-          <p class="leave-card-subtitle">
-            ${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days || 0} day(s)
-          </p>
-        </div>
-      </div>
-
-      <div class="leave-card-bottom stacked-bottom">
-        <p class="leave-card-subtitle"><strong>Reason:</strong> ${item.reason || 'No reason provided'}</p>
-        <p class="leave-card-subtitle"><strong>Notes:</strong> ${item.notes || 'No notes added'}</p>
-      </div>
-    </article>
-  `).join('');
-}
-
-async function openViewEmployee(employee) {
-  viewedEmployee = employee;
-  viewedLeave = await getEmployeeAllLeave(employee.id);
-
-  setText('viewEmployeeTitle', employee.full_name || 'Employee');
-  setText('viewEmployeeSubtitle', `${employee.employee_code || '—'} • ${employee.job_title || '—'}`);
-  setText('viewFirstLogin', formatDateTime(employee.first_login_at));
-
-  renderViewEmployeeDetails(employee);
-  buildYearDropdown(viewedLeave);
-  await updateViewYear();
-
-  openModal('employeeViewModal');
-}
-
 function calculateYearStats(employee, leave, year, balance) {
   const yearLeave = leave.filter((item) => {
     const itemYear = new Date(item.start_date).getFullYear();
@@ -553,13 +507,17 @@ function calculateYearStats(employee, leave, year, balance) {
   const used = Number(balance?.used_days ?? fallbackUsed);
   const remaining = Number(balance?.remaining_days ?? Math.max(0, allowance - used));
 
-  return {
-    allowance,
-    used,
-    remaining,
-    yearLeave
-  };
+  return { allowance, used, remaining, yearLeave };
 }
+
+function renderViewLeaveList(items) {
+  const list = document.getElementById('viewLeaveList');
+  if (!list) return;
+
+  if (!items.length) {
+    renderEmptyState(list, 'No leave records found for this year.');
+    return;
+  }
 
   list.innerHTML = items.map((item) => `
     <article class="leave-card">
@@ -569,6 +527,7 @@ function calculateYearStats(employee, leave, year, balance) {
           <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days || 0} day(s)</p>
         </div>
       </div>
+
       <div class="leave-card-bottom stacked-bottom">
         <p class="leave-card-subtitle"><strong>Reason:</strong> ${item.reason || 'No reason provided'}</p>
         <p class="leave-card-subtitle"><strong>Notes:</strong> ${item.notes || 'No notes added'}</p>
@@ -582,7 +541,6 @@ async function updateViewYear() {
 
   const year = Number(document.getElementById('viewLeaveYear')?.value || new Date().getFullYear());
   const balance = await getEmployeeLeaveBalanceByYear(viewedEmployee.user_id, year).catch(() => null);
-
   const stats = calculateYearStats(viewedEmployee, viewedLeave, year, balance);
 
   setText('viewAnnualAllowance', stats.allowance);
@@ -597,7 +555,6 @@ function buildYearDropdown(leave) {
   if (!yearSelect) return;
 
   const currentYear = new Date().getFullYear();
-
   const years = new Set([currentYear]);
 
   leave.forEach((item) => {
@@ -610,6 +567,21 @@ function buildYearDropdown(leave) {
     .join('');
 
   yearSelect.value = String(currentYear);
+}
+
+async function openViewEmployee(employee) {
+  viewedEmployee = employee;
+  viewedLeave = await getEmployeeAllLeave(employee.id);
+
+  setText('viewEmployeeTitle', employee.full_name || 'Employee');
+  setText('viewEmployeeSubtitle', `${employee.employee_code || '—'} • ${employee.job_title || '—'}`);
+  setText('viewFirstLogin', formatDateTime(employee.first_login_at));
+
+  renderViewEmployeeDetails(employee);
+  buildYearDropdown(viewedLeave);
+  await updateViewYear();
+
+  openModal('employeeViewModal');
 }
 
 function exportWorkbook(employee, leaveRecords, selectedOnly = false) {
@@ -656,17 +628,6 @@ function exportWorkbook(employee, leaveRecords, selectedOnly = false) {
     wb,
     `${cleanFileName(employee.full_name || employee.employee_code)}-${selectedOnly ? year : 'all'}-leave-report.xlsx`
   );
-}
-
-  setText('viewEmployeeTitle', employee.full_name || 'Employee');
-  setText('viewEmployeeSubtitle', `${employee.employee_code || '—'} • ${employee.job_title || '—'}`);
-  setText('viewFirstLogin', formatDateTime(employee.first_login_at));
-
-  renderViewEmployeeDetails(employee);
-  buildYearDropdown(viewedLeave);
-  await updateViewYear();
-
-  openModal('employeeViewModal');
 }
 
 function renderShiftPatterns() {
@@ -794,125 +755,6 @@ async function sendInvite(toType) {
 }
 
 async function init() {
-
-  function valueOrDash(value) {
-  if (value === null || value === undefined || value === '') return '—';
-  return value;
-}
-
-function detailTile(label, value) {
-  return `
-    <div class="detail-tile">
-      <span class="detail-label">${label}</span>
-      <div class="detail-value">${valueOrDash(value)}</div>
-    </div>
-  `;
-}
-
-function renderDetailGroup(containerId, rows) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-
-  container.innerHTML = rows
-    .map((row) => detailTile(row.label, row.value))
-    .join('');
-}
-
-function renderViewEmployeeDetails(employee) {
-  renderDetailGroup('viewWorkDetails', [
-    { label: 'Employee Code', value: employee.employee_code },
-    { label: 'Full Name', value: employee.full_name },
-    { label: 'Job Title', value: employee.job_title },
-    { label: 'Work Email', value: employee.work_email },
-    { label: 'Personal Email', value: employee.personal_email },
-    { label: 'Personal Phone', value: employee.personal_phone },
-    { label: 'Employment Type', value: employee.employment_type },
-    { label: 'Notice Period', value: employee.notice_period },
-    { label: 'Start Date', value: employee.start_date ? formatDate(employee.start_date) : '—' },
-    { label: 'Role', value: employee.role },
-    { label: 'Employment Status', value: employee.employment_status },
-    { label: 'Authoriser Required', value: employee.no_authoriser_required ? 'No' : 'Yes' }
-  ]);
-
-  renderDetailGroup('viewPersonalDetails', [
-    { label: 'Title', value: employee.title },
-    { label: 'Pronouns', value: employee.pronouns },
-    { label: 'Gender', value: employee.gender },
-    { label: 'Date of Birth', value: employee.dob ? formatDate(employee.dob) : '—' },
-    { label: 'Nationality', value: employee.nationality },
-    { label: 'National Insurance Number', value: employee.ni_number },
-    { label: 'Passport Number', value: employee.passport_number },
-    { label: 'Passport Expiry Date', value: employee.passport_expiry_date ? formatDate(employee.passport_expiry_date) : '—' },
-    { label: 'Driving Licence Number', value: employee.driving_licence_number }
-  ]);
-
-  renderDetailGroup('viewAddressDetails', [
-    { label: 'Address Line 1', value: employee.address_line1 },
-    { label: 'Address Line 2', value: employee.address_line2 },
-    { label: 'City', value: employee.address_city },
-    { label: 'County', value: employee.address_county },
-    { label: 'Postcode', value: employee.address_postcode },
-    { label: 'Country', value: employee.address_country }
-  ]);
-
-  renderDetailGroup('viewEmergencyContact1', [
-    { label: 'Name', value: employee.emergency_contact_name1 },
-    { label: 'Relationship', value: employee.emergency_contact_relationship1 },
-    { label: 'Email', value: employee.emergency_contact_email1 },
-    { label: 'Phone', value: employee.emergency_contact_phone1 }
-  ]);
-
-  renderDetailGroup('viewEmergencyContact2', [
-    { label: 'Name', value: employee.emergency_contact_name2 },
-    { label: 'Relationship', value: employee.emergency_contact_relationship2 },
-    { label: 'Email', value: employee.emergency_contact_email2 },
-    { label: 'Phone', value: employee.emergency_contact_phone2 }
-  ]);
-}
-
-function renderViewLeaveList(items) {
-  const list = document.getElementById('viewLeaveList');
-  if (!list) return;
-
-  if (!items.length) {
-    renderEmptyState(list, 'No leave records found for this year.');
-    return;
-  }
-
-  list.innerHTML = items.map((item) => `
-    <article class="leave-card">
-      <div class="leave-card-top">
-        <div>
-          <p class="leave-card-title">${leaveTypeLabel(item.leave_type)} • ${item.status}</p>
-          <p class="leave-card-subtitle">
-            ${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days || 0} day(s)
-          </p>
-        </div>
-      </div>
-
-      <div class="leave-card-bottom stacked-bottom">
-        <p class="leave-card-subtitle"><strong>Reason:</strong> ${item.reason || 'No reason provided'}</p>
-        <p class="leave-card-subtitle"><strong>Notes:</strong> ${item.notes || 'No notes added'}</p>
-      </div>
-    </article>
-  `).join('');
-}
-
-async function openViewEmployee(employee) {
-  viewedEmployee = employee;
-  viewedLeave = await getEmployeeAllLeave(employee.id);
-
-  setText('viewEmployeeTitle', employee.full_name || 'Employee');
-  setText('viewEmployeeSubtitle', `${employee.employee_code || '—'} • ${employee.job_title || '—'}`);
-  setText('viewFirstLogin', formatDateTime(employee.first_login_at));
-
-  renderViewEmployeeDetails(employee);
-  buildYearDropdown(viewedLeave);
-  await updateViewYear();
-
-  openModal('employeeViewModal');
-}
-  
   const auth = await requireAdminPageAccess();
   if (!auth) return;
 
@@ -943,9 +785,21 @@ async function openViewEmployee(employee) {
   document.getElementById('noAuthoriserRequired')?.addEventListener('change', updateOwnerAuthoriserUi);
 
   document.getElementById('viewLeaveYear')?.addEventListener('change', updateViewYear);
+
+  document.getElementById('viewLeaveRecordsBtn')?.addEventListener('click', () => {
+    if (!viewedEmployee) return;
+
+    const year = document.getElementById('viewLeaveYear')?.value || new Date().getFullYear();
+    setText('leaveRecordsTitle', `${viewedEmployee.full_name || 'Employee'} Leave Records`);
+    setText('leaveRecordsSubtitle', `Leave records for ${year}`);
+
+    openModal('employeeLeaveRecordsModal');
+  });
+
   document.getElementById('viewExportYearBtn')?.addEventListener('click', () => {
     if (viewedEmployee) exportWorkbook(viewedEmployee, viewedLeave, true);
   });
+
   document.getElementById('viewExportAllBtn')?.addEventListener('click', () => {
     if (viewedEmployee) exportWorkbook(viewedEmployee, viewedLeave, false);
   });
