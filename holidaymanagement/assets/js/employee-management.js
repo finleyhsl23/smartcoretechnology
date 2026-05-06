@@ -12,46 +12,17 @@ import {
   createShiftPattern,
   deleteEmployeePermanent,
   getEmployeeAllLeave,
+  getEmployeeLeaveBalanceByYear,
   leaveTypeLabel
 } from '../../shared/api.js';
-
-function roundToNearestHalf(value) {
-  return Math.round(Number(value || 0) * 2) / 2;
-}
-
-function calculateProratedAllowance(annualAllowance, startDate) {
-  const allowance = Number(annualAllowance || 0);
-  if (!allowance) return 0;
-  if (!startDate) return allowance;
-
-  const today = new Date();
-  const start = new Date(startDate);
-  const currentYear = today.getFullYear();
-  const startYear = start.getFullYear();
-
-  if (startYear < currentYear) return allowance;
-  if (startYear > currentYear) return 0;
-
-  const monthsLeft = 12 - start.getMonth();
-  return roundToNearestHalf((allowance / 12) * monthsLeft);
-}
-
-function updateStartDateAllowanceHint() {
-  const hint = document.getElementById('startDateAllowanceHint');
-  const startDate = document.getElementById('startDate')?.value;
-  const allowance = document.getElementById('annualLeaveAllowance')?.value || 23;
-
-  if (!hint) return;
-
-  const calculated = calculateProratedAllowance(allowance, startDate);
-  hint.textContent = `This person will have ${calculated} days of annual leave allowance this year.`;
-}
 
 let profile = null;
 let companyInfo = null;
 let employees = [];
 let shiftPatterns = [];
 let savedEmployee = null;
+let viewedEmployee = null;
+let viewedLeave = [];
 
 function openModal(id) {
   document.getElementById(id)?.classList.remove('hidden');
@@ -70,8 +41,40 @@ function getField(id) {
   return document.getElementById(id)?.value?.trim() || '';
 }
 
-function getStatusFilter() {
-  return document.getElementById('statusFilter')?.dataset.value || 'active';
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value ?? '—';
+}
+
+function roundToNearestHalf(value) {
+  return Math.round(Number(value || 0) * 2) / 2;
+}
+
+function calculateProratedAllowance(annualAllowance, startDate) {
+  const allowance = Number(annualAllowance || 0);
+  if (!allowance) return 0;
+  if (!startDate) return allowance;
+
+  const today = new Date();
+  const start = new Date(startDate);
+
+  if (start.getFullYear() < today.getFullYear()) return allowance;
+  if (start.getFullYear() > today.getFullYear()) return 0;
+
+  const monthsLeft = 12 - start.getMonth();
+  return roundToNearestHalf((allowance / 12) * monthsLeft);
+}
+
+function updateStartDateAllowanceHint() {
+  const hint = document.getElementById('startDateAllowanceHint');
+  if (!hint) return;
+
+  const calculated = calculateProratedAllowance(
+    document.getElementById('annualLeaveAllowance')?.value || 23,
+    document.getElementById('startDate')?.value
+  );
+
+  hint.textContent = `This person will have ${calculated} days of annual leave allowance this year.`;
 }
 
 function cleanFileName(value) {
@@ -81,40 +84,26 @@ function cleanFileName(value) {
     .toLowerCase();
 }
 
-function exportWorkbook(employee, leaveRecords) {
-  if (!window.XLSX) {
-    alert('Excel export library has not loaded.');
-    return;
-  }
+function formatDate(value) {
+  if (!value) return '—';
 
-  const detailRows = Object.entries(employee || {}).map(([key, value]) => ({
-    Field: key.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
-    Value: value ?? ''
-  }));
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }).format(new Date(value));
+}
 
-  const leaveRows = (leaveRecords || []).map((item) => ({
-    Type: leaveTypeLabel(item.leave_type),
-    Status: item.status || '',
-    'Start Date': item.start_date || '',
-    'End Date': item.end_date || '',
-    'Total Days': item.total_days || 0,
-    'Deduct Allowance': item.deduct_allowance === false ? 'No' : 'Yes',
-    Reason: item.reason || '',
-    Notes: item.notes || '',
-    'Approved At': item.approved_at || '',
-    'Cancelled At': item.cancelled_at || '',
-    'Cancellation Reason': item.cancellation_reason || '',
-    'Created At': item.created_at || ''
-  }));
+function formatDateTime(value) {
+  if (!value) return 'Not logged in yet';
 
-  const wb = XLSX.utils.book_new();
-  const wsDetails = XLSX.utils.json_to_sheet(detailRows);
-  const wsLeave = XLSX.utils.json_to_sheet(leaveRows.length ? leaveRows : [{ Message: 'No leave records found.' }]);
-
-  XLSX.utils.book_append_sheet(wb, wsDetails, 'Employee Details');
-  XLSX.utils.book_append_sheet(wb, wsLeave, 'Leave Records');
-
-  XLSX.writeFile(wb, `${cleanFileName(employee.full_name || employee.employee_code)}-employee-export.xlsx`);
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(value));
 }
 
 function generateDigits(length = 9) {
@@ -142,6 +131,42 @@ function expiresIn12Hours() {
   const date = new Date();
   date.setHours(date.getHours() + 12);
   return date.toISOString();
+}
+
+function setupCustomSelects() {
+  document.querySelectorAll('.custom-select').forEach((selectEl) => {
+    const trigger = selectEl.querySelector('.custom-select-trigger');
+    const menu = selectEl.querySelector('.custom-select-menu');
+
+    trigger?.addEventListener('click', (event) => {
+      event.stopPropagation();
+
+      document.querySelectorAll('.custom-select.open').forEach((openSelect) => {
+        if (openSelect !== selectEl) openSelect.classList.remove('open');
+      });
+
+      selectEl.classList.toggle('open');
+    });
+
+    menu?.querySelectorAll('button[data-value]').forEach((option) => {
+      option.addEventListener('click', () => {
+        selectEl.dataset.value = option.dataset.value;
+
+        const label = option.textContent.trim();
+        const span = selectEl.querySelector('.custom-select-trigger span');
+        if (span) span.textContent = label;
+
+        selectEl.classList.remove('open');
+        renderEmployees();
+      });
+    });
+  });
+
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.custom-select.open').forEach((selectEl) => {
+      selectEl.classList.remove('open');
+    });
+  });
 }
 
 function syncEmploymentTypeInputs(value = '') {
@@ -191,9 +216,7 @@ function updateEmploymentTypeFromUi() {
 }
 
 function updateOwnerAuthoriserUi() {
-  const role = getField('role');
-  const isOwner = role === 'owner';
-
+  const isOwner = getField('role') === 'owner';
   const row = document.getElementById('noAuthoriserOwnerRow');
   const checkbox = document.getElementById('noAuthoriserRequired');
   const authoriserField = document.getElementById('authoriserField');
@@ -206,11 +229,7 @@ function updateOwnerAuthoriserUi() {
     return;
   }
 
-  if (checkbox?.checked) {
-    authoriserField?.classList.add('hidden');
-  } else {
-    authoriserField?.classList.remove('hidden');
-  }
+  authoriserField?.classList.toggle('hidden', checkbox?.checked === true);
 }
 
 function setAuthoriser(employee) {
@@ -267,6 +286,7 @@ function getEmployeePayload() {
     id: getField('employeeId') || null,
     company_id: profile.company_id,
     employee_code: getField('employeeCode') || existingEmployee?.employee_code || generateEmployeeCode(),
+
     full_name: getField('fullName'),
     job_title: getField('jobTitle'),
     work_email: getField('workEmail').toLowerCase(),
@@ -275,15 +295,19 @@ function getEmployeePayload() {
     employment_type: getField('employmentType'),
     notice_period: getField('noticePeriod'),
     start_date: getField('startDate'),
+
     role: getField('role') || 'employee',
     is_admin: getField('isAdmin') === 'true',
     employment_status: getField('employmentStatus') || 'active',
+
     annual_leave_allowance: Number(getField('annualLeaveAllowance') || 23),
     bank_holiday_region: 'england',
     include_bank_holidays: getField('includeBankHolidays') === 'true',
     shift_pattern_id: getField('shiftPatternId'),
+
     assigned_authoriser: noAuthoriser ? '' : getField('assignedAuthoriserId'),
     no_authoriser_required: noAuthoriser,
+
     title: getField('title'),
     pronouns: getField('pronouns'),
     gender: getField('gender'),
@@ -293,20 +317,24 @@ function getEmployeePayload() {
     passport_number: getField('passportNumber'),
     passport_expiry_date: getField('passportExpiryDate'),
     driving_licence_number: getField('drivingLicenceNumber'),
+
     address_line1: getField('addressLine1'),
     address_line2: getField('addressLine2'),
     address_city: getField('addressCity'),
     address_county: getField('addressCounty'),
     address_postcode: getField('addressPostcode'),
     address_country: getField('addressCountry'),
+
     emergency_contact_name1: getField('emergencyContactName1'),
     emergency_contact_relationship1: getField('emergencyContactRelationship1'),
     emergency_contact_email1: getField('emergencyContactEmail1'),
     emergency_contact_phone1: getField('emergencyContactPhone1'),
+
     emergency_contact_name2: getField('emergencyContactName2'),
     emergency_contact_relationship2: getField('emergencyContactRelationship2'),
     emergency_contact_email2: getField('emergencyContactEmail2'),
     emergency_contact_phone2: getField('emergencyContactPhone2'),
+
     onboarding_status: getField('onboardingStatus') || existingEmployee?.onboarding_status || 'in_progress',
     onboarding_token: existingEmployee?.onboarding_token || generateToken(),
     onboarding_expires_at: existingEmployee?.onboarding_expires_at || expiresIn12Hours()
@@ -322,10 +350,13 @@ function fillEmployeeForm(employee = null) {
     section.classList.toggle('hidden', !isEditing);
   });
 
-  document.getElementById('employeeModalTitle').textContent = employee ? 'Edit Employee' : 'Add Employee';
-  document.getElementById('employeeModalSubtitle').textContent = employee
-    ? 'Edit all work and personal employee details.'
-    : 'Add the basic HR details. The employee completes personal details during onboarding.';
+  setText('employeeModalTitle', employee ? 'Edit Employee' : 'Add Employee');
+  setText(
+    'employeeModalSubtitle',
+    employee
+      ? 'Edit all work and personal employee details.'
+      : 'Add the basic HR details. The employee completes personal details during onboarding.'
+  );
 
   setField('employeeId', employee?.id);
   setField('employeeCode', employee?.employee_code || generateEmployeeCode());
@@ -342,6 +373,7 @@ function fillEmployeeForm(employee = null) {
   setField('employmentStatus', employee?.employment_status || 'active');
   setField('annualLeaveAllowance', employee?.annual_leave_allowance || 23);
   setField('includeBankHolidays', String(employee?.include_bank_holidays ?? true));
+
   setField('title', employee?.title);
   setField('pronouns', employee?.pronouns);
   setField('gender', employee?.gender);
@@ -351,20 +383,24 @@ function fillEmployeeForm(employee = null) {
   setField('passportNumber', employee?.passport_number);
   setField('passportExpiryDate', employee?.passport_expiry_date);
   setField('drivingLicenceNumber', employee?.driving_licence_number);
+
   setField('addressLine1', employee?.address_line1);
   setField('addressLine2', employee?.address_line2);
   setField('addressCity', employee?.address_city);
   setField('addressCounty', employee?.address_county);
   setField('addressPostcode', employee?.address_postcode);
   setField('addressCountry', employee?.address_country || 'United Kingdom');
+
   setField('emergencyContactName1', employee?.emergency_contact_name1);
   setField('emergencyContactRelationship1', employee?.emergency_contact_relationship1);
   setField('emergencyContactEmail1', employee?.emergency_contact_email1);
   setField('emergencyContactPhone1', employee?.emergency_contact_phone1);
+
   setField('emergencyContactName2', employee?.emergency_contact_name2);
   setField('emergencyContactRelationship2', employee?.emergency_contact_relationship2);
   setField('emergencyContactEmail2', employee?.emergency_contact_email2);
   setField('emergencyContactPhone2', employee?.emergency_contact_phone2);
+
   setField('onboardingStatus', employee?.onboarding_status || 'in_progress');
   setField('onboardingExpiresAt', employee?.onboarding_expires_at ? employee.onboarding_expires_at.slice(0, 16) : '');
 
@@ -377,6 +413,179 @@ function fillEmployeeForm(employee = null) {
   setShiftPattern(employee?.shift_pattern_id || '');
   updateOwnerAuthoriserUi();
   updateStartDateAllowanceHint();
+}
+
+function detailTile(label, value) {
+  return `
+    <div class="detail-tile">
+      <span class="detail-label">${label}</span>
+      <div class="detail-value">${value || '—'}</div>
+    </div>
+  `;
+}
+
+function renderViewEmployeeDetails(employee) {
+  const container = document.getElementById('viewEmployeeDetails');
+  if (!container) return;
+
+  const hidden = new Set(['id', 'company_id', 'onboarding_token']);
+
+  container.innerHTML = Object.entries(employee)
+    .filter(([key]) => !hidden.has(key))
+    .map(([key, value]) => {
+      const label = key.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+      return detailTile(label, value ?? '');
+    })
+    .join('');
+}
+
+function calculateYearStats(employee, leave, year, balance) {
+  const yearLeave = leave.filter((item) => {
+    const itemYear = new Date(item.start_date).getFullYear();
+    return itemYear === Number(year);
+  });
+
+  const fallbackAllowance = Number(employee.annual_leave_allowance || 0);
+
+  const fallbackUsed = yearLeave
+    .filter((item) =>
+      item.status === 'approved' &&
+      item.deduct_allowance !== false &&
+      ['annual', 'other'].includes(item.leave_type)
+    )
+    .reduce((sum, item) => sum + Number(item.total_days || 0), 0);
+
+  const allowance = Number(balance?.total_allowance ?? fallbackAllowance);
+  const used = Number(balance?.used_days ?? fallbackUsed);
+  const remaining = Number(balance?.remaining_days ?? Math.max(0, allowance - used));
+
+  return {
+    allowance,
+    used,
+    remaining,
+    yearLeave
+  };
+}
+
+function renderViewLeaveList(items) {
+  const list = document.getElementById('viewLeaveList');
+  if (!list) return;
+
+  if (!items.length) {
+    renderEmptyState(list, 'No leave records found for this year.');
+    return;
+  }
+
+  list.innerHTML = items.map((item) => `
+    <article class="leave-card">
+      <div class="leave-card-top">
+        <div>
+          <p class="leave-card-title">${leaveTypeLabel(item.leave_type)} • ${item.status}</p>
+          <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days || 0} day(s)</p>
+        </div>
+      </div>
+      <div class="leave-card-bottom stacked-bottom">
+        <p class="leave-card-subtitle"><strong>Reason:</strong> ${item.reason || 'No reason provided'}</p>
+        <p class="leave-card-subtitle"><strong>Notes:</strong> ${item.notes || 'No notes added'}</p>
+      </div>
+    </article>
+  `).join('');
+}
+
+async function updateViewYear() {
+  if (!viewedEmployee) return;
+
+  const year = Number(document.getElementById('viewLeaveYear')?.value || new Date().getFullYear());
+  const balance = await getEmployeeLeaveBalanceByYear(viewedEmployee.user_id, year).catch(() => null);
+
+  const stats = calculateYearStats(viewedEmployee, viewedLeave, year, balance);
+
+  setText('viewAnnualAllowance', stats.allowance);
+  setText('viewAnnualUsed', stats.used);
+  setText('viewAnnualRemaining', stats.remaining);
+
+  renderViewLeaveList(stats.yearLeave);
+}
+
+function buildYearDropdown(leave) {
+  const yearSelect = document.getElementById('viewLeaveYear');
+  if (!yearSelect) return;
+
+  const currentYear = new Date().getFullYear();
+
+  const years = new Set([currentYear]);
+
+  leave.forEach((item) => {
+    if (item.start_date) years.add(new Date(item.start_date).getFullYear());
+  });
+
+  yearSelect.innerHTML = [...years]
+    .sort((a, b) => b - a)
+    .map((year) => `<option value="${year}">${year}</option>`)
+    .join('');
+
+  yearSelect.value = String(currentYear);
+}
+
+function exportWorkbook(employee, leaveRecords, selectedOnly = false) {
+  if (!window.XLSX) {
+    alert('Excel export library has not loaded.');
+    return;
+  }
+
+  const year = Number(document.getElementById('viewLeaveYear')?.value || new Date().getFullYear());
+
+  const leaveToExport = selectedOnly
+    ? leaveRecords.filter((item) => new Date(item.start_date).getFullYear() === year)
+    : leaveRecords;
+
+  const detailRows = Object.entries(employee || {}).map(([key, value]) => ({
+    Field: key.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
+    Value: value ?? ''
+  }));
+
+  const leaveRows = leaveToExport.map((item) => ({
+    Type: leaveTypeLabel(item.leave_type),
+    Status: item.status || '',
+    'Start Date': item.start_date || '',
+    'End Date': item.end_date || '',
+    'Total Days': item.total_days || 0,
+    'Deduct Allowance': item.deduct_allowance === false ? 'No' : 'Yes',
+    Reason: item.reason || '',
+    Notes: item.notes || '',
+    'Approved At': item.approved_at || '',
+    'Cancelled At': item.cancelled_at || '',
+    'Cancellation Reason': item.cancellation_reason || '',
+    'Created At': item.created_at || ''
+  }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailRows), 'Employee Details');
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(leaveRows.length ? leaveRows : [{ Message: 'No leave records found.' }]),
+    selectedOnly ? `Leave ${year}` : 'All Leave'
+  );
+
+  XLSX.writeFile(
+    wb,
+    `${cleanFileName(employee.full_name || employee.employee_code)}-${selectedOnly ? year : 'all'}-leave-report.xlsx`
+  );
+}
+
+async function openViewEmployee(employee) {
+  viewedEmployee = employee;
+  viewedLeave = await getEmployeeAllLeave(employee.id);
+
+  setText('viewEmployeeTitle', employee.full_name || 'Employee');
+  setText('viewEmployeeSubtitle', `${employee.employee_code || '—'} • ${employee.job_title || '—'}`);
+  setText('viewFirstLogin', formatDateTime(employee.first_login_at));
+
+  renderViewEmployeeDetails(employee);
+  buildYearDropdown(viewedLeave);
+  await updateViewYear();
+
+  openModal('employeeViewModal');
 }
 
 function renderShiftPatterns() {
@@ -413,11 +622,12 @@ function renderEmployees() {
   }
 
   if (search) {
-    filtered = filtered.filter((employee) => JSON.stringify(employee).toLowerCase().includes(search));
+    filtered = filtered.filter((employee) =>
+      JSON.stringify(employee).toLowerCase().includes(search)
+    );
   }
 
-  document.getElementById('employeeCount').textContent =
-    `${filtered.length} employee${filtered.length === 1 ? '' : 's'} shown`;
+  setText('employeeCount', `${filtered.length} employee${filtered.length === 1 ? '' : 's'} shown`);
 
   if (!filtered.length) {
     renderEmptyState(list, 'No employees found.');
@@ -442,11 +652,12 @@ function renderEmployees() {
               }
             </p>
             <p class="leave-card-subtitle">
-              First login: ${employee.first_login_at ? new Date(employee.first_login_at).toLocaleString('en-GB') : 'Not logged in yet'}
+              First login: ${employee.first_login_at ? formatDateTime(employee.first_login_at) : 'Not logged in yet'}
             </p>
           </div>
 
           <div class="inline-actions">
+            <button class="btn btn-secondary" data-action="view" data-id="${employee.id}" type="button">View</button>
             <button class="btn btn-secondary" data-action="edit" data-id="${employee.id}" type="button">Edit</button>
             <button class="btn btn-primary" data-action="invite" data-id="${employee.id}" type="button">Send Invite</button>
             ${
@@ -482,7 +693,8 @@ async function sendInvite(toType) {
     return;
   }
 
-  const onboardingUrl = `${window.location.origin}/holidaymanagement/onboarding.html?token=${encodeURIComponent(savedEmployee.onboarding_token)}`;
+  const onboardingUrl =
+    `${window.location.origin}/holidaymanagement/onboarding.html?token=${encodeURIComponent(savedEmployee.onboarding_token)}`;
 
   try {
     showMessage('inviteMessage', 'Sending invitation...', 'info');
@@ -498,38 +710,6 @@ async function sendInvite(toType) {
   } catch (error) {
     showMessage('inviteMessage', error.message || 'Invitation failed.', 'error');
   }
-}
-
-function setupCustomSelects() {
-  document.querySelectorAll('.custom-select').forEach((selectEl) => {
-    const trigger = selectEl.querySelector('.custom-select-trigger');
-    const menu = selectEl.querySelector('.custom-select-menu');
-
-    trigger?.addEventListener('click', (event) => {
-      event.stopPropagation();
-
-      document.querySelectorAll('.custom-select.open').forEach((openSelect) => {
-        if (openSelect !== selectEl) openSelect.classList.remove('open');
-      });
-
-      selectEl.classList.toggle('open');
-    });
-
-    menu?.querySelectorAll('button[data-value]').forEach((option) => {
-      option.addEventListener('click', () => {
-        selectEl.dataset.value = option.dataset.value;
-        selectEl.querySelector('.custom-select-trigger span').textContent = option.textContent.trim();
-        selectEl.classList.remove('open');
-        renderEmployees();
-      });
-    });
-  });
-
-  document.addEventListener('click', () => {
-    document.querySelectorAll('.custom-select.open').forEach((selectEl) => {
-      selectEl.classList.remove('open');
-    });
-  });
 }
 
 async function init() {
@@ -551,17 +731,24 @@ async function init() {
     window.location.href = './login.html';
   });
 
-  document.getElementById('startDate')?.addEventListener('change', updateStartDateAllowanceHint);
-  document.getElementById('annualLeaveAllowance')?.addEventListener('input', updateStartDateAllowanceHint);
-  document.getElementById('employmentTypeSelect')?.addEventListener('change', updateEmploymentTypeFromUi);
-  document.getElementById('employmentTypeOther')?.addEventListener('input', updateEmploymentTypeFromUi);
-
   document.querySelectorAll('[data-close-modal]').forEach((button) => {
     button.addEventListener('click', () => closeModal(button.dataset.closeModal));
   });
 
+  document.getElementById('startDate')?.addEventListener('change', updateStartDateAllowanceHint);
+  document.getElementById('annualLeaveAllowance')?.addEventListener('input', updateStartDateAllowanceHint);
+  document.getElementById('employmentTypeSelect')?.addEventListener('change', updateEmploymentTypeFromUi);
+  document.getElementById('employmentTypeOther')?.addEventListener('input', updateEmploymentTypeFromUi);
   document.getElementById('role')?.addEventListener('change', updateOwnerAuthoriserUi);
   document.getElementById('noAuthoriserRequired')?.addEventListener('change', updateOwnerAuthoriserUi);
+
+  document.getElementById('viewLeaveYear')?.addEventListener('change', updateViewYear);
+  document.getElementById('viewExportYearBtn')?.addEventListener('click', () => {
+    if (viewedEmployee) exportWorkbook(viewedEmployee, viewedLeave, true);
+  });
+  document.getElementById('viewExportAllBtn')?.addEventListener('click', () => {
+    if (viewedEmployee) exportWorkbook(viewedEmployee, viewedLeave, false);
+  });
 
   document.getElementById('authoriserSearch')?.addEventListener('input', () => {
     const term = getField('authoriserSearch').toLowerCase();
@@ -606,15 +793,13 @@ async function init() {
 
   document.getElementById('addEmployeeBtn')?.addEventListener('click', () => {
     fillEmployeeForm(null);
-    updateStartDateAllowanceHint();
     openModal('employeeModal');
   });
 
   document.getElementById('exportEmployeeBtn')?.addEventListener('click', async () => {
     if (!savedEmployee?.id) return;
-
     const leave = await getEmployeeAllLeave(savedEmployee.id);
-    exportWorkbook(savedEmployee, leave);
+    exportWorkbook(savedEmployee, leave, false);
   });
 
   document.getElementById('openShiftPatternPickerBtn')?.addEventListener('click', () => {
@@ -639,6 +824,10 @@ async function init() {
     const employee = employees.find((item) => item.id === button.dataset.id);
     if (!employee) return;
 
+    if (button.dataset.action === 'view') {
+      await openViewEmployee(employee);
+    }
+
     if (button.dataset.action === 'edit') {
       fillEmployeeForm(employee);
       openModal('employeeModal');
@@ -646,8 +835,10 @@ async function init() {
 
     if (button.dataset.action === 'invite') {
       savedEmployee = employee;
-      document.getElementById('inviteSummary').textContent =
-        `${employee.full_name} • ${employee.personal_email || 'No personal email'} • ${employee.work_email || 'No work email'}`;
+      setText(
+        'inviteSummary',
+        `${employee.full_name} • ${employee.personal_email || 'No personal email'} • ${employee.work_email || 'No work email'}`
+      );
       openModal('inviteModal');
     }
 
@@ -701,8 +892,7 @@ async function init() {
       closeModal('employeeModal');
 
       if (savedEmployee?.onboarding_status !== 'complete') {
-        document.getElementById('inviteSummary').textContent =
-          `${savedEmployee.full_name} • ${savedEmployee.personal_email} • ${savedEmployee.work_email}`;
+        setText('inviteSummary', `${savedEmployee.full_name} • ${savedEmployee.personal_email} • ${savedEmployee.work_email}`);
         openModal('inviteModal');
       }
     } catch (error) {
@@ -710,8 +900,58 @@ async function init() {
     }
   });
 
+  document.getElementById('shiftPatternForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    try {
+      const pattern = await createShiftPattern({
+        company_id: profile.company_id,
+        name: getField('shiftName'),
+
+        monday: document.getElementById('shiftMonday').checked,
+        tuesday: document.getElementById('shiftTuesday').checked,
+        wednesday: document.getElementById('shiftWednesday').checked,
+        thursday: document.getElementById('shiftThursday').checked,
+        friday: document.getElementById('shiftFriday').checked,
+        saturday: document.getElementById('shiftSaturday').checked,
+        sunday: document.getElementById('shiftSunday').checked,
+
+        start_time: getField('mondayStartTime'),
+        end_time: getField('mondayEndTime'),
+
+        monday_start_time: getField('mondayStartTime'),
+        monday_end_time: getField('mondayEndTime'),
+        tuesday_start_time: getField('tuesdayStartTime'),
+        tuesday_end_time: getField('tuesdayEndTime'),
+        wednesday_start_time: getField('wednesdayStartTime'),
+        wednesday_end_time: getField('wednesdayEndTime'),
+        thursday_start_time: getField('thursdayStartTime'),
+        thursday_end_time: getField('thursdayEndTime'),
+        friday_start_time: getField('fridayStartTime'),
+        friday_end_time: getField('fridayEndTime'),
+        saturday_start_time: getField('saturdayStartTime'),
+        saturday_end_time: getField('saturdayEndTime'),
+        sunday_start_time: getField('sundayStartTime'),
+        sunday_end_time: getField('sundayEndTime'),
+
+        weekly_hours: Number(getField('shiftWeeklyHours') || 0),
+        annual_allowance_days: 23
+      });
+
+      await loadShiftPatterns();
+      setShiftPattern(pattern.id);
+      closeModal('shiftPatternModal');
+    } catch (error) {
+      showMessage('shiftPatternMessage', error.message || 'Unable to save shift pattern.', 'error');
+    }
+  });
+
+  document.getElementById('sendPersonalInviteBtn')?.addEventListener('click', () => sendInvite('personal'));
+  document.getElementById('sendWorkInviteBtn')?.addEventListener('click', () => sendInvite('work'));
+
   await loadShiftPatterns();
   await loadEmployees();
+
   revealApp();
 }
 
