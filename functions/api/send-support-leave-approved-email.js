@@ -11,17 +11,35 @@ export async function onRequestPost(context) {
     const employeeName = body.employee_name || 'Employee';
     const startDate = formatDate(body.start_date);
     const endDate = formatDate(body.end_date);
+    const action = body.action || 'approved';
 
-    const emailBody = `
-      <p>Hi Smartfits Support Team,</p>
+    const subject =
+      action === 'cancelled'
+        ? `Leave Cancelled - ${employeeName}`
+        : `Leave Approved - ${employeeName}`;
 
-      <p><strong>${employeeName}</strong> is booked off from <strong>${startDate}</strong> to <strong>${endDate}</strong>.</p>
+    const emailBody =
+      action === 'cancelled'
+        ? `
+          <p>Hi Smartfits Support Team,</p>
 
-      <p>Please make sure to log this in Smartfits' systems, and make sure not to request them to work during these dates.</p>
+          <p><strong>${employeeName}</strong>'s leave from <strong>${startDate}</strong> to <strong>${endDate}</strong> has been cancelled.</p>
 
-      <p>Thank you,<br>
-      The SmartCore and SmartFits administrative teams.</p>
-    `;
+          <p>Please make sure this is updated in Smartfits' systems, and that they are no longer blocked out for these dates.</p>
+
+          <p>Thank you,<br>
+          The SmartCore and SmartFits administrative teams.</p>
+        `
+        : `
+          <p>Hi Smartfits Support Team,</p>
+
+          <p><strong>${employeeName}</strong> is booked off from <strong>${startDate}</strong> to <strong>${endDate}</strong>.</p>
+
+          <p>Please make sure to log this in Smartfits' systems, and make sure not to request them to work during these dates.</p>
+
+          <p>Thank you,<br>
+          The SmartCore and SmartFits administrative teams.</p>
+        `;
 
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -32,7 +50,7 @@ export async function onRequestPost(context) {
       body: JSON.stringify({
         from: 'SmartCore <support@smartcoretechnology.co.uk>',
         to: ['support@smartcoretechnology.co.uk'],
-        subject: `Leave Approved - ${employeeName}`,
+        subject,
         html: emailBody
       })
     });
