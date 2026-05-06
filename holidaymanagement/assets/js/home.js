@@ -1,6 +1,7 @@
 import { requireAuth, isAdminProfile } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
 import { revealApp, renderEmptyState, showMessage } from '../../shared/ui.js';
+import { supabase, leaveSchema } from '../../shared/supabase.js';
 import {
   getDashboardLeaveBreakdown,
   getMyLeaveRequests,
@@ -46,6 +47,25 @@ function titleCase(value) {
   const text = String(value || '').trim();
   if (!text) return '—';
   return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+}
+
+async function markFirstLogin(profile) {
+  if (!profile?.id || profile.first_login_at) return;
+
+  const now = new Date().toISOString();
+
+  const { error } = await supabase
+    .schema(leaveSchema)
+    .from('employees')
+    .update({ first_login_at: now })
+    .eq('id', profile.id)
+    .is('first_login_at', null);
+
+  if (!error) {
+    profile.first_login_at = now;
+  } else {
+    console.warn('First login update failed:', error);
+  }
 }
 
 function calculateLeaveStatsFromBalance(profile, requests, balance) {
@@ -220,6 +240,9 @@ async function initHome() {
     if (!auth) return;
 
     const { user, profile } = auth;
+
+    await markFirstLogin(profile);
+
     currentProfile = profile;
 
     const authUserId = profile.user_id || profile.auth_user_id || user.id;
