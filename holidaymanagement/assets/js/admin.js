@@ -419,8 +419,18 @@ async function initAdmin() {
         }
 
         if (pendingAction === 'cancel' || pendingAction === 'approve-cancel') {
-          await cancelLeaveRequestAdmin(selectedRequest, authUserId, note);
-        }
+  await cancelLeaveRequestAdmin(selectedRequest, authUserId, note);
+
+  await sendSupportLeaveApprovedEmail({
+    action: 'cancelled',
+    employee_name: selectedRequest.employee_name || 'Employee',
+    leave_type: selectedRequest.leave_type,
+    start_date: selectedRequest.start_date,
+    end_date: selectedRequest.end_date,
+    total_days: selectedRequest.total_days,
+    note
+  });
+}
 
         if (pendingAction === 'reject-cancel') {
           await approveLeaveRequest(
