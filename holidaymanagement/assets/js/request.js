@@ -1,4 +1,4 @@
-import { requireAuth, applyRoleUi } from '../../shared/guards.js';
+import { requireAuth, applyRoleUi, isAdminProfile } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
 import { revealApp, showMessage, setLoadingButton, showPageError, renderEmptyState } from '../../shared/ui.js';
 import {
@@ -26,11 +26,7 @@ function calculateLeaveStats(profile, requests, balance) {
   const used = Number(balance?.used_days ?? fallbackUsed);
   const remaining = Number(balance?.remaining_days ?? Math.max(0, allowance - used));
 
-  return {
-    allowance,
-    used,
-    remaining
-  };
+  return { allowance, used, remaining };
 }
 
 function openModal(id) {
@@ -39,6 +35,21 @@ function openModal(id) {
 
 function closeModal(id) {
   document.getElementById(id)?.classList.add('hidden');
+}
+
+function restrictLeaveTypes(profile) {
+  const leaveTypeEl = document.getElementById('leaveType');
+  if (!leaveTypeEl) return;
+
+  const isAdmin = isAdminProfile(profile);
+
+  if (!isAdmin) {
+    [...leaveTypeEl.options].forEach((option) => {
+      if (option.value !== 'annual') option.remove();
+    });
+
+    leaveTypeEl.value = 'annual';
+  }
 }
 
 async function initRequestPage() {
@@ -61,6 +72,8 @@ async function initRequestPage() {
     document.querySelectorAll('[data-close-modal]').forEach((button) => {
       button.addEventListener('click', () => closeModal(button.dataset.closeModal));
     });
+
+    restrictLeaveTypes(profile);
 
     let myRequests = [];
     let balance = null;
@@ -187,13 +200,7 @@ async function initRequestPage() {
         totalDaysEl.value = '';
 
         const refreshedRequests = await getMyLeaveRequests(authUserId);
-        let refreshedBalance = null;
-
-        try {
-          refreshedBalance = await getMyLeaveBalance(authUserId, currentYear);
-        } catch (error) {
-          console.warn('Refreshed balance failed:', error);
-        }
+        const refreshedBalance = await getMyLeaveBalance(authUserId, currentYear).catch(() => null);
 
         stats = calculateLeaveStats(profile, refreshedRequests, refreshedBalance);
 
