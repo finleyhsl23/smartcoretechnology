@@ -415,15 +415,6 @@ function fillEmployeeForm(employee = null) {
   updateStartDateAllowanceHint();
 }
 
-function detailTile(label, value) {
-  return `
-    <div class="detail-tile">
-      <span class="detail-label">${label}</span>
-      <div class="detail-value">${value || '—'}</div>
-    </div>
-  `;
-}
-
 function valueOrDash(value) {
   if (value === null || value === undefined || value === '') return '—';
   return value;
