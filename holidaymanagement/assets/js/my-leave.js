@@ -24,10 +24,41 @@ function statusBadge(status) {
   return `<span class="badge badge-${status}">${status || 'pending'}</span>`;
 }
 
+function setupCustomStatusFilter(onChange) {
+  const select = document.getElementById('myLeaveStatusSelect') || document.getElementById('leaveStatusSelect');
+  if (!select) return;
+
+  const trigger = select.querySelector('.custom-select-trigger');
+  const menu = select.querySelector('.custom-select-menu');
+
+  trigger?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    select.classList.toggle('open');
+  });
+
+  menu?.querySelectorAll('button[data-value]').forEach((button) => {
+    button.addEventListener('click', () => {
+      select.dataset.value = button.dataset.value;
+
+      const span = trigger?.querySelector('span');
+      if (span) span.textContent = button.textContent.trim();
+
+      select.classList.remove('open');
+      onChange();
+    });
+  });
+
+  document.addEventListener('click', () => {
+    select.classList.remove('open');
+  });
+}
+
 function getStatusFilterValue() {
-  return document.getElementById('leaveStatusFilter')?.value ||
-    document.getElementById('statusFilter')?.value ||
-    'all';
+  return (
+    document.getElementById('myLeaveStatusSelect')?.dataset.value ||
+    document.getElementById('leaveStatusSelect')?.dataset.value ||
+    'all'
+  );
 }
 
 function calculateLeaveStats(profile, requests, balance) {
@@ -58,7 +89,6 @@ function renderRequests(container, requests) {
   if (!container) return;
 
   const statusFilter = getStatusFilterValue();
-
   let filtered = [...(requests || [])];
 
   if (statusFilter !== 'all') {
@@ -130,17 +160,8 @@ async function initMyLeavePage() {
 
     let balance = null;
 
-    try {
-      allRequests = await getMyLeaveRequests(authUserId);
-    } catch (error) {
-      console.warn('Leave history failed:', error);
-    }
-
-    try {
-      balance = await getMyLeaveBalance(authUserId, currentYear);
-    } catch (error) {
-      console.warn('Leave balance failed:', error);
-    }
+    allRequests = await getMyLeaveRequests(authUserId).catch(() => []);
+    balance = await getMyLeaveBalance(authUserId, currentYear).catch(() => null);
 
     const stats = calculateLeaveStats(profile, allRequests, balance);
 
@@ -163,11 +184,7 @@ async function initMyLeavePage() {
 
     renderRequests(list, allRequests);
 
-    document.getElementById('leaveStatusFilter')?.addEventListener('change', () => {
-      renderRequests(list, allRequests);
-    });
-
-    document.getElementById('statusFilter')?.addEventListener('change', () => {
+    setupCustomStatusFilter(() => {
       renderRequests(list, allRequests);
     });
 
