@@ -1076,17 +1076,6 @@ export async function getEmployeeLeaveReport(employeeId) {
   if (error) throw error;
   return data || [];
 }
-export async function getEmployeeAllLeave(employeeId) {
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .from('leave_requests')
-    .select('*')
-    .eq('employee_id', employeeId)
-    .order('start_date', { ascending: false });
-
-  if (error) throw error;
-  return data || [];
-}
 
 export async function getEmployeeLeaveBalanceByYear(userId, year) {
   if (!userId) return null;
