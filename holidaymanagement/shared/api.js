@@ -1049,13 +1049,6 @@ export async function getEmployeeAllLeave(employeeId) {
   return data || [];
 }
 
-export async function sendSupportLeaveApprovedEmail(payload) {
-  const response = await fetch('/api/send-support-leave-approved-email', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
   const result = await response.json().catch(() => ({}));
 
   if (!response.ok) {
