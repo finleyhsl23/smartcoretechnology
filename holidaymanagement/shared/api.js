@@ -1037,6 +1037,7 @@ export async function updateBankHoliday(id, payload) {
   if (error) throw error;
   return data;
 }
+
 export async function getEmployeeAllLeave(employeeId) {
   const { data, error } = await supabase
     .schema(leaveSchema)
@@ -1047,15 +1048,6 @@ export async function getEmployeeAllLeave(employeeId) {
 
   if (error) throw error;
   return data || [];
-}
-
-  const result = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    console.warn('Support approval email failed:', result);
-  }
-
-  return result;
 }
 
 export async function getEmployeeLeaveReport(employeeId) {
