@@ -12,15 +12,14 @@ import {
   getEmployeeLeaveSummary,
   searchEmployees,
   createManualAbsence,
-  leaveTypeLabel,
-  getLeaveOverlap,
-  sendLeaveCancelNotification
+  sendSupportLeaveApprovedEmail,
+  leaveTypeLabel
 } from '../../shared/api.js';
 import { formatDate, calculateBusinessDays, isDateInRange } from '../../shared/dates.js';
 
 function setText(id, value) {
   const el = document.getElementById(id);
-  if (el) el.textContent = value;
+  if (el) el.textContent = value ?? '—';
 }
 
 function calendarDays(startDate, endDate) {
@@ -35,15 +34,11 @@ function getCustomSelectValue(id) {
   return document.getElementById(id)?.dataset.value || 'all';
 }
 
-function statusMatchesFilter(statusValue, status) {
-  if (statusValue === 'all') return true;
-  if (statusValue === 'pending') return ['pending', 'cancel_requested'].includes(status);
-  return status === statusValue;
-}
-
 function setCustomSelectValue(selectEl, value, label) {
   if (!selectEl) return;
+
   selectEl.dataset.value = value;
+
   const span = selectEl.querySelector('.custom-select-trigger span');
   if (span) span.textContent = label;
 }
@@ -55,9 +50,11 @@ function setupCustomSelects(onChange) {
 
     trigger?.addEventListener('click', (event) => {
       event.stopPropagation();
+
       document.querySelectorAll('.custom-select.open').forEach((openSelect) => {
         if (openSelect !== selectEl) openSelect.classList.remove('open');
       });
+
       selectEl.classList.toggle('open');
     });
 
@@ -65,7 +62,10 @@ function setupCustomSelects(onChange) {
       option.addEventListener('click', () => {
         setCustomSelectValue(selectEl, option.dataset.value, option.textContent.trim());
         selectEl.classList.remove('open');
-        if (typeof onChange === 'function') onChange(selectEl);
+
+        if (typeof onChange === 'function') {
+          onChange(selectEl);
+        }
       });
     });
   });
@@ -85,18 +85,26 @@ function closeModal(id) {
   document.getElementById(id)?.classList.add('hidden');
 }
 
-function valueOrDash(value) {
-  if (value === null || value === undefined || value === '') return '—';
-  return String(value);
-}
-
 function renderDetailTile(label, value) {
   return `
     <div class="detail-tile">
       <span class="detail-label">${label}</span>
-      <div class="detail-value">${valueOrDash(value)}</div>
+      <div class="detail-value">${value ?? '—'}</div>
     </div>
   `;
+}
+
+function renderLeaveHistory(entries) {
+  if (!entries || !entries.length) {
+    return '<div class="empty-state">No leave history found.</div>';
+  }
+
+  return entries.slice(0, 8).map((entry) => `
+    <article class="leave-card">
+      <p class="leave-card-title">${leaveTypeLabel(entry.leave_type)} • ${entry.status}</p>
+      <p class="leave-card-subtitle">${formatDate(entry.start_date)} to ${formatDate(entry.end_date)} • ${entry.total_days} day(s)</p>
+    </article>
+  `).join('');
 }
 
 function renderEmployeeProfile(employee) {
@@ -118,16 +126,10 @@ function renderEmployeeProfile(employee) {
 }
 
 function setDeductAllowanceVisibility(action, leaveType) {
-  const actionModal = document.getElementById('requestActionModal');
   const checkbox = document.getElementById('requestDeductAllowance');
   const row = document.getElementById('requestDeductAllowanceRow');
 
   const shouldShow = action === 'approve' && ['annual', 'other'].includes(leaveType);
-
-  if (actionModal) {
-    actionModal.dataset.actionType = action;
-    actionModal.dataset.leaveType = leaveType;
-  }
 
   if (checkbox) checkbox.checked = true;
 
@@ -135,61 +137,6 @@ function setDeductAllowanceVisibility(action, leaveType) {
     row.classList.toggle('hidden', !shouldShow);
     row.style.display = shouldShow ? 'flex' : 'none';
   }
-}
-
-function renderLeaveHistory(entries) {
-  if (!entries || !entries.length) {
-    return '<div class="empty-state">No leave history found.</div>';
-  }
-
-  return entries.slice(0, 8).map((entry) => `
-    <article class="leave-card">
-      <p class="leave-card-title">${leaveTypeLabel(entry.leave_type)} • ${entry.status}</p>
-      <p class="leave-card-subtitle">${formatDate(entry.start_date)} to ${formatDate(entry.end_date)} • ${entry.total_days} day(s)</p>
-    </article>
-  `).join('');
-}
-
-function openWhoElseModal(request, items) {
-  const requestEmployeeUuid = request.employee?.id || request.employee_id;
-
-  const filtered = (items || []).filter((item) => item.employee_id !== requestEmployeeUuid);
-
-  const html = filtered.length
-    ? filtered.map((item) => `
-        <article class="leave-card">
-          <p class="leave-card-title">${item.employee_name || 'Employee'}</p>
-          <p class="leave-card-subtitle">${leaveTypeLabel(item.leave_type)} • ${item.status}</p>
-          <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days || 0} day(s)</p>
-        </article>
-      `).join('')
-    : '<div class="empty-state">Nobody else is off in this period.</div>';
-
-  const modal = document.createElement('div');
-  modal.className = 'modal-backdrop';
-  modal.innerHTML = `
-    <div class="modal-card glass-card">
-      <div class="modal-header">
-        <div>
-          <h2>Who Else Is Off?</h2>
-          <p class="muted">${formatDate(request.start_date)} to ${formatDate(request.end_date)}</p>
-        </div>
-        <button class="btn btn-secondary" type="button" id="closeWhoElseModal">Close</button>
-      </div>
-
-      <div class="card-list">${html}</div>
-    </div>
-  `;
-
-  document.body.appendChild(modal);
-
-  document.getElementById('closeWhoElseModal')?.addEventListener('click', () => {
-    modal.remove();
-  });
-
-  modal.addEventListener('click', (event) => {
-    if (event.target === modal) modal.remove();
-  });
 }
 
 async function initAdmin() {
@@ -226,31 +173,25 @@ async function initAdmin() {
     });
 
     setupCustomSelects((selectEl) => {
-      if (selectEl.id === 'adminStatusSelect' || selectEl.id === 'adminTypeSelect') renderList();
-      if (selectEl.id === 'manualAbsenceTypeSelect') updateManualDays();
+      if (selectEl.id === 'adminStatusSelect' || selectEl.id === 'adminTypeSelect') {
+        renderList();
+      }
+
+      if (selectEl.id === 'manualAbsenceTypeSelect') {
+        updateManualDays();
+      }
     });
 
-    const statusMenu = document.querySelector('#adminStatusSelect .custom-select-menu');
-if (statusMenu) {
-  statusMenu.innerHTML = `
-    <button type="button" data-value="all">All Statuses</button>
-    <button type="button" data-value="pending">Pending</button>
-    <button type="button" data-value="approved">Approved</button>
-    <button type="button" data-value="rejected">Rejected</button>
-    <button type="button" data-value="cancelled">Cancelled</button>
-  `;
-}
-
-setCustomSelectValue(document.getElementById('adminStatusSelect'), 'all', 'All Statuses');
     async function loadData() {
       requests = await getAllCompanyLeaveRequests(profile.company_id);
       requests = await enrichRequestsWithEmployeeInfo(requests, profile.company_id);
 
       let sickRecords = [];
+
       try {
         sickRecords = await getAllCompanySickRecords(profile.company_id);
-      } catch (error) {
-        console.warn('Sick records failed to load:', error);
+      } catch {
+        sickRecords = [];
       }
 
       const todayIso = new Date().toISOString().slice(0, 10);
@@ -299,7 +240,7 @@ setCustomSelectValue(document.getElementById('adminStatusSelect'), 'all', 'All S
       const typeValue = getCustomSelectValue('adminTypeSelect');
 
       const filtered = requests.filter((item) => {
-        const statusMatch = statusMatchesFilter(statusValue, item.status);
+        const statusMatch = statusValue === 'all' || item.status === statusValue;
         const typeMatch = typeValue === 'all' || item.leave_type === typeValue;
         return statusMatch && typeMatch;
       });
@@ -329,7 +270,6 @@ setCustomSelectValue(document.getElementById('adminStatusSelect'), 'all', 'All S
 
             <div class="inline-actions">
               <button class="btn btn-secondary" data-action="more-info" data-id="${item.id}" type="button">More Info</button>
-              <button class="btn btn-secondary" data-action="who-else" data-id="${item.id}" type="button">Who Else Is Off?</button>
 
               ${
                 item.status === 'pending'
@@ -373,18 +313,9 @@ setCustomSelectValue(document.getElementById('adminStatusSelect'), 'all', 'All S
 
       selectedRequest = request;
 
-      if (action === 'who-else') {
-        try {
-          const items = await getLeaveOverlap(profile.company_id, request.start_date, request.end_date);
-          openWhoElseModal(request, items);
-        } catch (error) {
-          alert(error.message || 'Unable to load who else is off.');
-        }
-        return;
-      }
-
       if (['approve', 'reject', 'cancel', 'approve-cancel', 'reject-cancel'].includes(action)) {
         pendingAction = action;
+
         if (requestActionNote) requestActionNote.value = '';
 
         const titles = {
@@ -398,93 +329,66 @@ setCustomSelectValue(document.getElementById('adminStatusSelect'), 'all', 'All S
         setText('requestActionTitle', titles[action] || 'Confirm Action');
         setText('requestActionSubtitle', `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)}`);
         setDeductAllowanceVisibility(action, request.leave_type);
-
         openModal('requestActionModal');
         return;
       }
 
-      if (action === 'amend') {
-        setText('amendSubtitle', `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)}`);
-
-        const amendStart = document.getElementById('amendStartDate');
-        const amendEnd = document.getElementById('amendEndDate');
-        const amendTotal = document.getElementById('amendTotalDays');
-        const amendReason = document.getElementById('amendReason');
-
-        if (amendStart) amendStart.value = request.start_date || '';
-        if (amendEnd) amendEnd.value = request.end_date || '';
-        if (amendTotal) amendTotal.value = request.total_days || '';
-        if (amendReason) amendReason.value = '';
-
-        openModal('amendModal');
-        return;
-      }
-
       if (action === 'more-info') {
-        try {
-          const summary = await getEmployeeLeaveSummary(request);
+        const summary = await getEmployeeLeaveSummary(request);
 
-          setText('infoEmployeeName', request.employee_name || 'Employee');
-          setText('infoEmployeeSubtitle', `${request.employee_id_display || request.employee_id || '—'} • ${request.job_title || '—'}`);
+        setText('infoEmployeeName', request.employee_name || 'Employee');
+        setText('infoEmployeeSubtitle', `${request.employee_id_display || request.employee_id || '—'} • ${request.job_title || '—'}`);
 
-          const infoContent = document.getElementById('requestInfoContent');
+        const infoContent = document.getElementById('requestInfoContent');
 
-          if (!infoContent) {
-            alert('More Info modal is missing from admin.html');
-            return;
-          }
-
-          infoContent.innerHTML = `
-            <div class="modal-grid">
-              ${renderDetailTile('Request Type', leaveTypeLabel(request.leave_type))}
-              ${renderDetailTile('Status', request.status)}
-              ${renderDetailTile('Total Days', request.total_days)}
-              ${renderDetailTile('Start Date', formatDate(request.start_date))}
-              ${renderDetailTile('End Date', formatDate(request.end_date))}
-              ${renderDetailTile('Deducts Allowance', request.deduct_allowance ? 'Yes' : 'No')}
-              ${renderDetailTile('Annual Allowance', summary.balance?.total_allowance ?? '—')}
-              ${renderDetailTile('Used Days', summary.balance?.used_days ?? '—')}
-              ${renderDetailTile('Remaining Days', summary.balance?.remaining_days ?? '—')}
-              ${renderDetailTile('Approved At', request.approved_at ? formatDate(request.approved_at) : '—')}
-              ${renderDetailTile('Cancelled At', request.cancelled_at ? formatDate(request.cancelled_at) : '—')}
-            </div>
-
-            <div class="modal-section">
-              <h3>Reason</h3>
-              <p class="muted">${request.reason || 'No reason provided'}</p>
-            </div>
-
-            <div class="modal-section">
-              <h3>Notes</h3>
-              <p class="muted">${request.notes || 'No notes added'}</p>
-            </div>
-
-            ${request.cancellation_reason ? `<div class="modal-section"><h3>Cancellation Reason</h3><p class="muted">${request.cancellation_reason}</p></div>` : ''}
-            ${request.cancel_admin_reason ? `<div class="modal-section"><h3>Admin Cancellation Reason</h3><p class="muted">${request.cancel_admin_reason}</p></div>` : ''}
-            ${request.amendment_reason ? `<div class="modal-section"><h3>Amendment Reason</h3><p class="muted">${request.amendment_reason}</p></div>` : ''}
-
-            <div class="modal-section">
-              <h3>Recent Leave History</h3>
-              <div class="card-list compact-list">
-                ${renderLeaveHistory(summary.requests)}
-              </div>
-            </div>
-          `;
-
-          const profileBtn = document.getElementById('viewEmployeeProfileBtn');
-          if (profileBtn) {
-            profileBtn.onclick = () => {
-              setText('employeeProfileTitle', request.employee_name || 'Employee');
-              renderEmployeeProfile(request.employee);
-              openModal('employeeProfileModal');
-            };
-          }
-
-          openModal('requestInfoModal');
-        } catch (error) {
-          console.error('More Info failed:', error);
-          alert(error.message || 'More Info failed to load.');
+        if (!infoContent) {
+          alert('More Info modal is missing from admin.html');
+          return;
         }
+
+        infoContent.innerHTML = `
+          <div class="modal-grid">
+            ${renderDetailTile('Request Type', leaveTypeLabel(request.leave_type))}
+            ${renderDetailTile('Status', request.status)}
+            ${renderDetailTile('Total Days', request.total_days)}
+            ${renderDetailTile('Start Date', formatDate(request.start_date))}
+            ${renderDetailTile('End Date', formatDate(request.end_date))}
+            ${renderDetailTile('Deducts Allowance', request.deduct_allowance ? 'Yes' : 'No')}
+            ${renderDetailTile('Annual Allowance', summary.balance?.total_allowance ?? request.employee?.annual_leave_allowance ?? '—')}
+            ${renderDetailTile('Used Days', summary.balance?.used_days ?? '—')}
+            ${renderDetailTile('Remaining Days', summary.balance?.remaining_days ?? '—')}
+            ${renderDetailTile('Approved At', request.approved_at ? formatDate(request.approved_at) : '—')}
+            ${renderDetailTile('Cancelled At', request.cancelled_at ? formatDate(request.cancelled_at) : '—')}
+          </div>
+
+          <div class="modal-section">
+            <h3>Reason</h3>
+            <p class="muted">${request.reason || 'No reason provided'}</p>
+          </div>
+
+          <div class="modal-section">
+            <h3>Notes</h3>
+            <p class="muted">${request.notes || 'No notes added'}</p>
+          </div>
+
+          <div class="modal-section">
+            <h3>Recent Leave History</h3>
+            <div class="card-list compact-list">
+              ${renderLeaveHistory(summary.requests)}
+            </div>
+          </div>
+        `;
+
+        const profileBtn = document.getElementById('viewEmployeeProfileBtn');
+        if (profileBtn) {
+          profileBtn.onclick = () => {
+            setText('employeeProfileTitle', request.employee_name || 'Employee');
+            renderEmployeeProfile(request.employee);
+            openModal('employeeProfileModal');
+          };
+        }
+
+        openModal('requestInfoModal');
       }
     });
 
@@ -499,6 +403,15 @@ setCustomSelectValue(document.getElementById('adminStatusSelect'), 'all', 'All S
 
         if (pendingAction === 'approve') {
           await approveLeaveRequest(selectedRequest, authUserId, note, deductAllowance);
+
+          await sendSupportLeaveApprovedEmail({
+            employee_name: selectedRequest.employee_name || 'Employee',
+            leave_type: selectedRequest.leave_type,
+            start_date: selectedRequest.start_date,
+            end_date: selectedRequest.end_date,
+            total_days: selectedRequest.total_days,
+            note
+          });
         }
 
         if (pendingAction === 'reject') {
@@ -507,16 +420,6 @@ setCustomSelectValue(document.getElementById('adminStatusSelect'), 'all', 'All S
 
         if (pendingAction === 'cancel' || pendingAction === 'approve-cancel') {
           await cancelLeaveRequestAdmin(selectedRequest, authUserId, note);
-
-          await sendLeaveCancelNotification({
-            type: 'admin_cancelled',
-            to: selectedRequest.employee_email || selectedRequest.personal_email || selectedRequest.work_email,
-            employee_name: selectedRequest.employee_name || 'Employee',
-            leave_type: selectedRequest.leave_type,
-            start_date: selectedRequest.start_date,
-            end_date: selectedRequest.end_date,
-            reason: note
-          });
         }
 
         if (pendingAction === 'reject-cancel') {
@@ -552,20 +455,7 @@ setCustomSelectValue(document.getElementById('adminStatusSelect'), 'all', 'All S
       }
 
       setText('manualAbsenceMessage', '');
-
-      const authorisingInput = document.getElementById('manualAuthorisingUser');
-      if (authorisingInput) {
-        authorisingInput.value = profile.full_name || profile.email || 'Signed in admin';
-      }
-
       setCustomSelectValue(document.getElementById('manualAbsenceTypeSelect'), 'annual', 'Annual Request');
-
-      const manualDeductRow = document.getElementById('manualDeductAllowance')?.closest('.toggle-row');
-      if (manualDeductRow) {
-        manualDeductRow.style.display = 'flex';
-        manualDeductRow.classList.remove('hidden');
-      }
-
       openModal('manualAbsenceModal');
     });
 
@@ -583,49 +473,37 @@ setCustomSelectValue(document.getElementById('adminStatusSelect'), 'all', 'All S
           return;
         }
 
-        try {
-          const results = await searchEmployees(profile.company_id, term);
+        const results = await searchEmployees(profile.company_id, term);
 
-          if (!employeeSearchResults) return;
+        employeeSearchResults.classList.remove('hidden');
 
-          employeeSearchResults.classList.remove('hidden');
-
-          if (!results.length) {
-            employeeSearchResults.innerHTML = `<div class="search-result-empty">No employees found.</div>`;
-            return;
-          }
-
-          employeeSearchResults.innerHTML = results.map((employee) => `
-            <button type="button" class="search-result-item" data-id="${employee.id}">
-              <strong>${employee.display_name || employee.full_name || 'Employee'}</strong>
-              <span>${employee.employee_code || employee.employee_id_display || '—'} • ${employee.job_title || '—'}</span>
-            </button>
-          `).join('');
-
-          employeeSearchResults.querySelectorAll('.search-result-item').forEach((item) => {
-            item.addEventListener('click', () => {
-              selectedEmployee = results.find((employee) => employee.id === item.dataset.id);
-              if (!selectedEmployee) return;
-
-              employeeSearchInput.value = selectedEmployee.display_name || selectedEmployee.full_name || 'Employee';
-              employeeSearchResults.classList.add('hidden');
-
-              if (selectedEmployeeBox) {
-                selectedEmployeeBox.classList.remove('hidden');
-                selectedEmployeeBox.innerHTML = `
-                  <strong>${selectedEmployee.display_name || selectedEmployee.full_name || 'Employee'}</strong>
-                  <span>${selectedEmployee.employee_code || selectedEmployee.employee_id_display || '—'} • ${selectedEmployee.job_title || '—'}</span>
-                `;
-              }
-            });
-          });
-        } catch (error) {
-          console.error('Employee search failed:', error);
-          if (employeeSearchResults) {
-            employeeSearchResults.classList.remove('hidden');
-            employeeSearchResults.innerHTML = `<div class="search-result-empty">${error.message || 'Search failed.'}</div>`;
-          }
+        if (!results.length) {
+          employeeSearchResults.innerHTML = `<div class="search-result-empty">No employees found.</div>`;
+          return;
         }
+
+        employeeSearchResults.innerHTML = results.map((employee) => `
+          <button type="button" class="search-result-item" data-id="${employee.id}">
+            <strong>${employee.display_name || employee.full_name || 'Employee'}</strong>
+            <span>${employee.employee_code || employee.employee_id_display || '—'} • ${employee.job_title || '—'}</span>
+          </button>
+        `).join('');
+
+        employeeSearchResults.querySelectorAll('.search-result-item').forEach((item) => {
+          item.addEventListener('click', () => {
+            selectedEmployee = results.find((employee) => employee.id === item.dataset.id);
+            if (!selectedEmployee) return;
+
+            employeeSearchInput.value = selectedEmployee.display_name || selectedEmployee.full_name || 'Employee';
+            employeeSearchResults.classList.add('hidden');
+
+            selectedEmployeeBox.classList.remove('hidden');
+            selectedEmployeeBox.innerHTML = `
+              <strong>${selectedEmployee.display_name || selectedEmployee.full_name || 'Employee'}</strong>
+              <span>${selectedEmployee.employee_code || selectedEmployee.employee_id_display || '—'} • ${selectedEmployee.job_title || '—'}</span>
+            `;
+          });
+        });
       }, 250);
     });
 
@@ -633,57 +511,15 @@ setCustomSelectValue(document.getElementById('adminStatusSelect'), 'all', 'All S
       if (!manualStartDate || !manualEndDate || !manualTotalDays) return;
 
       const type = getCustomSelectValue('manualAbsenceTypeSelect');
-      const start = manualStartDate.value;
-      const end = manualEndDate.value;
-
       const total = type === 'annual'
-        ? calculateBusinessDays(start, end)
-        : calendarDays(start, end);
+        ? calculateBusinessDays(manualStartDate.value, manualEndDate.value)
+        : calendarDays(manualStartDate.value, manualEndDate.value);
 
       manualTotalDays.value = total > 0 ? String(total) : '';
-
-      const manualDeductRow = document.getElementById('manualDeductAllowance')?.closest('.toggle-row');
-
-      if (manualDeductRow) {
-        manualDeductRow.style.display = ['annual', 'other'].includes(type) ? 'flex' : 'none';
-        manualDeductRow.classList.toggle('hidden', !['annual', 'other'].includes(type));
-      }
     }
 
     manualStartDate?.addEventListener('change', updateManualDays);
     manualEndDate?.addEventListener('change', updateManualDays);
-
-    const amendStart = document.getElementById('amendStartDate');
-    const amendEnd = document.getElementById('amendEndDate');
-    const amendTotal = document.getElementById('amendTotalDays');
-
-    function updateAmendDays() {
-      if (!amendStart || !amendEnd || !amendTotal) return;
-      const total = calculateBusinessDays(amendStart.value, amendEnd.value);
-      amendTotal.value = total > 0 ? String(total) : '';
-    }
-
-    amendStart?.addEventListener('change', updateAmendDays);
-    amendEnd?.addEventListener('change', updateAmendDays);
-
-    document.getElementById('amendForm')?.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      if (!selectedRequest) return;
-
-      try {
-        await amendLeaveRequestAdmin(selectedRequest, authUserId, {
-          start_date: amendStart?.value,
-          end_date: amendEnd?.value,
-          total_days: Number(amendTotal?.value || 0),
-          reason: document.getElementById('amendReason')?.value?.trim() || ''
-        });
-
-        closeModal('amendModal');
-        await loadData();
-      } catch (error) {
-        alert(error.message || 'Unable to amend leave.');
-      }
-    });
 
     manualAbsenceForm?.addEventListener('submit', async (event) => {
       event.preventDefault();
