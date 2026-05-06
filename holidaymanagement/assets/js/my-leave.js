@@ -9,6 +9,8 @@ import {
 } from '../../shared/api.js';
 import { formatDate } from '../../shared/dates.js';
 
+let allRequests = [];
+
 function setText(ids, value) {
   const idList = Array.isArray(ids) ? ids : [ids];
 
@@ -20,6 +22,12 @@ function setText(ids, value) {
 
 function statusBadge(status) {
   return `<span class="badge badge-${status}">${status || 'pending'}</span>`;
+}
+
+function getStatusFilterValue() {
+  return document.getElementById('leaveStatusFilter')?.value ||
+    document.getElementById('statusFilter')?.value ||
+    'all';
 }
 
 function calculateLeaveStats(profile, requests, balance) {
@@ -49,12 +57,20 @@ function calculateLeaveStats(profile, requests, balance) {
 function renderRequests(container, requests) {
   if (!container) return;
 
-  if (!requests || !requests.length) {
-    renderEmptyState(container, 'No leave history yet.');
+  const statusFilter = getStatusFilterValue();
+
+  let filtered = [...(requests || [])];
+
+  if (statusFilter !== 'all') {
+    filtered = filtered.filter((request) => request.status === statusFilter);
+  }
+
+  if (!filtered.length) {
+    renderEmptyState(container, 'No leave history found for this filter.');
     return;
   }
 
-  container.innerHTML = requests.map((request) => `
+  container.innerHTML = filtered.map((request) => `
     <article class="leave-card">
       <div class="leave-card-top">
         <div>
@@ -112,11 +128,10 @@ async function initMyLeavePage() {
       window.location.href = './login.html';
     });
 
-    let requests = [];
     let balance = null;
 
     try {
-      requests = await getMyLeaveRequests(authUserId);
+      allRequests = await getMyLeaveRequests(authUserId);
     } catch (error) {
       console.warn('Leave history failed:', error);
     }
@@ -127,7 +142,7 @@ async function initMyLeavePage() {
       console.warn('Leave balance failed:', error);
     }
 
-    const stats = calculateLeaveStats(profile, requests, balance);
+    const stats = calculateLeaveStats(profile, allRequests, balance);
 
     setText(
       ['myLeaveWelcome', 'welcomeText'],
@@ -146,13 +161,21 @@ async function initMyLeavePage() {
       document.getElementById('myLeaveRequestsList') ||
       document.getElementById('requestsList');
 
-    renderRequests(list, requests);
+    renderRequests(list, allRequests);
+
+    document.getElementById('leaveStatusFilter')?.addEventListener('change', () => {
+      renderRequests(list, allRequests);
+    });
+
+    document.getElementById('statusFilter')?.addEventListener('change', () => {
+      renderRequests(list, allRequests);
+    });
 
     list?.addEventListener('click', async (event) => {
       const button = event.target.closest('button[data-cancel-request]');
       if (!button) return;
 
-      const request = requests.find((item) => item.id === button.dataset.cancelRequest);
+      const request = allRequests.find((item) => item.id === button.dataset.cancelRequest);
       if (!request) return;
 
       const reason = window.prompt('Why do you want to cancel this leave?');
