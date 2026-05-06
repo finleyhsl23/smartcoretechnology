@@ -519,6 +519,11 @@ async function init() {
   if (!auth) return;
 
   profile = auth.profile;
+  const roleSelect = document.getElementById('role');
+
+if (profile.role !== 'owner') {
+  roleSelect?.querySelector('option[value="owner"]')?.remove();
+}
   companyInfo = await getMyCompanyInfo();
 
   setupCustomSelects();
