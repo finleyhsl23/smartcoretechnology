@@ -10,6 +10,7 @@ import {
 import { formatDate } from '../../shared/dates.js';
 
 let allRequests = [];
+let listEl = null;
 
 function setText(ids, value) {
   const idList = Array.isArray(ids) ? ids : [ids];
@@ -24,8 +25,12 @@ function statusBadge(status) {
   return `<span class="badge badge-${status}">${status || 'pending'}</span>`;
 }
 
-function setupCustomStatusFilter(onChange) {
-  const select = document.getElementById('myLeaveStatusSelect') || document.getElementById('leaveStatusSelect');
+function getCustomSelectValue(id) {
+  return document.getElementById(id)?.dataset.value || 'all';
+}
+
+function setupCustomSelect(id, onChange) {
+  const select = document.getElementById(id);
   if (!select) return;
 
   const trigger = select.querySelector('.custom-select-trigger');
@@ -33,6 +38,11 @@ function setupCustomStatusFilter(onChange) {
 
   trigger?.addEventListener('click', (event) => {
     event.stopPropagation();
+
+    document.querySelectorAll('.custom-select.open').forEach((openSelect) => {
+      if (openSelect !== select) openSelect.classList.remove('open');
+    });
+
     select.classList.toggle('open');
   });
 
@@ -44,21 +54,23 @@ function setupCustomStatusFilter(onChange) {
       if (span) span.textContent = button.textContent.trim();
 
       select.classList.remove('open');
-      onChange();
-    });
-  });
 
-  document.addEventListener('click', () => {
-    select.classList.remove('open');
+      if (typeof onChange === 'function') {
+        onChange();
+      }
+    });
   });
 }
 
-function getStatusFilterValue() {
-  return (
-    document.getElementById('myLeaveStatusSelect')?.dataset.value ||
-    document.getElementById('leaveStatusSelect')?.dataset.value ||
-    'all'
-  );
+function setupCustomDropdowns() {
+  setupCustomSelect('myLeaveStatusSelect', () => renderRequests(listEl, allRequests));
+  setupCustomSelect('myLeaveTypeSelect', () => renderRequests(listEl, allRequests));
+
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.custom-select.open').forEach((select) => {
+      select.classList.remove('open');
+    });
+  });
 }
 
 function calculateLeaveStats(profile, requests, balance) {
@@ -88,15 +100,21 @@ function calculateLeaveStats(profile, requests, balance) {
 function renderRequests(container, requests) {
   if (!container) return;
 
-  const statusFilter = getStatusFilterValue();
+  const statusFilter = getCustomSelectValue('myLeaveStatusSelect');
+  const typeFilter = getCustomSelectValue('myLeaveTypeSelect');
+
   let filtered = [...(requests || [])];
 
   if (statusFilter !== 'all') {
     filtered = filtered.filter((request) => request.status === statusFilter);
   }
 
+  if (typeFilter !== 'all') {
+    filtered = filtered.filter((request) => request.leave_type === typeFilter);
+  }
+
   if (!filtered.length) {
-    renderEmptyState(container, 'No leave history found for this filter.');
+    renderEmptyState(container, 'No leave history found for these filters.');
     return;
   }
 
@@ -158,10 +176,8 @@ async function initMyLeavePage() {
       window.location.href = './login.html';
     });
 
-    let balance = null;
-
     allRequests = await getMyLeaveRequests(authUserId).catch(() => []);
-    balance = await getMyLeaveBalance(authUserId, currentYear).catch(() => null);
+    const balance = await getMyLeaveBalance(authUserId, currentYear).catch(() => null);
 
     const stats = calculateLeaveStats(profile, allRequests, balance);
 
@@ -176,19 +192,16 @@ async function initMyLeavePage() {
     setText(['leavePending', 'myPending', 'profilePending'], stats.pending);
     setText(['leaveApproved', 'myApproved'], stats.approved);
 
-    const list =
+    listEl =
       document.getElementById('myLeaveList') ||
       document.getElementById('leaveHistoryList') ||
       document.getElementById('myLeaveRequestsList') ||
       document.getElementById('requestsList');
 
-    renderRequests(list, allRequests);
+    setupCustomDropdowns();
+    renderRequests(listEl, allRequests);
 
-    setupCustomStatusFilter(() => {
-      renderRequests(list, allRequests);
-    });
-
-    list?.addEventListener('click', async (event) => {
+    listEl?.addEventListener('click', async (event) => {
       const button = event.target.closest('button[data-cancel-request]');
       if (!button) return;
 
