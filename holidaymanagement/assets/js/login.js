@@ -8,17 +8,10 @@ const submitButton = form?.querySelector('button[type="submit"]');
 
 await requireGuest();
 
-async function markFirstLogin(userId) {
-  if (!userId) return;
-
+async function markFirstLogin() {
   const { error } = await supabase
     .schema(leaveSchema)
-    .from('employees')
-    .update({
-      first_login_at: new Date().toISOString()
-    })
-    .eq('user_id', userId)
-    .is('first_login_at', null);
+    .rpc('mark_my_first_login');
 
   if (error) {
     console.warn('First login update failed:', error);
@@ -36,12 +29,10 @@ form?.addEventListener('submit', async (event) => {
   try {
     setLoadingButton(submitButton, true, 'Signing in...');
 
-    const { data, error } = await signInWithPassword(email, password);
+    const { error } = await signInWithPassword(email, password);
     if (error) throw error;
 
-    const userId = data?.user?.id || data?.session?.user?.id;
-
-    await markFirstLogin(userId);
+    await markFirstLogin();
 
     window.location.href = './home.html';
   } catch (error) {
