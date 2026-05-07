@@ -63,8 +63,8 @@ function setupCustomSelect(id, onChange) {
 }
 
 function setupCustomDropdowns() {
-  setupCustomSelect('myLeaveStatusSelect', () => renderRequests(listEl, allRequests));
-  setupCustomSelect('myLeaveTypeSelect', () => renderRequests(listEl, allRequests));
+  setupCustomSelect('myLeaveStatusSelect', () => renderRequests());
+  setupCustomSelect('myLeaveTypeSelect', () => renderRequests());
 
   document.addEventListener('click', () => {
     document.querySelectorAll('.custom-select.open').forEach((select) => {
@@ -97,11 +97,32 @@ function calculateLeaveStats(profile, requests, balance) {
   };
 }
 
-function renderRequests(container, requests) {
+function getFilteredRequests() {
+  const statusFilter = getCustomSelectValue('myLeaveStatusSelect');
+  const typeFilter = getCustomSelectValue('myLeaveTypeSelect');
+
+  let filtered = [...allRequests];
+
+  if (statusFilter !== 'all') {
+    filtered = filtered.filter((request) => request.status === statusFilter);
+  }
+
+  if (typeFilter !== 'all') {
+    filtered = filtered.filter((request) => request.leave_type === typeFilter);
+  }
+
+  return filtered;
+}
+
+function renderRequests() {
+  const container = listEl;
+
   if (!container) return;
 
-  if (!requests || !requests.length) {
-    renderEmptyState(container, 'No leave history yet.');
+  const requests = getFilteredRequests();
+
+  if (!requests.length) {
+    renderEmptyState(container, 'No leave history found for these filters.');
     return;
   }
 
@@ -203,7 +224,7 @@ async function initMyLeavePage() {
       document.getElementById('requestsList');
 
     setupCustomDropdowns();
-    renderRequests(listEl, allRequests);
+    renderRequests();
 
     listEl?.addEventListener('click', async (event) => {
       const button = event.target.closest('button[data-cancel-request]');
