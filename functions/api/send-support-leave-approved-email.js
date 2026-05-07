@@ -49,7 +49,7 @@ export async function onRequestPost(context) {
       },
       body: JSON.stringify({
         from: 'SmartCore <support@smartcoretechnology.co.uk>',
-        to: ['support@smartcoretechnology.co.uk'],
+        to: ['support@smartfits.co.uk'],
         subject,
         html: emailBody
       })
