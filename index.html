@@ -5,46 +5,241 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>SmartCore Technology</title>
 
+  <!-- Favicon / tab icon -->
   <link rel="icon" type="image/png" href="SmartCore Official Logos/SC Icon - Black Background.png">
   <link rel="apple-touch-icon" href="SmartCore Official Logos/SC Icon - Black Background.png">
 
+  <!-- Tailwind (CDN for build phase) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
+  <!-- Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
+  <!-- Supabase JS v2 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="assets/css/style.css">
+
+  <style>
+    :root{
+      --bg0:#020617;
+      --bg1:#06153a;
+      --bg2:#020923;
+      --panelA: rgba(8, 12, 28, .62);
+      --panelB: rgba(8, 12, 28, .45);
+      --stroke: rgba(255,255,255,.12);
+      --stroke2: rgba(255,255,255,.08);
+      --text: #eaf0ff;
+      --muted: rgba(234,240,255,.74);
+      --muted2: rgba(234,240,255,.58);
+      --accent: rgba(120,170,255,.95);
+      --accentSoft: rgba(120,170,255,.18);
+      --shadow: 0 26px 80px rgba(0,0,0,.55);
+      --shadow2: 0 18px 55px rgba(0,0,0,.45);
+      --r1: 22px;
+      --r2: 16px;
+      --blur: 16px;
+    }
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      color: var(--text);
+      background:
+        radial-gradient(1100px 800px at 50% 10%, rgba(70,120,255,.20), transparent 60%),
+        radial-gradient(1200px 900px at 50% 60%, rgba(35,80,220,.14), transparent 62%),
+        linear-gradient(180deg, var(--bg0), var(--bg1));
+      overflow-x:hidden;
+    }
+
+    .glass{
+      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      border:1px solid var(--stroke);
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
+      border-radius: var(--r1);
+      box-shadow: var(--shadow);
+    }
+    .glass2{
+      background: rgba(255,255,255,.045);
+      border:1px solid var(--stroke2);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-radius: var(--r2);
+      box-shadow: var(--shadow2);
+    }
+
+    .fadeUp{
+      opacity:0;
+      transform: translateY(10px);
+      transition: opacity .45s ease, transform .45s ease;
+    }
+    .fadeUp.in{ opacity:1; transform: translateY(0); }
+
+    .navHide{ transform: translateY(-120%); transition: transform .28s ease; }
+    .navShow{ transform: translateY(0); transition: transform .28s ease; }
+
+    .hero{
+      min-height: 100vh;
+      position: relative;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding: 120px 16px 80px;
+      overflow:hidden;
+    }
+
+    .iconField{
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      z-index:0;
+    }
+    .bubble{
+      position:absolute;
+      width:110px;
+      height:110px;
+      border-radius:999px;
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.10);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      box-shadow: 0 18px 50px rgba(0,0,0,.35);
+      opacity:.35;
+      transform: translate3d(var(--tx,0px), var(--ty,0px), 0);
+      transition: transform .12s ease;
+    }
+    .bubble svg{ width:44px; height:44px; opacity:.9; }
+
+    .modalBackdrop{
+      position:fixed;
+      inset:0;
+      background: rgba(0,0,0,.62);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:50;
+      padding: 18px;
+    }
+    .modalBackdrop.show{display:flex;}
+    .modal{
+      max-width: 980px;
+      width: 100%;
+      max-height: 86vh;
+      overflow: auto;
+      border-radius: 20px;
+    }
+    .noScroll{ overflow:hidden; }
+
+    .inp{
+      width:100%;
+      border-radius: 14px;
+      border:1px solid var(--stroke2);
+      background: rgba(255,255,255,.05);
+      padding: 12px 12px;
+      outline:none;
+      color: var(--text);
+    }
+    .inp::placeholder{ color: rgba(234,240,255,.45); }
+    .inp:focus{
+      border-color: rgba(120,170,255,.35);
+      box-shadow: 0 0 0 3px rgba(120,170,255,.10);
+    }
+    textarea.inp{ min-height: 120px; resize: vertical; }
+
+    .eyeBtn{
+      border:1px solid var(--stroke2);
+      background: rgba(255,255,255,.04);
+      border-radius: 12px;
+      padding: 10px 12px;
+      transition: transform .12s ease, background .12s ease;
+    }
+    .eyeBtn:hover{
+      background: rgba(255,255,255,.07);
+      transform: scale(0.98);
+    }
+
+    .selected{
+      outline: 2px solid rgba(120,170,255,.30);
+      background: rgba(120,170,255,.10) !important;
+    }
+    .tickDot{
+      width:10px; height:10px; border-radius:999px;
+      background: rgba(255,255,255,.22);
+    }
+    .selected .tickDot{
+      background: rgba(120,170,255,.95);
+      box-shadow: 0 0 0 4px rgba(120,170,255,.14);
+    }
+
+    .commonChoice{
+      border: 1px solid rgba(120,170,255,.18);
+      background: rgba(120,170,255,.06);
+      opacity: .9;
+    }
+
+    .customBadge{
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border:1px solid rgba(120,170,255,.28);
+      background: rgba(120,170,255,.12);
+      font-size: 12px;
+      opacity: .95;
+      width: fit-content;
+    }
+
+    html{ scroll-behavior:smooth; }
+  </style>
 
   <script>
+    /* SmartCore project */
     window.__SUPABASE_URL  = window.__SUPABASE_URL  || "https://hjdpcfhozhoyeqevnupm.supabase.co";
-    window.__SUPABASE_ANON = window.__SUPABASE_ANON || "PASTE_YOUR_SMARTCORE_SUPABASE_ANON_KEY_HERE";
+    window.__SUPABASE_ANON = window.__SUPABASE_ANON || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
   </script>
 </head>
 
 <body>
+
+  <!-- NAV -->
   <header id="nav" class="fixed top-4 left-0 right-0 z-40 navShow">
     <div class="max-w-6xl mx-auto px-4">
       <div class="glass2 flex items-center justify-between px-4 py-3">
         <div class="flex items-center gap-3 min-w-0">
           <div class="w-10 h-10 rounded-2xl overflow-hidden bg-black/30 border border-white/10 flex items-center justify-center shrink-0">
-            <img src="SmartCore Official Logos/SC Icon - Black Background.png" alt="SmartCore" class="w-8 h-8 object-contain translate-y-[-1px]" onerror="this.style.display='none'" />
+            <img
+              src="SmartCore Official Logos/SC Icon - Black Background.png"
+              alt="SmartCore"
+              class="w-8 h-8 object-contain translate-y-[-1px]"
+              onerror="this.style.display='none'"
+            />
           </div>
           <div class="min-w-0">
-            <div class="font-semibold tracking-tight leading-tight">SmartCore <span class="opacity-70">Technology</span></div>
+            <div class="font-semibold tracking-tight leading-tight">
+              SmartCore <span class="opacity-70">Technology</span>
+            </div>
             <div class="text-xs opacity-70 leading-tight">Practical Technology. Built to Last.</div>
           </div>
         </div>
 
         <div class="flex items-center gap-2">
-          <button id="navHome" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Home</button>
-          <button id="navLogin" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Log In</button>
+          <button id="navHome" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">
+            Home
+          </button>
+          <button id="navLogin" type="button" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm inline-flex items-center">
+            Log In
+          </button>
         </div>
       </div>
     </div>
   </header>
 
+  <!-- HERO -->
   <section id="hero" class="hero">
     <div id="iconField" class="iconField"></div>
 
@@ -58,7 +253,8 @@
         </div>
 
         <h1 class="mt-5 font-extrabold tracking-tight leading-[1.02] fadeUp" data-anim style="font-size: clamp(56px, 7vw, 92px);">
-          SmartCore <br><span style="opacity:.72">Technology</span>
+          SmartCore <br>
+          <span style="opacity:.72">Technology</span>
         </h1>
 
         <p class="mt-4 text-[15px] sm:text-[17px] leading-relaxed fadeUp" data-anim style="color: var(--muted); max-width: 42rem;">
@@ -67,124 +263,782 @@
         </p>
 
         <div class="mt-7 flex flex-wrap items-center gap-3 fadeUp" data-anim>
-          <button id="heroBuild" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">Build Your Plan</button>
+          <button id="heroBuild" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
+            Build Your Plan
+          </button>
           <button id="heroDown" class="px-3 py-3 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/8" aria-label="Scroll down">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 5v12" stroke="white" stroke-opacity=".9" stroke-width="2" stroke-linecap="round"/><path d="M7 14l5 5 5-5" stroke="white" stroke-opacity=".9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M12 5v12" stroke="white" stroke-opacity=".9" stroke-width="2" stroke-linecap="round"/>
+              <path d="M7 14l5 5 5-5" stroke="white" stroke-opacity=".9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
           </button>
         </div>
 
         <div class="mt-8 fadeUp" data-anim>
-          <div class="text-xs opacity-60">Support: <a class="underline hover:opacity-100" href="mailto:support@smartcoretechnology.co.uk">support@smartcoretechnology.co.uk</a></div>
+          <div class="text-xs opacity-60">
+            Support: <a class="underline hover:opacity-100" href="mailto:support@smartcoretechnology.co.uk">support@smartcoretechnology.co.uk</a>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
+  <!-- MAIN -->
   <main id="main" class="relative z-10">
+
+    <!-- BUILD PLAN -->
     <section id="packages" class="max-w-6xl mx-auto px-4 pb-24">
       <div class="pt-10 sm:pt-16">
         <div class="fadeUp" data-anim>
           <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Build Your Plan</h2>
           <p class="mt-2 text-sm sm:text-[15px]" style="color: var(--muted); max-width: 56rem;">
-            Tell us your company size and what you need. We’ll quote privately after reviewing the workflow properly.
+            Choose your company size and tell us what you need built. We’ll review it properly and quote it privately.
           </p>
         </div>
 
+        <!-- Company size cards -->
         <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 fadeUp" data-anim>
-          <button class="glass2 p-4 text-left hover:bg-white/6 transition" data-size="s25"><div class="flex items-center justify-between"><div class="font-semibold">Up to 25 People</div><div class="tickDot"></div></div><div class="mt-1 text-sm opacity-80">Private quote</div><div class="mt-2 text-xs opacity-60">Ideal for small teams and single sites.</div></button>
-          <button class="glass2 p-4 text-left hover:bg-white/6 transition" data-size="s100"><div class="flex items-center justify-between"><div class="font-semibold">26 to 100 People</div><div class="tickDot"></div></div><div class="mt-1 text-sm opacity-80">Private quote</div><div class="mt-2 text-xs opacity-60">For growing businesses and multiple teams.</div></button>
-          <button class="glass2 p-4 text-left hover:bg-white/6 transition" data-size="s250"><div class="flex items-center justify-between"><div class="font-semibold">101 to 250 People</div><div class="tickDot"></div></div><div class="mt-1 text-sm opacity-80">Private quote</div><div class="mt-2 text-xs opacity-60">For structured ops and larger organisations.</div></button>
-          <button class="glass2 p-4 text-left hover:bg-white/6 transition" data-size="s250plus"><div class="flex items-center justify-between"><div class="font-semibold">250+ People</div><div class="tickDot"></div></div><div class="mt-1 text-sm opacity-80">Private quote</div><div class="mt-2 text-xs opacity-60">We’ll tailor the plan sensibly.</div></button>
+          <button class="glass2 p-4 text-left hover:bg-white/6 transition" data-size="s25">
+            <div class="flex items-center justify-between">
+              <div class="font-semibold">Up to 25 People</div>
+              <div class="tickDot"></div>
+            </div>
+            <div class="mt-1 text-sm opacity-80">Private quote</div>
+            <div class="mt-2 text-xs opacity-60">Ideal for small teams and single sites.</div>
+          </button>
+
+          <button class="glass2 p-4 text-left hover:bg-white/6 transition" data-size="s100">
+            <div class="flex items-center justify-between">
+              <div class="font-semibold">26 to 100 People</div>
+              <div class="tickDot"></div>
+            </div>
+            <div class="mt-1 text-sm opacity-80">Private quote</div>
+            <div class="mt-2 text-xs opacity-60">For growing businesses and multiple teams.</div>
+          </button>
+
+          <button class="glass2 p-4 text-left hover:bg-white/6 transition" data-size="s250">
+            <div class="flex items-center justify-between">
+              <div class="font-semibold">101 to 250 People</div>
+              <div class="tickDot"></div>
+            </div>
+            <div class="mt-1 text-sm opacity-80">Private quote</div>
+            <div class="mt-2 text-xs opacity-60">For structured ops and larger organisations.</div>
+          </button>
+
+          <button class="glass2 p-4 text-left hover:bg-white/6 transition" data-size="s250plus">
+            <div class="flex items-center justify-between">
+              <div class="font-semibold">250+ People</div>
+              <div class="tickDot"></div>
+            </div>
+            <div class="mt-1 text-sm opacity-80">Private quote</div>
+            <div class="mt-2 text-xs opacity-60">We’ll tailor the plan sensibly.</div>
+          </button>
         </div>
 
+        <!-- 250+ extra input -->
         <div id="plusBox" class="mt-4 hidden fadeUp" data-anim>
           <div class="glass2 p-4">
             <div class="font-semibold">250+ Company Size</div>
             <p class="mt-1 text-sm opacity-75">Enter an approximate headcount. This is required before you can continue.</p>
             <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div><label class="text-xs opacity-70">Approx. employee count</label><input id="plusCount" class="inp mt-1" type="number" min="1" placeholder="e.g. 420"><div id="plusWarn" class="mt-2 text-xs text-red-300 hidden"></div></div>
-              <div><label class="text-xs opacity-70">Additional notes (optional)</label><input id="plusNotes" class="inp mt-1" type="text" placeholder="Anything helpful for us to know"></div>
+              <div>
+                <label class="text-xs opacity-70">Approx. employee count</label>
+                <input id="plusCount" class="inp mt-1" type="number" min="1" placeholder="e.g. 420">
+                <div id="plusWarn" class="mt-2 text-xs text-red-300 hidden"></div>
+              </div>
+              <div>
+                <label class="text-xs opacity-70">Additional notes (optional)</label>
+                <input id="plusNotes" class="inp mt-1" type="text" placeholder="Anything helpful for us to know">
+              </div>
             </div>
           </div>
         </div>
 
+        <!-- MODULES -->
         <div id="modulesWrap" class="mt-8 hidden">
+
+          <!-- Custom module -->
           <div class="fadeUp" data-anim>
-            <h3 class="text-lg font-semibold">Custom Module Request</h3>
-            <p class="mt-1 text-sm" style="color: var(--muted);">Describe what you need and we’ll quote it privately.</p>
+            <h3 class="text-lg font-semibold">Build Your Own Module</h3>
+            <p class="mt-1 text-sm" style="color: var(--muted);">
+              Describe what you need and we’ll build it personally around your workflow.
+            </p>
           </div>
 
-          <div id="customBox" class="mt-4 fadeUp" data-anim>
+          <div id="customPick" class="mt-4"></div>
+
+          <!-- Custom module details -->
+          <div id="customBox" class="mt-4 hidden fadeUp" data-anim>
             <div class="glass2 p-4">
-              <div class="font-semibold">Module details</div>
-              <p class="mt-1 text-sm opacity-75">Fill in as much as you can. This opens an email to SmartCore with the details already filled in.</p>
+              <div class="font-semibold">A few details so we can scope it properly</div>
+              <p class="mt-1 text-sm opacity-75">Fill in as much or as little as you like. We’ll pick it up from your email.</p>
 
               <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <div><label class="text-xs opacity-70">What is it?</label><textarea id="cWhat" class="inp mt-1" placeholder="A short description of the module you need..."></textarea></div>
-                <div><label class="text-xs opacity-70">What’s it for?</label><textarea id="cWhy" class="inp mt-1" placeholder="What problem does it solve? What outcome do you want?"></textarea></div>
-                <div><label class="text-xs opacity-70">Who uses it?</label><textarea id="cWho" class="inp mt-1" placeholder="Roles, teams, sites or external users..."></textarea></div>
-                <div><label class="text-xs opacity-70">Key workflow</label><textarea id="cFlow" class="inp mt-1" placeholder="Step-by-step of how it should work..."></textarea></div>
-                <div><label class="text-xs opacity-70">Data / reporting needed</label><textarea id="cReports" class="inp mt-1" placeholder="Reports, exports, audit logs, dashboards, reminders..."></textarea></div>
-                <div><label class="text-xs opacity-70">Integrations (optional)</label><textarea id="cIntegrations" class="inp mt-1" placeholder="Existing systems it needs to connect to?"></textarea></div>
-                <div class="lg:col-span-2"><label class="text-xs opacity-70">Anything else</label><textarea id="cOther" class="inp mt-1" placeholder="Timelines, constraints, examples, must-haves, nice-to-haves..."></textarea></div>
+                <div>
+                  <label class="text-xs opacity-70">What is it?</label>
+                  <textarea id="cWhat" class="inp mt-1" placeholder="A short description of the module you need..."></textarea>
+                </div>
+
+                <div>
+                  <label class="text-xs opacity-70">What’s it for?</label>
+                  <textarea id="cWhy" class="inp mt-1" placeholder="What problem does it solve? What outcome do you want?"></textarea>
+                </div>
+
+                <div>
+                  <label class="text-xs opacity-70">Who uses it?</label>
+                  <textarea id="cWho" class="inp mt-1" placeholder="Roles / teams / sites / external users (if any)..."></textarea>
+                </div>
+
+                <div>
+                  <label class="text-xs opacity-70">Key workflow</label>
+                  <textarea id="cFlow" class="inp mt-1" placeholder="Step-by-step of how it should work, even rough notes..."></textarea>
+                </div>
+
+                <div>
+                  <label class="text-xs opacity-70">Data / reporting needed</label>
+                  <textarea id="cReports" class="inp mt-1" placeholder="Reports, exports, audit logs, dashboards, reminders..."></textarea>
+                </div>
+
+                <div>
+                  <label class="text-xs opacity-70">Integrations (optional)</label>
+                  <textarea id="cIntegrations" class="inp mt-1" placeholder="Any existing systems it needs to connect to?"></textarea>
+                </div>
+
+                <div class="lg:col-span-2">
+                  <label class="text-xs opacity-70">Anything else</label>
+                  <textarea id="cOther" class="inp mt-1" placeholder="Timelines, constraints, examples, must-haves, nice-to-haves..."></textarea>
+                </div>
               </div>
             </div>
           </div>
 
+          <!-- Example modules -->
           <div class="mt-10 fadeUp" data-anim>
-            <h4 class="text-base font-semibold">Commonly chosen modules</h4>
-            <p class="mt-1 text-sm" style="color: var(--muted);">Examples only to help you think about what you might need.</p>
+            <div class="flex items-end justify-between gap-3">
+              <div>
+                <h4 class="text-base font-semibold">Commonly chosen modules</h4>
+                <p class="mt-1 text-sm" style="color: var(--muted);">
+                  These are examples of what businesses often ask for.
+                </p>
+              </div>
+            </div>
           </div>
 
           <div id="examplesGrid" class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"></div>
 
+          <!-- Continue button -->
           <div class="mt-6 fadeUp" data-anim>
-            <button id="checkoutBtn" class="w-full px-4 py-4 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">Send Details For Private Quote</button>
-            <div class="mt-2 text-xs opacity-60">This will open your email app to support@smartcoretechnology.co.uk.</div>
+            <button id="checkoutBtn"
+              class="w-full px-4 py-4 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
+              Send details for a private quote
+            </button>
+            <div class="mt-2 text-xs opacity-60">
+              This will open your email app to <a class="underline hover:opacity-100" href="mailto:support@smartcoretechnology.co.uk">support@smartcoretechnology.co.uk</a>.
+            </div>
           </div>
+
         </div>
 
+        <!-- ABOUT -->
         <div class="mt-14 fadeUp" data-anim>
           <div class="glass p-6 sm:p-8">
             <h3 class="text-xl sm:text-2xl font-bold tracking-tight">About SmartCore Technology</h3>
-            <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">SmartCore Technology was built by Finley Hassall, an enthusiastic founder with a long-standing passion for technology and a strong business mindset. Interested in IT from the age of six, Finley always knew he wanted to build a career creating systems that solve real-world problems.</p>
-            <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">Rather than focusing on trends or hype, SmartCore Technology was created with a clear goal: to build practical, reliable systems that businesses can depend on every day.</p>
-            <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">The company was developed with guidance and support from Finley’s mother, a business owner herself, but every system within SmartCore has been hand-crafted from the ground up by Finley.</p>
-            <div class="mt-7"><h4 class="text-lg font-semibold">The SmartCore Technology Approach</h4><p class="mt-3 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">SmartCore Technology is built on a simple philosophy: technology should make work easier, not more complicated.</p><ul class="mt-4 grid sm:grid-cols-2 gap-2 text-sm" style="color: var(--muted);"><li class="flex gap-2"><span class="opacity-80">•</span> solve a specific, real business problem</li><li class="flex gap-2"><span class="opacity-80">•</span> be easy to understand and use</li><li class="flex gap-2"><span class="opacity-80">•</span> create clear, auditable records</li><li class="flex gap-2"><span class="opacity-80">•</span> scale as organisations grow</li><li class="flex gap-2"><span class="opacity-80">•</span> remain reliable over time</li></ul></div>
+
+            <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
+              SmartCore Technology was built by Finley Hassall, an enthusiastic founder with a long-standing passion for technology and a strong business mindset.
+              Interested in IT from the age of six, Finley always knew he wanted to build a career creating systems that solve real-world problems.
+            </p>
+
+            <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
+              Rather than focusing on trends or hype, SmartCore Technology was created with a clear goal: to build practical, reliable systems that businesses
+              can depend on every day.
+            </p>
+
+            <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
+              The company was developed with guidance and support from Finley’s mother, a business owner herself, but every system within SmartCore has been
+              hand-crafted from the ground up by Finley. Each feature, workflow, and decision has been designed with real workplaces in mind, prioritising
+              clarity, usability, and long-term reliability over unnecessary complexity.
+            </p>
+
+            <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
+              SmartCore Technology is not about flashy software. It’s about building tools that work properly, scale sensibly, and quietly do their job in the background.
+            </p>
+
+            <div class="mt-7">
+              <h4 class="text-lg font-semibold">The SmartCore Technology Approach</h4>
+              <p class="mt-3 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
+                SmartCore Technology is built on a simple philosophy: technology should make work easier, not more complicated.
+              </p>
+
+              <ul class="mt-4 grid sm:grid-cols-2 gap-2 text-sm" style="color: var(--muted);">
+                <li class="flex gap-2"><span class="opacity-80">•</span> solve a specific, real business problem</li>
+                <li class="flex gap-2"><span class="opacity-80">•</span> be easy to understand and use</li>
+                <li class="flex gap-2"><span class="opacity-80">•</span> create clear, auditable records</li>
+                <li class="flex gap-2"><span class="opacity-80">•</span> scale as organisations grow</li>
+                <li class="flex gap-2"><span class="opacity-80">•</span> remain reliable over time</li>
+              </ul>
+
+              <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
+                SmartCore Technology focuses on the areas that matter most: people, safety, and operational clarity, delivering tools that support organisations without getting in the way.
+              </p>
+            </div>
           </div>
         </div>
+
       </div>
     </section>
 
+    <!-- FOOTER -->
     <footer class="max-w-6xl mx-auto px-4 pb-10">
       <div class="glass2 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div class="text-sm opacity-80">SmartCore Technology</div>
-        <a class="text-sm opacity-80 underline hover:opacity-100" href="mailto:support@smartcoretechnology.co.uk">support@smartcoretechnology.co.uk</a>
+        <a class="text-sm opacity-80 underline hover:opacity-100" href="mailto:support@smartcoretechnology.co.uk">
+          support@smartcoretechnology.co.uk
+        </a>
       </div>
     </footer>
   </main>
 
+  <!-- MODAL: Login -->
   <div id="loginModalBackdrop" class="modalBackdrop">
     <div class="modal glass p-5 sm:p-6" style="max-width: 680px;">
       <div class="flex items-start justify-between gap-3">
-        <div><div class="text-xl sm:text-2xl font-bold">SmartCore Personnel Log In</div><div class="mt-1 text-sm opacity-75">For SmartCore staff only. Successful login redirects to SmartCore HQ.</div></div>
+        <div>
+          <div class="text-xl sm:text-2xl font-bold">SmartCore personnel login</div>
+          <div class="mt-1 text-sm opacity-75">For SmartCore staff only. Successful login opens SmartCore HQ.</div>
+        </div>
         <button id="liClose" class="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 text-sm">Close</button>
       </div>
 
       <div class="mt-5 grid grid-cols-1 gap-3">
-        <div><label class="text-xs opacity-70">Work email</label><input id="liEmail" class="inp mt-1" type="email" placeholder="name@smartcoretechnology.co.uk" /></div>
-        <div><label class="text-xs opacity-70">Password</label><div class="mt-1 flex gap-2"><input id="liPassword" class="inp" type="password" placeholder="Your password" /><button id="liEye" type="button" class="eyeBtn">Show</button></div></div>
+        <div>
+          <label class="text-xs opacity-70">Email</label>
+          <input id="liEmail" class="inp mt-1" type="email" placeholder="name@smartcoretechnology.co.uk" />
+        </div>
+        <div>
+          <label class="text-xs opacity-70">Password</label>
+          <div class="mt-1 flex gap-2">
+            <input id="liPassword" class="inp" type="password" placeholder="Your password" />
+            <button id="liEye" type="button" class="eyeBtn" aria-label="Show/hide password">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" stroke="white" stroke-opacity=".85" stroke-width="2"/>
+                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="white" stroke-opacity=".85" stroke-width="2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
 
       <div id="liMsg" class="mt-4 text-sm text-red-300 hidden"></div>
 
       <div class="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <button id="liLogin" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">Log In</button>
-        <div class="text-sm opacity-70"><div id="liWrong" class="hidden"><button id="liReset" class="underline hover:opacity-100">Incorrect credentials — Forgot your password?</button></div></div>
+        <button id="liLogin" class="px-4 py-3 rounded-2xl border border-[rgba(120,170,255,.35)] bg-[rgba(120,170,255,.16)] hover:bg-[rgba(120,170,255,.22)] text-sm font-medium">
+          Log In
+        </button>
+
+        <div class="text-sm opacity-70">
+          <div id="liWrong" class="hidden">
+            <button id="liReset" class="underline hover:opacity-100">Incorrect credentials — Forgot your password?</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <script src="assets/js/main.js"></script>
+  <script>
+    /******************************************************************
+      UTIL
+    ******************************************************************/
+    const $ = (id) => document.getElementById(id);
+
+    function show(el){ el.classList.remove("hidden"); }
+    function hide(el){ el.classList.add("hidden"); }
+
+    function openModal(backdrop){
+      backdrop.classList.add("show");
+      document.body.classList.add("noScroll");
+    }
+    function closeModal(backdrop){
+      backdrop.classList.remove("show");
+      document.body.classList.remove("noScroll");
+    }
+
+    function showErr(el, msg){
+      el.textContent = msg;
+      el.classList.remove("hidden");
+      el.classList.remove("text-green-300");
+      el.classList.add("text-red-300");
+    }
+    function showOk(el, msg){
+      el.textContent = msg;
+      el.classList.remove("hidden");
+      el.classList.remove("text-red-300");
+      el.classList.add("text-green-300");
+    }
+    function clearErr(el){
+      el.textContent = "";
+      el.classList.add("hidden");
+      el.classList.remove("text-green-300");
+      el.classList.add("text-red-300");
+    }
+
+    /******************************************************************
+      SUPABASE
+    ******************************************************************/
+    let sb = window.__SB_CLIENT;
+    if (!sb){
+      sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
+      window.__SB_CLIENT = sb;
+    }
+
+    /******************************************************************
+      DATA
+    ******************************************************************/
+    const COMPANY_SIZES = [
+      { id:"s25", label:"Up to 25 People" },
+      { id:"s100", label:"26 to 100 People" },
+      { id:"s250", label:"101 to 250 People" },
+      { id:"s250plus", label:"250+ People" }
+    ];
+
+    const EXAMPLE_MODULES = [
+      { id:"presence_fire", name:"Presence & Fire Safety" },
+      { id:"policies_handbook", name:"Policies & Staff Handbook" },
+      { id:"holiday_booking", name:"Holiday Booking" },
+      { id:"accident_injury", name:"Accident & Injury Book" },
+      { id:"training_compliance", name:"Training & Compliance" },
+      { id:"onboarding_offboarding", name:"Onboarding & Offboarding" },
+      { id:"expenses_upload", name:"Expenses Upload" },
+      { id:"wellbeing_check", name:"Wellbeing Check" }
+    ];
+
+    /******************************************************************
+      STATE
+    ******************************************************************/
+    const state = {
+      size: null,
+      wantCustom: false,
+      plusNotes: "",
+      custom: {
+        what: "",
+        why: "",
+        who: "",
+        flow: "",
+        reports: "",
+        integrations: "",
+        other: ""
+      },
+      session: null,
+      staff: null
+    };
+
+    /******************************************************************
+      ICONS
+    ******************************************************************/
+    const iconField = $("iconField");
+    const iconSVGs = [
+      `<svg viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v6c0 5-3.5 8.5-8 8.5S4 18 4 13V7l8-4Z" stroke="white" stroke-opacity=".92" stroke-width="2"/></svg>`,
+      `<svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 100-6 3 3 0 000 6Z" stroke="white" stroke-opacity=".92" stroke-width="2"/><path d="M19.4 15a8 8 0 10-14.8 0" stroke="white" stroke-opacity=".55" stroke-width="2"/></svg>`,
+      `<svg viewBox="0 0 24 24" fill="none"><path d="M7 7h10v10H7V7Z" stroke="white" stroke-opacity=".92" stroke-width="2"/><path d="M4 10V4h6" stroke="white" stroke-opacity=".6" stroke-width="2"/><path d="M20 14v6h-6" stroke="white" stroke-opacity=".6" stroke-width="2"/></svg>`,
+      `<svg viewBox="0 0 24 24" fill="none"><path d="M8 12h8" stroke="white" stroke-opacity=".92" stroke-width="2" stroke-linecap="round"/><path d="M12 8v8" stroke="white" stroke-opacity=".92" stroke-width="2" stroke-linecap="round"/></svg>`,
+      `<svg viewBox="0 0 24 24" fill="none"><path d="M6 19h12M9 19V9l3-4 3 4v10" stroke="white" stroke-opacity=".85" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+    ];
+    const bubbles = [];
+
+    function buildBubbles(){
+      iconField.innerHTML = "";
+      bubbles.length = 0;
+      const isDesktop = window.matchMedia("(pointer:fine)").matches && window.innerWidth >= 900;
+      if (!isDesktop) return;
+
+      const positions = [
+        {x: 12, y: 18}, {x: 72, y: 16}, {x: 86, y: 48}, {x: 58, y: 62},
+        {x: 18, y: 60}, {x: 36, y: 36}, {x: 84, y: 78}, {x: 10, y: 82}
+      ];
+
+      positions.forEach((p, i) => {
+        const b = document.createElement("div");
+        b.className = "bubble";
+        b.style.left = p.x + "%";
+        b.style.top = p.y + "%";
+        b.innerHTML = iconSVGs[i % iconSVGs.length];
+        b.style.setProperty("--tx", "0px");
+        b.style.setProperty("--ty", "0px");
+        iconField.appendChild(b);
+        bubbles.push(b);
+      });
+    }
+
+    function bubbleParallax(e){
+      if (!bubbles.length) return;
+      const rect = $("hero").getBoundingClientRect();
+      const cx = rect.left + rect.width/2;
+      const cy = rect.top + rect.height/2;
+      const dx = (e.clientX - cx) / rect.width;
+      const dy = (e.clientY - cy) / rect.height;
+
+      bubbles.forEach((b, idx) => {
+        const strength = 18 + (idx % 3) * 6;
+        b.style.setProperty("--tx", (dx * strength * -1).toFixed(1) + "px");
+        b.style.setProperty("--ty", (dy * strength * -1).toFixed(1) + "px");
+      });
+    }
+
+    /******************************************************************
+      ANIMATIONS / NAV HIDE
+    ******************************************************************/
+    function initAnim(){
+      const els = document.querySelectorAll("[data-anim]");
+      const io = new IntersectionObserver((entries)=>{
+        entries.forEach(en=>{
+          if(en.isIntersecting) en.target.classList.add("in");
+        });
+      }, { threshold: 0.12 });
+      els.forEach(el=>{
+        el.classList.add("fadeUp");
+        io.observe(el);
+      });
+    }
+
+    function initNavHide(){
+      const nav = $("nav");
+      const hero = $("hero");
+      const io = new IntersectionObserver((entries)=>{
+        const en = entries[0];
+        if(en.isIntersecting){
+          nav.classList.remove("navHide");
+          nav.classList.add("navShow");
+        }else{
+          nav.classList.remove("navShow");
+          nav.classList.add("navHide");
+        }
+      }, { threshold: 0.10 });
+      io.observe(hero);
+    }
+
+    /******************************************************************
+      COMPANY SIZE
+    ******************************************************************/
+    function setCompanySize(sizeId){
+      const size = COMPANY_SIZES.find(s=>s.id===sizeId);
+      state.size = size || null;
+
+      document.querySelectorAll("[data-size]").forEach(btn=>{
+        btn.classList.remove("selected");
+        if(btn.dataset.size === sizeId) btn.classList.add("selected");
+      });
+
+      if(state.size){
+        show($("modulesWrap"));
+
+        if (state.size.id === "s250plus") show($("plusBox"));
+        else {
+          hide($("plusBox"));
+          $("plusCount").value = "";
+          $("plusNotes").value = "";
+          hide($("plusWarn"));
+          state.plusNotes = "";
+        }
+
+        state.wantCustom = true;
+        show($("customBox"));
+        setTimeout(() => {
+          $("customBox").scrollIntoView({ behavior:"smooth", block:"start" });
+        }, 80);
+      } else {
+        hide($("modulesWrap"));
+        hide($("plusBox"));
+      }
+
+      renderExamples();
+      renderCustomPick();
+    }
+
+    /******************************************************************
+      RENDER: examples
+    ******************************************************************/
+    function renderExamples(){
+      const grid = $("examplesGrid");
+      grid.innerHTML = "";
+
+      EXAMPLE_MODULES.forEach(m=>{
+        const card = document.createElement("div");
+        card.className = "glass2 p-4 flex flex-col gap-2 commonChoice";
+        card.innerHTML = `
+          <div class="font-semibold leading-tight">${m.name}</div>
+          <div class="text-xs opacity-60">Commonly chosen SmartCore system</div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    /******************************************************************
+      RENDER: custom pick
+    ******************************************************************/
+    function renderCustomPick(){
+      const wrap = $("customPick");
+      wrap.innerHTML = "";
+
+      const selected = state.wantCustom;
+
+      const card = document.createElement("div");
+      card.className = "glass2 p-5 transition cursor-pointer " + (selected ? "selected" : "hover:bg-white/6");
+      card.innerHTML = `
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+          <div class="min-w-0">
+            <div class="customBadge">
+              <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(120,170,255,.85)"></span>
+              Private quote
+            </div>
+
+            <div class="mt-3 text-2xl font-extrabold tracking-tight leading-tight">
+              Custom Module Built Personally For Your Company
+            </div>
+
+            <div class="mt-2 text-sm opacity-80">
+              Describe what you want and we’ll scope it properly, map the workflow, then build a clean system that fits how your business actually runs.
+            </div>
+
+            <div class="mt-3 text-xs opacity-60">
+              Click to ${selected ? "hide" : "open"} the form.
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 shrink-0">
+            <div class="tickDot mt-1"></div>
+          </div>
+        </div>
+      `;
+
+      card.addEventListener("click", ()=>{
+        state.wantCustom = !state.wantCustom;
+        if (state.wantCustom) show($("customBox"));
+        else hide($("customBox"));
+        renderCustomPick();
+      });
+
+      wrap.appendChild(card);
+
+      if (state.wantCustom) show($("customBox"));
+      else hide($("customBox"));
+    }
+
+    /******************************************************************
+      EMAIL GENERATION
+    ******************************************************************/
+    function buildPlanEmail(){
+      if(!state.size) return { error: "Select a company size first." };
+
+      let headcountLine = "";
+      let notesLine = "";
+      if (state.size.id === "s250plus"){
+        const approx = Number($("plusCount").value || 0);
+        const notes = ($("plusNotes").value || "").trim();
+        if (!approx || approx < 1){
+          showErr($("plusWarn"), "Please enter an approximate company size to continue.");
+          return { error: "Missing 250+ headcount." };
+        }
+        hide($("plusWarn"));
+        headcountLine = `Approximate headcount: ${approx}`;
+        if (notes) notesLine = `Additional notes: ${notes}`;
+      }
+
+      const subject = `SmartCore Private Quote Request - ${state.size.label}`;
+      const examples = EXAMPLE_MODULES.map(m => `- ${m.name}`).join("\n");
+
+      const body = [
+        "Hello SmartCore Technology,",
+        "",
+        "We would like a private quote for a SmartCore system.",
+        "",
+        `Company size band: ${state.size.label}`,
+        headcountLine ? headcountLine : "",
+        notesLine ? notesLine : "",
+        "",
+        "Custom Module Details:",
+        `What is it: ${state.custom.what || ""}`,
+        `What's it for: ${state.custom.why || ""}`,
+        `Who uses it: ${state.custom.who || ""}`,
+        `Key workflow: ${state.custom.flow || ""}`,
+        `Data / reporting needed: ${state.custom.reports || ""}`,
+        `Integrations: ${state.custom.integrations || ""}`,
+        `Anything else: ${state.custom.other || ""}`,
+        "",
+        "Common example modules we may be interested in:",
+        examples,
+        "",
+        "Kind regards,",
+        "(Your name)",
+        "(Company name)",
+        "(Phone number)"
+      ].filter(line => line !== "").join("\n");
+
+      const mailto = `mailto:support@smartcoretechnology.co.uk?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      return { mailto };
+    }
+
+    /******************************************************************
+      SMARTCORE STAFF LOGIN
+    ******************************************************************/
+    async function login(){
+      clearErr($("liMsg"));
+      $("liWrong").classList.add("hidden");
+
+      const email = $("liEmail").value.trim().toLowerCase();
+      const password = $("liPassword").value;
+
+      if(!email) return showErr($("liMsg"), "Please enter your email.");
+      if(!password) return showErr($("liMsg"), "Please enter your password.");
+
+      $("liLogin").disabled = true;
+      $("liLogin").classList.add("opacity-60");
+
+      try{
+        const { data, error } = await sb.auth.signInWithPassword({ email, password });
+        if(error){
+          $("liWrong").classList.remove("hidden");
+          throw new Error(error.message);
+        }
+
+        const user = data?.user;
+        if(!user?.id) throw new Error("Login failed. Please try again.");
+
+        const { data: staffByUserId, error: staffErr1 } = await sb
+          .from("smartcore_staff")
+          .select("*")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if(staffErr1) throw new Error("Staff check failed: " + staffErr1.message);
+
+        let staff = staffByUserId || null;
+
+        if(!staff){
+          const { data: staffByEmail, error: staffErr2 } = await sb
+            .from("smartcore_staff")
+            .select("*")
+            .eq("work_email", email)
+            .maybeSingle();
+
+          if(staffErr2) throw new Error("Staff check failed: " + staffErr2.message);
+          staff = staffByEmail || null;
+        }
+
+        if(!staff){
+          await sb.auth.signOut();
+          throw new Error("This login is for SmartCore personnel only.");
+        }
+
+        if(staff.active === false || staff.status === "archived"){
+          await sb.auth.signOut();
+          throw new Error("This SmartCore staff account is not active.");
+        }
+
+        closeModal($("loginModalBackdrop"));
+        window.location.href = "/hq";
+        return;
+
+      }catch(e){
+        showErr($("liMsg"), String(e.message || "Login failed."));
+      }finally{
+        $("liLogin").disabled = false;
+        $("liLogin").classList.remove("opacity-60");
+      }
+    }
+
+    async function resetPassword(){
+      clearErr($("liMsg"));
+      const email = $("liEmail").value.trim().toLowerCase();
+      if(!email) return showErr($("liMsg"), "Enter your email above, then click again.");
+      try{
+        const { error } = await sb.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin
+        });
+        if(error) throw new Error(error.message);
+        showOk($("liMsg"), "Password reset email sent. Please check your inbox.");
+      }catch(e){
+        showErr($("liMsg"), String(e.message || "Failed to send reset email."));
+      }
+    }
+
+    /******************************************************************
+      WIRING
+    ******************************************************************/
+    function wire(){
+      $("heroBuild").onclick = ()=> $("packages").scrollIntoView({ behavior:"smooth", block:"start" });
+      $("heroDown").onclick = ()=> $("packages").scrollIntoView({ behavior:"smooth", block:"start" });
+
+      $("navHome").onclick = ()=> { window.scrollTo({ top:0, behavior:"smooth" }); };
+      $("navLogin").onclick = ()=> openModal($("loginModalBackdrop"));
+
+      document.querySelectorAll("[data-size]").forEach(btn=>{
+        btn.addEventListener("click", ()=> setCompanySize(btn.dataset.size));
+      });
+
+      $("plusCount").addEventListener("input", ()=> hide($("plusWarn")));
+      $("plusNotes").addEventListener("input", ()=> state.plusNotes = $("plusNotes").value);
+
+      const bindCustom = (id, key) => {
+        const el = $(id);
+        if (!el) return;
+        el.addEventListener("input", ()=> { state.custom[key] = el.value.trim(); });
+      };
+      bindCustom("cWhat","what");
+      bindCustom("cWhy","why");
+      bindCustom("cWho","who");
+      bindCustom("cFlow","flow");
+      bindCustom("cReports","reports");
+      bindCustom("cIntegrations","integrations");
+      bindCustom("cOther","other");
+
+      $("checkoutBtn").onclick = ()=>{
+        const out = buildPlanEmail();
+        if (out.error){
+          if (out.error === "Missing 250+ headcount.") alert("Please enter an approximate headcount.");
+          else alert(out.error);
+          return;
+        }
+        window.location.href = out.mailto;
+      };
+
+      $("liClose").onclick = ()=> closeModal($("loginModalBackdrop"));
+      $("liEye").onclick = ()=>{
+        const p = $("liPassword");
+        p.type = (p.type === "password") ? "text" : "password";
+      };
+      $("liLogin").onclick = login;
+      $("liReset").onclick = resetPassword;
+
+      $("loginModalBackdrop").addEventListener("click", (e)=>{
+        if(e.target === $("loginModalBackdrop")) closeModal($("loginModalBackdrop"));
+      });
+
+      $("liPassword").addEventListener("keydown", (e)=>{
+        if(e.key === "Enter") login();
+      });
+
+      window.addEventListener("mousemove", bubbleParallax, { passive:true });
+      window.addEventListener("resize", buildBubbles, { passive:true });
+    }
+
+    /******************************************************************
+      INIT
+    ******************************************************************/
+    async function init(){
+      buildBubbles();
+      initAnim();
+      initNavHide();
+      wire();
+
+      renderExamples();
+      renderCustomPick();
+    }
+
+    init().catch(err=>{
+      console.error(err);
+      alert("Init error: " + (err.message || err));
+    });
+  </script>
+
 </body>
 </html>
