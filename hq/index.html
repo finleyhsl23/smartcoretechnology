@@ -697,13 +697,94 @@
     function renderDashboard() {
       const staff = state.staff || {};
       const joined = staff.created_at ? formatDate(staff.created_at) : "Not set";
+
+      const isPlainEmployee = !isAdmin() && !isOwner();
+
+      const companyWasAddedByMe = (company) => {
+        const possibleUserIds = [
+          company.created_by,
+          company.owner_user_id,
+          company.added_by,
+          company.added_by_user_id,
+          company.created_by_user_id
+        ].filter(Boolean).map(String);
+
+        const possibleStaffIds = [
+          company.created_by_staff_id,
+          company.added_by_staff_id,
+          company.staff_id
+        ].filter(Boolean).map(String);
+
+        const possibleEmails = [
+          company.created_by_email,
+          company.added_by_email
+        ].filter(Boolean).map((v) => String(v).toLowerCase());
+
+        return possibleUserIds.includes(String(state.user?.id))
+          || possibleStaffIds.includes(String(staff.id))
+          || possibleEmails.includes(String(staff.work_email || staff.email || "").toLowerCase());
+      };
+
+      const startOfWeek = (() => {
+        const now = new Date();
+        const day = (now.getDay() + 6) % 7;
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day);
+        start.setHours(0, 0, 0, 0);
+        return start;
+      })();
+
+      const personalCompanyIds = state.companies
+        .filter(companyWasAddedByMe)
+        .map((company) => String(company.id));
+
+      const personalRevenueThisWeek = state.transactions
+        .filter((tx) => tx.type === "incoming")
+        .filter((tx) => {
+          const d = parseDateOnly(tx.transaction_date);
+          return d && d >= startOfWeek;
+        })
+        .filter((tx) => personalCompanyIds.includes(String(tx.company_id)))
+        .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
       const expenses = state.transactions
         .filter((tx) => tx.type === "outgoing")
         .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
       const income = state.transactions
         .filter((tx) => tx.type === "incoming")
         .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
       const profit = income - expenses;
+
+      const rightStatsHtml = isPlainEmployee
+        ? `
+            <div class="card p-6">
+              <div class="text-sm muted">Customers You Have Gained</div>
+              <div class="text-5xl font-extrabold mt-2">${state.companies.filter(companyWasAddedByMe).length}</div>
+            </div>
+            <div class="card p-6">
+              <div class="text-sm muted">Company Wide Customers</div>
+              <div class="text-5xl font-extrabold mt-2">${state.companies.length}</div>
+            </div>
+            <div class="card p-6">
+              <div class="text-sm muted">Your Revenue This Week</div>
+              <div class="text-5xl font-extrabold mt-2">${money(personalRevenueThisWeek)}</div>
+            </div>
+          `
+        : `
+            <div class="card p-6">
+              <div class="text-sm muted">Customers</div>
+              <div class="text-5xl font-extrabold mt-2">${state.companies.length}</div>
+            </div>
+            <div class="card p-6">
+              <div class="text-sm muted">Expenses</div>
+              <div class="text-5xl font-extrabold mt-2">${money(expenses)}</div>
+            </div>
+            <div class="card p-6">
+              <div class="text-sm muted">Profit</div>
+              <div class="text-5xl font-extrabold mt-2">${money(profit)}</div>
+            </div>
+          `;
 
       shell(
         "SmartCore HQ",
@@ -745,18 +826,7 @@
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-3 xl:grid-cols-1 gap-4">
-              <div class="card p-6">
-                <div class="text-sm muted">Customers</div>
-                <div class="text-5xl font-extrabold mt-2">${state.companies.length}</div>
-              </div>
-              <div class="card p-6">
-                <div class="text-sm muted">Expenses</div>
-                <div class="text-5xl font-extrabold mt-2">${money(expenses)}</div>
-              </div>
-              <div class="card p-6">
-                <div class="text-sm muted">Profit</div>
-                <div class="text-5xl font-extrabold mt-2">${money(profit)}</div>
-              </div>
+              ${rightStatsHtml}
             </div>
           </div>
         `
@@ -1259,9 +1329,22 @@
         return;
       }
 
-      const result = id
-        ? await sb.from("companies").update(payload).eq("id", id).select("id").maybeSingle()
-        : await sb.from("companies").insert(payload).select("id").single();
+      const payloadWithCreator = {
+        ...payload,
+        created_by: state.user?.id || null,
+        created_by_staff_id: state.staff?.id || null,
+        created_by_email: state.staff?.work_email || state.staff?.email || state.user?.email || null
+      };
+
+      let result = id
+        ? await sb.from("companies").update(payloadWithCreator).eq("id", id).select("id").maybeSingle()
+        : await sb.from("companies").insert(payloadWithCreator).select("id").single();
+
+      if (result.error && /created_by|created_by_staff_id|created_by_email/i.test(result.error.message || "")) {
+        result = id
+          ? await sb.from("companies").update(payload).eq("id", id).select("id").maybeSingle()
+          : await sb.from("companies").insert(payload).select("id").single();
+      }
 
       if (result.error) {
         alert(result.error.message);
@@ -1273,7 +1356,11 @@
         await syncPackagePaymentEvents(savedCompanyId, payload.company_name, payload.packages);
       }
 
-      await audit(id ? "update_company" : "add_company", "companies", savedCompanyId || payload.company_name, {});
+      await audit(id ? "update_company" : "add_company", "companies", savedCompanyId || payload.company_name, {
+        created_by_staff_id: state.staff?.id || null,
+        created_by_email: state.staff?.work_email || state.staff?.email || state.user?.email || null
+      });
+
       closeModal();
       await loadAll();
       renderCustomers();
@@ -1281,7 +1368,16 @@
 
     async function addCalendarEventSafe(payload) {
       try {
-        await sb.from("calendar_events").insert(payload);
+        let result = await sb.from("calendar_events").insert(payload);
+
+        if (result.error && /company_id/i.test(result.error.message || "")) {
+          const { company_id, ...safePayload } = payload;
+          result = await sb.from("calendar_events").insert(safePayload);
+        }
+
+        if (result.error) {
+          console.warn("Calendar insert failed", result.error.message);
+        }
       } catch (error) {
         console.warn("Calendar insert failed", error);
       }
@@ -1322,8 +1418,17 @@
         }
       });
 
-      if (inserts.length) {
-        await sb.from("calendar_events").insert(inserts);
+      if (!inserts.length) return;
+
+      let result = await sb.from("calendar_events").insert(inserts);
+
+      if (result.error && /company_id/i.test(result.error.message || "")) {
+        const safeInserts = inserts.map(({ company_id, ...rest }) => rest);
+        result = await sb.from("calendar_events").insert(safeInserts);
+      }
+
+      if (result.error) {
+        console.warn("Payment reminders could not be added to calendar:", result.error.message);
       }
     }
 
@@ -1822,11 +1927,19 @@
         tax_percent: data.taxPercent,
         tax_amount: data.tax,
         total_amount: data.total,
-        html: data.invoiceHtml,
+        html_snapshot: data.invoiceHtml,
         created_by: state.user.id
       };
 
-      const result = await sb.from("smartcore_invoices").insert(invoicePayload);
+      let result = await sb.from("smartcore_invoices").insert(invoicePayload);
+
+      if (result.error && /html_snapshot/i.test(result.error.message || "")) {
+        const fallbackPayload = { ...invoicePayload };
+        fallbackPayload.html = fallbackPayload.html_snapshot;
+        delete fallbackPayload.html_snapshot;
+        result = await sb.from("smartcore_invoices").insert(fallbackPayload);
+      }
+
       if (result.error) {
         alert(result.error.message);
         return;
@@ -2413,7 +2526,7 @@
     };
 
     window.sendStaffInvite = async function sendStaffInvite(id, target) {
-      const staff = state.staffList.find((item) => item.id === id);
+      const staff = state.staffList.find((item) => String(item.id) === String(id));
       const emailTo = target === "personal"
         ? staff?.personal_email
         : (staff?.work_email || staff?.email);
@@ -2426,8 +2539,15 @@
       try {
         await api("/api/staff-invite", {
           staff_id: id,
+          staffId: id,
+          id,
           email_to: emailTo,
-          target
+          emailTo,
+          email: emailTo,
+          target,
+          full_name: staff?.full_name || "",
+          work_email: staff?.work_email || staff?.email || "",
+          personal_email: staff?.personal_email || ""
         });
 
         alert("Invite sent.");
