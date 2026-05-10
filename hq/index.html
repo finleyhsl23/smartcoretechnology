@@ -276,6 +276,14 @@
       border-color: rgba(59, 130, 246, 0.25);
     }
 
+    @media (max-width: 640px) {
+      .calendar-day {
+        min-height: 78px;
+        padding: 9px;
+        border-radius: 14px;
+      }
+    }
+
     .calendar-day.outside {
       opacity: 0.42;
     }
@@ -350,6 +358,7 @@
       companies: [],
       staffList: [],
       transactions: [],
+      invoices: [],
       events: [],
       auditRows: [],
       module: "dashboard",
@@ -387,30 +396,90 @@
       return clean ? Number(clean) : null;
     }
 
+    function pad2(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    function dateToLocalIso(date) {
+      return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+    }
+
     function todayIso() {
-      return new Date().toISOString().slice(0, 10);
+      return dateToLocalIso(new Date());
+    }
+
+    function parseDateOnly(value) {
+      if (!value) return null;
+      if (value instanceof Date) return value;
+
+      const str = String(value);
+      const match = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (match) {
+        return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+      }
+
+      const d = new Date(str);
+      return Number.isNaN(d.getTime()) ? null : d;
     }
 
     function formatDate(value) {
       if (!value) return "";
-      const d = new Date(value);
-      if (Number.isNaN(d.getTime())) return String(value);
-      return d.toLocaleDateString("en-GB");
+      const d = parseDateOnly(value);
+      if (!d) return String(value);
+      return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
     }
 
     function formatDateTime(value) {
       if (!value) return "";
       const d = new Date(value);
       if (Number.isNaN(d.getTime())) return String(value);
-      return d.toLocaleString("en-GB", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
+
+      const date = `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+      const time = d.toLocaleTimeString("en-GB", {
         hour: "numeric",
         minute: "2-digit",
-        hour12: true,
-        timeZoneName: "short"
-      });
+        hour12: true
+      }).replace(" ", "").toLowerCase();
+
+      return `${date} at ${time} BST`;
+    }
+
+    function addWorkingDays(date, days) {
+      const d = new Date(date);
+      let added = 0;
+
+      while (added < days) {
+        d.setDate(d.getDate() + 1);
+        const day = d.getDay();
+        if (day !== 0 && day !== 6) added++;
+      }
+
+      return d;
+    }
+
+    function employmentLabel(value) {
+      const v = String(value || "").toLowerCase();
+      if (v === "full_time" || v === "full time") return "Full Time";
+      if (v === "part_time" || v === "part time") return "Part Time";
+      if (v === "other") return "Other";
+      return value || "Not set";
+    }
+
+    function monthAddIso(startIso, offset) {
+      const d = parseDateOnly(startIso);
+      if (!d) return null;
+      const day = d.getDate();
+      const next = new Date(d.getFullYear(), d.getMonth() + offset, 1);
+      const maxDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+      next.setDate(Math.min(day, maxDay));
+      return dateToLocalIso(next);
+    }
+
+    function yearAddIso(startIso, offset) {
+      const d = parseDateOnly(startIso);
+      if (!d) return null;
+      const next = new Date(d.getFullYear() + offset, d.getMonth(), d.getDate());
+      return dateToLocalIso(next);
     }
 
     function isAdmin() {
@@ -512,23 +581,7 @@
       state.user = session.user;
 
       const { data: staffData, error: staffError } = await sb.rpc("get_my_smartcore_staff");
-
-const staff = Array.isArray(staffData)
-  ? staffData[0]
-  : staffData;
-
-if (staffError) {
-  showFatal("Staff check failed", staffError.message);
-  return;
-}
-
-if (!staff) {
-  showFatal(
-    "Staff check failed",
-    "No SmartCore staff record found for this login."
-  );
-  return;
-}
+      const staff = Array.isArray(staffData) ? staffData[0] : staffData;
 
       if (staffError) {
         showFatal("Staff check failed", staffError.message);
@@ -565,7 +618,8 @@ if (!staff) {
 
       if (isAdmin()) {
         requests.push(
-          sb.from("payments_transactions").select("*").order("transaction_date", { ascending: false })
+          sb.from("payments_transactions").select("*").order("transaction_date", { ascending: false }),
+          sb.from("smartcore_invoices").select("*").order("created_at", { ascending: false })
         );
       }
 
@@ -575,6 +629,7 @@ if (!staff) {
       state.staffList = results[1].status === "fulfilled" ? (results[1].value.data || []) : [];
       state.events = results[2].status === "fulfilled" ? (results[2].value.data || []) : [];
       state.transactions = isAdmin() && results[3]?.status === "fulfilled" ? (results[3].value.data || []) : [];
+      state.invoices = isAdmin() && results[4]?.status === "fulfilled" ? (results[4].value.data || []) : [];
     }
 
     function allowedModules() {
@@ -642,22 +697,26 @@ if (!staff) {
     function renderDashboard() {
       const staff = state.staff || {};
       const joined = staff.created_at ? formatDate(staff.created_at) : "Not set";
-      const packageCount = state.companies.reduce((sum, company) => {
-        return sum + (Array.isArray(company.packages) ? company.packages.length : 0);
-      }, 0);
+      const expenses = state.transactions
+        .filter((tx) => tx.type === "outgoing")
+        .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+      const income = state.transactions
+        .filter((tx) => tx.type === "incoming")
+        .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+      const profit = income - expenses;
 
       shell(
         "SmartCore HQ",
         "Your profile, quick stats and management overview.",
         `<button class="btn primary" onclick="openMyProfile()">Edit My Profile</button>`,
         `
-          <div class="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-5">
-            <div class="card p-6">
+          <div class="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-5">
+            <div class="card p-7">
               <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div>
                   <div class="tag"><span class="dot"></span>${esc(staff.role || "employee")}</div>
-                  <h2 class="mt-5 text-3xl font-extrabold">${esc(staff.full_name || state.user.email)}</h2>
-                  <p class="mt-1 muted">${esc(staff.job_title || "Job title not set")}</p>
+                  <h2 class="mt-5 text-4xl font-extrabold tracking-tight">${esc(staff.full_name || state.user.email)}</h2>
+                  <p class="mt-2 text-lg muted">${esc(staff.job_title || "Job title not set")}</p>
                 </div>
                 <div class="text-sm muted sm:text-right">
                   <div>Started: <b class="text-white">${esc(formatDate(staff.start_date) || "Not set")}</b></div>
@@ -665,10 +724,14 @@ if (!staff) {
                 </div>
               </div>
 
-              <div class="mt-7 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div class="card p-4">
-                  <div class="text-sm muted">Work Email</div>
-                  <div class="mt-1 font-bold">${esc(staff.work_email || staff.email || state.user.email)}</div>
+                  <div class="text-sm muted">Job Title</div>
+                  <div class="mt-1 font-bold">${esc(staff.job_title || "Not set")}</div>
+                </div>
+                <div class="card p-4">
+                  <div class="text-sm muted">Employment Type</div>
+                  <div class="mt-1 font-bold">${esc(employmentLabel(staff.employment_type))}</div>
                 </div>
                 <div class="card p-4">
                   <div class="text-sm muted">Personal Email</div>
@@ -678,25 +741,21 @@ if (!staff) {
                   <div class="text-sm muted">Personal Phone</div>
                   <div class="mt-1 font-bold">${esc(staff.personal_phone || "Not set")}</div>
                 </div>
-                <div class="card p-4">
-                  <div class="text-sm muted">Employment Type</div>
-                  <div class="mt-1 font-bold">${esc(staff.employment_type || "Not set")}</div>
-                </div>
               </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-4">
-              <div class="card p-5">
+            <div class="grid grid-cols-1 sm:grid-cols-3 xl:grid-cols-1 gap-4">
+              <div class="card p-6">
                 <div class="text-sm muted">Customers</div>
-                <div class="text-4xl font-extrabold mt-2">${state.companies.length}</div>
+                <div class="text-5xl font-extrabold mt-2">${state.companies.length}</div>
               </div>
-              <div class="card p-5">
-                <div class="text-sm muted">Packages</div>
-                <div class="text-4xl font-extrabold mt-2">${packageCount}</div>
+              <div class="card p-6">
+                <div class="text-sm muted">Expenses</div>
+                <div class="text-5xl font-extrabold mt-2">${money(expenses)}</div>
               </div>
-              <div class="card p-5">
-                <div class="text-sm muted">Calendar Events</div>
-                <div class="text-4xl font-extrabold mt-2">${state.events.length}</div>
+              <div class="card p-6">
+                <div class="text-sm muted">Profit</div>
+                <div class="text-5xl font-extrabold mt-2">${money(profit)}</div>
               </div>
             </div>
           </div>
@@ -706,19 +765,24 @@ if (!staff) {
 
     window.openMyProfile = function openMyProfile() {
       const s = state.staff || {};
+      const ownerOnly = !isOwner();
+      const disabled = ownerOnly ? "disabled" : "";
+      const mutedClass = ownerOnly ? "opacity-60" : "";
 
       openModal(
         "My SmartCore Profile",
-        "Update your own profile details.",
+        isOwner()
+          ? "Update your full profile and owner-only work settings."
+          : "Update your personal details. Owner-only work settings are locked.",
         `
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="label">Full Name</label>
               <input id="meFullName" class="inp" value="${esc(s.full_name || "")}" />
             </div>
-            <div>
-              <label class="label">Job Title</label>
-              <input id="meJobTitle" class="inp" value="${esc(s.job_title || "")}" />
+            <div class="${mutedClass}">
+              <label class="label">Job Title ${ownerOnly ? "(owner only)" : ""}</label>
+              <input id="meJobTitle" class="inp" value="${esc(s.job_title || "")}" ${disabled} />
             </div>
             <div>
               <label class="label">Personal Email</label>
@@ -728,19 +792,113 @@ if (!staff) {
               <label class="label">Personal Phone</label>
               <input id="mePersonalPhone" class="inp" value="${esc(s.personal_phone || "")}" />
             </div>
+            <div class="${mutedClass}">
+              <label class="label">Employment Type ${ownerOnly ? "(owner only)" : ""}</label>
+              <select id="meEmployment" class="inp" ${disabled}>
+                <option value="full_time">Full Time</option>
+                <option value="part_time">Part Time</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="${mutedClass}">
+              <label class="label">Notice Period ${ownerOnly ? "(owner only)" : ""}</label>
+              <input id="meNotice" class="inp" value="${esc(s.notice_period || "")}" ${disabled} />
+            </div>
+            <div>
+              <label class="label">Title</label>
+              <input id="meTitle" class="inp" value="${esc(s.title || "")}" />
+            </div>
+            <div>
+              <label class="label">Pronouns</label>
+              <input id="mePronouns" class="inp" value="${esc(s.pronouns || "")}" />
+            </div>
+            <div>
+              <label class="label">Gender</label>
+              <input id="meGender" class="inp" value="${esc(s.gender || "")}" />
+            </div>
+            <div>
+              <label class="label">Date of Birth</label>
+              <input id="meDob" class="inp" type="date" value="${esc(s.dob || "")}" />
+            </div>
+            <div>
+              <label class="label">Nationality</label>
+              <input id="meNationality" class="inp" value="${esc(s.nationality || "")}" />
+            </div>
+            <div>
+              <label class="label">House Number / Name</label>
+              <input id="meHouse" class="inp" value="${esc(s.house_number_name || "")}" />
+            </div>
+            <div>
+              <label class="label">Street Name</label>
+              <input id="meStreet" class="inp" value="${esc(s.street_name || "")}" />
+            </div>
+            <div>
+              <label class="label">Town</label>
+              <input id="meTown" class="inp" value="${esc(s.town || "")}" />
+            </div>
+            <div>
+              <label class="label">Postcode</label>
+              <input id="mePostcode" class="inp" value="${esc(s.postcode || "")}" />
+            </div>
+            <div>
+              <label class="label">Country</label>
+              <input id="meCountry" class="inp" value="${esc(s.country || "United Kingdom")}" />
+            </div>
           </div>
-          <button class="btn primary mt-5" onclick="saveMyProfile()">Save Profile</button>
+
+          <h3 class="text-xl font-extrabold mt-7">Emergency Contact 1</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+            <input id="meEc1Name" class="inp" placeholder="Emergency Contact Name" value="${esc(s.emergency_contact_1_name || "")}" />
+            <input id="meEc1Rel" class="inp" placeholder="Relationship" value="${esc(s.emergency_contact_1_relationship || "")}" />
+            <input id="meEc1Phone" class="inp" placeholder="Phone Number" value="${esc(s.emergency_contact_1_phone || "")}" />
+            <input id="meEc1Email" class="inp" placeholder="Email Address" value="${esc(s.emergency_contact_1_email || "")}" />
+          </div>
+
+          <h3 class="text-xl font-extrabold mt-7">Emergency Contact 2</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+            <input id="meEc2Name" class="inp" placeholder="Emergency Contact Name" value="${esc(s.emergency_contact_2_name || "")}" />
+            <input id="meEc2Rel" class="inp" placeholder="Relationship" value="${esc(s.emergency_contact_2_relationship || "")}" />
+            <input id="meEc2Phone" class="inp" placeholder="Phone Number" value="${esc(s.emergency_contact_2_phone || "")}" />
+            <input id="meEc2Email" class="inp" placeholder="Email Address" value="${esc(s.emergency_contact_2_email || "")}" />
+          </div>
+
+          <button class="btn primary mt-6 w-full" onclick="saveMyProfile()">Save Profile</button>
         `
       );
+
+      if ($("meEmployment")) $("meEmployment").value = s.employment_type || "full_time";
     };
 
     window.saveMyProfile = async function saveMyProfile() {
       const payload = {
         full_name: $("meFullName").value.trim() || null,
-        job_title: $("meJobTitle").value.trim() || null,
         personal_email: $("mePersonalEmail").value.trim().toLowerCase() || null,
-        personal_phone: $("mePersonalPhone").value.trim() || null
+        personal_phone: $("mePersonalPhone").value.trim() || null,
+        title: $("meTitle").value.trim() || null,
+        pronouns: $("mePronouns").value.trim() || null,
+        gender: $("meGender").value.trim() || null,
+        dob: $("meDob").value || null,
+        nationality: $("meNationality").value.trim() || null,
+        house_number_name: $("meHouse").value.trim() || null,
+        street_name: $("meStreet").value.trim() || null,
+        town: $("meTown").value.trim() || null,
+        postcode: $("mePostcode").value.trim() || null,
+        country: $("meCountry").value.trim() || "United Kingdom",
+        emergency_contact_1_name: $("meEc1Name").value.trim() || null,
+        emergency_contact_1_relationship: $("meEc1Rel").value.trim() || null,
+        emergency_contact_1_phone: $("meEc1Phone").value.trim() || null,
+        emergency_contact_1_email: $("meEc1Email").value.trim() || null,
+        emergency_contact_2_name: $("meEc2Name").value.trim() || null,
+        emergency_contact_2_relationship: $("meEc2Rel").value.trim() || null,
+        emergency_contact_2_phone: $("meEc2Phone").value.trim() || null,
+        emergency_contact_2_email: $("meEc2Email").value.trim() || null
       };
+
+      if (isOwner()) {
+        payload.job_title = $("meJobTitle").value.trim() || null;
+        payload.employment_type = $("meEmployment").value;
+        payload.notice_period = $("meNotice").value.trim() || null;
+      }
 
       const { error } = await sb
         .from("smartcore_staff")
@@ -1102,19 +1260,72 @@ if (!staff) {
       }
 
       const result = id
-        ? await sb.from("companies").update(payload).eq("id", id)
-        : await sb.from("companies").insert(payload);
+        ? await sb.from("companies").update(payload).eq("id", id).select("id").maybeSingle()
+        : await sb.from("companies").insert(payload).select("id").single();
 
       if (result.error) {
         alert(result.error.message);
         return;
       }
 
-      await audit(id ? "update_company" : "add_company", "companies", id || payload.company_name, {});
+      const savedCompanyId = id || result.data?.id;
+      if (savedCompanyId) {
+        await syncPackagePaymentEvents(savedCompanyId, payload.company_name, payload.packages);
+      }
+
+      await audit(id ? "update_company" : "add_company", "companies", savedCompanyId || payload.company_name, {});
       closeModal();
       await loadAll();
       renderCustomers();
     };
+
+    async function addCalendarEventSafe(payload) {
+      try {
+        await sb.from("calendar_events").insert(payload);
+      } catch (error) {
+        console.warn("Calendar insert failed", error);
+      }
+    }
+
+    async function syncPackagePaymentEvents(companyId, companyNameValue, packages) {
+      if (!Array.isArray(packages) || !packages.length) return;
+
+      const inserts = [];
+      const makePayload = (pkg, date, label, amount) => ({
+        title: `${companyNameValue} - ${pkg.name} ${label}`,
+        event_date: date,
+        all_day: true,
+        start_time: null,
+        end_time: null,
+        description: `Payment reminder for ${pkg.name}. Amount: ${money(amount)}.`,
+        created_by: state.user.id,
+        company_id: companyId
+      });
+
+      packages.forEach((pkg) => {
+        if (pkg.one_time_payment_date && pkg.one_time_fee) {
+          inserts.push(makePayload(pkg, pkg.one_time_payment_date, "one time payment", pkg.one_time_fee));
+        }
+
+        if (pkg.monthly_first_payment_date && pkg.monthly_fee) {
+          for (let i = 0; i < 24; i++) {
+            const date = monthAddIso(pkg.monthly_first_payment_date, i);
+            if (date) inserts.push(makePayload(pkg, date, "monthly payment", pkg.monthly_fee));
+          }
+        }
+
+        if (pkg.yearly_first_payment_date && pkg.yearly_fee) {
+          for (let i = 0; i < 5; i++) {
+            const date = yearAddIso(pkg.yearly_first_payment_date, i);
+            if (date) inserts.push(makePayload(pkg, date, "yearly payment", pkg.yearly_fee));
+          }
+        }
+      });
+
+      if (inserts.length) {
+        await sb.from("calendar_events").insert(inserts);
+      }
+    }
 
     window.deleteCompany = async function deleteCompany(id) {
       if (!confirm("Delete this company?")) return;
@@ -1142,13 +1353,13 @@ if (!staff) {
 
       const years = Array.from(new Set(
         state.transactions
-          .map((tx) => new Date(tx.transaction_date).getFullYear())
+          .map((tx) => parseDateOnly(tx.transaction_date)?.getFullYear())
           .filter(Boolean)
       )).sort((a, b) => b - a);
 
       shell(
         "Payments & Finance",
-        "Track incoming and outgoing transactions and generate invoices.",
+        "Track transactions, invoices, income, expenses and profit.",
         `
           <button class="btn" onclick="exportCSV()">Export CSV</button>
           <button class="btn primary" onclick="openTransactionForm()">+ Add Transaction</button>
@@ -1167,10 +1378,20 @@ if (!staff) {
             </select>
             <input id="companyFilter" class="inp" placeholder="Search company or global" />
           </div>
-          <div class="mt-5 grid grid-cols-1 xl:grid-cols-[0.85fr_1.15fr] gap-5">
-            <div class="card p-5">
-              <h3 class="text-xl font-extrabold">Summary</h3>
-              <div id="financeSummary" class="grid grid-cols-1 sm:grid-cols-3 xl:grid-cols-1 gap-3 mt-6"></div>
+
+          <div class="mt-5 grid grid-cols-1 xl:grid-cols-[0.82fr_1.18fr] gap-5">
+            <div class="space-y-5">
+              <div class="card p-5">
+                <h3 class="text-xl font-extrabold">Summary</h3>
+                <div id="financeSummary" class="grid grid-cols-1 sm:grid-cols-3 xl:grid-cols-1 gap-3 mt-6"></div>
+              </div>
+              <div class="card p-5">
+                <div class="flex items-center justify-between gap-3">
+                  <h3 class="text-xl font-extrabold">Invoices</h3>
+                  <span id="invoiceCount" class="muted text-sm"></span>
+                </div>
+                <div id="invoiceRows" class="mt-4 space-y-3"></div>
+              </div>
             </div>
             <div class="card p-5">
               <div class="flex justify-between gap-3">
@@ -1196,7 +1417,8 @@ if (!staff) {
       const q = ($("companyFilter")?.value || "").toLowerCase();
 
       return state.transactions.filter((tx) => {
-        const txYear = String(new Date(tx.transaction_date).getFullYear());
+        const txDate = parseDateOnly(tx.transaction_date);
+        const txYear = txDate ? String(txDate.getFullYear()) : "";
         const name = (companyName(tx.company_id) || tx.company_label || "Global Expense").toLowerCase();
 
         return (year === "all" || txYear === year)
@@ -1225,15 +1447,44 @@ if (!staff) {
               <div class="mt-3 font-extrabold">${esc(companyName(tx.company_id) || tx.company_label || "Global Expense")} • ${esc(formatDate(tx.transaction_date))}</div>
               <div class="mt-1 text-sm muted">${esc(tx.description || "")}</div>
             </div>
-            <div class="text-2xl font-extrabold">${money(tx.amount)}</div>
+            <div class="text-left sm:text-right">
+              <div class="text-2xl font-extrabold">${money(tx.amount)}</div>
+              <div class="mt-3 flex gap-2 flex-wrap sm:justify-end">
+                <button class="btn" onclick="openTransactionForm('${tx.id}')">Edit</button>
+                <button class="btn danger" onclick="deleteTransaction('${tx.id}')">Delete</button>
+              </div>
+            </div>
           </div>
         </div>
       `).join("");
+
+      drawInvoices();
     }
 
-    window.openTransactionForm = function openTransactionForm() {
+    function drawInvoices() {
+      const invoices = state.invoices || [];
+      if (!$("invoiceRows")) return;
+
+      $("invoiceCount").textContent = `${invoices.length} saved`;
+      $("invoiceRows").innerHTML = invoices.map((invoice) => `
+        <div class="card p-4">
+          <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            <div>
+              <div class="font-extrabold">${esc(invoice.invoice_number || invoice.invoice_no || invoice.id)}</div>
+              <div class="text-sm muted mt-1">${esc(companyName(invoice.company_id) || invoice.company_name || "Unknown company")} • ${esc(formatDate(invoice.invoice_date || invoice.created_at))}</div>
+              <div class="text-sm muted mt-1">Due: ${esc(formatDate(invoice.due_date))}</div>
+            </div>
+            <div class="text-xl font-extrabold">${money(invoice.total_amount || invoice.total || 0)}</div>
+          </div>
+        </div>
+      `).join("") || `<p class="muted">No invoices saved yet.</p>`;
+    }
+
+    window.openTransactionForm = function openTransactionForm(id) {
+      const tx = id ? state.transactions.find((item) => String(item.id) === String(id)) : {};
+
       openModal(
-        "Add Transaction",
+        id ? "Edit Transaction" : "Add Transaction",
         "Incoming or outgoing payment.",
         `
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1253,23 +1504,26 @@ if (!staff) {
             </div>
             <div>
               <label class="label">Amount GBP</label>
-              <input id="txAmount" class="inp" placeholder="£0.00" inputmode="decimal" />
+              <input id="txAmount" class="inp" placeholder="£0.00" inputmode="decimal" value="${esc(tx?.amount || "")}" />
             </div>
             <div>
               <label class="label">Date of Transaction</label>
-              <input id="txDate" class="inp" type="date" value="${todayIso()}" />
+              <input id="txDate" class="inp" type="date" value="${esc(tx?.transaction_date || todayIso())}" />
             </div>
             <div class="md:col-span-2">
               <label class="label">Description</label>
-              <textarea id="txDesc" class="inp"></textarea>
+              <textarea id="txDesc" class="inp">${esc(tx?.description || "")}</textarea>
             </div>
           </div>
-          <button class="btn primary mt-5 w-full" onclick="saveTransaction()">Save Transaction</button>
+          <button class="btn primary mt-5 w-full" onclick="saveTransaction('${id || ""}')">Save Transaction</button>
         `
       );
+
+      if ($("txType")) $("txType").value = tx?.type || "incoming";
+      if ($("txCompany")) $("txCompany").value = tx?.company_id || "";
     };
 
-    window.saveTransaction = async function saveTransaction() {
+    window.saveTransaction = async function saveTransaction(id) {
       const companyId = $("txCompany").value || null;
 
       const payload = {
@@ -1286,17 +1540,35 @@ if (!staff) {
         return;
       }
 
+      const result = id
+        ? await sb.from("payments_transactions").update(payload).eq("id", id)
+        : await sb.from("payments_transactions").insert(payload);
+
+      if (result.error) {
+        alert(result.error.message);
+        return;
+      }
+
+      await audit(id ? "update_transaction" : "add_transaction", "payments_transactions", id || payload.description, payload);
+      closeModal();
+      await loadAll();
+      renderFinance();
+    };
+
+    window.deleteTransaction = async function deleteTransaction(id) {
+      if (!confirm("Delete this transaction?")) return;
+
       const { error } = await sb
         .from("payments_transactions")
-        .insert(payload);
+        .delete()
+        .eq("id", id);
 
       if (error) {
         alert(error.message);
         return;
       }
 
-      await audit("add_transaction", "payments_transactions", payload.description, payload);
-      closeModal();
+      await audit("delete_transaction", "payments_transactions", id, {});
       await loadAll();
       renderFinance();
     };
@@ -1390,12 +1662,9 @@ if (!staff) {
       row.querySelector(".inv-price").value = price;
     };
 
-    window.generateInvoiceHtml = function generateInvoiceHtml() {
+    function collectInvoiceData() {
       const company = state.companies.find((item) => item.id === $("invCompany").value);
-      if (!company) {
-        alert("Select a company first.");
-        return;
-      }
+      if (!company) throw new Error("Select a company first.");
 
       const lines = Array.from(document.querySelectorAll(".invoice-line")).map((row) => {
         const pkg = company.packages?.[Number(row.querySelector(".inv-package").value)] || {};
@@ -1409,21 +1678,54 @@ if (!staff) {
         };
       });
 
-      if (!lines.length) {
-        alert("Add at least one package.");
-        return;
-      }
+      if (!lines.length) throw new Error("Add at least one package.");
 
       const subtotal = lines.reduce((sum, line) => sum + line.total, 0);
       const taxPercent = Number($("invTax").value || 0);
       const tax = subtotal * (taxPercent / 100);
       const total = subtotal + tax;
-      const invoiceNo = String(Math.floor(100000 + Math.random() * 900000));
+      const invoiceNo = `SC-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
       const invoiceDate = new Date();
-      const dueDate = new Date(invoiceDate);
-      dueDate.setDate(dueDate.getDate() + 3);
+      const dueDate = addWorkingDays(invoiceDate, 3);
 
-      const invoiceHtml = `
+      return {
+        company,
+        lines,
+        subtotal,
+        taxPercent,
+        tax,
+        total,
+        invoiceNo,
+        invoiceDate,
+        dueDate,
+        billingAddress: $("invAddress").value || company.address || ""
+      };
+    }
+
+    window.generateInvoiceHtml = function generateInvoiceHtml() {
+      let data;
+
+      try {
+        data = collectInvoiceData();
+      } catch (error) {
+        alert(error.message);
+        return;
+      }
+
+      const invoiceHtml = buildInvoiceHtml(data);
+      window.__lastInvoiceData = { ...data, invoiceHtml };
+
+      openModal("Invoice Preview", "Print, save as PDF, and store the invoice in SmartCore.", `
+        <div class="flex gap-2 mb-4 flex-wrap">
+          <button class="btn primary" onclick="printInvoice()">Print / Save PDF</button>
+          <button class="btn" onclick="saveInvoiceRecord()">Save Invoice Record</button>
+        </div>
+        <div id="invoicePreview">${invoiceHtml}</div>
+      `);
+    };
+
+    function buildInvoiceHtml(data) {
+      return `
         <div style="background:white;color:#0b1020;font-family:Inter,Arial,sans-serif;padding:0;max-width:1000px;margin:auto;">
           <div style="display:flex;min-height:210px;">
             <div style="background:linear-gradient(135deg,#5eead4,#0057c2);color:white;width:58%;padding:42px 70px;clip-path:polygon(0 0,100% 0,86% 100%,0 100%);">
@@ -1439,18 +1741,18 @@ if (!staff) {
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;padding:45px 90px;">
             <div>
               <div>Billed To:</div>
-              <div style="font-size:22px;font-weight:900;margin-top:6px;">${esc(company.company_name)}</div>
-              <div style="white-space:pre-line;margin-top:6px;">${esc($("invAddress").value || company.address || "")}</div>
+              <div style="font-size:22px;font-weight:900;margin-top:6px;">${esc(data.company.company_name)}</div>
+              <div style="white-space:pre-line;margin-top:6px;">${esc(data.billingAddress)}</div>
             </div>
             <div style="font-size:18px;line-height:1.9;">
-              <div><b>Invoice No:</b> ${invoiceNo}</div>
-              <div><b>Invoice Date:</b> ${formatDate(invoiceDate)}</div>
-              <div><b>Due Date:</b> ${formatDate(dueDate)}</div>
+              <div><b>Invoice No:</b> ${data.invoiceNo}</div>
+              <div><b>Invoice Date:</b> ${formatDate(data.invoiceDate)}</div>
+              <div><b>Due Date:</b> ${formatDate(data.dueDate)}</div>
             </div>
           </div>
           <div style="padding:0 90px;">
             <div style="background:linear-gradient(90deg,#5eead4,#0057c2);color:white;width:440px;padding:16px 30px;font-size:24px;font-weight:900;display:flex;justify-content:space-between;">
-              <span>Total Due:</span><span>${money(total)}</span>
+              <span>Total Due:</span><span>${money(data.total)}</span>
             </div>
           </div>
           <div style="padding:65px 90px 30px;">
@@ -1464,7 +1766,7 @@ if (!staff) {
                 </tr>
               </thead>
               <tbody>
-                ${lines.map((line) => `
+                ${data.lines.map((line) => `
                   <tr>
                     <td style="padding:22px 12px;font-weight:800;">${esc(line.description)}</td>
                     <td style="padding:22px 12px;text-align:center;">${line.qty}</td>
@@ -1482,15 +1784,16 @@ if (!staff) {
               <div>Sort Code: 11-00-46</div>
               <div>Account Name: Finley Hassall</div>
               <div style="margin-top:60px;">+44 7407 494423</div>
+              <div>support@smartcoretechnology.co.uk</div>
               <div>www.smartcoretechnology.co.uk</div>
             </div>
             <div>
-              <div style="font-size:22px;line-height:1.8;"><b>Subtotal:</b> <span style="float:right;">${money(subtotal)}</span></div>
-              <div style="font-size:22px;line-height:1.8;"><b>Tax (${taxPercent}%):</b> <span style="float:right;">${money(tax)}</span></div>
+              <div style="font-size:22px;line-height:1.8;"><b>Subtotal:</b> <span style="float:right;">${money(data.subtotal)}</span></div>
+              <div style="font-size:22px;line-height:1.8;"><b>Tax (${data.taxPercent}%):</b> <span style="float:right;">${money(data.tax)}</span></div>
               <div style="margin-top:20px;background:linear-gradient(90deg,#5eead4,#0057c2);color:white;padding:18px 30px;font-size:24px;font-weight:900;display:flex;justify-content:space-between;">
-                <span>Total Amount:</span><span>${money(total)}</span>
+                <span>Total Amount:</span><span>${money(data.total)}</span>
               </div>
-              <h2 style="margin-top:70px;">Term and Conditions:</h2>
+              <h2 style="margin-top:70px;">Terms and Conditions:</h2>
               <p style="font-size:14px;line-height:1.45;">
                 Payment is due within 3 working calendar days of the invoice date unless otherwise agreed in writing. Failure to make payment within this period may result in suspension or removal of access to any associated systems, websites, hosting, or services provided by SmartCore Technology until the outstanding balance has been paid in full.
               </p>
@@ -1501,13 +1804,49 @@ if (!staff) {
           </div>
         </div>
       `;
+    }
 
-      openModal("Invoice Preview", "Print or save as PDF from your browser.", `
-        <div class="flex gap-2 mb-4">
-          <button class="btn primary" onclick="printInvoice()">Print / Save PDF</button>
-        </div>
-        <div id="invoicePreview">${invoiceHtml}</div>
-      `);
+    window.saveInvoiceRecord = async function saveInvoiceRecord() {
+      const data = window.__lastInvoiceData;
+      if (!data) return alert("Generate an invoice first.");
+
+      const invoicePayload = {
+        invoice_number: data.invoiceNo,
+        company_id: data.company.id,
+        company_name: data.company.company_name,
+        billing_address: data.billingAddress,
+        invoice_date: dateToLocalIso(data.invoiceDate),
+        due_date: dateToLocalIso(data.dueDate),
+        lines: data.lines,
+        subtotal: data.subtotal,
+        tax_percent: data.taxPercent,
+        tax_amount: data.tax,
+        total_amount: data.total,
+        html: data.invoiceHtml,
+        created_by: state.user.id
+      };
+
+      const result = await sb.from("smartcore_invoices").insert(invoicePayload);
+      if (result.error) {
+        alert(result.error.message);
+        return;
+      }
+
+      await addCalendarEventSafe({
+        title: `Invoice due - ${data.company.company_name} - ${data.invoiceNo}`,
+        event_date: dateToLocalIso(data.dueDate),
+        all_day: true,
+        start_time: null,
+        end_time: null,
+        description: `Invoice ${data.invoiceNo} due. Total: ${money(data.total)}.`,
+        created_by: state.user.id,
+        company_id: data.company.id
+      });
+
+      await audit("generate_invoice", "smartcore_invoices", data.invoiceNo, invoicePayload);
+      alert("Invoice saved and added to the calendar.");
+      await loadAll();
+      renderFinance();
     };
 
     window.printInvoice = function printInvoice() {
@@ -1692,11 +2031,19 @@ if (!staff) {
 
     window.archiveCredential = async function archiveCredential(id, archived) {
       try {
-        await api("/api/vault-archive", {
-          session_id: sessionStorage.vaultSession,
-          credential_id: id,
-          archived
-        });
+        try {
+          await api("/api/vault-update", {
+            session_id: sessionStorage.vaultSession,
+            credential_id: id,
+            archived
+          });
+        } catch (firstError) {
+          await api("/api/vault-archive", {
+            session_id: sessionStorage.vaultSession,
+            credential_id: id,
+            archived
+          });
+        }
 
         await loadVaultItems();
         drawVault();
@@ -1718,8 +2065,7 @@ if (!staff) {
 
       const cells = [];
       for (let i = 0; i < 42; i++) {
-        const d = new Date(start);
-        d.setDate(start.getDate() + i);
+        const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
         cells.push(d);
       }
 
@@ -1735,22 +2081,27 @@ if (!staff) {
           <div class="flex items-center justify-between gap-3 mb-5">
             <h2 class="text-2xl font-extrabold">${esc(monthName)}</h2>
           </div>
-          <div class="grid grid-cols-7 gap-2 mb-2 text-center text-sm font-extrabold muted">
+          <div class="grid grid-cols-7 gap-2 mb-2 text-center text-xs sm:text-sm font-extrabold muted">
             <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-7 gap-2">
+          <div class="grid grid-cols-7 gap-2">
             ${cells.map((d) => {
-              const iso = d.toISOString().slice(0, 10);
+              const iso = dateToLocalIso(d);
               const events = state.events.filter((event) => event.event_date === iso);
               const outside = d.getMonth() !== month;
+              const dayShort = d.toLocaleDateString("en-GB", { weekday: "short" });
 
               return `
                 <button class="calendar-day ${outside ? "outside" : ""}" onclick="openDay('${iso}')">
-                  <div class="font-extrabold">${d.getDate()}</div>
-                  <div class="mt-3 space-y-1">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="font-extrabold">${d.getDate()}</div>
+                    <div class="text-[10px] muted sm:hidden">${esc(dayShort)}</div>
+                  </div>
+                  <div class="mt-3 space-y-1 hidden sm:block">
                     ${events.slice(0, 2).map((event) => `<div class="text-xs tag">${esc(event.title)}</div>`).join("")}
                     ${events.length > 2 ? `<div class="text-xs muted">+${events.length - 2} more</div>` : ""}
                   </div>
+                  <div class="mt-2 text-[10px] muted sm:hidden">${events.length ? `${events.length} event(s)` : ""}</div>
                 </button>
               `;
             }).join("")}
@@ -1760,7 +2111,11 @@ if (!staff) {
     }
 
     window.moveCalendar = function moveCalendar(offset) {
-      state.calendarCursor.setMonth(state.calendarCursor.getMonth() + offset);
+      state.calendarCursor = new Date(
+        state.calendarCursor.getFullYear(),
+        state.calendarCursor.getMonth() + offset,
+        1
+      );
       renderCalendar();
     };
 
@@ -1774,9 +2129,17 @@ if (!staff) {
           <div class="space-y-3">
             ${events.map((event) => `
               <div class="card p-4">
-                <h3 class="font-extrabold text-lg">${esc(event.title)}</h3>
-                <div class="text-sm muted mt-1">${event.all_day ? "All day" : `${esc(event.start_time || "")} - ${esc(event.end_time || "")}`}</div>
-                <p class="mt-2 text-sm">${esc(event.description || "")}</p>
+                <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div>
+                    <h3 class="font-extrabold text-lg">${esc(event.title)}</h3>
+                    <div class="text-sm muted mt-1">${event.all_day ? "All day" : `${esc(event.start_time || "")} - ${esc(event.end_time || "")}`}</div>
+                    <p class="mt-2 text-sm">${esc(event.description || "")}</p>
+                  </div>
+                  <div class="flex gap-2 flex-wrap">
+                    <button class="btn" onclick="openEventForm('${date}', '${event.id}')">Edit</button>
+                    <button class="btn danger" onclick="deleteEvent('${event.id}', '${date}')">Delete</button>
+                  </div>
+                </div>
               </div>
             `).join("") || `<p class="muted">Nothing is on.</p>`}
           </div>
@@ -1787,41 +2150,44 @@ if (!staff) {
       );
     };
 
-    window.openEventForm = function openEventForm(date) {
+    window.openEventForm = function openEventForm(date, id) {
+      const event = id ? state.events.find((item) => String(item.id) === String(id)) : {};
+      const selectedDate = event?.event_date || date || todayIso();
+
       openModal(
-        "Add Calendar Event",
+        id ? "Edit Calendar Event" : "Add Calendar Event",
         "Everyone in SmartCore can see this.",
         `
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="label">Title</label>
-              <input id="evTitle" class="inp" />
+              <input id="evTitle" class="inp" value="${esc(event?.title || "")}" />
             </div>
             <div>
               <label class="label">Date</label>
-              <input id="evDate" class="inp" type="date" value="${esc(date || todayIso())}" />
+              <input id="evDate" class="inp" type="date" value="${esc(selectedDate)}" />
             </div>
-            <label class="flex items-center gap-2 muted"><input id="evAll" type="checkbox" /> All day</label>
+            <label class="flex items-center gap-2 muted"><input id="evAll" type="checkbox" ${event?.all_day ? "checked" : ""} /> All day</label>
             <div></div>
             <div>
               <label class="label">Start</label>
-              <input id="evStart" class="inp" type="time" />
+              <input id="evStart" class="inp" type="time" value="${esc(event?.start_time || "")}" />
             </div>
             <div>
               <label class="label">End</label>
-              <input id="evEnd" class="inp" type="time" />
+              <input id="evEnd" class="inp" type="time" value="${esc(event?.end_time || "")}" />
             </div>
             <div class="md:col-span-2">
               <label class="label">Description</label>
-              <textarea id="evDesc" class="inp"></textarea>
+              <textarea id="evDesc" class="inp">${esc(event?.description || "")}</textarea>
             </div>
           </div>
-          <button class="btn primary mt-5 w-full" onclick="saveEvent()">Save Event</button>
+          <button class="btn primary mt-5 w-full" onclick="saveEvent('${id || ""}')">Save Event</button>
         `
       );
     };
 
-    window.saveEvent = async function saveEvent() {
+    window.saveEvent = async function saveEvent(id) {
       const payload = {
         title: $("evTitle").value.trim(),
         event_date: $("evDate").value,
@@ -1837,19 +2203,38 @@ if (!staff) {
         return;
       }
 
+      const result = id
+        ? await sb.from("calendar_events").update(payload).eq("id", id)
+        : await sb.from("calendar_events").insert(payload);
+
+      if (result.error) {
+        alert(result.error.message);
+        return;
+      }
+
+      await audit(id ? "update_calendar_event" : "add_calendar_event", "calendar_events", id || payload.title, payload);
+      closeModal();
+      await loadAll();
+      renderCalendar();
+    };
+
+    window.deleteEvent = async function deleteEvent(id, date) {
+      if (!confirm("Delete this calendar event?")) return;
+
       const { error } = await sb
         .from("calendar_events")
-        .insert(payload);
+        .delete()
+        .eq("id", id);
 
       if (error) {
         alert(error.message);
         return;
       }
 
-      await audit("add_calendar_event", "calendar_events", payload.title, payload);
-      closeModal();
+      await audit("delete_calendar_event", "calendar_events", id, {});
       await loadAll();
-      renderCalendar();
+      closeModal();
+      openDay(date);
     };
 
     function renderStaff() {
@@ -2028,14 +2413,25 @@ if (!staff) {
     };
 
     window.sendStaffInvite = async function sendStaffInvite(id, target) {
+      const staff = state.staffList.find((item) => item.id === id);
+      const emailTo = target === "personal"
+        ? staff?.personal_email
+        : (staff?.work_email || staff?.email);
+
+      if (!id || !emailTo) {
+        alert("Missing staff_id or email_to. Please check the staff record has the selected email address.");
+        return;
+      }
+
       try {
         await api("/api/staff-invite", {
           staff_id: id,
+          email_to: emailTo,
           target
         });
 
         alert("Invite sent.");
-        await audit("send_staff_invite", "smartcore_staff", id, { target });
+        await audit("send_staff_invite", "smartcore_staff", id, { target, email_to: emailTo });
         closeModal();
       } catch (error) {
         alert(error.message);
@@ -2096,6 +2492,7 @@ if (!staff) {
         return `
           <div class="card p-4">
             <div class="font-extrabold text-lg">${esc(action)} - ${esc(formatDateTime(row.created_at))} • ${esc(actor)}</div>
+            <div class="mt-2 text-xs muted">${esc(row.target_table || "")} ${row.target_id ? "• " + esc(row.target_id) : ""}</div>
             <pre class="mt-3 text-xs muted whitespace-pre-wrap">${esc(JSON.stringify(row.metadata || {}, null, 2))}</pre>
           </div>
         `;
