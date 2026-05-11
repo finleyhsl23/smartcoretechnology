@@ -9,7 +9,7 @@ export async function onRequestPost(context) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        from: "The Travelling Taverna <onboarding@resend.dev>",
+        from: "The Travelling Taverna | Greek Deli <thetravellingtavernagreekdeli@smartcoretechnology.co.uk>",
         to: [body.to || "support@smartcoretechnology.co.uk"],
         subject: body.subject || "New website enquiry",
         html: body.html || "<p>No content supplied.</p>"
