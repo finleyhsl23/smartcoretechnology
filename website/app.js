@@ -26,35 +26,42 @@ async function init() {
 
 function bindEvents() {
   $("navToggle")?.addEventListener("click", () => {
-    $("siteNav").classList.toggle("open");
+    $("siteNav")?.classList.toggle("open");
   });
 
-  $("basketButton").addEventListener("click", openBasket);
-  $("closeBasket").addEventListener("click", closeBasketDrawer);
-  $("overlay").addEventListener("click", closeBasketDrawer);
+  $("basketButton")?.addEventListener("click", openBasket);
+  $("closeBasket")?.addEventListener("click", closeBasketDrawer);
+  $("overlay")?.addEventListener("click", closeBasketDrawer);
 
-  $("categoryFilter").addEventListener("change", renderProducts);
-  $("searchInput").addEventListener("input", renderProducts);
+  $("categoryFilter")?.addEventListener("change", renderProducts);
+  $("searchInput")?.addEventListener("input", renderProducts);
 
-  $("checkDeliveryBtn").addEventListener("click", checkCheckoutDelivery);
-  $("checkoutBtn").addEventListener("click", openTestCheckout);
-  $("closePayment").addEventListener("click", () => $("paymentModal").classList.remove("show"));
-  $("completeTestPayment").addEventListener("click", completeOrder);
+  $("checkDeliveryBtn")?.addEventListener("click", checkCheckoutDelivery);
+  $("checkoutBtn")?.addEventListener("click", openTestCheckout);
 
-  $("heroPostcodeBtn").addEventListener("click", () => {
-    const result = calculateDelivery($("heroPostcode").value);
-
-    $("heroPostcodeResult").textContent = result.message;
-    $("heroPostcodeResult").className = result.ok
-      ? "mini-result form-note success"
-      : "mini-result form-note error";
+  $("closePayment")?.addEventListener("click", () => {
+    $("paymentModal")?.classList.remove("show");
   });
 
-  $("wholesaleForm").addEventListener("submit", (event) =>
+  $("completeTestPayment")?.addEventListener("click", completeOrder);
+
+  $("heroPostcodeBtn")?.addEventListener("click", () => {
+    const result = calculateDelivery($("heroPostcode")?.value || "");
+    const resultEl = $("heroPostcodeResult");
+
+    if (resultEl) {
+      resultEl.textContent = result.message;
+      resultEl.className = result.ok
+        ? "mini-result form-note success"
+        : "mini-result form-note error";
+    }
+  });
+
+  $("wholesaleForm")?.addEventListener("submit", (event) =>
     handleEnquiry(event, "wholesale", "wholesaleNote")
   );
 
-  $("contactForm").addEventListener("submit", (event) =>
+  $("contactForm")?.addEventListener("submit", (event) =>
     handleEnquiry(event, "contact", "contactNote")
   );
 }
