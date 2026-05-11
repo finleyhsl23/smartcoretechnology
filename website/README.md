@@ -1,39 +1,18 @@
-# The Travelling Taverna | Greek Dehli
+# The Travelling Taverna | Greek Deli
 
-This is a full front-end demo for an ecommerce website with:
+This version uses Supabase for products, stock, settings, admin login, orders and enquiries.
 
-- Product shop
-- Basket
-- Delivery postcode check
-- Minimum order amount
-- Test checkout
-- Admin dashboard
-- Product add/edit/delete
-- Stock management
-- Test order management
-- Wholesale enquiry form demo
+Private order/enquiry details are encrypted in Supabase using PostgreSQL pgcrypto functions.
 
-## Demo admin login
+## Setup
 
-Open `admin.html`.
-
-Use any email and password for this demo.
+1. Run `supabase-schema.sql` in Supabase SQL Editor.
+2. Replace the encryption key before running the SQL.
+3. Create an admin user in Supabase Authentication.
+4. Add that user to `thetravellingtavernagreekdeli.admin_users` using the commented SQL at the bottom of the SQL file.
+5. Add your Supabase URL and anon key into `config.js`.
+6. Upload all files to Cloudflare Pages, Netlify or your hosting.
 
 ## Payment
 
-The payment is a fake Stripe-style test checkout.
-It does not collect card details and does not charge anything.
-When you click complete test payment, a test order is saved into the admin dashboard using browser localStorage.
-
-## Important
-
-This is a demo/static version.
-
-Before going live, connect:
-
-- Supabase database
-- Supabase Auth for admin login
-- Supabase Storage for product images
-- Stripe Checkout
-- Email sending for orders and wholesale forms
-- Proper postcode/distance API
+The checkout is still a fake Stripe-style test payment. It does not collect card details. It creates an encrypted test order in Supabase.
