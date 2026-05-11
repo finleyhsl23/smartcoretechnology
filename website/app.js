@@ -427,10 +427,7 @@ async function handleEnquiry(event, type, noteId) {
   const payload = Object.fromEntries(new FormData(event.target).entries());
   const note = $(noteId);
 
-  note.textContent = "Sending...";
-  note.className = "form-note";
-
-  const { data, error } = await db().rpc("create_enquiry", {
+  const { error } = await db().rpc("create_enquiry", {
     enquiry_type: type,
     payload
   });
@@ -442,41 +439,11 @@ async function handleEnquiry(event, type, noteId) {
     return;
   }
 
-  let emailSent = false;
-  let emailError = null;
-
-  try {
-    const { error: functionError } = await supabase.functions.invoke("send-enquiry-email", {
-      body: {
-        enquiryId: data.id,
-        type,
-        payload,
-        managementEmail: settings.management_email
-      }
-    });
-
-    if (functionError) throw functionError;
-    emailSent = true;
-  } catch (err) {
-    console.warn("Enquiry saved, but email failed.", err);
-    emailError = err?.message || "Email function failed.";
-  }
-
-  await db().rpc("mark_enquiry_email_status", {
-    enquiry_uuid: data.id,
-    sent: emailSent,
-    error_message: emailError
-  });
-
-  note.textContent = emailSent
-    ? "Thank you. This has been sent."
-    : "Thank you. Your enquiry has been saved, but the email needs checking.";
-
-  note.className = emailSent ? "form-note success" : "form-note error";
+  note.textContent = "Thank you. This has been sent.";
+  note.className = "form-note success";
 
   event.target.reset();
 }
-
 init().catch((error) => {
   console.error(error);
   alert("Website could not load. Check Supabase config, exposed schema and SQL setup.");
