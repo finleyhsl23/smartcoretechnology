@@ -159,16 +159,27 @@ function renderCategories() {
 
 function renderProducts() {
   const productGrid = $("productGrid");
-  if (!productGrid) return;
+
+  if (!productGrid) {
+    return;
+  }
 
   const searchInput = $("searchInput");
   const categoryFilter = $("categoryFilter");
 
-  const search = searchInput ? searchInput.value.toLowerCase() : "";
-  const category = categoryFilter ? categoryFilter.value : "all";
+  const search = searchInput
+    ? searchInput.value.toLowerCase()
+    : "";
+
+  const category = categoryFilter
+    ? categoryFilter.value
+    : "all";
 
   const filtered = products.filter((product) => {
-    const matchesCategory = category === "all" || product.category === category;
+    const matchesCategory =
+      category === "all" ||
+      product.category === category;
+
     const matchesSearch =
       product.name.toLowerCase().includes(search) ||
       product.description.toLowerCase().includes(search);
@@ -186,21 +197,44 @@ function renderProducts() {
       (product) => `
       <article class="product-card">
         <a class="product-image" href="product.html?id=${product.id}">
-          <img src="${product.image_url || ""}" alt="${product.name}" onerror="this.style.display='none'" />
+          <img
+            src="${product.image_url || ""}"
+            alt="${product.name}"
+            onerror="this.style.display='none'"
+          />
         </a>
 
         <div class="product-content">
           <p class="eyebrow">${product.category}</p>
-          <h3><a href="product.html?id=${product.id}">${product.name}</a></h3>
+
+          <h3>
+            <a href="product.html?id=${product.id}">
+              ${product.name}
+            </a>
+          </h3>
+
           <p>${product.description}</p>
 
           <div class="product-meta">
             <div>
-              <div class="price">${money(product.price)}</div>
-              <div class="stock">${product.stock > 0 ? `${product.stock} in stock` : "Out of stock"}</div>
+              <div class="price">
+                ${money(product.price)}
+              </div>
+
+              <div class="stock">
+                ${
+                  product.stock > 0
+                    ? `${product.stock} in stock`
+                    : "Out of stock"
+                }
+              </div>
             </div>
 
-            <button class="btn primary small" data-add="${product.id}" ${product.stock <= 0 ? "disabled" : ""}>
+            <button
+              class="btn primary small"
+              data-add="${product.id}"
+              ${product.stock <= 0 ? "disabled" : ""}
+            >
               Add
             </button>
           </div>
@@ -211,7 +245,9 @@ function renderProducts() {
     .join("");
 
   document.querySelectorAll("[data-add]").forEach((button) => {
-    button.addEventListener("click", () => addToBasket(button.dataset.add));
+    button.addEventListener("click", () => {
+      addToBasket(button.dataset.add);
+    });
   });
 }
 
