@@ -1,0 +1,1444 @@
+    const $ = (id) => document.getElementById(id);
+    const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
+
+    const state = {
+      user: null,
+      staff: null,
+      companies: [],
+      staffList: [],
+      transactions: [],
+      invoices: [],
+      events: [],
+      auditRows: [],
+      codeRows: [],
+      module: "dashboard",
+      calendarCursor: new Date(),
+      vaultUnlocked: false,
+      vaultTimer: null,
+      vaultItems: [],
+      currentCode: null
+    };
+
+    const modules = [
+      ["dashboard", "Dashboard", "Your profile and overview"],
+      ["customers", "Customer Portal Manager", "Companies and packages"],
+      ["finance", "Payments & Finance", "Admin only"],
+      ["vault", "Credentials Vault", "Admin only"],
+      ["calendar", "Calendar", "Shared calendar"],
+      ["staff", "Employee Management", "Admin only"],
+      ["audit", "Audit Logs", "Owner only"]
+    ];
+
+    function esc(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function money(value) {
+      return "£" + Number(value || 0).toFixed(2);
+    }
+
+    function num(value) {
+      const clean = String(value || "").replace(/[^0-9.]/g, "");
+      return clean ? Number(clean) : null;
+    }
+
+    function pad2(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    function dateToLocalIso(date) {
+      return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+    }
+
+    function todayIso() {
+      return dateToLocalIso(new Date());
+    }
+
+    function parseDateOnly(value) {
+      if (!value) return null;
+      if (value instanceof Date) return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+      const str = String(value);
+      const match = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+      const d = new Date(str);
+      return Number.isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    }
+
+    function formatDate(value) {
+      if (!value) return "";
+      const d = parseDateOnly(value);
+      if (!d) return String(value);
+      return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+    }
+
+    function formatDateTime(value) {
+      if (!value) return "";
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return String(value);
+      const date = `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+      const time = d.toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true }).replace(" ", "").toLowerCase();
+      return `${date} at ${time} BST`;
+    }
+
+    function addWorkingDays(date, days) {
+      const d = new Date(date);
+      let added = 0;
+      while (added < days) {
+        d.setDate(d.getDate() + 1);
+        const day = d.getDay();
+        if (day !== 0 && day !== 6) added++;
+      }
+      return d;
+    }
+
+    function employmentLabel(value) {
+      const v = String(value || "").toLowerCase();
+      if (v === "full_time" || v === "full time") return "Full Time";
+      if (v === "part_time" || v === "part time") return "Part Time";
+      if (v === "other") return "Other";
+      return value || "Not set";
+    }
+
+    function monthAddIso(startIso, offset) {
+      const d = parseDateOnly(startIso);
+      if (!d) return null;
+      const day = d.getDate();
+      const next = new Date(d.getFullYear(), d.getMonth() + offset, 1);
+      const maxDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+      next.setDate(Math.min(day, maxDay));
+      return dateToLocalIso(next);
+    }
+
+    function yearAddIso(startIso, offset) {
+      const d = parseDateOnly(startIso);
+      if (!d) return null;
+      const next = new Date(d.getFullYear() + offset, d.getMonth(), d.getDate());
+      return dateToLocalIso(next);
+    }
+
+    function isAdmin() {
+      return !!state.staff && (state.staff.is_admin === true || ["admin", "owner"].includes(String(state.staff.role || "").toLowerCase()));
+    }
+
+    function isOwner() {
+      return String(state.staff?.role || "").toLowerCase() === "owner";
+    }
+
+    function showFatal(title, message) {
+      $("content").innerHTML = `
+        <div class="fatal glass p-8">
+          <h1 class="text-3xl font-extrabold">${esc(title)}</h1>
+          <p class="mt-2 text-lg muted">${esc(message)}</p>
+          <div class="mt-6 flex gap-3 flex-wrap">
+            <button class="btn primary" onclick="location.reload()">Retry</button>
+            <button class="btn" onclick="location.href='/'">Back to website</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function openModal(title, subtitle, bodyHtml) {
+      $("modalTitle").textContent = title;
+      $("modalSub").textContent = subtitle || "";
+      $("modalBody").innerHTML = bodyHtml || "";
+      $("modal").classList.add("show");
+    }
+
+    function closeModal() {
+      $("modal").classList.remove("show");
+      $("modalBody").innerHTML = "";
+    }
+
+    window.closeModal = closeModal;
+
+    async function api(path, payload) {
+      const { data: { session } } = await sb.auth.getSession();
+      const headers = { "content-type": "application/json" };
+      if (session?.access_token) headers.authorization = "Bearer " + session.access_token;
+
+      const res = await fetch(path, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload || {})
+      });
+
+      const text = await res.text();
+      let data = null;
+      try { data = JSON.parse(text); } catch (_) { data = { raw: text }; }
+      if (!res.ok || data.ok === false) throw new Error(data.error || data.message || data.raw || "Request failed");
+      return data;
+    }
+
+    async function audit(action, targetTable, targetId, metadata) {
+      try {
+        await api("/api/audit-log", { action, target_table: targetTable, target_id: targetId, metadata: metadata || {} });
+      } catch (error) {
+        console.warn("Audit failed", error);
+      }
+    }
+
+    async function init() {
+      $("moduleNav").innerHTML = "";
+      $("content").innerHTML = `<div class="glass p-8"><div class="tag"><span class="dot"></span>Loading SmartCore HQ...</div></div>`;
+
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session?.user) {
+        showFatal("Not signed in", "Please sign in from the main SmartCore website first.");
+        return;
+      }
+
+      state.user = session.user;
+      const { data: staffData, error: staffError } = await sb.rpc("get_my_smartcore_staff");
+      const staff = Array.isArray(staffData) ? staffData[0] : staffData;
+
+      if (staffError) return showFatal("Staff check failed", staffError.message);
+      if (!staff) return showFatal("Staff check failed", "No SmartCore staff record found for this login.");
+      if (staff.active === false || staff.archived === true) {
+        await sb.auth.signOut();
+        return showFatal("Account disabled", "Your SmartCore staff account is not active.");
+      }
+
+      state.staff = staff;
+      $("who").innerHTML = `<span class="dot"></span>${esc(staff.full_name || session.user.email)}`;
+      await loadAll();
+      renderNav();
+      renderDashboard();
+      await audit("login", "smartcore_staff", staff.id, { page: "hq" });
+    }
+
+    async function loadAll() {
+      const requests = [
+        sb.from("companies").select("*").order("created_at", { ascending: false }),
+        sb.from("smartcore_staff").select("*").order("full_name", { ascending: true }),
+        sb.from("calendar_events").select("*").order("event_date", { ascending: true })
+      ];
+
+      if (isAdmin()) {
+        requests.push(
+          sb.from("payments_transactions").select("*").order("transaction_date", { ascending: false }),
+          sb.from("smartcore_invoices").select("*").order("created_at", { ascending: false }),
+          sb.from("smartcore_code_storage").select("*").order("updated_at", { ascending: false })
+        );
+      }
+
+      if (isOwner()) {
+        requests.push(sb.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(250));
+      }
+
+      const results = await Promise.allSettled(requests);
+      state.companies = results[0]?.status === "fulfilled" ? (results[0].value.data || []) : [];
+      state.staffList = results[1]?.status === "fulfilled" ? (results[1].value.data || []) : [];
+      state.events = results[2]?.status === "fulfilled" ? (results[2].value.data || []) : [];
+      state.transactions = isAdmin() && results[3]?.status === "fulfilled" ? (results[3].value.data || []) : [];
+      state.invoices = isAdmin() && results[4]?.status === "fulfilled" ? (results[4].value.data || []) : [];
+      state.codeRows = isAdmin() && results[5]?.status === "fulfilled" ? (results[5].value.data || []) : [];
+      state.auditRows = isOwner() ? (results[6]?.value?.data || []) : [];
+    }
+
+    function renderNav() {
+      const allowed = modules.filter((module) => {
+        const key = module[0];
+        if (["finance", "vault", "staff"].includes(key) && !isAdmin()) return false;
+        if (key === "audit" && !isOwner()) return false;
+        return true;
+      });
+
+      $("moduleNav").innerHTML = allowed.map((module) => `
+        <button class="navBtn ${state.module === module[0] ? "active" : ""}" data-module="${module[0]}">
+          <span><b>${esc(module[1])}</b><br><span class="text-xs muted">${esc(module[2])}</span></span>
+          <span class="muted">›</span>
+        </button>
+      `).join("");
+
+      document.querySelectorAll("[data-module]").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.module = button.dataset.module;
+          renderNav();
+          renderCurrentModule();
+        });
+      });
+    }
+
+    function renderCurrentModule() {
+      const renderers = {
+        dashboard: renderDashboard,
+        customers: renderCustomers,
+        finance: renderFinance,
+        vault: renderVault,
+        calendar: renderCalendar,
+        staff: renderStaff,
+        audit: renderAudit
+      };
+      (renderers[state.module] || renderDashboard)();
+    }
+
+    function shell(title, subtitle, actionsHtml, bodyHtml) {
+      $("content").innerHTML = `
+        <div class="glass p-6 sm:p-8">
+          <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
+            <div>
+              <div class="text-xs uppercase tracking-[0.2em] muted">Module</div>
+              <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight mt-2">${esc(title)}</h1>
+              <p class="mt-2 text-base muted">${esc(subtitle)}</p>
+            </div>
+            <div class="flex gap-2 flex-wrap">${actionsHtml || ""}</div>
+          </div>
+          <div class="mt-7">${bodyHtml || ""}</div>
+        </div>
+      `;
+    }
+
+    function companyWasAddedByMe(company) {
+      const staff = state.staff || {};
+      const ids = [company.added_by_staff_id, company.created_by_staff_id, company.staff_id, company.added_by, company.created_by, company.created_by_user_id]
+        .filter(Boolean).map(String);
+      const emails = [company.added_by_email, company.created_by_email]
+        .filter(Boolean).map((v) => String(v).toLowerCase());
+      return ids.includes(String(staff.id)) || ids.includes(String(state.user?.id)) || emails.includes(String(staff.work_email || staff.email || state.user?.email || "").toLowerCase());
+    }
+
+    function startOfCurrentWeek() {
+      const now = new Date();
+      const day = (now.getDay() + 6) % 7;
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day);
+      start.setHours(0, 0, 0, 0);
+      return start;
+    }
+
+    function renderDashboard() {
+      const staff = state.staff || {};
+      const joined = staff.created_at ? formatDate(staff.created_at) : "Not set";
+      const isPlainEmployee = !isAdmin() && !isOwner();
+
+      const employeeCustomers = state.companies.filter(companyWasAddedByMe);
+      const employeeCustomerIds = employeeCustomers.map((company) => String(company.id));
+      const weekStart = startOfCurrentWeek();
+
+      const personalRevenueThisWeek = state.transactions
+        .filter((tx) => tx.type === "incoming")
+        .filter((tx) => employeeCustomerIds.includes(String(tx.company_id)))
+        .filter((tx) => {
+          const d = parseDateOnly(tx.transaction_date);
+          return d && d >= weekStart;
+        })
+        .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+      const expenses = state.transactions.filter((tx) => tx.type === "outgoing").reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+      const income = state.transactions.filter((tx) => tx.type === "incoming").reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+      const profit = income - expenses;
+
+      const rightStatsHtml = isPlainEmployee
+        ? `
+          <div class="card p-6 stat-card">
+            <div class="text-sm muted">Customers You Have Gained</div>
+            <div class="text-5xl font-extrabold mt-2">${employeeCustomers.length}</div>
+          </div>
+          <div class="card p-6 stat-card">
+            <div class="text-sm muted">Company Wide Customers</div>
+            <div class="text-5xl font-extrabold mt-2">${state.companies.length}</div>
+          </div>
+          <div class="card p-6 stat-card">
+            <div>
+              <div class="text-sm muted">Money Earnt For The Company This Week</div>
+              <div class="text-xs muted2 mt-2">This is company revenue from customers you added. This is not personal pay.</div>
+            </div>
+            <div class="text-5xl font-extrabold mt-2">${money(personalRevenueThisWeek)}</div>
+          </div>
+        `
+        : `
+          <div class="card p-6 stat-card"><div class="text-sm muted">Customers</div><div class="text-5xl font-extrabold mt-2">${state.companies.length}</div></div>
+          <div class="card p-6 stat-card"><div class="text-sm muted">Expenses</div><div class="text-5xl font-extrabold mt-2">${money(expenses)}</div></div>
+          <div class="card p-6 stat-card"><div class="text-sm muted">Profit</div><div class="text-5xl font-extrabold mt-2">${money(profit)}</div></div>
+        `;
+
+      shell(
+        "Dashboard",
+        "Your SmartCore profile and live HQ overview.",
+        `<button class="btn primary" onclick="openMyProfile()">Edit My Profile</button>`,
+        `
+          <div class="grid grid-cols-1 xl:grid-cols-[1.1fr_.9fr] gap-5">
+            <div class="card p-6">
+              <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                <div>
+                  <div class="text-sm muted">Signed in as</div>
+                  <h2 class="text-4xl font-extrabold mt-2">${esc(staff.full_name || state.user.email)}</h2>
+                  <p class="muted mt-2">${esc(staff.job_title || "Job title not set")}</p>
+                </div>
+                <span class="tag"><span class="dot"></span>${esc(String(staff.role || "employee").toUpperCase())}</span>
+              </div>
+              <div class="grid sm:grid-cols-2 gap-3 mt-8">
+                <div class="card p-4"><div class="text-xs muted">Work Email</div><b>${esc(staff.work_email || staff.email || "Not set")}</b></div>
+                <div class="card p-4"><div class="text-xs muted">Employment Type</div><b>${esc(employmentLabel(staff.employment_type))}</b></div>
+                <div class="card p-4"><div class="text-xs muted">Personal Phone</div><b>${esc(staff.personal_phone || "Not set")}</b></div>
+                <div class="card p-4"><div class="text-xs muted">Joined</div><b>${esc(joined)}</b></div>
+              </div>
+            </div>
+            <div class="grid sm:grid-cols-3 xl:grid-cols-1 gap-4">${rightStatsHtml}</div>
+          </div>
+        `
+      );
+    }
+
+    function renderCustomers() {
+      shell(
+        "Customer Portal Manager",
+        "Add and manage customer records, packages and code storage.",
+        `<button class="btn primary" onclick="openCompanyForm()">+ Add New Company</button>`,
+        `
+          <div class="grid md:grid-cols-[1fr_auto] gap-3">
+            <input id="companySearch" class="inp" placeholder="Search customers..." />
+            <span class="tag">${state.companies.length} customers</span>
+          </div>
+          <div class="mt-5 overflow-auto">
+            <table>
+              <thead><tr><th>Company</th><th>Added By</th><th>Contact</th><th>Email</th><th>Phone</th><th>Packages</th><th>Actions</th></tr></thead>
+              <tbody id="companyRows"></tbody>
+            </table>
+          </div>
+        `
+      );
+      $("companySearch").addEventListener("input", drawCompanies);
+      drawCompanies();
+    }
+
+    function drawCompanies() {
+      const q = ($("companySearch")?.value || "").toLowerCase();
+      const rows = state.companies.filter((company) => !q || JSON.stringify(company).toLowerCase().includes(q));
+      $("companyRows").innerHTML = rows.map((company) => `
+        <tr>
+          <td><b>${esc(company.company_name)}</b><br><span class="text-xs muted">${esc(company.website || "")}</span></td>
+          <td>${esc(company.added_by_name || company.created_by_name || "Not logged")}</td>
+          <td>${esc(company.primary_contact_name || "")}</td>
+          <td>${esc(company.primary_contact_email || "")}</td>
+          <td>${esc(company.primary_contact_phone || "")}</td>
+          <td>${Array.isArray(company.packages) ? company.packages.length : 0}</td>
+          <td><div class="flex gap-2 flex-wrap"><button class="btn" onclick="openCompanyForm('${company.id}')">Edit</button><button class="btn danger" onclick="deleteCompany('${company.id}')">Delete</button></div></td>
+        </tr>
+      `).join("") || `<tr><td colspan="7" class="muted">No customers found.</td></tr>`;
+    }
+
+    function defaultWorkingHours(hours) {
+      return hours || {
+        monday: { open: true, start: "09:00", end: "17:00" },
+        tuesday: { open: true, start: "09:00", end: "17:00" },
+        wednesday: { open: true, start: "09:00", end: "17:00" },
+        thursday: { open: true, start: "09:00", end: "17:00" },
+        friday: { open: true, start: "09:00", end: "17:00" },
+        saturday: { open: false, start: "", end: "" },
+        sunday: { open: false, start: "", end: "" }
+      };
+    }
+
+    function workingHoursEditor(hours) {
+      const data = defaultWorkingHours(hours);
+      const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+      return days.map((day) => `
+        <div class="card p-3 grid grid-cols-[130px_80px_1fr_1fr] gap-2 items-center" data-hour-day="${day}">
+          <b class="capitalize">${day}</b>
+          <label class="text-sm muted flex gap-2 items-center"><input class="hoursOpen" type="checkbox" ${data[day]?.open ? "checked" : ""} /> Open</label>
+          <input class="inp hoursStart" type="time" value="${esc(data[day]?.start || "")}" />
+          <input class="inp hoursEnd" type="time" value="${esc(data[day]?.end || "")}" />
+        </div>
+      `).join("");
+    }
+
+    function collectWorkingHours() {
+      const output = {};
+      document.querySelectorAll("[data-hour-day]").forEach((row) => {
+        const day = row.dataset.hourDay;
+        output[day] = {
+          open: row.querySelector(".hoursOpen").checked,
+          start: row.querySelector(".hoursStart").value,
+          end: row.querySelector(".hoursEnd").value
+        };
+      });
+      return output;
+    }
+
+    function packageEditor(packages) {
+      return `<div id="packagesBox" class="space-y-3">${(packages || []).map((pkg, index) => packageCard(pkg, index)).join("")}</div><button class="btn primary mt-3" onclick="addPackageCard()">+ Add Package</button>`;
+    }
+
+    function packageCard(pkg, index) {
+      const staffNames = (pkg.developers || []).map((name) => esc(name)).join(", ");
+      const codeStorage = pkg.code_storage || { folders: [], files: [] };
+      return `
+        <div class="card p-4 package-card" data-package-index="${index}">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div><label class="label">Package Name</label><input class="inp pkg-name" value="${esc(pkg.name || "")}" placeholder="Holiday Management System" /></div>
+            <div><label class="label">Package Type</label><select class="inp pkg-type"><option value="website" ${pkg.package_type === "website" ? "selected" : ""}>Website</option><option value="system" ${pkg.package_type === "system" ? "selected" : ""}>System</option><option value="other" ${pkg.package_type === "other" ? "selected" : ""}>Other</option></select></div>
+            <div><label class="label">Lead Developer</label><input class="inp pkg-lead" value="${esc(pkg.lead_developer || "")}" placeholder="Start typing a staff name" list="staffNamesList" /></div>
+            <div><label class="label">Developers</label><input class="inp pkg-developers" value="${staffNames}" placeholder="Start typing names separated by commas" list="staffNamesList" /></div>
+            <div class="md:col-span-2"><button type="button" class="btn" onclick="openCodeStorage(this)">Open Code Storage</button><textarea class="hidden pkg-code-storage">${esc(JSON.stringify(codeStorage, null, 2))}</textarea></div>
+            <div><label class="label">Monthly Fee</label><input class="inp pkg-monthly" value="${esc(pkg.monthly_fee || "")}" placeholder="£0.00" /></div>
+            <div><label class="label">Monthly First Payment Date</label><input class="inp pkg-monthly-date" type="date" value="${esc(pkg.monthly_first_payment_date || "")}" /></div>
+            <div><label class="label">Yearly Fee</label><input class="inp pkg-yearly" value="${esc(pkg.yearly_fee || "")}" placeholder="£0.00" /></div>
+            <div><label class="label">Yearly First Payment Date</label><input class="inp pkg-yearly-date" type="date" value="${esc(pkg.yearly_first_payment_date || "")}" /></div>
+            <div><label class="label">One Time Fee</label><input class="inp pkg-one-time" value="${esc(pkg.one_time_fee || "")}" placeholder="£0.00" /></div>
+            <div><label class="label">One Time Payment Date</label><input class="inp pkg-one-time-date" type="date" value="${esc(pkg.one_time_payment_date || "")}" /></div>
+          </div>
+          <button class="btn danger mt-4" onclick="this.closest('.package-card').remove()">Remove Package</button>
+        </div>
+      `;
+    }
+
+    window.addPackageCard = function addPackageCard() {
+      $("packagesBox").insertAdjacentHTML("beforeend", packageCard({}, Date.now()));
+    };
+
+    function collectPackages() {
+      return Array.from(document.querySelectorAll(".package-card")).map((card) => {
+        let codeStorage = { folders: [], files: [] };
+        try { codeStorage = JSON.parse(card.querySelector(".pkg-code-storage").value || "{}"); } catch (_) {}
+        return {
+          name: card.querySelector(".pkg-name").value.trim(),
+          package_type: card.querySelector(".pkg-type").value,
+          lead_developer: card.querySelector(".pkg-lead").value.trim() || null,
+          developers: card.querySelector(".pkg-developers").value.split(",").map((name) => name.trim()).filter(Boolean).slice(0, 50),
+          code_storage: codeStorage,
+          monthly_fee: num(card.querySelector(".pkg-monthly").value),
+          monthly_first_payment_date: card.querySelector(".pkg-monthly-date").value || null,
+          yearly_fee: num(card.querySelector(".pkg-yearly").value),
+          yearly_first_payment_date: card.querySelector(".pkg-yearly-date").value || null,
+          one_time_fee: num(card.querySelector(".pkg-one-time").value),
+          one_time_payment_date: card.querySelector(".pkg-one-time-date").value || null
+        };
+      }).filter((pkg) => pkg.name);
+    }
+
+    window.openCompanyForm = function openCompanyForm(id) {
+      const company = id ? state.companies.find((item) => item.id === id) : {};
+      const staffOptions = state.staffList.map((person) => `<option value="${esc(person.full_name || person.work_email || person.email || "")}"></option>`).join("");
+      openModal(
+        id ? "Edit Company" : "Add New Company",
+        "Customer details, working hours, packages and code storage.",
+        `
+          <datalist id="staffNamesList">${staffOptions}</datalist>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div><label class="label">Company Name *</label><input id="fCompany" class="inp" value="${esc(company?.company_name || "")}" /></div>
+            <div><label class="label">Approx Staff Count</label><input id="fStaff" class="inp" type="number" value="${esc(company?.approx_staff_count || "")}" /></div>
+            <div><label class="label">Website</label><input id="fWebsite" class="inp" value="${esc(company?.website || "")}" /></div>
+            <div><label class="label">Address</label><input id="fAddress" class="inp" value="${esc(company?.address || "")}" /></div>
+            <div class="md:col-span-2"><label class="label">Working Hours</label><div class="space-y-2">${workingHoursEditor(company?.working_hours)}</div></div>
+            <div class="md:col-span-2"><label class="label">Notes</label><textarea id="fNotes" class="inp">${esc(company?.notes || "")}</textarea></div>
+            <div><label class="label">Primary Contact Name *</label><input id="fContact" class="inp" value="${esc(company?.primary_contact_name || "")}" /></div>
+            <div><label class="label">Primary Contact Email</label><input id="fContactEmail" class="inp" value="${esc(company?.primary_contact_email || "")}" /></div>
+            <div><label class="label">Primary Contact Phone</label><input id="fContactPhone" class="inp" value="${esc(company?.primary_contact_phone || "")}" /></div>
+            <div><label class="label">Accounts Team Email</label><input id="fAccounts" class="inp" value="${esc(company?.accounts_team_email || "")}" /></div>
+            <div><label class="label">Support Team Email</label><input id="fSupport" class="inp" value="${esc(company?.support_team_email || "")}" /></div>
+          </div>
+          <h3 class="text-2xl font-extrabold mt-7">SmartCore Packages</h3>
+          <div class="mt-3">${packageEditor(company?.packages || [])}</div>
+          <button class="btn primary mt-6 w-full" onclick="saveCompany('${id || ""}')">Save Company</button>
+        `
+      );
+    };
+
+    window.saveCompany = async function saveCompany(id) {
+      const payload = {
+        company_name: $("fCompany").value.trim(),
+        approx_staff_count: num($("fStaff").value),
+        website: $("fWebsite").value.trim() || null,
+        address: $("fAddress").value.trim() || null,
+        working_hours: collectWorkingHours(),
+        notes: $("fNotes").value.trim() || null,
+        primary_contact_name: $("fContact").value.trim(),
+        primary_contact_email: $("fContactEmail").value.trim() || null,
+        primary_contact_phone: $("fContactPhone").value.trim() || null,
+        accounts_team_email: $("fAccounts").value.trim() || null,
+        support_team_email: $("fSupport").value.trim() || null,
+        packages: collectPackages()
+      };
+
+      if (!payload.company_name || !payload.primary_contact_name) return alert("Company name and primary contact name are required.");
+
+      const creatorFields = id ? {} : {
+        added_by: state.user?.id || null,
+        added_by_staff_id: state.staff?.id || null,
+        added_by_name: state.staff?.full_name || state.user?.email || null,
+        added_by_email: state.staff?.work_email || state.staff?.email || state.user?.email || null,
+        added_at: new Date().toISOString(),
+        created_by: state.user?.id || null,
+        created_by_staff_id: state.staff?.id || null,
+        created_by_name: state.staff?.full_name || state.user?.email || null,
+        created_by_email: state.staff?.work_email || state.staff?.email || state.user?.email || null
+      };
+
+      let result = id
+        ? await sb.from("companies").update(payload).eq("id", id).select("id").maybeSingle()
+        : await sb.from("companies").insert({ ...payload, ...creatorFields }).select("id").single();
+
+      if (result.error && /added_by|created_by|added_at|created_by_staff_id|added_by_staff_id/i.test(result.error.message || "")) {
+        result = id
+          ? await sb.from("companies").update(payload).eq("id", id).select("id").maybeSingle()
+          : await sb.from("companies").insert(payload).select("id").single();
+      }
+
+      if (result.error) return alert(result.error.message);
+
+      const companyId = id || result.data?.id;
+      await syncPackagePaymentEvents(companyId, payload.company_name, payload.packages);
+      await audit(id ? "update_company" : "add_company", "companies", companyId || payload.company_name, payload);
+      closeModal();
+      await loadAll();
+      renderCustomers();
+    };
+
+    async function syncPackagePaymentEvents(companyId, companyName, packages) {
+      if (!companyId) return;
+      const events = [];
+      for (const pkg of packages || []) {
+        if (pkg.one_time_fee && pkg.one_time_payment_date) {
+          events.push(packagePaymentEvent(companyId, companyName, pkg, "one_time", pkg.one_time_payment_date, pkg.one_time_fee));
+        }
+        if (pkg.monthly_fee && pkg.monthly_first_payment_date) {
+          for (let i = 0; i < 24; i++) events.push(packagePaymentEvent(companyId, companyName, pkg, "monthly", monthAddIso(pkg.monthly_first_payment_date, i), pkg.monthly_fee));
+        }
+        if (pkg.yearly_fee && pkg.yearly_first_payment_date) {
+          for (let i = 0; i < 5; i++) events.push(packagePaymentEvent(companyId, companyName, pkg, "yearly", yearAddIso(pkg.yearly_first_payment_date, i), pkg.yearly_fee));
+        }
+      }
+      for (const event of events.filter((item) => item.event_date)) await addCalendarEventSafe(event);
+    }
+
+    function packagePaymentEvent(companyId, companyName, pkg, frequency, date, amount) {
+      const label = frequency === "one_time" ? "One Time" : frequency === "monthly" ? "Monthly" : "Yearly";
+      return {
+        title: `${label} payment due - ${companyName} - ${pkg.name}`,
+        event_date: date,
+        all_day: true,
+        start_time: null,
+        end_time: null,
+        event_type: "payment_due",
+        recurrence: frequency,
+        company_id: companyId,
+        package_name: pkg.name,
+        amount: Number(amount || 0),
+        description: `${label} payment due for ${pkg.name}. Amount: ${money(amount)}.`,
+        created_by: state.user?.id || null
+      };
+    }
+
+    async function addCalendarEventSafe(payload) {
+      const base = { ...payload };
+      let result = await sb.from("calendar_events").insert(base);
+      if (result.error && /company_id|package_name|amount/i.test(result.error.message || "")) {
+        const fallback = { ...base };
+        delete fallback.company_id;
+        delete fallback.package_name;
+        delete fallback.amount;
+        result = await sb.from("calendar_events").insert(fallback);
+      }
+      if (result.error) console.warn("Calendar event failed", result.error.message);
+      return result;
+    }
+
+    window.deleteCompany = async function deleteCompany(id) {
+      if (!confirm("Delete this company?")) return;
+      const { error } = await sb.from("companies").delete().eq("id", id);
+      if (error) return alert(error.message);
+      await audit("delete_company", "companies", id, {});
+      await loadAll();
+      renderCustomers();
+    };
+
+    function companyName(id) {
+      return state.companies.find((company) => String(company.id) === String(id))?.company_name || "Global Expense";
+    }
+
+    function renderFinance() {
+      if (!isAdmin()) return renderDashboard();
+      shell(
+        "Payments & Finance",
+        "Track transactions, invoices, income, expenses and profit.",
+        `<button class="btn" onclick="exportTransactionsCsv()">Export CSV</button><button class="btn primary" onclick="openTransactionForm()">+ Add Transaction</button><button class="btn primary" onclick="openInvoiceBuilder()">Generate Invoice</button>`,
+        `
+          <div class="grid lg:grid-cols-3 gap-3">
+            <select id="yearFilter" class="inp"><option value="all">All time</option>${Array.from(new Set(state.transactions.map((tx) => parseDateOnly(tx.transaction_date)?.getFullYear()).filter(Boolean))).sort((a,b)=>b-a).map((year)=>`<option value="${year}">${year}</option>`).join("")}</select>
+            <select id="typeFilter" class="inp"><option value="all">All</option><option value="incoming">Incoming</option><option value="outgoing">Outgoing</option></select>
+            <input id="financeCompanyFilter" class="inp" placeholder="Search company / global" />
+          </div>
+          <div class="mt-5 grid xl:grid-cols-[1fr_1fr] gap-5">
+            <div class="card p-5">
+              <h3 class="text-2xl font-extrabold">Transactions</h3>
+              <div id="financeSummary" class="grid sm:grid-cols-3 gap-3 mt-4"></div>
+              <div id="transactionRows" class="space-y-3 mt-5"></div>
+            </div>
+            <div class="card p-5">
+              <div class="flex items-center justify-between gap-3 flex-wrap">
+                <h3 class="text-2xl font-extrabold">Saved Invoices</h3>
+                <span id="invoiceCount" class="muted text-sm"></span>
+              </div>
+              <div class="grid sm:grid-cols-2 gap-3 mt-4">
+                <input id="invoiceSearch" class="inp" placeholder="Search by customer or invoice" />
+                <input id="invoiceDateFilter" class="inp" type="date" />
+              </div>
+              <div id="invoiceRows" class="mt-4 space-y-3"></div>
+            </div>
+          </div>
+        `
+      );
+      ["yearFilter", "typeFilter", "financeCompanyFilter"].forEach((id) => $(id).addEventListener("input", drawFinance));
+      ["invoiceSearch", "invoiceDateFilter"].forEach((id) => $(id).addEventListener("input", drawInvoices));
+      drawFinance();
+      drawInvoices();
+    }
+
+    function filteredTransactions() {
+      const year = $("yearFilter")?.value || "all";
+      const type = $("typeFilter")?.value || "all";
+      const q = ($("financeCompanyFilter")?.value || "").toLowerCase();
+      return state.transactions.filter((tx) => {
+        const d = parseDateOnly(tx.transaction_date);
+        const matchesYear = year === "all" || String(d?.getFullYear()) === String(year);
+        const matchesType = type === "all" || tx.type === type;
+        const matchesCompany = !q || companyName(tx.company_id).toLowerCase().includes(q) || String(tx.company_label || "").toLowerCase().includes(q) || String(tx.description || "").toLowerCase().includes(q);
+        return matchesYear && matchesType && matchesCompany;
+      });
+    }
+
+    function drawFinance() {
+      const rows = filteredTransactions();
+      const income = rows.filter((tx) => tx.type === "incoming").reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+      const expenses = rows.filter((tx) => tx.type === "outgoing").reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+      $("financeSummary").innerHTML = `
+        <div class="card p-4"><div class="text-sm muted">Income</div><b class="text-2xl">${money(income)}</b></div>
+        <div class="card p-4"><div class="text-sm muted">Expenses</div><b class="text-2xl">${money(expenses)}</b></div>
+        <div class="card p-4"><div class="text-sm muted">Profit</div><b class="text-2xl">${money(income - expenses)}</b></div>
+      `;
+      $("transactionRows").innerHTML = rows.map((tx) => `
+        <div class="card p-4">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <span class="tag">${esc(tx.type)}</span>
+              <div class="font-extrabold mt-2">${esc(companyName(tx.company_id) || tx.company_label || "Global Expense")}</div>
+              <div class="text-sm muted">${esc(formatDate(tx.transaction_date))} • ${esc(tx.description || "")}</div>
+            </div>
+            <div class="text-right"><div class="text-2xl font-extrabold">${money(tx.amount)}</div><div class="mt-2 flex gap-2"><button class="btn" onclick="openTransactionForm('${tx.id}')">Edit</button><button class="btn danger" onclick="deleteTransaction('${tx.id}')">Delete</button></div></div>
+          </div>
+        </div>
+      `).join("") || `<p class="muted">No transactions found.</p>`;
+    }
+
+    function drawInvoices() {
+      const q = ($("invoiceSearch")?.value || "").toLowerCase();
+      const date = $("invoiceDateFilter")?.value || "";
+      const invoices = (state.invoices || []).filter((invoice) => {
+        const textMatch = !q || String(invoice.company_name || companyName(invoice.company_id) || "").toLowerCase().includes(q) || String(invoice.invoice_number || "").toLowerCase().includes(q);
+        const dateMatch = !date || invoice.invoice_date === date;
+        return textMatch && dateMatch;
+      });
+      if ($("invoiceCount")) $("invoiceCount").textContent = `${invoices.length} saved`;
+      if (!$("invoiceRows")) return;
+      $("invoiceRows").innerHTML = invoices.map((invoice) => `
+        <div class="card p-4">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <div class="font-extrabold">${esc(invoice.invoice_number || invoice.id)}</div>
+              <div class="text-sm muted mt-1">${esc(companyName(invoice.company_id) || invoice.company_name || "Unknown company")} • ${esc(formatDate(invoice.invoice_date || invoice.created_at))}</div>
+              <div class="text-sm muted mt-1">Due: ${esc(formatDate(invoice.due_date))}</div>
+            </div>
+            <div class="text-right">
+              <div class="text-xl font-extrabold">${money(invoice.total_amount || invoice.total || 0)}</div>
+              <button class="btn mt-2" onclick="viewInvoice('${invoice.id}')">View PDF</button>
+            </div>
+          </div>
+        </div>
+      `).join("") || `<p class="muted">No invoices found.</p>`;
+    }
+
+    window.openTransactionForm = function openTransactionForm(id) {
+      const tx = id ? state.transactions.find((item) => String(item.id) === String(id)) : {};
+      openModal(
+        id ? "Edit Transaction" : "Add Transaction",
+        "Incoming or outgoing payment.",
+        `
+          <div class="grid md:grid-cols-2 gap-3">
+            <div><label class="label">Type</label><select id="txType" class="inp"><option value="incoming">Incoming</option><option value="outgoing">Outgoing</option></select></div>
+            <div><label class="label">Company</label><select id="txCompany" class="inp"><option value="">Global Expense</option>${state.companies.map((company) => `<option value="${company.id}">${esc(company.company_name)}</option>`).join("")}</select></div>
+            <div><label class="label">Amount GBP</label><input id="txAmount" class="inp" inputmode="decimal" value="${esc(tx.amount || "")}" /></div>
+            <div><label class="label">Date</label><input id="txDate" class="inp" type="date" value="${esc(tx.transaction_date || todayIso())}" /></div>
+            <div class="md:col-span-2"><label class="label">Description</label><textarea id="txDesc" class="inp">${esc(tx.description || "")}</textarea></div>
+          </div>
+          <button class="btn primary mt-5 w-full" onclick="saveTransaction('${id || ""}')">Save Transaction</button>
+        `
+      );
+      $("txType").value = tx.type || "incoming";
+      $("txCompany").value = tx.company_id || "";
+    };
+
+    window.saveTransaction = async function saveTransaction(id) {
+      const companyId = $("txCompany").value || null;
+      const payload = {
+        type: $("txType").value,
+        company_id: companyId,
+        company_label: companyId ? null : "Global Expense",
+        amount: num($("txAmount").value),
+        transaction_date: $("txDate").value,
+        description: $("txDesc").value.trim() || null,
+        created_by: state.user?.id || null
+      };
+      if (!payload.amount || !payload.transaction_date) return alert("Amount and date are required.");
+      const result = id ? await sb.from("payments_transactions").update(payload).eq("id", id) : await sb.from("payments_transactions").insert(payload);
+      if (result.error) return alert(result.error.message);
+      await audit(id ? "update_transaction" : "add_transaction", "payments_transactions", id || payload.description, payload);
+      closeModal();
+      await loadAll();
+      renderFinance();
+    };
+
+    window.deleteTransaction = async function deleteTransaction(id) {
+      if (!confirm("Delete this transaction?")) return;
+      const { error } = await sb.from("payments_transactions").delete().eq("id", id);
+      if (error) return alert(error.message);
+      await audit("delete_transaction", "payments_transactions", id, {});
+      await loadAll();
+      renderFinance();
+    };
+
+    window.exportTransactionsCsv = function exportTransactionsCsv() {
+      const rows = filteredTransactions();
+      const csv = "Type,Company,Amount,Date,Description\n" + rows.map((tx) => [tx.type, companyName(tx.company_id) || tx.company_label, tx.amount, tx.transaction_date, tx.description].map((v) => `"${String(v ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      a.download = "smartcore-finance.csv";
+      a.click();
+    };
+
+    window.openInvoiceBuilder = function openInvoiceBuilder() {
+      openModal(
+        "Generate Invoice",
+        "Create a SmartCore styled invoice from customer packages.",
+        `
+          <div class="grid md:grid-cols-2 gap-3">
+            <div><label class="label">Company</label><select id="invCompany" class="inp" onchange="invoiceCompanyChanged()"><option value="">Select company</option>${state.companies.map((company) => `<option value="${company.id}">${esc(company.company_name)}</option>`).join("")}</select></div>
+            <div><label class="label">Tax Percentage</label><input id="invTax" class="inp" inputmode="decimal" value="0" /></div>
+            <div class="md:col-span-2"><label class="label">Billing Address</label><textarea id="invAddress" class="inp"></textarea></div>
+          </div>
+          <div class="flex justify-between items-center gap-3 mt-6"><h3 class="text-xl font-extrabold">Packages</h3><button class="btn" onclick="addInvoiceLine()">+ Add Package</button></div>
+          <div id="invoiceLines" class="mt-3 space-y-3"></div>
+          <button class="btn primary mt-6 w-full" onclick="generateInvoiceHtml()">Generate Invoice</button>
+        `
+      );
+    };
+
+    window.invoiceCompanyChanged = function invoiceCompanyChanged() {
+      const company = state.companies.find((item) => item.id === $("invCompany").value);
+      $("invAddress").value = company?.address || "";
+      $("invoiceLines").innerHTML = "";
+    };
+
+    window.addInvoiceLine = function addInvoiceLine() {
+      const company = state.companies.find((item) => item.id === $("invCompany").value);
+      if (!company) return alert("Select a company first.");
+      const packages = company.packages || [];
+      $("invoiceLines").insertAdjacentHTML("beforeend", `
+        <div class="card p-4 invoice-line">
+          <div class="grid md:grid-cols-[1fr_120px_160px_auto] gap-3 items-end">
+            <div><label class="label">Package</label><select class="inp inv-package" onchange="invoicePackageChanged(this)">${packages.map((pkg, index) => `<option value="${index}">${esc(pkg.name)}</option>`).join("")}</select></div>
+            <div><label class="label">Qty</label><input class="inp inv-qty" inputmode="numeric" value="1" /></div>
+            <div><label class="label">Price</label><input class="inp inv-price" inputmode="decimal" /></div>
+            <button class="btn danger" onclick="this.closest('.invoice-line').remove()">Remove</button>
+          </div>
+        </div>
+      `);
+      const line = $("invoiceLines").lastElementChild;
+      invoicePackageChanged(line.querySelector(".inv-package"));
+    };
+
+    window.invoicePackageChanged = function invoicePackageChanged(select) {
+      const company = state.companies.find((item) => item.id === $("invCompany").value);
+      const pkg = company?.packages?.[Number(select.value)] || {};
+      const row = select.closest(".invoice-line");
+      const price = pkg.one_time_fee || pkg.yearly_fee || pkg.monthly_fee || 0;
+      row.querySelector(".inv-price").value = price;
+    };
+
+    function collectInvoiceData() {
+      const company = state.companies.find((item) => item.id === $("invCompany").value);
+      if (!company) throw new Error("Select a company first.");
+      const lines = Array.from(document.querySelectorAll(".invoice-line")).map((row) => {
+        const pkg = company.packages?.[Number(row.querySelector(".inv-package").value)] || {};
+        const qty = Number(row.querySelector(".inv-qty").value || 1);
+        const price = num(row.querySelector(".inv-price").value) || 0;
+        return { description: pkg.name || "Package", qty, price, total: qty * price };
+      });
+      if (!lines.length) throw new Error("Add at least one package.");
+      const subtotal = lines.reduce((sum, line) => sum + line.total, 0);
+      const taxPercent = Number($("invTax").value || 0);
+      const tax = subtotal * (taxPercent / 100);
+      const total = subtotal + tax;
+      const invoiceNo = `SC-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+      const invoiceDate = new Date();
+      const dueDate = addWorkingDays(invoiceDate, 3);
+      return { company, lines, subtotal, taxPercent, tax, total, invoiceNo, invoiceDate, dueDate, billingAddress: $("invAddress").value || company.address || "" };
+    }
+
+    window.generateInvoiceHtml = function generateInvoiceHtml() {
+      let data;
+      try { data = collectInvoiceData(); } catch (error) { alert(error.message); return; }
+      const invoiceHtml = buildInvoiceHtml(data);
+      window.__lastInvoiceData = { ...data, invoiceHtml };
+      openModal("Invoice Preview", "Print, save as PDF, and store the invoice in SmartCore.", `
+        <div class="flex gap-2 mb-4 flex-wrap"><button class="btn primary" onclick="printInvoice()">Print / Save PDF</button><button class="btn" onclick="saveInvoiceRecord()">Save Invoice Record</button></div>
+        <div id="invoicePreview" class="invoice-preview-wrap">${invoiceHtml}</div>
+      `);
+    };
+
+    function buildInvoiceHtml(data) {
+      return `
+        <div style="background:white;color:#0b1020;font-family:Inter,Arial,sans-serif;padding:0;max-width:1000px;margin:auto;">
+          <div style="display:flex;min-height:210px;">
+            <div style="background:linear-gradient(135deg,#5eead4,#0057c2);color:white;width:58%;padding:42px 70px;clip-path:polygon(0 0,100% 0,86% 100%,0 100%);">
+              <div style="font-size:38px;font-weight:900;letter-spacing:.04em;">SC</div><div style="font-size:24px;font-weight:800;">SmartCore Technology</div><div style="margin-top:10px;font-size:16px;">support@smartcoretechnology.co.uk</div><div style="font-size:16px;">www.smartcoretechnology.co.uk</div>
+            </div>
+            <div style="flex:1;padding:60px 60px 0;text-align:right;"><div style="font-size:62px;font-weight:900;color:#149bd7;">Invoice</div></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;padding:45px 90px;">
+            <div><div>Billed To:</div><div style="font-size:22px;font-weight:900;margin-top:6px;">${esc(data.company.company_name)}</div><div style="white-space:pre-line;margin-top:6px;">${esc(data.billingAddress)}</div></div>
+            <div style="font-size:18px;line-height:1.9;"><div><b>Invoice No:</b> ${data.invoiceNo}</div><div><b>Invoice Date:</b> ${formatDate(data.invoiceDate)}</div><div><b>Due Date:</b> ${formatDate(data.dueDate)}</div></div>
+          </div>
+          <div style="padding:0 90px;"><div style="background:linear-gradient(90deg,#5eead4,#0057c2);color:white;width:440px;padding:16px 30px;font-size:24px;font-weight:900;display:flex;justify-content:space-between;"><span>Total Due:</span><span>${money(data.total)}</span></div></div>
+          <div style="padding:65px 90px 30px;"><table style="width:100%;border-collapse:collapse;font-size:18px;"><thead><tr style="border-bottom:4px solid #0057c2;"><th style="text-align:left;padding:12px;">Description</th><th style="padding:12px;">Qty</th><th style="padding:12px;">Price</th><th style="padding:12px;">Total</th></tr></thead><tbody>${data.lines.map((line) => `<tr><td style="padding:22px 12px;font-weight:800;">${esc(line.description)}</td><td style="padding:22px 12px;text-align:center;">${line.qty}</td><td style="padding:22px 12px;text-align:center;">${money(line.price)}</td><td style="padding:22px 12px;text-align:center;">${money(line.total)}</td></tr>`).join("")}</tbody></table></div>
+          <div style="padding:80px 90px 40px;display:grid;grid-template-columns:1fr 1fr;gap:70px;">
+            <div><h2>Payment Method:</h2><div>Account No: 12635966</div><div>Sort Code: 11-00-46</div><div>Account Name: Finley Hassall</div><div style="margin-top:60px;">+44 7407 494423</div><div>support@smartcoretechnology.co.uk</div><div>www.smartcoretechnology.co.uk</div></div>
+            <div><div style="font-size:22px;line-height:1.8;"><b>Subtotal:</b> <span style="float:right;">${money(data.subtotal)}</span></div><div style="font-size:22px;line-height:1.8;"><b>Tax (${data.taxPercent}%):</b> <span style="float:right;">${money(data.tax)}</span></div><div style="margin-top:20px;background:linear-gradient(90deg,#5eead4,#0057c2);color:white;padding:18px 30px;font-size:24px;font-weight:900;display:flex;justify-content:space-between;"><span>Total Amount:</span><span>${money(data.total)}</span></div><h2 style="margin-top:70px;">Terms and Conditions:</h2><p style="font-size:14px;line-height:1.45;">Payment is due within 3 working calendar days of the invoice date unless otherwise agreed in writing. Failure to make payment within this period may result in suspension or removal of access to any associated systems, websites, hosting, or services provided by SmartCore Technology until the outstanding balance has been paid in full.</p><p style="font-size:14px;line-height:1.45;">SmartCore Technology reserves the right to pause support, maintenance, and online services for overdue accounts.</p></div>
+          </div>
+        </div>
+      `;
+    }
+
+    window.saveInvoiceRecord = async function saveInvoiceRecord() {
+      const data = window.__lastInvoiceData;
+      if (!data) return alert("Generate an invoice first.");
+      const invoicePayload = { invoice_number: data.invoiceNo, company_id: data.company.id, company_name: data.company.company_name, billing_address: data.billingAddress, invoice_date: dateToLocalIso(data.invoiceDate), due_date: dateToLocalIso(data.dueDate), lines: data.lines, subtotal: data.subtotal, tax_percent: data.taxPercent, tax_amount: data.tax, total_amount: data.total, html_snapshot: data.invoiceHtml, pdf_html: data.invoiceHtml, created_by: state.user.id };
+      let result = await sb.from("smartcore_invoices").insert(invoicePayload).select("id").single();
+      if (result.error && /pdf_html|html_snapshot/i.test(result.error.message || "")) {
+        const fallbackPayload = { ...invoicePayload };
+        delete fallbackPayload.pdf_html;
+        result = await sb.from("smartcore_invoices").insert(fallbackPayload).select("id").single();
+      }
+      if (result.error) return alert(result.error.message);
+      await addCalendarEventSafe({ title: `Invoice due - ${data.company.company_name} - ${data.invoiceNo}`, event_date: dateToLocalIso(data.dueDate), all_day: true, start_time: null, end_time: null, description: `Invoice ${data.invoiceNo} due. Total: ${money(data.total)}.`, created_by: state.user.id, company_id: data.company.id, linked_invoice_id: result.data?.id || null, event_type: "invoice_due" });
+      await audit("generate_invoice", "smartcore_invoices", data.invoiceNo, invoicePayload);
+      alert("Invoice saved and added to the calendar.");
+      await loadAll();
+      renderFinance();
+    };
+
+    window.viewInvoice = function viewInvoice(id) {
+      const invoice = state.invoices.find((item) => String(item.id) === String(id));
+      const html = invoice?.pdf_html || invoice?.html_snapshot || "<p>No PDF preview saved.</p>";
+      openModal("Invoice PDF", invoice?.invoice_number || "Invoice", `<div class="flex gap-2 mb-4"><button class="btn primary" onclick="printModalInvoice()">Print / Save PDF</button></div><div id="invoicePreview" class="invoice-preview-wrap">${html}</div>`);
+    };
+
+    window.printInvoice = function printInvoice() {
+      const html = $("invoicePreview").innerHTML;
+      const win = window.open("", "_blank");
+      win.document.write(`<!doctype html><html><head><title>Invoice</title></head><body>${html}</body></html>`);
+      win.document.close();
+      win.focus();
+      win.print();
+    };
+    window.printModalInvoice = window.printInvoice;
+
+    function renderCalendar() {
+      const cursor = state.calendarCursor || new Date();
+      const year = cursor.getFullYear();
+      const month = cursor.getMonth();
+      const monthLabel = cursor.toLocaleString("en-GB", { month: "long", year: "numeric" });
+      const first = new Date(year, month, 1);
+      const startOffset = (first.getDay() + 6) % 7;
+      const gridStart = new Date(year, month, 1 - startOffset);
+      const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+      shell(
+        "Calendar",
+        "Shared SmartCore calendar with invoices, payments and meetings.",
+        `<button class="btn" onclick="moveCalendar(-1)">Previous</button><button class="btn" onclick="goTodayCalendar()">Today</button><button class="btn" onclick="moveCalendar(1)">Next</button><button class="btn primary" onclick="openEventForm()">+ Add Event</button>`,
+        `
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-4"><h2 class="text-3xl font-extrabold">${esc(monthLabel)}</h2><span class="tag">${state.events.length} events</span></div>
+          <div class="calendar-grid mb-2">${weekdays.map((d) => `<div class="text-center text-xs uppercase tracking-wide muted font-extrabold">${d}</div>`).join("")}</div>
+          <div class="calendar-grid" id="calendarGrid"></div>
+        `
+      );
+
+      const cells = [];
+      for (let i = 0; i < 42; i++) {
+        const d = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+        const iso = dateToLocalIso(d);
+        const dayEvents = state.events.filter((event) => event.event_date === iso);
+        cells.push(`
+          <button class="calendar-day ${d.getMonth() === month ? "" : "out"}" onclick="openDayEvents('${iso}')">
+            <div class="flex justify-between items-start gap-2"><b>${d.getDate()}</b><span class="text-xs muted">${dayEvents.length || ""}</span></div>
+            ${dayEvents.slice(0, 3).map((event) => `<span class="calendar-event-pill">${esc(event.title)}</span>`).join("")}
+          </button>
+        `);
+      }
+      $("calendarGrid").innerHTML = cells.join("");
+    }
+
+    window.moveCalendar = function moveCalendar(direction) {
+      state.calendarCursor = new Date(state.calendarCursor.getFullYear(), state.calendarCursor.getMonth() + direction, 1);
+      renderCalendar();
+    };
+
+    window.goTodayCalendar = function goTodayCalendar() {
+      state.calendarCursor = new Date();
+      renderCalendar();
+    };
+
+    window.openDayEvents = function openDayEvents(date) {
+      const events = state.events.filter((event) => event.event_date === date);
+      openModal(
+        `Calendar - ${formatDate(date)}`,
+        events.length ? `${events.length} events` : "Nothing is on this day.",
+        `
+          <div class="space-y-3">${events.map((event) => eventCardHtml(event, true)).join("") || `<p class="muted">Nothing is on this day.</p>`}</div>
+          <div class="mt-5 flex justify-end"><button class="btn primary" onclick="openEventForm('${date}')">+ Add Event</button></div>
+        `
+      );
+    };
+
+    function eventCardHtml(event, includeActions) {
+      return `
+        <div class="card p-4">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div><b>${esc(event.title)}</b><div class="text-sm muted mt-1">${esc(formatDate(event.event_date))} ${event.all_day ? "All day" : `${esc(event.start_time || "")} - ${esc(event.end_time || "")}`}</div><p class="text-sm mt-2">${esc(event.description || "")}</p></div>
+            ${includeActions ? `<div class="flex gap-2"><button class="btn" onclick="openEventForm('${event.event_date}','${event.id}')">Edit</button><button class="btn danger" onclick="deleteEvent('${event.id}')">Delete</button></div>` : ""}
+          </div>
+        </div>
+      `;
+    }
+
+    window.openEventForm = function openEventForm(date = "", id = "") {
+      const event = id ? state.events.find((item) => String(item.id) === String(id)) : {};
+      openModal(
+        id ? "Edit Event" : "Add Event",
+        "Everyone in SmartCore can see this.",
+        `
+          <div class="grid md:grid-cols-2 gap-3">
+            <div><label class="label">Title</label><input id="evTitle" class="inp" value="${esc(event.title || "")}" placeholder="Meeting" /></div>
+            <div><label class="label">Date</label><input id="evDate" class="inp" type="date" value="${esc(event.event_date || date || todayIso())}" /></div>
+            <label class="flex gap-2 items-center"><input id="evAll" type="checkbox" ${event.all_day === false ? "" : "checked"} /> All day</label>
+            <div></div>
+            <div><label class="label">Start</label><input id="evStart" class="inp" type="time" value="${esc(event.start_time || "")}" /></div>
+            <div><label class="label">End</label><input id="evEnd" class="inp" type="time" value="${esc(event.end_time || "")}" /></div>
+            <div class="md:col-span-2"><label class="label">Description</label><textarea id="evDesc" class="inp">${esc(event.description || "")}</textarea></div>
+          </div>
+          <button class="btn primary mt-5 w-full" onclick="saveEvent('${id || ""}')">Save Event</button>
+        `
+      );
+    };
+
+    window.saveEvent = async function saveEvent(id) {
+      const payload = { title: $("evTitle").value.trim(), event_date: $("evDate").value, all_day: $("evAll").checked, start_time: $("evAll").checked ? null : ($("evStart").value || null), end_time: $("evAll").checked ? null : ($("evEnd").value || null), description: $("evDesc").value.trim() || null, created_by: state.user.id };
+      if (!payload.title || !payload.event_date) return alert("Title and date are required.");
+      const result = id ? await sb.from("calendar_events").update(payload).eq("id", id) : await sb.from("calendar_events").insert(payload);
+      if (result.error) return alert(result.error.message);
+      await audit(id ? "update_calendar_event" : "add_calendar_event", "calendar_events", id || payload.title, payload);
+      closeModal();
+      await loadAll();
+      renderCalendar();
+    };
+
+    window.deleteEvent = async function deleteEvent(id) {
+      if (!confirm("Delete this event?")) return;
+      const { error } = await sb.from("calendar_events").delete().eq("id", id);
+      if (error) return alert(error.message);
+      await audit("delete_calendar_event", "calendar_events", id, {});
+      closeModal();
+      await loadAll();
+      renderCalendar();
+    };
+
+    function renderVault() {
+      if (!isAdmin()) return renderDashboard();
+      if (!state.vaultUnlocked) {
+        shell("Credentials Vault", "Admin only. Enter the 6 digit code to unlock.", "", `<div class="card p-6 max-w-xl"><h2 class="text-2xl font-extrabold">Unlock Vault</h2><p class="muted mt-2">The vault auto locks after 5 minutes of inactivity.</p><input id="vaultCode" class="inp mt-5 text-center tracking-[0.45em]" maxlength="6" placeholder="000000" /><button class="btn primary mt-4" onclick="unlockVault()">Unlock Vault</button></div>`);
+        return;
+      }
+      shell("Credentials Vault", "Unlocked. Auto locks after 5 minutes of inactivity.", `<button class="btn" onclick="lockVault()">Lock Vault</button><button class="btn primary" onclick="openCredentialForm()">+ Add Credentials</button>`, `<div class="flex gap-2 flex-wrap mb-4"><button class="btn" onclick="loadVault(false)">Show Active</button><button class="btn" onclick="loadVault(true)">Show Archived</button></div><div id="vaultList" class="space-y-3"></div>`);
+      drawVaultItems();
+    }
+
+    function resetVaultTimer() {
+      clearTimeout(state.vaultTimer);
+      state.vaultTimer = setTimeout(() => { lockVault(); alert("Vault locked after 5 minutes of inactivity."); }, 5 * 60 * 1000);
+    }
+
+    window.unlockVault = async function unlockVault() {
+      try {
+        const out = await api("/api/vault-unlock", { code: $("vaultCode").value });
+        sessionStorage.vaultSession = out.session_id;
+        state.vaultUnlocked = true;
+        await loadVault(false);
+        await audit("unlock_vault", "vault", null, {});
+        renderVault();
+        resetVaultTimer();
+      } catch (error) { alert(error.message); }
+    };
+
+    async function loadVault(showArchived) {
+      const out = await api("/api/vault-list", { session_id: sessionStorage.vaultSession, archived: !!showArchived });
+      state.vaultItems = out.items || [];
+      state.vaultShowArchived = !!showArchived;
+      resetVaultTimer();
+    }
+
+    function drawVaultItems() {
+      const list = $("vaultList");
+      if (!list) return;
+      list.innerHTML = (state.vaultItems || []).map((item) => `
+        <div class="card p-4">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div><b class="text-xl">${esc(item.name)}</b><div class="text-sm muted mt-1">${esc(item.email || "")} ${esc(item.username || "")}</div><div class="mt-3"><b>Password:</b> <code>${esc(item.password || "")}</code></div><pre class="mt-3 text-sm whitespace-pre-wrap muted">${esc(formatCredentialDetails(item.details))}</pre></div>
+            <div class="flex gap-2"><button class="btn" onclick="openCredentialForm('${item.id}')">Edit</button><button class="btn warning" onclick="archiveCredential('${item.id}', ${item.archived ? "false" : "true"})">${item.archived ? "Unarchive" : "Archive"}</button></div>
+          </div>
+        </div>
+      `).join("") || `<p class="muted">No credentials saved.</p>`;
+    }
+
+    function formatCredentialDetails(details) {
+      if (!details) return "";
+      if (typeof details === "string") return details.replaceAll("\\n", "\n");
+      if (details.text) return String(details.text).replaceAll("\\n", "\n");
+      return JSON.stringify(details, null, 2).replaceAll("\\n", "\n");
+    }
+
+    window.lockVault = function lockVault() {
+      delete sessionStorage.vaultSession;
+      state.vaultUnlocked = false;
+      state.vaultItems = [];
+      clearTimeout(state.vaultTimer);
+      renderVault();
+      audit("lock_vault", "vault", null, {});
+    };
+
+    window.openCredentialForm = function openCredentialForm(id = "") {
+      const item = id ? state.vaultItems.find((row) => String(row.id) === String(id)) : {};
+      openModal(id ? "Edit Credentials" : "Add Credentials", "Encrypted server-side before saving.", `<div class="grid md:grid-cols-2 gap-3"><div><label class="label">Name</label><input id="crName" class="inp" value="${esc(item.name || "")}" /></div><div><label class="label">Username</label><input id="crUsername" class="inp" value="${esc(item.username || "")}" /></div><div><label class="label">Email</label><input id="crEmail" class="inp" value="${esc(item.email || "")}" /></div><div><label class="label">Password</label><input id="crPassword" class="inp" value="${esc(item.password || "")}" /></div><div class="md:col-span-2"><label class="label">Extra Details</label><textarea id="crDetails" class="inp" placeholder="Backup Codes&#10;7393 7262">${esc(formatCredentialDetails(item.details))}</textarea></div></div><button class="btn primary mt-5 w-full" onclick="saveCredential('${id}')">Save Credential</button>`);
+    };
+
+    window.saveCredential = async function saveCredential(id) {
+      try {
+        const payload = { session_id: sessionStorage.vaultSession, id: id || null, name: $("crName").value.trim(), username: $("crUsername").value.trim(), email: $("crEmail").value.trim(), password: $("crPassword").value, details: { text: $("crDetails").value } };
+        await api(id ? "/api/vault-update" : "/api/vault-add", payload);
+        closeModal();
+        await loadVault(state.vaultShowArchived);
+        renderVault();
+      } catch (error) { alert(error.message); }
+    };
+
+    window.archiveCredential = async function archiveCredential(id, archived) {
+      try {
+        await api("/api/vault-update", { session_id: sessionStorage.vaultSession, id, archived });
+        await loadVault(state.vaultShowArchived);
+        renderVault();
+      } catch (error) { alert(error.message); }
+    };
+
+    function renderStaff() {
+      if (!isAdmin()) return renderDashboard();
+      shell("Employee Management", "Manage SmartCore employees and onboarding.", `<button class="btn primary" onclick="openStaffForm()">+ Add Employee</button>`, `<div class="overflow-auto"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Employment</th><th>Status</th><th>Actions</th></tr></thead><tbody>${state.staffList.map((staff) => `<tr><td><b>${esc(staff.full_name)}</b><br><span class="text-xs muted">${esc(staff.job_title || "")}</span></td><td>${esc(staff.work_email || staff.email || "")}</td><td>${esc(staff.role || "employee")} ${staff.is_admin ? "• admin" : ""}</td><td>${esc(employmentLabel(staff.employment_type))}</td><td>${staff.archived ? "Archived" : staff.active ? "Active" : "Disabled"}</td><td><div class="flex gap-2 flex-wrap"><button class="btn" onclick="openStaffForm('${staff.id}')">Edit</button><button class="btn" onclick="openStaffInvite('${staff.id}')">Send Invite</button><button class="btn danger" onclick="archiveStaff('${staff.id}')">Archive</button></div></td></tr>`).join("")}</tbody></table></div>`);
+    }
+
+    window.openStaffForm = function openStaffForm(id = "") {
+      const s = id ? state.staffList.find((item) => String(item.id) === String(id)) : {};
+      const canEditOwnerFields = isOwner();
+      openModal(id ? "Edit Staff" : "Add SmartCore Employee", "Work details, personal details and emergency contacts.", staffFormHtml(s, canEditOwnerFields, `saveStaff('${id}')`));
+    };
+
+    window.openMyProfile = function openMyProfile() {
+      const canEditOwnerFields = isOwner();
+      openModal("Edit My Profile", "Update your own contact details and emergency contacts.", staffFormHtml(state.staff, canEditOwnerFields, `saveMyProfile()`));
+    };
+
+    function staffFormHtml(s, canEditOwnerFields, saveCall) {
+      return `
+        <div class="grid md:grid-cols-2 gap-3">
+          <div><label class="label">Full Name</label><input id="stName" class="inp" value="${esc(s.full_name || "")}" /></div>
+          <div><label class="label">Job Title</label><input id="stJob" class="inp" value="${esc(s.job_title || "")}" ${canEditOwnerFields ? "" : "disabled"} /></div>
+          <div><label class="label">Work Email</label><input id="stWork" class="inp" value="${esc(s.work_email || s.email || "")}" /></div>
+          <div><label class="label">Personal Email</label><input id="stPersonal" class="inp" value="${esc(s.personal_email || "")}" /></div>
+          <div><label class="label">Personal Phone</label><input id="stPhone" class="inp" value="${esc(s.personal_phone || "")}" /></div>
+          <div><label class="label">Employment Type</label><select id="stEmployment" class="inp" ${canEditOwnerFields ? "" : "disabled"}><option value="full_time">Full Time</option><option value="part_time">Part Time</option><option value="other">Other</option></select></div>
+          <div><label class="label">Notice Period</label><input id="stNotice" class="inp" value="${esc(s.notice_period || "")}" ${canEditOwnerFields ? "" : "disabled"} /></div>
+          <div><label class="label">Role</label><select id="stRole" class="inp" ${canEditOwnerFields ? "" : "disabled"}><option value="employee">Employee</option><option value="admin">Admin</option>${isOwner() ? `<option value="owner">Owner</option>` : ""}</select></div>
+          <div><label class="label">Is Admin</label><select id="stAdmin" class="inp" ${canEditOwnerFields ? "" : "disabled"}><option value="false">No</option><option value="true">Yes</option></select></div>
+          <div><label class="label">Start Date</label><input id="stStart" class="inp" type="date" value="${esc(s.start_date || "")}" ${canEditOwnerFields ? "" : "disabled"} /></div>
+          <div><label class="label">Title</label><input id="stTitle" class="inp" value="${esc(s.title || "")}" /></div>
+          <div><label class="label">Pronouns</label><input id="stPronouns" class="inp" value="${esc(s.pronouns || "")}" /></div>
+          <div><label class="label">Gender</label><input id="stGender" class="inp" value="${esc(s.gender || "")}" /></div>
+          <div><label class="label">Date of Birth</label><input id="stDob" class="inp" type="date" value="${esc(s.dob || "")}" /></div>
+          <div><label class="label">Nationality</label><input id="stNationality" class="inp" value="${esc(s.nationality || "")}" /></div>
+          <div><label class="label">House Number / Name</label><input id="stHouse" class="inp" value="${esc(s.house_number_name || "")}" /></div>
+          <div><label class="label">Street Name</label><input id="stStreet" class="inp" value="${esc(s.street_name || "")}" /></div>
+          <div><label class="label">Town</label><input id="stTown" class="inp" value="${esc(s.town || "")}" /></div>
+          <div><label class="label">Postcode</label><input id="stPostcode" class="inp" value="${esc(s.postcode || "")}" /></div>
+          <div><label class="label">Country</label><input id="stCountry" class="inp" value="${esc(s.country || "United Kingdom")}" /></div>
+        </div>
+        <h3 class="text-xl font-extrabold mt-6">Emergency Contact 1</h3>
+        <div class="grid md:grid-cols-2 gap-3 mt-3"><input id="stEc1Name" class="inp" placeholder="Name" value="${esc(s.emergency_contact_1_name || "")}" /><input id="stEc1Rel" class="inp" placeholder="Relationship" value="${esc(s.emergency_contact_1_relationship || "")}" /><input id="stEc1Phone" class="inp" placeholder="Phone" value="${esc(s.emergency_contact_1_phone || "")}" /><input id="stEc1Email" class="inp" placeholder="Email" value="${esc(s.emergency_contact_1_email || "")}" /></div>
+        <h3 class="text-xl font-extrabold mt-6">Emergency Contact 2</h3>
+        <div class="grid md:grid-cols-2 gap-3 mt-3"><input id="stEc2Name" class="inp" placeholder="Name" value="${esc(s.emergency_contact_2_name || "")}" /><input id="stEc2Rel" class="inp" placeholder="Relationship" value="${esc(s.emergency_contact_2_relationship || "")}" /><input id="stEc2Phone" class="inp" placeholder="Phone" value="${esc(s.emergency_contact_2_phone || "")}" /><input id="stEc2Email" class="inp" placeholder="Email" value="${esc(s.emergency_contact_2_email || "")}" /></div>
+        <button class="btn primary mt-6 w-full" onclick="${saveCall}">Save</button>
+        <script>setTimeout(()=>{if(window.stEmployment){stEmployment.value='${esc(s.employment_type || "part_time")}';stRole.value='${esc(s.role || "employee")}';stAdmin.value='${String(!!s.is_admin)}';}},0)<\/script>
+      `;
+    }
+
+    function collectStaffPayload(includeOwnerFields) {
+      const payload = {
+        full_name: $("stName").value.trim(),
+        work_email: $("stWork").value.trim().toLowerCase(),
+        email: $("stWork").value.trim().toLowerCase(),
+        personal_email: $("stPersonal").value.trim().toLowerCase() || null,
+        personal_phone: $("stPhone").value.trim() || null,
+        title: $("stTitle").value.trim() || null,
+        pronouns: $("stPronouns").value.trim() || null,
+        gender: $("stGender").value.trim() || null,
+        dob: $("stDob").value || null,
+        nationality: $("stNationality").value.trim() || null,
+        house_number_name: $("stHouse").value.trim() || null,
+        street_name: $("stStreet").value.trim() || null,
+        town: $("stTown").value.trim() || null,
+        postcode: $("stPostcode").value.trim() || null,
+        country: $("stCountry").value.trim() || "United Kingdom",
+        emergency_contact_1_name: $("stEc1Name").value.trim() || null,
+        emergency_contact_1_relationship: $("stEc1Rel").value.trim() || null,
+        emergency_contact_1_phone: $("stEc1Phone").value.trim() || null,
+        emergency_contact_1_email: $("stEc1Email").value.trim() || null,
+        emergency_contact_2_name: $("stEc2Name").value.trim() || null,
+        emergency_contact_2_relationship: $("stEc2Rel").value.trim() || null,
+        emergency_contact_2_phone: $("stEc2Phone").value.trim() || null,
+        emergency_contact_2_email: $("stEc2Email").value.trim() || null
+      };
+      if (includeOwnerFields) {
+        payload.job_title = $("stJob").value.trim() || null;
+        payload.employment_type = $("stEmployment").value;
+        payload.notice_period = $("stNotice").value.trim() || null;
+        payload.role = $("stRole").value;
+        payload.is_admin = $("stAdmin").value === "true" || payload.role === "admin" || payload.role === "owner";
+        payload.start_date = $("stStart").value || null;
+        payload.active = true;
+      }
+      return payload;
+    }
+
+    window.saveStaff = async function saveStaff(id) {
+      const payload = collectStaffPayload(isOwner());
+      if (!payload.full_name || !payload.work_email) return alert("Full name and work email are required.");
+      if (payload.role === "owner" && !isOwner()) return alert("Only owners can create owners.");
+      const result = id ? await sb.from("smartcore_staff").update(payload).eq("id", id) : await sb.from("smartcore_staff").insert(payload);
+      if (result.error) return alert(result.error.message);
+      await audit(id ? "update_staff" : "add_staff", "smartcore_staff", id || payload.work_email, {});
+      closeModal();
+      await loadAll();
+      renderStaff();
+    };
+
+    window.saveMyProfile = async function saveMyProfile() {
+      const payload = collectStaffPayload(isOwner());
+      delete payload.email;
+      const { error } = await sb.from("smartcore_staff").update(payload).eq("id", state.staff.id);
+      if (error) return alert(error.message);
+      await audit("update_my_profile", "smartcore_staff", state.staff.id, {});
+      closeModal();
+      await loadAll();
+      const updated = state.staffList.find((person) => String(person.id) === String(state.staff.id));
+      if (updated) state.staff = updated;
+      renderDashboard();
+    };
+
+    window.openStaffInvite = function openStaffInvite(id) {
+      const staff = state.staffList.find((item) => String(item.id) === String(id));
+      openModal("Send Onboarding Invite", "Choose where to send the invite.", `<div class="card p-5"><h3 class="text-xl font-extrabold">${esc(staff?.full_name || "Employee")}</h3><p class="muted mt-2">Send the onboarding link to:</p><div class="mt-5 flex flex-wrap gap-3"><button class="btn primary" onclick="sendStaffInvite('${id}', 'work')">Work Email</button><button class="btn" onclick="sendStaffInvite('${id}', 'personal')">Personal Email</button></div></div>`);
+    };
+
+    window.sendStaffInvite = async function sendStaffInvite(id, target) {
+      const staff = state.staffList.find((item) => String(item.id) === String(id));
+      const emailTo = target === "personal" ? staff?.personal_email : (staff?.work_email || staff?.email);
+      if (!id || !emailTo) return alert("Missing staff_id or email_to. Please check the staff record has the selected email address.");
+      try {
+        await api("/api/staff-invite", { staff_id: id, email_to: emailTo, target, full_name: staff?.full_name || "", work_email: staff?.work_email || staff?.email || "", personal_email: staff?.personal_email || "" });
+        alert("Invite sent.");
+        await audit("send_staff_invite", "smartcore_staff", id, { target, email_to: emailTo });
+        closeModal();
+      } catch (error) { alert(error.message); }
+    };
+
+    window.archiveStaff = async function archiveStaff(id) {
+      if (!confirm("Archive employee and disable login?")) return;
+      const { error } = await sb.from("smartcore_staff").update({ archived: true, active: false }).eq("id", id);
+      if (error) return alert(error.message);
+      await audit("archive_staff", "smartcore_staff", id, {});
+      await loadAll();
+      renderStaff();
+    };
+
+    function renderAudit() {
+      if (!isOwner()) return renderDashboard();
+      shell("Audit Logs", "Owner only. Key actions are shown in a readable format.", "", `<div class="space-y-3">${(state.auditRows || []).map((row) => `<div class="card p-4"><b>${esc(actionLabel(row.action))}</b> <span class="muted">- ${esc(formatDateTime(row.created_at))} • ${esc(row.actor_name || row.actor_email || "Unknown")}</span><pre class="text-xs muted mt-2 whitespace-pre-wrap">${esc(JSON.stringify(row.metadata || {}, null, 2))}</pre></div>`).join("") || `<p class="muted">No logs yet.</p>`}</div>`);
+    }
+
+    function actionLabel(action) {
+      return String(action || "").split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+    }
+
+    // GitHub-style Code Storage
+    function normaliseTree(tree) {
+      return { folders: Array.isArray(tree?.folders) ? tree.folders : [], files: Array.isArray(tree?.files) ? tree.files : [] };
+    }
+
+    window.openCodeStorage = function openCodeStorage(button) {
+      const card = button.closest(".package-card");
+      const textarea = card.querySelector(".pkg-code-storage");
+      let tree = { folders: [], files: [] };
+      try { tree = normaliseTree(JSON.parse(textarea.value || "{}")); } catch (_) {}
+      state.currentCode = { tree, selectedPath: null, textarea };
+      openModal("Code Storage", "Add folders and files exactly like a small internal GitHub.", `
+        <div class="code-layout">
+          <div class="card code-tree">
+            <div class="flex gap-2 mb-3 flex-wrap"><button class="btn primary" onclick="addCodeFolder()">+ Folder</button><button class="btn primary" onclick="addCodeFile()">+ File</button></div>
+            <div id="codeTree"></div>
+          </div>
+          <div>
+            <div class="flex gap-2 mb-3 flex-wrap"><button class="btn" onclick="renameCodeNode()">Rename</button><button class="btn danger" onclick="deleteCodeNode()">Delete</button><button class="btn primary" onclick="saveCodeStorage()">Save Code Storage</button></div>
+            <div class="code-editor"><pre id="lineNums" class="line-nums">1</pre><textarea id="codeText" class="code-text" spellcheck="false" oninput="updateCodeEditor()"></textarea></div>
+          </div>
+        </div>
+      `);
+      drawCodeTree();
+      updateLineNumbers("");
+    };
+
+    function getNodeByPath(path) {
+      if (!state.currentCode || !path) return { parent: null, node: null, key: null, index: -1 };
+      let parent = state.currentCode.tree;
+      const parts = path.split("/").filter(Boolean);
+      for (let i = 0; i < parts.length; i++) {
+        const [type, name] = parts[i].split(":");
+        const key = type === "folder" ? "folders" : "files";
+        const index = (parent[key] || []).findIndex((item) => item.name === name);
+        if (index < 0) return { parent: null, node: null, key: null, index: -1 };
+        const node = parent[key][index];
+        if (i === parts.length - 1) return { parent, node, key, index };
+        parent = node;
+      }
+      return { parent: null, node: null, key: null, index: -1 };
+    }
+
+    function selectedFolderNode() {
+      const current = getNodeByPath(state.currentCode?.selectedPath);
+      if (current.node && current.key === "folders") return current.node;
+      if (current.parent && current.key === "files") return current.parent;
+      return state.currentCode.tree;
+    }
+
+    function drawCodeTree() {
+      const wrap = $("codeTree");
+      if (!wrap) return;
+      const draw = (node, prefix = "") => {
+        const folders = (node.folders || []).map((folder) => {
+          const path = `${prefix}/folder:${folder.name}`;
+          return `<div><div class="tree-row ${state.currentCode.selectedPath === path ? "active" : ""}" onclick="selectCodeNode('${esc(path)}')"><span>📁 ${esc(folder.name)}</span></div><div class="ml-4">${draw(folder, path)}</div></div>`;
+        }).join("");
+        const files = (node.files || []).map((file) => {
+          const path = `${prefix}/file:${file.name}`;
+          return `<div class="tree-row ${state.currentCode.selectedPath === path ? "active" : ""}" onclick="selectCodeNode('${esc(path)}')"><span>📄 ${esc(file.name)}</span></div>`;
+        }).join("");
+        return folders + files;
+      };
+      wrap.innerHTML = draw(state.currentCode.tree) || `<p class="muted text-sm">No folders or files yet.</p>`;
+    }
+
+    window.selectCodeNode = function selectCodeNode(path) {
+      updateCurrentFileFromEditor();
+      state.currentCode.selectedPath = path;
+      const { node, key } = getNodeByPath(path);
+      const text = key === "files" ? (node.content || "") : "";
+      $("codeText").value = text;
+      $("codeText").disabled = key !== "files";
+      updateLineNumbers(text);
+      drawCodeTree();
+    };
+
+    function updateCurrentFileFromEditor() {
+      const path = state.currentCode?.selectedPath;
+      if (!path || !$("codeText")) return;
+      const { node, key } = getNodeByPath(path);
+      if (node && key === "files") node.content = $("codeText").value;
+    }
+
+    window.updateCodeEditor = function updateCodeEditor() {
+      updateCurrentFileFromEditor();
+      updateLineNumbers($("codeText").value);
+    };
+
+    function updateLineNumbers(text) {
+      if (!$("lineNums")) return;
+      const count = Math.max(1, String(text || "").split("\n").length);
+      $("lineNums").textContent = Array.from({ length: count }, (_, i) => i + 1).join("\n");
+    }
+
+    window.addCodeFolder = function addCodeFolder() {
+      const name = prompt("Folder name");
+      if (!name) return;
+      const parent = selectedFolderNode();
+      parent.folders = parent.folders || [];
+      parent.files = parent.files || [];
+      parent.folders.push({ name, folders: [], files: [] });
+      drawCodeTree();
+    };
+
+    window.addCodeFile = function addCodeFile() {
+      const name = prompt("File name");
+      if (!name) return;
+      const parent = selectedFolderNode();
+      parent.files = parent.files || [];
+      parent.folders = parent.folders || [];
+      parent.files.push({ name, content: "" });
+      drawCodeTree();
+    };
+
+    window.renameCodeNode = function renameCodeNode() {
+      const current = getNodeByPath(state.currentCode?.selectedPath);
+      if (!current.node) return alert("Select a folder or file first.");
+      const name = prompt("New name", current.node.name);
+      if (!name) return;
+      current.node.name = name;
+      state.currentCode.selectedPath = null;
+      $("codeText").value = "";
+      drawCodeTree();
+    };
+
+    window.deleteCodeNode = function deleteCodeNode() {
+      const current = getNodeByPath(state.currentCode?.selectedPath);
+      if (!current.node) return alert("Select a folder or file first.");
+      if (!confirm("Delete this item?")) return;
+      current.parent[current.key].splice(current.index, 1);
+      state.currentCode.selectedPath = null;
+      $("codeText").value = "";
+      drawCodeTree();
+    };
+
+    window.saveCodeStorage = async function saveCodeStorage() {
+      updateCurrentFileFromEditor();
+      state.currentCode.textarea.value = JSON.stringify(state.currentCode.tree, null, 2);
+      closeModal();
+    };
+
+    document.addEventListener("mousemove", () => { if (state.vaultUnlocked) resetVaultTimer(); }, { passive: true });
+    document.addEventListener("keydown", () => { if (state.vaultUnlocked) resetVaultTimer(); }, { passive: true });
+
+    $("modalClose").addEventListener("click", closeModal);
+    $("modal").addEventListener("click", (event) => { if (event.target.id === "modal") closeModal(); });
+    $("signOut").addEventListener("click", async () => { await audit("logout", "smartcore_staff", state.staff?.id, {}); await sb.auth.signOut(); location.href = "/"; });
+
+    init().catch((error) => showFatal("HQ failed to load", error.message || String(error)));
+  
