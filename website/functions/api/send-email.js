@@ -22,7 +22,19 @@ export async function onRequest(context) {
   try {
     const body = await context.request.json();
 
-    const response = await fetch("https://api.resend.com/emails", {
+    if (!context.env.RESEND_API_KEY) {
+      return new Response(JSON.stringify({
+        error: "Missing RESEND_API_KEY environment variable"
+      }), {
+        status: 500,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json"
+        }
+      });
+    }
+
+    const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${context.env.RESEND_API_KEY}`,
@@ -31,22 +43,24 @@ export async function onRequest(context) {
       body: JSON.stringify({
         from: "The Travelling Taverna <onboarding@resend.dev>",
         to: [body.to || "support@smartcoretechnology.co.uk"],
-        subject: body.subject || "New enquiry",
-        html: body.html || "<p>No content supplied.</p>"
+        subject: body.subject || "New website enquiry",
+        html: body.html || "<p>No email content supplied.</p>"
       })
     });
 
-    const data = await response.json();
+    const resendData = await resendResponse.json();
 
-    return new Response(JSON.stringify(data), {
-      status: response.ok ? 200 : 500,
+    return new Response(JSON.stringify(resendData), {
+      status: resendResponse.ok ? 200 : 500,
       headers: {
         ...corsHeaders,
         "Content-Type": "application/json"
       }
     });
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({
+      error: error.message
+    }), {
       status: 500,
       headers: {
         ...corsHeaders,
