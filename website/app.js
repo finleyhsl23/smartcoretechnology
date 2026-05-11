@@ -532,6 +532,10 @@ function escapeHtml(value) {
 }
 
 init().catch((error) => {
-  console.error(error);
-  alert("Website could not load. Check Supabase config, exposed schema and SQL setup.");
+  console.error("REAL WEBSITE LOAD ERROR:", error);
+
+  alert(
+    "Website could not load.\n\nReal error:\n" +
+    (error.message || JSON.stringify(error))
+  );
 });
