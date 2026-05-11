@@ -147,16 +147,25 @@ function calculateDelivery(postcode) {
 }
 
 function renderCategories() {
+  const categoryFilter = $("categoryFilter");
+  if (!categoryFilter) return;
+
   const categories = [...new Set(products.map((product) => product.category))];
 
-  $("categoryFilter").innerHTML =
+  categoryFilter.innerHTML =
     `<option value="all">All categories</option>` +
     categories.map((category) => `<option value="${category}">${category}</option>`).join("");
 }
 
 function renderProducts() {
-  const search = $("searchInput").value.toLowerCase();
-  const category = $("categoryFilter").value;
+  const productGrid = $("productGrid");
+  if (!productGrid) return;
+
+  const searchInput = $("searchInput");
+  const categoryFilter = $("categoryFilter");
+
+  const search = searchInput ? searchInput.value.toLowerCase() : "";
+  const category = categoryFilter ? categoryFilter.value : "all";
 
   const filtered = products.filter((product) => {
     const matchesCategory = category === "all" || product.category === category;
@@ -166,6 +175,45 @@ function renderProducts() {
 
     return matchesCategory && matchesSearch;
   });
+
+  if (!filtered.length) {
+    productGrid.innerHTML = "<p>No products found.</p>";
+    return;
+  }
+
+  productGrid.innerHTML = filtered
+    .map(
+      (product) => `
+      <article class="product-card">
+        <a class="product-image" href="product.html?id=${product.id}">
+          <img src="${product.image_url || ""}" alt="${product.name}" onerror="this.style.display='none'" />
+        </a>
+
+        <div class="product-content">
+          <p class="eyebrow">${product.category}</p>
+          <h3><a href="product.html?id=${product.id}">${product.name}</a></h3>
+          <p>${product.description}</p>
+
+          <div class="product-meta">
+            <div>
+              <div class="price">${money(product.price)}</div>
+              <div class="stock">${product.stock > 0 ? `${product.stock} in stock` : "Out of stock"}</div>
+            </div>
+
+            <button class="btn primary small" data-add="${product.id}" ${product.stock <= 0 ? "disabled" : ""}>
+              Add
+            </button>
+          </div>
+        </div>
+      </article>
+    `
+    )
+    .join("");
+
+  document.querySelectorAll("[data-add]").forEach((button) => {
+    button.addEventListener("click", () => addToBasket(button.dataset.add));
+  });
+}
 
   if (!filtered.length) {
     $("productGrid").innerHTML = "<p>No products found.</p>";
@@ -232,6 +280,14 @@ function saveBasket() {
 }
 
 function renderBasket() {
+  const basketCount = $("basketCount");
+  const basketItems = $("basketItems");
+  const basketSubtotal = $("basketSubtotal");
+  const basketDelivery = $("basketDelivery");
+  const basketTotal = $("basketTotal");
+
+  if (!basketCount || !basketItems || !basketSubtotal || !basketDelivery || !basketTotal) return;
+
   const basketDetailed = basket
     .map((item) => {
       const product = products.find((p) => p.id === item.id);
@@ -239,15 +295,15 @@ function renderBasket() {
     })
     .filter(Boolean);
 
-  $("basketCount").textContent = basketDetailed.reduce(
+  basketCount.textContent = basketDetailed.reduce(
     (sum, item) => sum + item.quantity,
     0
   );
 
   if (!basketDetailed.length) {
-    $("basketItems").innerHTML = `<p>Your basket is empty.</p>`;
+    basketItems.innerHTML = `<p>Your basket is empty.</p>`;
   } else {
-    $("basketItems").innerHTML = basketDetailed
+    basketItems.innerHTML = basketDetailed
       .map(
         (item) => `
         <div class="basket-item">
@@ -283,9 +339,9 @@ function renderBasket() {
   const subtotal = getSubtotal();
   const delivery = checkedDelivery?.ok ? checkedDelivery.charge : 0;
 
-  $("basketSubtotal").textContent = money(subtotal);
-  $("basketDelivery").textContent = checkedDelivery?.ok ? money(delivery) : "Check postcode";
-  $("basketTotal").textContent = money(subtotal + delivery);
+  basketSubtotal.textContent = money(subtotal);
+  basketDelivery.textContent = checkedDelivery?.ok ? money(delivery) : "Check postcode";
+  basketTotal.textContent = money(subtotal + delivery);
 }
 
 function changeQty(productId, amount) {
