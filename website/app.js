@@ -1,4 +1,5 @@
-import { db, supabase } from "./supabaseClient.js";
+import { supabase, db } from "./supabaseClient.js";
+import { EMAIL_ENDPOINT } from "./config.js";
 
 let products = [];
 let settings = null;
@@ -6,8 +7,6 @@ let basket = JSON.parse(localStorage.getItem("tt_basket")) || [];
 let checkedDelivery = null;
 
 const $ = (id) => document.getElementById(id);
-const IS_SHOP_PAGE = false;
-const PRODUCT_LIMIT = IS_SHOP_PAGE ? null : 9;
 
 const money = (value) =>
   new Intl.NumberFormat("en-GB", {
@@ -19,9 +18,7 @@ async function init() {
   bindEvents();
   await loadSettings();
   await loadProducts();
-
-  if (!IS_SHOP_PAGE) renderSettings();
-
+  renderSettings();
   renderCategories();
   renderProducts();
   renderBasket();
@@ -36,27 +33,28 @@ function bindEvents() {
   $("closeBasket").addEventListener("click", closeBasketDrawer);
   $("overlay").addEventListener("click", closeBasketDrawer);
 
-  $("categoryFilter")?.addEventListener("change", renderProducts);
-  $("searchInput")?.addEventListener("input", renderProducts);
+  $("categoryFilter").addEventListener("change", renderProducts);
+  $("searchInput").addEventListener("input", renderProducts);
 
   $("checkDeliveryBtn").addEventListener("click", checkCheckoutDelivery);
   $("checkoutBtn").addEventListener("click", openTestCheckout);
   $("closePayment").addEventListener("click", () => $("paymentModal").classList.remove("show"));
   $("completeTestPayment").addEventListener("click", completeOrder);
 
-  $("heroPostcodeBtn")?.addEventListener("click", () => {
+  $("heroPostcodeBtn").addEventListener("click", () => {
     const result = calculateDelivery($("heroPostcode").value);
+
     $("heroPostcodeResult").textContent = result.message;
     $("heroPostcodeResult").className = result.ok
       ? "mini-result form-note success"
       : "mini-result form-note error";
   });
 
-  $("wholesaleForm")?.addEventListener("submit", (event) =>
+  $("wholesaleForm").addEventListener("submit", (event) =>
     handleEnquiry(event, "wholesale", "wholesaleNote")
   );
 
-  $("contactForm")?.addEventListener("submit", (event) =>
+  $("contactForm").addEventListener("submit", (event) =>
     handleEnquiry(event, "contact", "contactNote")
   );
 }
@@ -77,16 +75,12 @@ async function loadSettings() {
 }
 
 async function loadProducts() {
-  let query = db()
+  const { data, error } = await db()
     .from("products")
     .select("*")
     .eq("is_active", true)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: false });
-
-  if (PRODUCT_LIMIT) query = query.limit(PRODUCT_LIMIT);
-
-  const { data, error } = await query;
 
   if (error) {
     console.error(error);
@@ -148,16 +142,14 @@ function calculateDelivery(postcode) {
 function renderCategories() {
   const categories = [...new Set(products.map((product) => product.category))];
 
-  if (!$("categoryFilter")) return;
-
   $("categoryFilter").innerHTML =
     `<option value="all">All categories</option>` +
     categories.map((category) => `<option value="${category}">${category}</option>`).join("");
 }
 
 function renderProducts() {
-  const search = $("searchInput")?.value.toLowerCase() || "";
-  const category = $("categoryFilter")?.value || "all";
+  const search = $("searchInput").value.toLowerCase();
+  const category = $("categoryFilter").value;
 
   const filtered = products.filter((product) => {
     const matchesCategory = category === "all" || product.category === category;
@@ -406,6 +398,18 @@ async function completeOrder() {
     return;
   }
 
+  await sendEmailNotification({
+    type: "order",
+    subject: `New test order: ${data.order_number}`,
+    payload: {
+      order_number: data.order_number,
+      customer,
+      items,
+      delivery_charge: checkedDelivery.charge,
+      total: data.total
+    }
+  });
+
   basket = [];
   checkedDelivery = null;
   saveBasket();
@@ -427,6 +431,9 @@ async function handleEnquiry(event, type, noteId) {
   const payload = Object.fromEntries(new FormData(event.target).entries());
   const note = $(noteId);
 
+  note.textContent = "Sending...";
+  note.className = "form-note";
+
   const { error } = await db().rpc("create_enquiry", {
     enquiry_type: type,
     payload
@@ -434,7 +441,19 @@ async function handleEnquiry(event, type, noteId) {
 
   if (error) {
     console.error(error);
-    note.textContent = "Sorry, this could not be sent.";
+    note.textContent = "Sorry, this could not be saved.";
+    note.className = "form-note error";
+    return;
+  }
+
+  const emailResult = await sendEmailNotification({
+    type,
+    subject: `New ${type} enquiry`,
+    payload
+  });
+
+  if (!emailResult.ok) {
+    note.textContent = "Saved, but the email could not be sent. Check the email endpoint.";
     note.className = "form-note error";
     return;
   }
@@ -444,6 +463,67 @@ async function handleEnquiry(event, type, noteId) {
 
   event.target.reset();
 }
+
+async function sendEmailNotification({ type, subject, payload }) {
+  try {
+    const response = await fetch(EMAIL_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        to: settings.management_email || "support@smartcoretechnology.co.uk",
+        subject,
+        type,
+        payload,
+        html: buildEmailHtml(type, payload)
+      })
+    });
+
+    if (!response.ok) {
+      console.error("Email endpoint failed", await response.text());
+      return { ok: false };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    console.error("Email failed", error);
+    return { ok: false };
+  }
+}
+
+function buildEmailHtml(type, payload) {
+  const rows = Object.entries(payload)
+    .map(([key, value]) => {
+      return `
+        <tr>
+          <td style="padding:8px 12px;border:1px solid #e5e7eb;font-weight:700;">${escapeHtml(key)}</td>
+          <td style="padding:8px 12px;border:1px solid #e5e7eb;">${escapeHtml(String(value ?? ""))}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `
+    <div style="font-family:Arial,sans-serif;color:#111827;">
+      <h2 style="margin:0 0 12px;">The Travelling Taverna | Greek Deli</h2>
+      <p style="margin:0 0 18px;">New ${escapeHtml(type)} submission received.</p>
+      <table style="border-collapse:collapse;width:100%;max-width:700px;">
+        ${rows}
+      </table>
+    </div>
+  `;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 init().catch((error) => {
   console.error(error);
   alert("Website could not load. Check Supabase config, exposed schema and SQL setup.");
