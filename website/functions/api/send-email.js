@@ -1,38 +1,6 @@
-export async function onRequest(context) {
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type"
-  };
-
-  if (context.request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: corsHeaders
-    });
-  }
-
-  if (context.request.method !== "POST") {
-    return new Response("Method Not Allowed", {
-      status: 405,
-      headers: corsHeaders
-    });
-  }
-
+export async function onRequestPost(context) {
   try {
     const body = await context.request.json();
-
-    if (!context.env.RESEND_API_KEY) {
-      return new Response(JSON.stringify({
-        error: "Missing RESEND_API_KEY environment variable"
-      }), {
-        status: 500,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json"
-        }
-      });
-    }
 
     const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -44,27 +12,28 @@ export async function onRequest(context) {
         from: "The Travelling Taverna <onboarding@resend.dev>",
         to: [body.to || "support@smartcoretechnology.co.uk"],
         subject: body.subject || "New website enquiry",
-        html: body.html || "<p>No email content supplied.</p>"
+        html: body.html || "<p>No content supplied.</p>"
       })
     });
 
-    const resendData = await resendResponse.json();
+    const data = await resendResponse.json();
 
-    return new Response(JSON.stringify(resendData), {
+    return new Response(JSON.stringify(data), {
       status: resendResponse.ok ? 200 : 500,
       headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
       }
     });
+
   } catch (error) {
     return new Response(JSON.stringify({
       error: error.message
     }), {
       status: 500,
       headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
       }
     });
   }
