@@ -18,6 +18,7 @@ async function init() {
   bindEvents();
   await loadSettings();
   await loadProducts();
+  await loadEventBanner();
   renderSettings();
   renderCategories();
   renderProducts();
@@ -27,6 +28,7 @@ async function init() {
 function bindEvents() {
   $("navToggle")?.addEventListener("click", () => $("siteNav")?.classList.toggle("open"));
   $("basketButton")?.addEventListener("click", openBasket);
+  $("stickyBasketButton")?.addEventListener("click", openBasket);
   $("closeBasket")?.addEventListener("click", closeBasketDrawer);
   $("overlay")?.addEventListener("click", closeBasketDrawer);
   $("categoryFilter")?.addEventListener("change", renderProducts);
@@ -71,6 +73,30 @@ async function loadProducts() {
   products = data || [];
 }
 
+async function loadEventBanner() {
+  const banner = $("eventBanner");
+  if (!banner) return;
+
+  const { data, error } = await db()
+    .from("event_banners")
+    .select("*")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return;
+
+  $("eventBannerTitle").textContent = data.title || "";
+  $("eventBannerSubtitle").textContent = data.subtitle || "";
+
+  const cta = $("eventBannerCta");
+  cta.textContent = data.cta_text || "Learn more";
+  cta.href = data.cta_link || "#";
+
+  banner.classList.remove("hidden");
+}
+
 function renderSettings() {
   if (!settings) return;
 
@@ -88,9 +114,7 @@ function renderSettings() {
 function calculateDelivery(postcode) {
   const cleaned = String(postcode || "").trim().toUpperCase().replace(/\s+/g, "");
 
-  if (!cleaned) {
-    return { ok: false, message: "Please enter your postcode first.", charge: 0 };
-  }
+  if (!cleaned) return { ok: false, message: "Please enter your postcode first.", charge: 0 };
 
   const prefixes = settings?.allowed_postcode_prefixes || [];
   const allowed = prefixes.some((prefix) => cleaned.startsWith(String(prefix).toUpperCase()));
@@ -123,7 +147,7 @@ function renderCategories() {
 
   categoryFilter.innerHTML =
     `<option value="all">All categories</option>` +
-    categories.map((category) => `<option value="${category}">${category}</option>`).join("");
+    categories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join("");
 }
 
 function renderProducts() {
@@ -148,17 +172,19 @@ function renderProducts() {
   }
 
   productGrid.innerHTML = filtered
+    .slice(0, 6)
     .map(
       (product) => `
       <article class="product-card">
+        ${product.product_badge ? `<span class="product-card-badge">${escapeHtml(product.product_badge)}</span>` : ""}
         <a class="product-image" href="product.html?id=${product.id}">
-          <img src="${product.image_url || ""}" alt="${product.name}" onerror="this.style.display='none'" />
+          <img src="${product.image_url || ""}" alt="${escapeHtml(product.name)}" onerror="this.style.display='none'" />
         </a>
 
         <div class="product-content">
-          <p class="eyebrow">${product.category}</p>
-          <h3><a href="product.html?id=${product.id}">${product.name}</a></h3>
-          <p>${product.description}</p>
+          <p class="eyebrow">${escapeHtml(product.category)}</p>
+          <h3><a href="product.html?id=${product.id}">${escapeHtml(product.name)}</a></h3>
+          <p>${escapeHtml(product.description)}</p>
 
           <div class="product-meta">
             <div>
@@ -228,7 +254,7 @@ function renderBasket() {
         (item) => `
         <div class="basket-item">
           <div>
-            <strong>${item.name}</strong>
+            <strong>${escapeHtml(item.name)}</strong>
             <div>${money(item.price)} each</div>
             <div class="qty-controls">
               <button data-qty="${item.id}" data-amount="-1">-</button>
@@ -258,6 +284,23 @@ function renderBasket() {
   basketSubtotal.textContent = money(subtotal);
   basketDelivery.textContent = checkedDelivery?.ok ? money(delivery) : "Check postcode";
   basketTotal.textContent = money(subtotal + delivery);
+
+  updateStickyBasket(subtotal);
+}
+
+function updateStickyBasket(subtotal = getSubtotal()) {
+  const pill = $("stickyBasketPill");
+  const countEl = $("stickyBasketCount");
+  const totalEl = $("stickyBasketTotal");
+
+  if (!pill || !countEl || !totalEl) return;
+
+  const count = basket.reduce((sum, item) => sum + item.quantity, 0);
+
+  countEl.textContent = `${count} ${count === 1 ? "item" : "items"}`;
+  totalEl.textContent = money(subtotal);
+
+  pill.classList.toggle("show", count > 0);
 }
 
 function changeQty(productId, amount) {
@@ -268,13 +311,8 @@ function changeQty(productId, amount) {
 
   item.quantity += amount;
 
-  if (item.quantity <= 0) {
-    basket = basket.filter((i) => i.id !== productId);
-  }
-
-  if (item.quantity > product.stock) {
-    item.quantity = product.stock;
-  }
+  if (item.quantity <= 0) basket = basket.filter((i) => i.id !== productId);
+  if (item.quantity > product.stock) item.quantity = product.stock;
 
   saveBasket();
   renderBasket();
@@ -462,9 +500,7 @@ async function sendEmailNotification({ type, subject, payload }) {
   try {
     const response = await fetch(EMAIL_ENDPOINT, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         to: settings?.management_email || "support@smartcoretechnology.co.uk",
         subject,
@@ -502,15 +538,13 @@ function buildEmailHtml(type, payload) {
     <div style="font-family:Arial,sans-serif;color:#111827;">
       <h2 style="margin:0 0 12px;">The Travelling Taverna | Greek Deli</h2>
       <p style="margin:0 0 18px;">New ${escapeHtml(type)} submission received.</p>
-      <table style="border-collapse:collapse;width:100%;max-width:700px;">
-        ${rows}
-      </table>
+      <table style="border-collapse:collapse;width:100%;max-width:700px;">${rows}</table>
     </div>
   `;
 }
 
 function escapeHtml(value) {
-  return String(value)
+  return String(value || "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
