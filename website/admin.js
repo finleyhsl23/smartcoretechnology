@@ -188,43 +188,35 @@ function renderProducts() {
 async function addProduct(event) {
   event.preventDefault();
 
-  const note = $("addProductNote");
-  const submitBtn = event.submitter;
-  note.textContent = "Adding product...";
-  note.className = "form-note";
-  if (submitBtn) submitBtn.disabled = true;
-
   try {
-    const name = $("addProductName").value.trim();
-    const imageFile = $("addProductImageFile").files[0];
-    const imageUrl = imageFile ? await uploadImageIfSelected(imageFile) : "";
+    const uploadedImageUrl = await uploadImageIfSelected();
 
     const product = {
-      name,
-      slug: await uniqueSlug(name),
-      category: $("addProductCategory").value.trim(),
-      price: Number($("addProductPrice").value),
-      stock: Number($("addProductStock").value),
-      image_url: imageUrl,
-      description: $("addProductDescription").value.trim(),
-      is_active: true
+      name: $("productName").value.trim(),
+      slug: slugify($("productName").value.trim()),
+      category: $("productCategory").value.trim(),
+      price: Number($("productPrice").value),
+      stock: Number($("productStock").value),
+      description: $("productDescription").value.trim(),
+      image_url: uploadedImageUrl,
+      is_active: true,
+      sort_order: 0
     };
 
-    const { error } = await db().from("products").insert(product);
+    const { error } = await db()
+      .from("products")
+      .insert(product);
 
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
 
-    note.textContent = "Product added.";
-    note.className = "form-note success";
-    $("addProductForm").reset();
-
+    $("productForm").reset();
     await loadProducts();
+
   } catch (error) {
     console.error(error);
-    note.textContent = error.message || "Product could not be added.";
-    note.className = "form-note error";
-  } finally {
-    if (submitBtn) submitBtn.disabled = false;
+    alert(error.message || "Product could not be added.");
   }
 }
 
