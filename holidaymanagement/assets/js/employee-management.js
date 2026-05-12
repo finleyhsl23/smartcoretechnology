@@ -1009,7 +1009,6 @@ async function init() {
 
   revealApp();
   }
-});
   
 init().catch((error) => {
   console.error(error);
