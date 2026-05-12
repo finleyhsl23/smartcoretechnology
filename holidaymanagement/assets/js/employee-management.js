@@ -1008,8 +1008,9 @@ async function init() {
   await loadEmployees();
 
   revealApp();
-}
-
+  }
+});
+  
 init().catch((error) => {
   console.error(error);
 
