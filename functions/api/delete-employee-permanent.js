@@ -1,105 +1,117 @@
 export async function onRequestPost(context) {
   try {
-    const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = context.env;
+    const { request, env } = context;
+    const body = await request.json();
 
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      return json({ error: 'Missing Supabase environment variables.' }, 500);
-    }
-
-    const body = await context.request.json().catch(() => ({}));
     const employeeId = body.employee_id;
 
     if (!employeeId) {
-      return json({ error: 'Missing employee_id.' }, 400);
+      return Response.json(
+        { error: 'Missing employee_id.' },
+        { status: 400 }
+      );
+    }
+
+    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+      return Response.json(
+        { error: 'Supabase service credentials are missing.' },
+        { status: 500 }
+      );
     }
 
     const headers = {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/json'
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation'
     };
 
-    // 1. Get employee so we can find the linked auth.users id
-    const employeeRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/employees?id=eq.${encodeURIComponent(employeeId)}&select=id,user_id&limit=1`,
+    const findResponse = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/employees?id=eq.${employeeId}&select=id,user_id,full_name_enc`,
       {
         method: 'GET',
         headers: {
           ...headers,
           Accept: 'application/json',
-          'Content-Profile': 'smartfitsinstallationsltd'
+          'Accept-Profile': 'smartfitsinstallationsltd'
         }
       }
     );
 
-    const employees = await employeeRes.json().catch(() => []);
+    const found = await findResponse.json().catch(() => []);
 
-    if (!employeeRes.ok) {
-      return json({ error: 'Could not find employee.', details: employees }, 500);
+    if (!findResponse.ok) {
+      return Response.json(
+        { error: 'Employee lookup failed.', details: found },
+        { status: findResponse.status }
+      );
     }
 
-    const employee = employees?.[0];
+    const employee = Array.isArray(found) ? found[0] : null;
 
     if (!employee) {
-      return json({ error: 'Employee not found.' }, 404);
+      return Response.json(
+        { error: 'Could not find employee.', employee_id: employeeId },
+        { status: 404 }
+      );
     }
 
-    // 2. Delete employee row
-    const deleteEmployeeRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/employees?id=eq.${encodeURIComponent(employeeId)}`,
+    const deleteEmployeeResponse = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/employees?id=eq.${employeeId}`,
       {
         method: 'DELETE',
         headers: {
           ...headers,
           'Content-Profile': 'smartfitsinstallationsltd',
-          Prefer: 'return=minimal'
+          'Accept-Profile': 'smartfitsinstallationsltd'
         }
       }
     );
 
-    if (!deleteEmployeeRes.ok) {
-      const err = await deleteEmployeeRes.text();
-      return json({ error: 'Could not delete employee row.', details: err }, 500);
+    const deleteEmployeeResult = await deleteEmployeeResponse.text();
+
+    if (!deleteEmployeeResponse.ok) {
+      return Response.json(
+        { error: 'Employee record could not be deleted.', details: deleteEmployeeResult },
+        { status: deleteEmployeeResponse.status }
+      );
     }
 
-    // 3. Delete auth user if linked
     if (employee.user_id) {
-      const deleteAuthRes = await fetch(
-        `${SUPABASE_URL}/auth/v1/admin/users/${employee.user_id}`,
+      const deleteAuthResponse = await fetch(
+        `${env.SUPABASE_URL}/auth/v1/admin/users/${employee.user_id}`,
         {
           method: 'DELETE',
-          headers
+          headers: {
+            apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+          }
         }
       );
 
-      if (!deleteAuthRes.ok) {
-        const err = await deleteAuthRes.text();
+      const deleteAuthResult = await deleteAuthResponse.json().catch(() => ({}));
 
-        return json({
-          success: true,
-          employee_deleted: true,
-          auth_user_deleted: false,
-          warning: 'Employee was deleted, but auth user could not be deleted.',
-          details: err
-        });
+      if (!deleteAuthResponse.ok) {
+        return Response.json(
+          {
+            ok: true,
+            warning: 'Employee was deleted, but auth user could not be deleted.',
+            auth_error: deleteAuthResult
+          },
+          { status: 200 }
+        );
       }
     }
 
-    return json({
-      success: true,
-      employee_deleted: true,
-      auth_user_deleted: Boolean(employee.user_id)
+    return Response.json({
+      ok: true,
+      deleted_employee_id: employeeId,
+      deleted_auth_user_id: employee.user_id || null
     });
   } catch (error) {
-    return json({ error: error.message || 'Delete failed.' }, 500);
+    return Response.json(
+      { error: error.message || 'Employee could not be deleted.' },
+      { status: 500 }
+    );
   }
-}
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      'Content-Type': 'application/json'
-    }
-  });
 }
