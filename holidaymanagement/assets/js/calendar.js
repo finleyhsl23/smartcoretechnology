@@ -1,8 +1,14 @@
 import { requireAuth, applyRoleUi } from '../../shared/guards.js';
 import { signOut } from '../../shared/auth.js';
 import { revealApp, renderEmptyState } from '../../shared/ui.js';
-import { getApprovedLeaveForDate, getLeaveOverlap } from '../../shared/api.js';
+import {
+  getApprovedLeaveForDate,
+  getLeaveOverlap,
+  getAllHolidayDates
+} from '../../shared/api.js';
 import { formatDate } from '../../shared/dates.js';
+
+let holidayDates = [];
 
 function toIsoDate(date) {
   const copy = new Date(date);
@@ -30,6 +36,12 @@ function leaveTypeLabel(type) {
   return 'Other Leave';
 }
 
+function holidayTypeLabel(type) {
+  if (type === 'bank') return 'Bank Holiday';
+  if (type === 'company') return 'Company Holiday';
+  return 'Holiday';
+}
+
 function monthStartEnd(selectedIsoDate) {
   const selectedDate = parseIsoDate(selectedIsoDate);
   const year = selectedDate.getFullYear();
@@ -39,6 +51,10 @@ function monthStartEnd(selectedIsoDate) {
     start: toIsoDate(new Date(year, month, 1)),
     end: toIsoDate(new Date(year, month + 1, 0))
   };
+}
+
+function getHolidayForDate(isoDate) {
+  return holidayDates.filter((item) => item.holiday_date === isoDate);
 }
 
 function buildCalendar(selectedIsoDate, datesWithLeave = new Set()) {
@@ -78,16 +94,58 @@ function buildCalendar(selectedIsoDate, datesWithLeave = new Set()) {
     const iso = toIsoDate(date);
     const active = iso === selectedIsoDate ? ' active-calendar-day' : '';
     const hasLeave = datesWithLeave.has(iso);
+    const hasHoliday = getHolidayForDate(iso).length > 0;
 
     html += `
       <button class="calendar-cell calendar-day${active}" type="button" data-date="${iso}">
         <span class="calendar-day-number">${day}</span>
         ${hasLeave ? `<span class="calendar-day-dot"></span>` : ''}
+        ${hasHoliday ? `<span class="calendar-holiday-dot" title="Holiday"></span>` : ''}
       </button>
     `;
   }
 
   grid.innerHTML = html;
+}
+
+function renderSelectedDateContent(list, leaveItems, holidays) {
+  const cards = [];
+
+  holidays.forEach((holiday) => {
+    cards.push(`
+      <article class="leave-card holiday-calendar-card">
+        <div class="leave-card-top">
+          <div>
+            <p class="leave-card-title">${holiday.name || 'Holiday'}</p>
+            <p class="leave-card-subtitle">${holidayTypeLabel(holiday.type)} • ${formatDate(holiday.holiday_date)}</p>
+          </div>
+          <div class="badge badge-holiday">Holiday</div>
+        </div>
+      </article>
+    `);
+  });
+
+  leaveItems.forEach((item) => {
+    cards.push(`
+      <article class="leave-card">
+        <div class="leave-card-top">
+          <div>
+            <p class="leave-card-title">${item.employee_name || 'Employee'}</p>
+            <p class="leave-card-subtitle">${item.job_title || '—'} • ${item.employee_id || '—'}</p>
+            <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)}</p>
+          </div>
+          <div class="badge badge-${item.leave_type}">${leaveTypeLabel(item.leave_type)}</div>
+        </div>
+      </article>
+    `);
+  });
+
+  if (!cards.length) {
+    renderEmptyState(list, 'Nobody is off and there are no holidays on this date.');
+    return;
+  }
+
+  list.innerHTML = cards.join('');
 }
 
 async function initCalendar() {
@@ -97,6 +155,11 @@ async function initCalendar() {
 
     const { profile } = auth;
     applyRoleUi(profile);
+
+    holidayDates = await getAllHolidayDates(profile.company_id).catch((error) => {
+      console.warn('Holiday dates failed to load:', error);
+      return [];
+    });
 
     document.getElementById('logoutBtn')?.addEventListener('click', async () => {
       await signOut();
@@ -147,24 +210,9 @@ async function initCalendar() {
       buildCalendar(isoDate, currentMonthDots);
 
       const items = await getApprovedLeaveForDate(profile.company_id, isoDate);
+      const holidays = getHolidayForDate(isoDate);
 
-      if (!items.length) {
-        renderEmptyState(list, 'Nobody is off on this date.');
-        return;
-      }
-
-      list.innerHTML = items.map((item) => `
-        <article class="leave-card">
-          <div class="leave-card-top">
-            <div>
-              <p class="leave-card-title">${item.employee_name || 'Employee'}</p>
-              <p class="leave-card-subtitle">${item.job_title || '—'} • ${item.employee_id || '—'}</p>
-              <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)}</p>
-            </div>
-            <div class="badge badge-${item.leave_type}">${leaveTypeLabel(item.leave_type)}</div>
-          </div>
-        </article>
-      `).join('');
+      renderSelectedDateContent(list, items || [], holidays || []);
     }
 
     grid?.addEventListener('click', async (event) => {
