@@ -1,5 +1,4 @@
 import { supabase, db } from "./supabaseClient.js";
-// Product images are temporarily saved as compressed base64 data URLs
 
 let products = [];
 let settings = null;
@@ -135,6 +134,7 @@ async function loadProducts() {
   const { data, error } = await db()
     .from("products")
     .select("*")
+    .order("is_active", { ascending: false })
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: false });
 
@@ -160,14 +160,18 @@ function renderProducts() {
   list.innerHTML = products
     .map(
       (product) => `
-      <div class="admin-product-row">
+      <div class="admin-product-row ${product.is_active ? "" : "inactive-product"}">
         <img src="${product.image_url || ""}" alt="${escapeHtml(product.name)}" onerror="this.style.display='none'" />
 
         <div>
           <strong>${escapeHtml(product.name)}</strong>
           <div>${escapeHtml(product.category)}</div>
           <div>${money(product.price)} | Stock: ${product.stock}</div>
-          <div>${product.is_active ? "Active" : "Hidden"}</div>
+          <div>
+            <span class="${product.is_active ? "status-pill sent" : "status-pill warning"}">
+              ${product.is_active ? "Active on website" : "Not active"}
+            </span>
+          </div>
         </div>
 
         <div class="admin-actions">
