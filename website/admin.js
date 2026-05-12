@@ -33,39 +33,39 @@ async function initAdmin() {
 }
 
 function bindEvents() {
-  $("loginBtn").addEventListener("click", handleLogin);
-  $("logoutBtn").addEventListener("click", handleLogout);
+  $("loginBtn")?.addEventListener("click", handleLogin);
+  $("logoutBtn")?.addEventListener("click", handleLogout);
 
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => switchTab(tab.dataset.tab));
   });
 
-  $("addProductForm").addEventListener("submit", addProduct);
-  $("editProductForm").addEventListener("submit", saveEditedProduct);
-  $("settingsForm").addEventListener("submit", saveSettings);
+  $("addProductForm")?.addEventListener("submit", addProduct);
+  $("editProductForm")?.addEventListener("submit", saveEditedProduct);
+  $("settingsForm")?.addEventListener("submit", saveSettings);
 
-  $("closeEditProductModal").addEventListener("click", closeEditModal);
-  $("editProductModal").addEventListener("click", (event) => {
+  $("closeEditProductModal")?.addEventListener("click", closeEditModal);
+  $("editProductModal")?.addEventListener("click", (event) => {
     if (event.target.id === "editProductModal") closeEditModal();
   });
 
-  $("cancelDeleteBtn").addEventListener("click", closeDeleteModal);
-  $("confirmDeleteBtn").addEventListener("click", confirmDeleteProduct);
-  $("deleteConfirmModal").addEventListener("click", (event) => {
+  $("cancelDeleteBtn")?.addEventListener("click", closeDeleteModal);
+  $("confirmDeleteBtn")?.addEventListener("click", confirmDeleteProduct);
+  $("deleteConfirmModal")?.addEventListener("click", (event) => {
     if (event.target.id === "deleteConfirmModal") closeDeleteModal();
   });
 
-  $("closeContactUserModal").addEventListener("click", closeContactUserModal);
-  $("contactUserModal").addEventListener("click", (event) => {
+  $("closeContactUserModal")?.addEventListener("click", closeContactUserModal);
+  $("contactUserModal")?.addEventListener("click", (event) => {
     if (event.target.id === "contactUserModal") closeContactUserModal();
   });
 
-  $("refreshProductsBtn").addEventListener("click", loadProducts);
-  $("refreshOrdersBtn").addEventListener("click", loadOrders);
-  $("refreshEnquiriesBtn").addEventListener("click", loadEnquiries);
+  $("refreshProductsBtn")?.addEventListener("click", loadProducts);
+  $("refreshOrdersBtn")?.addEventListener("click", loadOrders);
+  $("refreshEnquiriesBtn")?.addEventListener("click", loadEnquiries);
 
-  $("orderSearchInput").addEventListener("input", renderOrders);
-  $("orderStatusFilter").addEventListener("change", renderOrders);
+  $("orderSearchInput")?.addEventListener("input", renderOrders);
+  $("orderStatusFilter")?.addEventListener("change", renderOrders);
 }
 
 async function handleLogin() {
@@ -149,12 +149,15 @@ async function loadProducts() {
 }
 
 function renderProducts() {
+  const list = $("adminProductList");
+  if (!list) return;
+
   if (!products.length) {
-    $("adminProductList").innerHTML = "<p>No products yet.</p>";
+    list.innerHTML = "<p>No products yet.</p>";
     return;
   }
 
-  $("adminProductList").innerHTML = products
+  list.innerHTML = products
     .map(
       (product) => `
       <div class="admin-product-row">
@@ -188,17 +191,28 @@ function renderProducts() {
 async function addProduct(event) {
   event.preventDefault();
 
+  const note = $("addProductNote");
+  const submitBtn = event.submitter;
+
+  if (note) {
+    note.textContent = "Adding product...";
+    note.className = "form-note";
+  }
+
+  if (submitBtn) submitBtn.disabled = true;
+
   try {
-    const uploadedImageUrl = await uploadImageIfSelected();
+    const name = $("addProductName").value.trim();
+    const uploadedImageUrl = await uploadImageIfSelected($("addProductImageFile")?.files?.[0]);
 
     const product = {
-      name: $("productName").value.trim(),
-      slug: slugify($("productName").value.trim()),
-      category: $("productCategory").value.trim(),
-      price: Number($("productPrice").value),
-      stock: Number($("productStock").value),
-      description: $("productDescription").value.trim(),
-      image_url: uploadedImageUrl,
+      name,
+      slug: await uniqueSlug(name),
+      category: $("addProductCategory").value.trim(),
+      price: Number($("addProductPrice").value),
+      stock: Number($("addProductStock").value),
+      description: $("addProductDescription").value.trim(),
+      image_url: uploadedImageUrl || "",
       is_active: true,
       sort_order: 0
     };
@@ -207,16 +221,27 @@ async function addProduct(event) {
       .from("products")
       .insert(product);
 
-    if (error) {
-      throw error;
+    if (error) throw error;
+
+    $("addProductForm").reset();
+
+    if (note) {
+      note.textContent = "Product added.";
+      note.className = "form-note success";
     }
 
-    $("productForm").reset();
     await loadProducts();
-
   } catch (error) {
     console.error(error);
-    alert(error.message || "Product could not be added.");
+
+    if (note) {
+      note.textContent = error.message || "Product could not be added.";
+      note.className = "form-note error";
+    } else {
+      alert(error.message || "Product could not be added.");
+    }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
@@ -225,6 +250,7 @@ async function saveEditedProduct(event) {
 
   const note = $("editProductNote");
   const submitBtn = event.submitter;
+
   note.textContent = "Saving changes...";
   note.className = "form-note";
   if (submitBtn) submitBtn.disabled = true;
@@ -232,9 +258,7 @@ async function saveEditedProduct(event) {
   try {
     const id = $("editProductId").value;
     const name = $("editProductName").value.trim();
-    const uploadedImage = $("editProductImageFile").files[0]
-      ? await uploadImageIfSelected($("editProductImageFile").files[0])
-      : "";
+    const uploadedImage = await uploadImageIfSelected($("editProductImageFile")?.files?.[0]);
 
     const product = {
       name,
@@ -269,20 +293,11 @@ async function saveEditedProduct(event) {
   }
 }
 
-async function uploadImageIfSelected() {
-  const imageInput = document.getElementById("productImage");
-
-  if (!imageInput?.files?.length) {
-    return null;
-  }
-
-  const file = imageInput.files[0];
+async function uploadImageIfSelected(file) {
+  if (!file) return null;
 
   const extension = file.name.split(".").pop().toLowerCase();
-
-  const safeFileName =
-    `${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
-
+  const safeFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
   const filePath = `products/${safeFileName}`;
 
   const { error } = await supabase.storage
@@ -305,7 +320,9 @@ async function uploadImageIfSelected() {
 }
 
 async function uniqueSlug(name) {
-  return `${slugify(name)}-${Date.now().toString().slice(-5)}`;
+  const baseSlug = slugify(name);
+  const randomSuffix = Date.now().toString().slice(-5);
+  return `${baseSlug}-${randomSuffix}`;
 }
 
 function openEditModal(id) {
@@ -385,8 +402,8 @@ async function loadOrders() {
 }
 
 function renderOrders() {
-  const search = $("orderSearchInput").value.trim().toLowerCase();
-  const status = $("orderStatusFilter").value;
+  const search = $("orderSearchInput")?.value.trim().toLowerCase() || "";
+  const status = $("orderStatusFilter")?.value || "all";
 
   const filtered = orders.filter((order) => {
     const haystack = [
@@ -451,6 +468,7 @@ function renderOrders() {
 
 async function loadOrderItems(orderId) {
   const box = $(`items-${orderId}`);
+  if (!box) return;
 
   if (!box.classList.contains("hidden")) {
     box.classList.add("hidden");
