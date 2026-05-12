@@ -1,5 +1,5 @@
 import { supabase, db } from "./supabaseClient.js";
-import { PRODUCT_IMAGE_BUCKET } from "./config.js";
+// Product images are temporarily saved as compressed base64 data URLs
 
 let products = [];
 let settings = null;
@@ -296,27 +296,34 @@ async function saveEditedProduct(event) {
 async function uploadImageIfSelected(file) {
   if (!file) return null;
 
-  const extension = file.name.split(".").pop().toLowerCase();
-  const safeFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
-  const filePath = `products/${safeFileName}`;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
 
-  const { error } = await supabase.storage
-    .from(PRODUCT_IMAGE_BUCKET)
-    .upload(filePath, file, {
-      cacheControl: "3600",
-      upsert: false
-    });
+    reader.onload = (event) => {
+      const img = new Image();
 
-  if (error) {
-    console.error(error);
-    throw new Error(`Image upload failed: ${error.message}`);
-  }
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxWidth = 900;
+        const scale = Math.min(1, maxWidth / img.width);
 
-  const { data } = supabase.storage
-    .from(PRODUCT_IMAGE_BUCKET)
-    .getPublicUrl(filePath);
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
 
-  return data.publicUrl;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.75);
+        resolve(compressedDataUrl);
+      };
+
+      img.onerror = () => reject(new Error("Image could not be processed."));
+      img.src = event.target.result;
+    };
+
+    reader.onerror = () => reject(new Error("Image could not be read."));
+    reader.readAsDataURL(file);
+  });
 }
 
 async function uniqueSlug(name) {
