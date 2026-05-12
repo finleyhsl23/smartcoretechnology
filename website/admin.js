@@ -277,19 +277,21 @@ async function saveEditedProduct(event) {
   }
 }
 
-async function uploadImageIfSelected(file) {
-  if (!file) return "";
+async function uploadImageIfSelected() {
+  const imageInput = document.getElementById("productImage");
 
-  const {
-    data: { session }
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    throw new Error("Your admin session has expired. Please refresh and log in again.");
+  if (!imageInput?.files?.length) {
+    return null;
   }
 
-  const cleanName = file.name.toLowerCase().replace(/[^a-z0-9.]+/g, "-");
-  const filePath = `products/${Date.now()}-${cleanName}`;
+  const file = imageInput.files[0];
+
+  const extension = file.name.split(".").pop().toLowerCase();
+
+  const safeFileName =
+    `${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
+
+  const filePath = `products/${safeFileName}`;
 
   const { error } = await supabase.storage
     .from(PRODUCT_IMAGE_BUCKET)
@@ -299,7 +301,8 @@ async function uploadImageIfSelected(file) {
     });
 
   if (error) {
-    throw new Error("Image upload failed: " + error.message);
+    console.error(error);
+    throw new Error(`Image upload failed: ${error.message}`);
   }
 
   const { data } = supabase.storage
