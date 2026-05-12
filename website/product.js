@@ -10,7 +10,6 @@ const detail = document.getElementById("productDetail");
 const recommendedProducts = document.getElementById("recommendedProducts");
 const id = new URLSearchParams(window.location.search).get("id");
 
-let currentProduct = null;
 let allProducts = [];
 
 async function loadProductPage() {
@@ -32,20 +31,21 @@ async function loadProductPage() {
     return;
   }
 
-  currentProduct = product;
   document.title = `${product.name} | The Travelling Taverna Greek Deli`;
 
-  await loadRecommendations();
+  await loadRecommendations(product);
   renderProduct(product);
+  renderExtraPanels(product);
   renderRecommendations();
+  updateStickyBasket();
 }
 
-async function loadRecommendations() {
+async function loadRecommendations(product) {
   const { data, error } = await db()
     .from("products")
     .select("*")
     .eq("is_active", true)
-    .neq("id", id)
+    .neq("id", product.id)
     .order("sort_order", { ascending: true })
     .limit(4);
 
@@ -61,6 +61,7 @@ async function loadRecommendations() {
 function renderProduct(product) {
   detail.innerHTML = `
     <div class="premium-product-media">
+      ${product.product_badge ? `<span class="product-floating-badge">${escapeHtml(product.product_badge)}</span>` : ""}
       <img src="${product.image_url || ""}" alt="${escapeHtml(product.name)}" onerror="this.style.display='none'" />
     </div>
 
@@ -99,7 +100,7 @@ function renderProduct(product) {
         </div>
         <div>
           <strong>Fresh products</strong>
-          <span>Prepared for simple, easy ordering</span>
+          <span>Prepared for simple ordering</span>
         </div>
         <div>
           <strong>Business orders</strong>
@@ -114,6 +115,18 @@ function renderProduct(product) {
   });
 }
 
+function renderExtraPanels(product) {
+  const highlight = document.getElementById("productHighlightText");
+  const ingredients = document.getElementById("ingredientsText");
+  const allergens = document.getElementById("allergensText");
+  const serving = document.getElementById("servingText");
+
+  if (highlight) highlight.textContent = product.product_highlight || "Perfect for lunch, dinner, events or sharing. Built for simple online ordering and local delivery.";
+  if (ingredients) ingredients.textContent = product.ingredients || "Ingredients will be shown here when added.";
+  if (allergens) allergens.textContent = product.allergens || "Please contact us if you have any allergy requirements.";
+  if (serving) serving.textContent = product.serving_suggestion || "Best served fresh with your favourite sides.";
+}
+
 function renderRecommendations() {
   if (!recommendedProducts) return;
 
@@ -126,6 +139,7 @@ function renderRecommendations() {
     .map(
       (product) => `
       <article class="product-card recommended-card">
+        ${product.product_badge ? `<span class="product-card-badge">${escapeHtml(product.product_badge)}</span>` : ""}
         <a class="product-image" href="product.html?id=${product.id}">
           <img src="${product.image_url || ""}" alt="${escapeHtml(product.name)}" onerror="this.style.display='none'" />
         </a>
@@ -163,17 +177,31 @@ function addToBasket(product) {
   const basket = JSON.parse(localStorage.getItem("tt_basket")) || [];
   const existing = basket.find((item) => item.id === product.id);
 
-  if (existing) {
-    existing.quantity += 1;
-  } else {
-    basket.push({
-      id: product.id,
-      quantity: 1
-    });
-  }
+  if (existing) existing.quantity += 1;
+  else basket.push({ id: product.id, quantity: 1 });
 
   localStorage.setItem("tt_basket", JSON.stringify(basket));
+  updateStickyBasket();
   alert("Added to basket. Go back to the shop to checkout.");
+}
+
+function updateStickyBasket() {
+  const basket = JSON.parse(localStorage.getItem("tt_basket")) || [];
+  const count = basket.reduce((sum, item) => sum + item.quantity, 0);
+
+  const countEl = document.getElementById("stickyBasketCount");
+  const totalEl = document.getElementById("stickyBasketTotal");
+  const pill = document.getElementById("stickyBasketPill");
+
+  if (!countEl || !totalEl || !pill) return;
+
+  countEl.textContent = `${count} ${count === 1 ? "item" : "items"}`;
+  totalEl.textContent = "View basket";
+  pill.classList.toggle("show", count > 0);
+
+  document.getElementById("stickyBasketButton")?.addEventListener("click", () => {
+    window.location.href = "shop.html";
+  });
 }
 
 function escapeHtml(value) {
