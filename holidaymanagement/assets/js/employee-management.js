@@ -910,6 +910,7 @@ async function init() {
       if (!confirm(`Permanently delete ${employee.full_name || 'this employee'}?`)) return;
       if (!confirm('This will also try to delete their login. This cannot be undone. Continue?')) return;
 
+      console.log(currentEmployee);
       await deleteEmployeePermanent(employee.id);
       await loadEmployees();
     }
