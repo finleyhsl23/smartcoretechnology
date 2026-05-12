@@ -1001,15 +1001,15 @@ async function init() {
     }
   });
 
-  document.getElementById('sendPersonalInviteBtn')?.addEventListener('click', () => sendInvite('personal'));
+    document.getElementById('sendPersonalInviteBtn')?.addEventListener('click', () => sendInvite('personal'));
   document.getElementById('sendWorkInviteBtn')?.addEventListener('click', () => sendInvite('work'));
 
   await loadShiftPatterns();
   await loadEmployees();
 
   revealApp();
-  }
-  
+}
+
 init().catch((error) => {
   console.error(error);
 
@@ -1022,4 +1022,4 @@ init().catch((error) => {
       </div>
     `;
   }
-
+});
