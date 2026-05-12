@@ -8,3 +8,6 @@ export const SCHEMA = "thetravellingtavernagreekdeli";
 // Existing email endpoint from your other module.
 // Change this if your existing endpoint has a different path.
 export const EMAIL_ENDPOINT = "/api/send-email";
+
+// Supabase storage bucket for product images
+export const PRODUCT_IMAGE_BUCKET = "product-images";
