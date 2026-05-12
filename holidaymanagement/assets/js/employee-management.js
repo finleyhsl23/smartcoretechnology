@@ -906,18 +906,18 @@ async function init() {
       await loadEmployees();
     }
 
-    if (button.dataset.action === 'delete') {
-  if (!confirm(`Permanently delete ${employee.full_name || 'this employee'}?`)) return;
-  if (!confirm('This will also try to delete their login. This cannot be undone. Continue?')) return;
+        if (button.dataset.action === 'delete') {
+      if (!confirm(`Permanently delete ${employee.full_name || 'this employee'}?`)) return;
+      if (!confirm('This will also try to delete their login. This cannot be undone. Continue?')) return;
 
-  console.log('Deleting employee:', employee);
+      console.log('Deleting employee:', employee);
 
-  await deleteEmployeePermanent(employee.id);
-  await loadEmployees();
-}
+      await deleteEmployeePermanent(employee.id);
+      await loadEmployees();
+    }
+  });
 
   document.getElementById('employeeForm')?.addEventListener('submit', async (event) => {
-    event.preventDefault();
 
     try {
       const payload = getEmployeePayload();
@@ -1023,4 +1023,4 @@ init().catch((error) => {
       </div>
     `;
   }
-});
+
