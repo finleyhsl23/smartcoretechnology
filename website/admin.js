@@ -4,6 +4,7 @@ let products = [];
 let settings = null;
 let orders = [];
 let enquiries = [];
+let banners = [];
 let productPendingDelete = null;
 
 const $ = (id) => document.getElementById(id);
@@ -42,6 +43,7 @@ function bindEvents() {
   $("addProductForm")?.addEventListener("submit", addProduct);
   $("editProductForm")?.addEventListener("submit", saveEditedProduct);
   $("settingsForm")?.addEventListener("submit", saveSettings);
+  $("bannerForm")?.addEventListener("submit", saveBanner);
 
   $("closeEditProductModal")?.addEventListener("click", closeEditModal);
   $("editProductModal")?.addEventListener("click", (event) => {
@@ -62,6 +64,7 @@ function bindEvents() {
   $("refreshProductsBtn")?.addEventListener("click", loadProducts);
   $("refreshOrdersBtn")?.addEventListener("click", loadOrders);
   $("refreshEnquiriesBtn")?.addEventListener("click", loadEnquiries);
+  $("refreshBannersBtn")?.addEventListener("click", loadBanners);
 
   $("orderSearchInput")?.addEventListener("input", renderOrders);
   $("orderStatusFilter")?.addEventListener("change", renderOrders);
@@ -74,10 +77,7 @@ async function handleLogin() {
   const email = $("adminEmail").value.trim();
   const password = $("adminPassword").value.trim();
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password
-  });
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
     $("loginNote").textContent = error.message;
@@ -125,6 +125,7 @@ function switchTab(tabId) {
 
 async function loadAll() {
   await loadProducts();
+  await loadBanners();
   await loadSettings();
   await loadOrders();
   await loadEnquiries();
@@ -171,10 +172,12 @@ function renderProducts() {
             <span class="${product.is_active ? "status-pill sent" : "status-pill warning"}">
               ${product.is_active ? "Active on website" : "Not active"}
             </span>
+            ${product.product_badge ? `<span class="status-pill">${escapeHtml(product.product_badge)}</span>` : ""}
           </div>
         </div>
 
         <div class="admin-actions">
+          <a class="btn secondary small" href="product.html?id=${product.id}" target="_blank" rel="noopener">Preview</a>
           <button type="button" data-edit="${product.id}">Edit</button>
           <button type="button" class="delete" data-delete="${product.id}">Delete</button>
         </div>
@@ -217,20 +220,27 @@ async function addProduct(event) {
       stock: Number($("addProductStock").value),
       description: $("addProductDescription").value.trim(),
       image_url: uploadedImageUrl || "",
+      product_badge: $("addProductBadge")?.value.trim() || "",
+      product_highlight: $("addProductHighlight")?.value.trim() || "",
+      ingredients: $("addProductIngredients")?.value.trim() || "",
+      allergens: $("addProductAllergens")?.value.trim() || "",
+      serving_suggestion: $("addProductServing")?.value.trim() || "",
       is_active: true,
       sort_order: 0
     };
 
-    const { error } = await db()
+    const { data, error } = await db()
       .from("products")
-      .insert(product);
+      .insert(product)
+      .select("id")
+      .single();
 
     if (error) throw error;
 
     $("addProductForm").reset();
 
     if (note) {
-      note.textContent = "Product added.";
+      note.innerHTML = `Product added. <a href="product.html?id=${data.id}" target="_blank" rel="noopener">Preview product page</a>`;
       note.className = "form-note success";
     }
 
@@ -272,6 +282,11 @@ async function saveEditedProduct(event) {
       stock: Number($("editProductStock").value),
       image_url: uploadedImage || $("editProductImageUrl").value.trim(),
       description: $("editProductDescription").value.trim(),
+      product_badge: $("editProductBadge")?.value.trim() || "",
+      product_highlight: $("editProductHighlight")?.value.trim() || "",
+      ingredients: $("editProductIngredients")?.value.trim() || "",
+      allergens: $("editProductAllergens")?.value.trim() || "",
+      serving_suggestion: $("editProductServing")?.value.trim() || "",
       is_active: $("editProductActive").checked
     };
 
@@ -282,12 +297,10 @@ async function saveEditedProduct(event) {
 
     if (error) throw error;
 
-    note.textContent = "Product updated.";
+    note.innerHTML = `Product updated. <a href="product.html?id=${id}" target="_blank" rel="noopener">Preview product page</a>`;
     note.className = "form-note success";
 
     await loadProducts();
-
-    setTimeout(closeEditModal, 500);
   } catch (error) {
     console.error(error);
     note.textContent = error.message || "Product could not be updated.";
@@ -317,8 +330,7 @@ async function uploadImageIfSelected(file) {
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.75);
-        resolve(compressedDataUrl);
+        resolve(canvas.toDataURL("image/jpeg", 0.75));
       };
 
       img.onerror = () => reject(new Error("Image could not be processed."));
@@ -331,14 +343,11 @@ async function uploadImageIfSelected(file) {
 }
 
 async function uniqueSlug(name) {
-  const baseSlug = slugify(name);
-  const randomSuffix = Date.now().toString().slice(-5);
-  return `${baseSlug}-${randomSuffix}`;
+  return `${slugify(name)}-${Date.now().toString().slice(-5)}`;
 }
 
 function openEditModal(id) {
   const product = products.find((p) => p.id === id);
-
   if (!product) return;
 
   $("editProductId").value = product.id;
@@ -348,9 +357,15 @@ function openEditModal(id) {
   $("editProductStock").value = product.stock;
   $("editProductImageUrl").value = product.image_url || "";
   $("editProductDescription").value = product.description;
+  $("editProductBadge").value = product.product_badge || "";
+  $("editProductHighlight").value = product.product_highlight || "";
+  $("editProductIngredients").value = product.ingredients || "";
+  $("editProductAllergens").value = product.allergens || "";
+  $("editProductServing").value = product.serving_suggestion || "";
   $("editProductActive").checked = product.is_active;
   $("editProductImageFile").value = "";
   $("editProductNote").textContent = "";
+  $("editProductPreviewLink").href = `product.html?id=${product.id}`;
 
   $("editProductModal").classList.add("show");
 }
@@ -389,7 +404,6 @@ async function confirmDeleteProduct() {
   $("confirmDeleteBtn").disabled = false;
 
   if (error) {
-    console.error(error);
     $("deleteNote").textContent = error.message;
     $("deleteNote").className = "form-note error";
     return;
@@ -399,11 +413,131 @@ async function confirmDeleteProduct() {
   await loadProducts();
 }
 
+async function loadBanners() {
+  const { data, error } = await db()
+    .from("event_banners")
+    .select("*")
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    return;
+  }
+
+  banners = data || [];
+  renderBanners();
+}
+
+function renderBanners() {
+  const list = $("adminBannerList");
+  if (!list) return;
+
+  if (!banners.length) {
+    list.innerHTML = "<p>No banners yet.</p>";
+    return;
+  }
+
+  list.innerHTML = banners
+    .map(
+      (banner) => `
+      <div class="admin-product-row ${banner.is_active ? "" : "inactive-product"}">
+        <div>
+          <strong>${escapeHtml(banner.title)}</strong>
+          <div>${escapeHtml(banner.subtitle || "")}</div>
+          <div>
+            <span class="${banner.is_active ? "status-pill sent" : "status-pill warning"}">
+              ${banner.is_active ? "Active on website" : "Not active"}
+            </span>
+          </div>
+        </div>
+
+        <div class="admin-actions">
+          <button type="button" data-edit-banner="${banner.id}">Edit</button>
+          <button type="button" class="delete" data-delete-banner="${banner.id}">Delete</button>
+        </div>
+      </div>
+    `
+    )
+    .join("");
+
+  document.querySelectorAll("[data-edit-banner]").forEach((button) => {
+    button.addEventListener("click", () => editBanner(button.dataset.editBanner));
+  });
+
+  document.querySelectorAll("[data-delete-banner]").forEach((button) => {
+    button.addEventListener("click", () => deleteBanner(button.dataset.deleteBanner));
+  });
+}
+
+function editBanner(id) {
+  const banner = banners.find((item) => item.id === id);
+  if (!banner) return;
+
+  $("bannerId").value = banner.id;
+  $("bannerTitle").value = banner.title || "";
+  $("bannerSubtitle").value = banner.subtitle || "";
+  $("bannerCtaText").value = banner.cta_text || "";
+  $("bannerCtaLink").value = banner.cta_link || "";
+  $("bannerImageUrl").value = banner.image_url || "";
+  $("bannerActive").checked = banner.is_active;
+  $("bannerNote").textContent = "";
+}
+
+async function saveBanner(event) {
+  event.preventDefault();
+
+  const id = $("bannerId").value;
+
+  const banner = {
+    title: $("bannerTitle").value.trim(),
+    subtitle: $("bannerSubtitle").value.trim(),
+    cta_text: $("bannerCtaText").value.trim(),
+    cta_link: $("bannerCtaLink").value.trim(),
+    image_url: $("bannerImageUrl").value.trim(),
+    is_active: $("bannerActive").checked,
+    sort_order: 0
+  };
+
+  const response = id
+    ? await db().from("event_banners").update(banner).eq("id", id)
+    : await db().from("event_banners").insert(banner);
+
+  if (response.error) {
+    $("bannerNote").textContent = response.error.message;
+    $("bannerNote").className = "form-note error";
+    return;
+  }
+
+  $("bannerNote").textContent = "Banner saved.";
+  $("bannerNote").className = "form-note success";
+  $("bannerForm").reset();
+  $("bannerId").value = "";
+  $("bannerActive").checked = true;
+
+  await loadBanners();
+}
+
+async function deleteBanner(id) {
+  if (!confirm("Delete this banner?")) return;
+
+  const { error } = await db()
+    .from("event_banners")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  await loadBanners();
+}
+
 async function loadOrders() {
   const { data, error } = await db().rpc("admin_orders");
 
   if (error) {
-    console.error(error);
     $("adminOrderList").innerHTML = `<p>${escapeHtml(error.message)}</p>`;
     return;
   }
@@ -429,10 +563,7 @@ function renderOrders() {
       .join(" ")
       .toLowerCase();
 
-    const matchesSearch = !search || haystack.includes(search);
-    const matchesStatus = status === "all" || order.status === status;
-
-    return matchesSearch && matchesStatus;
+    return (!search || haystack.includes(search)) && (status === "all" || order.status === status);
   });
 
   if (!filtered.length) {
@@ -443,32 +574,29 @@ function renderOrders() {
   $("adminOrderList").innerHTML = filtered
     .map(
       (order) => `
-        <div class="admin-order-row">
-          <div class="admin-card-top">
-            <div>
-              <h3>${escapeHtml(order.order_number)}</h3>
-              <p>${new Date(order.created_at).toLocaleString("en-GB")}</p>
-            </div>
-            <span class="status-pill">${escapeHtml(order.status)}</span>
+      <div class="admin-order-row">
+        <div class="admin-card-top">
+          <div>
+            <h3>${escapeHtml(order.order_number)}</h3>
+            <p>${new Date(order.created_at).toLocaleString("en-GB")}</p>
           </div>
-
-          <div class="detail-grid">
-            <div><span>Customer</span><strong>${escapeHtml(order.customer?.name || "")}</strong></div>
-            <div><span>Email</span><strong>${escapeHtml(order.customer?.email || "")}</strong></div>
-            <div><span>Phone</span><strong>${escapeHtml(order.customer?.phone || "")}</strong></div>
-            <div><span>Postcode</span><strong>${escapeHtml(order.customer?.postcode || "")}</strong></div>
-          </div>
-
-          <p><strong>Address:</strong> ${escapeHtml(order.customer?.address || "")}</p>
-          <p><strong>Total:</strong> ${money(order.total)} including ${money(order.delivery_charge)} delivery</p>
-
-          <button class="btn secondary small" type="button" data-load-items="${order.id}">
-            Show order items
-          </button>
-
-          <div class="order-lines hidden" id="items-${order.id}"></div>
+          <span class="status-pill">${escapeHtml(order.status)}</span>
         </div>
-      `
+
+        <div class="detail-grid">
+          <div><span>Customer</span><strong>${escapeHtml(order.customer?.name || "")}</strong></div>
+          <div><span>Email</span><strong>${escapeHtml(order.customer?.email || "")}</strong></div>
+          <div><span>Phone</span><strong>${escapeHtml(order.customer?.phone || "")}</strong></div>
+          <div><span>Postcode</span><strong>${escapeHtml(order.customer?.postcode || "")}</strong></div>
+        </div>
+
+        <p><strong>Address:</strong> ${escapeHtml(order.customer?.address || "")}</p>
+        <p><strong>Total:</strong> ${money(order.total)} including ${money(order.delivery_charge)} delivery</p>
+
+        <button class="btn secondary small" type="button" data-load-items="${order.id}">Show order items</button>
+        <div class="order-lines hidden" id="items-${order.id}"></div>
+      </div>
+    `
     )
     .join("");
 
@@ -499,10 +627,7 @@ async function loadOrderItems(orderId) {
   }
 
   box.innerHTML = (data || [])
-    .map(
-      (item) =>
-        `${item.quantity} × ${escapeHtml(item.product_name)} at ${money(item.unit_price)}`
-    )
+    .map((item) => `${item.quantity} × ${escapeHtml(item.product_name)} at ${money(item.unit_price)}`)
     .join("<br>");
 }
 
@@ -510,7 +635,6 @@ async function loadEnquiries() {
   const { data, error } = await db().rpc("admin_enquiries");
 
   if (error) {
-    console.error(error);
     $("adminEnquiryList").innerHTML = `<p>${escapeHtml(error.message)}</p>`;
     return;
   }
@@ -562,12 +686,8 @@ function renderEnquiryCard(enquiry) {
       </div>
 
       <div class="enquiry-actions">
-        <button class="btn primary small" type="button" data-contact-enquiry="${enquiry.id}">
-          Contact user
-        </button>
+        <button class="btn primary small" type="button" data-contact-enquiry="${enquiry.id}">Contact user</button>
       </div>
-
-      ${enquiry.email_error ? `<p class="form-note error">Email error: ${escapeHtml(enquiry.email_error)}</p>` : ""}
     </div>
   `;
 }
@@ -607,7 +727,6 @@ async function loadSettings() {
     .single();
 
   if (error) {
-    console.error(error);
     alert(error.message);
     return;
   }
@@ -640,10 +759,7 @@ async function saveSettings(event) {
     radius_message: $("settingRadiusMessage").value.trim(),
     delivery_days: $("settingOpenDays").value.trim(),
     delivery_times: $("settingOpenTimes").value.trim(),
-    allowed_postcode_prefixes: $("settingPostcodes")
-      .value.split(",")
-      .map((value) => value.trim().toUpperCase())
-      .filter(Boolean),
+    allowed_postcode_prefixes: $("settingPostcodes").value.split(",").map((value) => value.trim().toUpperCase()).filter(Boolean),
     delivery_charge_de: Number($("settingChargeDE").value),
     delivery_charge_le: Number($("settingChargeLE").value),
     delivery_charge_ng: Number($("settingChargeNG").value),
@@ -658,9 +774,7 @@ async function saveSettings(event) {
   $("settingsNote").textContent = error ? error.message : "Settings saved.";
   $("settingsNote").className = error ? "form-note error" : "form-note success";
 
-  if (!error) {
-    await loadSettings();
-  }
+  if (!error) await loadSettings();
 }
 
 function escapeHtml(value) {
