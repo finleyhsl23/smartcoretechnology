@@ -345,9 +345,9 @@ function fillEmployeeForm(employee = null) {
 
   const isEditing = !!employee;
 
-  document.querySelectorAll('[data-edit-only]').forEach((section) => {
-    section.classList.toggle('hidden', !isEditing);
-  });
+document.querySelectorAll('[data-edit-only] input, [data-edit-only] select').forEach((field) => {
+  field.disabled = !isEditing;
+});
 
   setText('employeeModalTitle', employee ? 'Edit Employee' : 'Add Employee');
   setText(
