@@ -16,11 +16,9 @@ const money = (value) =>
 
 async function init() {
   bindEvents();
-
   await loadSettings();
   await loadProducts();
   await loadHeroBanner();
-
   renderSettings();
   renderCategories();
   renderProducts();
@@ -28,50 +26,27 @@ async function init() {
 }
 
 function bindEvents() {
-  $("navToggle")?.addEventListener("click", () => {
-    $("siteNav")?.classList.toggle("open");
-  });
-
+  $("navToggle")?.addEventListener("click", () => $("siteNav")?.classList.toggle("open"));
   $("basketButton")?.addEventListener("click", openBasket);
-
   $("closeBasket")?.addEventListener("click", closeBasketDrawer);
-
   $("overlay")?.addEventListener("click", closeBasketDrawer);
-
   $("categoryFilter")?.addEventListener("change", renderProducts);
-
   $("searchInput")?.addEventListener("input", renderProducts);
-
   $("checkDeliveryBtn")?.addEventListener("click", checkCheckoutDelivery);
-
   $("checkoutBtn")?.addEventListener("click", openTestCheckout);
-
-  $("closePayment")?.addEventListener("click", () => {
-    $("paymentModal")?.classList.remove("show");
-  });
-
+  $("closePayment")?.addEventListener("click", () => $("paymentModal")?.classList.remove("show"));
   $("completeTestPayment")?.addEventListener("click", completeOrder);
 
   $("heroPostcodeBtn")?.addEventListener("click", () => {
     const result = calculateDelivery($("heroPostcode")?.value || "");
-
     const el = $("heroPostcodeResult");
-
     if (!el) return;
-
     el.textContent = result.message;
-    el.className = result.ok
-      ? "mini-result form-note success"
-      : "mini-result form-note error";
+    el.className = result.ok ? "mini-result form-note success" : "mini-result form-note error";
   });
 
-  $("wholesaleForm")?.addEventListener("submit", (event) => {
-    handleEnquiry(event, "wholesale", "wholesaleNote");
-  });
-
-  $("contactForm")?.addEventListener("submit", (event) => {
-    handleEnquiry(event, "contact", "contactNote");
-  });
+  $("wholesaleForm")?.addEventListener("submit", (event) => handleEnquiry(event, "wholesale", "wholesaleNote"));
+  $("contactForm")?.addEventListener("submit", (event) => handleEnquiry(event, "contact", "contactNote"));
 }
 
 async function loadSettings() {
@@ -82,7 +57,6 @@ async function loadSettings() {
     .single();
 
   if (error) throw error;
-
   settings = data;
 }
 
@@ -95,7 +69,6 @@ async function loadProducts() {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-
   products = data || [];
 }
 
@@ -109,173 +82,100 @@ async function loadHeroBanner() {
     .maybeSingle();
 
   if (error || !data) return;
-
   renderHeroBanner(data);
 }
 
 function renderHeroBanner(banner) {
   const container = $("heroBannerContainer");
-
   if (!container) return;
 
-  container.innerHTML = `
-    <div class="floating-hero-banner">
-      <div class="floating-banner-content">
+  $("heroBannerTitle").textContent = banner.title || "";
+  $("heroBannerDescription").textContent = banner.subtitle || "";
 
-        <div class="floating-banner-text">
-          <span class="floating-banner-tag">Now available</span>
+  const button = $("heroBannerButton");
+  button.textContent = banner.cta_text || "Learn more";
+  button.href = banner.cta_link || "shop.html";
 
-          <h3>${escapeHtml(banner.title || "")}</h3>
-
-          ${
-            banner.subtitle
-              ? `<p>${escapeHtml(banner.subtitle)}</p>`
-              : ""
-          }
-        </div>
-
-        ${
-          banner.cta_text
-            ? `
-              <a
-                href="${escapeHtml(banner.cta_link || "#")}"
-                class="floating-banner-btn"
-              >
-                ${escapeHtml(banner.cta_text)}
-              </a>
-            `
-            : ""
-        }
-
-      </div>
-    </div>
-  `;
+  container.classList.remove("hidden");
 }
 
 function renderSettings() {
   if (!settings) return;
 
-  document.title =
-    settings.business_name || "The Travelling Taverna | Greek Deli";
+  document.title = settings.business_name || "The Travelling Taverna | Greek Deli";
 
-  if ($("minimumOrderLabel")) {
-    $("minimumOrderLabel").textContent =
-      `Minimum order ${money(settings.minimum_order)}`;
-  }
+  setText("minimumOrderLabel", `Minimum order ${money(settings.minimum_order)}`);
+  setText("deliveryDaysLabel", settings.delivery_days);
+  setText("deliveryTimesLabel", settings.delivery_times);
 
-  if ($("deliveryDaysLabel")) {
-    $("deliveryDaysLabel").textContent = settings.delivery_days;
-  }
+  setText("deliverySettingMinimum", `Minimum order: ${money(settings.minimum_order)}`);
+  setText("deliverySettingDays", `Delivery days: ${settings.delivery_days}`);
+  setText("deliverySettingTimes", `Delivery times: ${settings.delivery_times}`);
 
-  if ($("deliveryTimesLabel")) {
-    $("deliveryTimesLabel").textContent = settings.delivery_times;
-  }
+  setText("footerMinimumOrder", `Minimum order: ${money(settings.minimum_order)}`);
+  setText("footerDeliveryDays", `Delivery: ${settings.delivery_days}`);
+  setText("footerDeliveryTimes", `Times: ${settings.delivery_times}`);
+}
 
-  if ($("deliverySettingMinimum")) {
-    $("deliverySettingMinimum").textContent =
-      `Minimum order: ${money(settings.minimum_order)}`;
-  }
-
-  if ($("deliverySettingDays")) {
-    $("deliverySettingDays").textContent =
-      `Delivery days: ${settings.delivery_days}`;
-  }
-
-  if ($("deliverySettingTimes")) {
-    $("deliverySettingTimes").textContent =
-      `Delivery times: ${settings.delivery_times}`;
-  }
+function setText(id, text) {
+  const el = $(id);
+  if (el) el.textContent = text;
 }
 
 function calculateDelivery(postcode) {
-  const cleaned = String(postcode || "")
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, "");
+  const cleaned = String(postcode || "").trim().toUpperCase().replace(/\s+/g, "");
 
-  if (!cleaned) {
-    return {
-      ok: false,
-      message: "Please enter your postcode first.",
-      charge: 0
-    };
-  }
+  if (!cleaned) return { ok: false, message: "Please enter your postcode first.", charge: 0 };
 
   const prefixes = settings?.allowed_postcode_prefixes || [];
+  const charges = settings?.delivery_charges_by_prefix || {};
 
-  const allowed = prefixes.some((prefix) =>
-    cleaned.startsWith(String(prefix).toUpperCase())
-  );
+  const matchedPrefix = prefixes
+    .map((prefix) => String(prefix).trim().toUpperCase())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+    .find((prefix) => cleaned.startsWith(prefix));
 
-  if (!allowed) {
+  if (!matchedPrefix) {
     return {
       ok: false,
-      message:
-        settings?.radius_message ||
-        "Sorry, You’re outside of our delivery radius",
+      message: settings?.radius_message || "Sorry, You’re outside of our delivery radius",
       charge: 0
     };
   }
 
-  let charge = Number(settings.delivery_charge_de || 3);
-
-  if (cleaned.startsWith("LE")) {
-    charge = Number(settings.delivery_charge_le || 7);
-  }
-
-  if (cleaned.startsWith("NG")) {
-    charge = Number(settings.delivery_charge_ng || 7);
-  }
-
-  if (cleaned.startsWith("B")) {
-    charge = Number(settings.delivery_charge_b || 10);
-  }
+  const charge = Number(charges[matchedPrefix] ?? 0);
 
   return {
     ok: true,
     charge,
-    message:
-      `Good news, we deliver to this postcode. ` +
-      `Delivery charge: ${money(charge)}.`
+    message: `Good news, we deliver to ${matchedPrefix} postcodes. Delivery charge: ${money(charge)}.`
   };
 }
 
 function renderCategories() {
   const categoryFilter = $("categoryFilter");
-
   if (!categoryFilter) return;
 
-  const categories = [
-    ...new Set(products.map((product) => product.category))
-  ];
+  const categories = [...new Set(products.map((product) => product.category))];
 
   categoryFilter.innerHTML =
     `<option value="all">All categories</option>` +
-    categories
-      .map(
-        (category) =>
-          `<option value="${category}">${category}</option>`
-      )
-      .join("");
+    categories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join("");
 }
 
 function renderProducts() {
   const productGrid = $("productGrid");
-
   if (!productGrid) return;
 
   const search = $("searchInput")?.value?.toLowerCase() || "";
-
   const category = $("categoryFilter")?.value || "all";
 
   const filtered = products.filter((product) => {
-    const matchesCategory =
-      category === "all" || product.category === category;
-
+    const matchesCategory = category === "all" || product.category === category;
     const matchesSearch =
       product.name.toLowerCase().includes(search) ||
       product.description.toLowerCase().includes(search);
-
     return matchesCategory && matchesSearch;
   });
 
@@ -287,76 +187,49 @@ function renderProducts() {
   productGrid.innerHTML = filtered
     .map(
       (product) => `
-        <article class="product-card premium-card">
-          <a class="product-image" href="product.html?id=${product.id}">
-            <img
-              src="${product.image_url || ""}"
-              alt="${product.name}"
-              onerror="this.style.display='none'"
-            />
-          </a>
+      <article class="product-card premium-card">
+        ${product.product_badge ? `<span class="product-card-badge">${escapeHtml(product.product_badge)}</span>` : ""}
 
-          <div class="product-content">
-            <p class="eyebrow">${product.category}</p>
+        <a class="product-image" href="product.html?id=${product.id}">
+          <img src="${product.image_url || ""}" alt="${escapeHtml(product.name)}" onerror="this.style.display='none'" />
+        </a>
 
-            <h3>
-              <a href="product.html?id=${product.id}">
-                ${product.name}
-              </a>
-            </h3>
+        <div class="product-content">
+          <p class="eyebrow">${escapeHtml(product.category)}</p>
+          <h3><a href="product.html?id=${product.id}">${escapeHtml(product.name)}</a></h3>
+          <p>${escapeHtml(product.description)}</p>
 
-            <p>${product.description}</p>
-
-            <div class="product-meta">
-              <div>
-                <div class="price">${money(product.price)}</div>
-
-                <div class="stock">
-                  ${
-                    product.stock > 0
-                      ? `${product.stock} in stock`
-                      : "Out of stock"
-                  }
-                </div>
-              </div>
-
-              <button
-                class="btn primary small"
-                data-add="${product.id}"
-                ${product.stock <= 0 ? "disabled" : ""}
-              >
-                Add
-              </button>
+          <div class="product-meta">
+            <div>
+              <div class="price">${money(product.price)}</div>
+              <div class="stock">${product.stock > 0 ? `${product.stock} in stock` : "Out of stock"}</div>
             </div>
+
+            <button class="btn primary small" data-add="${product.id}" ${product.stock <= 0 ? "disabled" : ""}>
+              Add
+            </button>
           </div>
-        </article>
-      `
+        </div>
+      </article>
+    `
     )
     .join("");
 
   document.querySelectorAll("[data-add]").forEach((button) => {
-    button.addEventListener("click", () => {
-      addToBasket(button.dataset.add);
-    });
+    button.addEventListener("click", () => addToBasket(button.dataset.add));
   });
 }
 
 function addToBasket(productId) {
   const product = products.find((item) => item.id === productId);
-
   if (!product || product.stock <= 0) return;
 
   const existing = basket.find((item) => item.id === productId);
 
   if (existing) {
-    if (existing.quantity < product.stock) {
-      existing.quantity += 1;
-    }
+    if (existing.quantity < product.stock) existing.quantity += 1;
   } else {
-    basket.push({
-      id: productId,
-      quantity: 1
-    });
+    basket.push({ id: productId, quantity: 1 });
   }
 
   saveBasket();
@@ -375,30 +248,16 @@ function renderBasket() {
   const basketDelivery = $("basketDelivery");
   const basketTotal = $("basketTotal");
 
-  if (
-    !basketCount ||
-    !basketItems ||
-    !basketSubtotal ||
-    !basketDelivery ||
-    !basketTotal
-  ) {
-    return;
-  }
+  if (!basketCount || !basketItems || !basketSubtotal || !basketDelivery || !basketTotal) return;
 
   const basketDetailed = basket
     .map((item) => {
       const product = products.find((p) => p.id === item.id);
-
-      return product
-        ? { ...product, quantity: item.quantity }
-        : null;
+      return product ? { ...product, quantity: item.quantity } : null;
     })
     .filter(Boolean);
 
-  basketCount.textContent = basketDetailed.reduce(
-    (sum, item) => sum + item.quantity,
-    0
-  );
+  basketCount.textContent = basketDetailed.reduce((sum, item) => sum + item.quantity, 0);
 
   if (!basketDetailed.length) {
     basketItems.innerHTML = "<p>Your basket is empty.</p>";
@@ -406,80 +265,52 @@ function renderBasket() {
     basketItems.innerHTML = basketDetailed
       .map(
         (item) => `
-          <div class="basket-item">
-            <div>
-              <strong>${item.name}</strong>
-
-              <div>${money(item.price)} each</div>
-
-              <div class="qty-controls">
-                <button data-qty="${item.id}" data-amount="-1">-</button>
-
-                <span>${item.quantity}</span>
-
-                <button data-qty="${item.id}" data-amount="1">+</button>
-
-                <button data-remove="${item.id}">
-                  Remove
-                </button>
-              </div>
+        <div class="basket-item">
+          <div>
+            <strong>${escapeHtml(item.name)}</strong>
+            <div>${money(item.price)} each</div>
+            <div class="qty-controls">
+              <button data-qty="${item.id}" data-amount="-1">-</button>
+              <span>${item.quantity}</span>
+              <button data-qty="${item.id}" data-amount="1">+</button>
+              <button data-remove="${item.id}">Remove</button>
             </div>
-
-            <strong>
-              ${money(Number(item.price) * item.quantity)}
-            </strong>
           </div>
-        `
+          <strong>${money(Number(item.price) * item.quantity)}</strong>
+        </div>
+      `
       )
       .join("");
   }
 
   document.querySelectorAll("[data-qty]").forEach((button) => {
-    button.addEventListener("click", () => {
-      changeQty(
-        button.dataset.qty,
-        Number(button.dataset.amount)
-      );
-    });
+    button.addEventListener("click", () =>
+      changeQty(button.dataset.qty, Number(button.dataset.amount))
+    );
   });
 
   document.querySelectorAll("[data-remove]").forEach((button) => {
-    button.addEventListener("click", () => {
-      removeFromBasket(button.dataset.remove);
-    });
+    button.addEventListener("click", () => removeFromBasket(button.dataset.remove));
   });
 
   const subtotal = getSubtotal();
-
-  const delivery = checkedDelivery?.ok
-    ? checkedDelivery.charge
-    : 0;
+  const delivery = checkedDelivery?.ok ? checkedDelivery.charge : 0;
 
   basketSubtotal.textContent = money(subtotal);
-
-  basketDelivery.textContent = checkedDelivery?.ok
-    ? money(delivery)
-    : "Check postcode";
-
+  basketDelivery.textContent = checkedDelivery?.ok ? money(delivery) : "Check postcode";
   basketTotal.textContent = money(subtotal + delivery);
 }
 
 function changeQty(productId, amount) {
   const item = basket.find((i) => i.id === productId);
-
   const product = products.find((p) => p.id === productId);
 
   if (!item || !product) return;
 
   item.quantity += amount;
 
-  if (item.quantity <= 0) {
-    basket = basket.filter((i) => i.id !== productId);
-  }
-
-  if (item.quantity > product.stock) {
-    item.quantity = product.stock;
-  }
+  if (item.quantity <= 0) basket = basket.filter((i) => i.id !== productId);
+  if (item.quantity > product.stock) item.quantity = product.stock;
 
   saveBasket();
   renderBasket();
@@ -487,7 +318,6 @@ function changeQty(productId, amount) {
 
 function removeFromBasket(productId) {
   basket = basket.filter((item) => item.id !== productId);
-
   saveBasket();
   renderBasket();
 }
@@ -495,45 +325,29 @@ function removeFromBasket(productId) {
 function getSubtotal() {
   return basket.reduce((sum, item) => {
     const product = products.find((p) => p.id === item.id);
-
-    return (
-      sum +
-      (product
-        ? Number(product.price) * item.quantity
-        : 0)
-    );
+    return sum + (product ? Number(product.price) * item.quantity : 0);
   }, 0);
 }
 
 function openBasket() {
   $("basketDrawer")?.classList.add("open");
-
   $("overlay")?.classList.add("show");
-
   document.body.classList.add("drawer-open");
 }
 
 function closeBasketDrawer() {
   $("basketDrawer")?.classList.remove("open");
-
   $("overlay")?.classList.remove("show");
-
   document.body.classList.remove("drawer-open");
 }
 
 function checkCheckoutDelivery() {
-  checkedDelivery = calculateDelivery(
-    $("checkoutPostcode")?.value || ""
-  );
+  checkedDelivery = calculateDelivery($("checkoutPostcode")?.value || "");
 
   const result = $("deliveryResult");
-
   if (result) {
     result.textContent = checkedDelivery.message;
-
-    result.className = checkedDelivery.ok
-      ? "form-note success"
-      : "form-note error";
+    result.className = checkedDelivery.ok ? "form-note success" : "form-note error";
   }
 
   renderBasket();
@@ -542,43 +356,27 @@ function checkCheckoutDelivery() {
 function openTestCheckout() {
   const subtotal = getSubtotal();
 
-  if (!basket.length) {
-    return showDeliveryError("Your basket is empty.");
-  }
+  if (!basket.length) return showDeliveryError("Your basket is empty.");
 
   if (subtotal < Number(settings.minimum_order)) {
-    return showDeliveryError(
-      `Minimum order value is ${money(settings.minimum_order)}.`
-    );
+    return showDeliveryError(`Minimum order value is ${money(settings.minimum_order)}.`);
   }
 
   if (!checkedDelivery || !checkedDelivery.ok) {
     checkCheckoutDelivery();
-
     if (!checkedDelivery.ok) return;
   }
 
-  if (
-    !$("customerName")?.value ||
-    !$("customerEmail")?.value ||
-    !$("customerAddress")?.value
-  ) {
-    return showDeliveryError(
-      "Please enter your name, email and delivery address."
-    );
+  if (!$("customerName")?.value || !$("customerEmail")?.value || !$("customerAddress")?.value) {
+    return showDeliveryError("Please enter your name, email and delivery address.");
   }
 
-  if ($("testPayAmount")) {
-    $("testPayAmount").textContent =
-      money(subtotal + checkedDelivery.charge);
-  }
-
+  if ($("testPayAmount")) $("testPayAmount").textContent = money(subtotal + checkedDelivery.charge);
   $("paymentModal")?.classList.add("show");
 }
 
 function showDeliveryError(message) {
   const el = $("deliveryResult");
-
   if (!el) return;
 
   el.textContent = message;
@@ -586,16 +384,73 @@ function showDeliveryError(message) {
 }
 
 async function completeOrder() {
-  alert("Order saved.");
+  const customer = {
+    name: $("customerName")?.value || "",
+    email: $("customerEmail")?.value || "",
+    phone: $("customerPhone")?.value || "",
+    address: $("customerAddress")?.value || "",
+    postcode: $("checkoutPostcode")?.value || ""
+  };
+
+  const items = basket.map((item) => ({
+    product_id: item.id,
+    quantity: item.quantity
+  }));
+
+  const btn = $("completeTestPayment");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Saving order...";
+  }
+
+  const { data, error } = await db().rpc("create_test_order", {
+    customer,
+    items,
+    delivery_charge: checkedDelivery.charge
+  });
+
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = "Complete test payment";
+  }
+
+  if (error) {
+    console.error(error);
+    alert(error.message || "Could not save order.");
+    return;
+  }
+
+  await sendEmailNotification({
+    type: "order",
+    subject: `New test order: ${data.order_number}`,
+    payload: {
+      order_number: data.order_number,
+      customer,
+      items,
+      delivery_charge: checkedDelivery.charge,
+      total: data.total
+    }
+  });
+
+  basket = [];
+  checkedDelivery = null;
+  saveBasket();
+
+  await loadProducts();
+
+  renderProducts();
+  renderBasket();
+
+  $("paymentModal")?.classList.remove("show");
+  closeBasketDrawer();
+
+  alert(`Test payment complete. Order ${data.order_number} has been saved in Supabase.`);
 }
 
 async function handleEnquiry(event, type, noteId) {
   event.preventDefault();
 
-  const payload = Object.fromEntries(
-    new FormData(event.target).entries()
-  );
-
+  const payload = Object.fromEntries(new FormData(event.target).entries());
   const note = $(noteId);
 
   if (note) {
@@ -609,28 +464,89 @@ async function handleEnquiry(event, type, noteId) {
   });
 
   if (error) {
+    console.error(error);
     if (note) {
-      note.textContent =
-        "Sorry, this could not be saved.";
-
+      note.textContent = "Sorry, this could not be saved.";
       note.className = "form-note error";
     }
+    return;
+  }
 
+  const emailResult = await sendEmailNotification({
+    type,
+    subject: `New ${type} enquiry`,
+    payload
+  });
+
+  if (!emailResult.ok) {
+    if (note) {
+      note.textContent = "Saved, but the email could not be sent. Check the email endpoint.";
+      note.className = "form-note error";
+    }
     return;
   }
 
   if (note) {
-    note.textContent =
-      "Thank you. This has been sent.";
-
+    note.textContent = "Thank you. This has been sent.";
     note.className = "form-note success";
   }
 
   event.target.reset();
 }
 
+async function sendEmailNotification({ type, subject, payload }) {
+  try {
+    const response = await fetch(EMAIL_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        to: settings?.management_email || "support@smartcoretechnology.co.uk",
+        subject,
+        type,
+        payload,
+        html: buildEmailHtml(type, payload)
+      })
+    });
+
+    if (!response.ok) {
+      console.error("Email endpoint failed", await response.text());
+      return { ok: false };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    console.error("Email failed", error);
+    return { ok: false };
+  }
+}
+
+function buildEmailHtml(type, payload) {
+  const rows = Object.entries(payload)
+    .map(
+      ([key, value]) => `
+        <tr>
+          <td style="padding:8px 12px;border:1px solid #e5e7eb;font-weight:700;">${escapeHtml(key)}</td>
+          <td style="padding:8px 12px;border:1px solid #e5e7eb;">${escapeHtml(String(value ?? ""))}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  return `
+    <div style="font-family:Arial,sans-serif;color:#111827;">
+      <h2 style="margin:0 0 12px;">The Travelling Taverna | Greek Deli</h2>
+      <p style="margin:0 0 18px;">New ${escapeHtml(type)} submission received.</p>
+      <table style="border-collapse:collapse;width:100%;max-width:700px;">
+        ${rows}
+      </table>
+    </div>
+  `;
+}
+
 function escapeHtml(value) {
-  return String(value)
+  return String(value || "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -640,9 +556,5 @@ function escapeHtml(value) {
 
 init().catch((error) => {
   console.error("REAL WEBSITE LOAD ERROR:", error);
-
-  alert(
-    "Website could not load.\n\nReal error:\n" +
-      (error.message || JSON.stringify(error))
-  );
+  alert("Website could not load.\n\nReal error:\n" + (error.message || JSON.stringify(error)));
 });
