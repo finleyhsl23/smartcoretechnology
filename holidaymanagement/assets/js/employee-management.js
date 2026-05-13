@@ -173,6 +173,8 @@ function syncEmploymentTypeInputs(value = '') {
   const other = document.getElementById('employmentTypeOther');
   const hidden = document.getElementById('employmentType');
 
+  if (!select || !other || !hidden) return;
+
   const standardValues = ['Full Time', 'Part Time'];
 
   if (standardValues.includes(value)) {
@@ -271,6 +273,29 @@ function setShiftPattern(patternId) {
   `;
 }
 
+function setEmployeeModalMode(isEditing) {
+  document.querySelectorAll('[data-edit-only]').forEach((section) => {
+    section.classList.toggle('hidden', !isEditing);
+  });
+
+  document.querySelectorAll('[data-edit-only] input, [data-edit-only] select, [data-edit-only] button').forEach((field) => {
+    field.disabled = !isEditing;
+  });
+
+  const deleteBtn = document.getElementById('deleteEmployeeBtn');
+  const exportBtn = document.getElementById('exportEmployeeBtn');
+
+  if (deleteBtn) {
+    deleteBtn.classList.toggle('hidden', !isEditing);
+    deleteBtn.disabled = !isEditing;
+  }
+
+  if (exportBtn) {
+    exportBtn.classList.toggle('hidden', !isEditing);
+    exportBtn.disabled = !isEditing;
+  }
+}
+
 function getEmployeePayload() {
   updateEmploymentTypeFromUi();
 
@@ -344,61 +369,60 @@ function fillEmployeeForm(employee = null) {
   savedEmployee = employee;
 
   const isEditing = !!employee;
-
-document.querySelectorAll('[data-edit-only] input, [data-edit-only] select').forEach((field) => {
-  field.disabled = !isEditing;
-});
+  setEmployeeModalMode(isEditing);
 
   setText('employeeModalTitle', employee ? 'Edit Employee' : 'Add Employee');
   setText(
     'employeeModalSubtitle',
     employee
       ? 'Edit all work and personal employee details.'
-      : 'Add the basic HR details. The employee completes personal details during onboarding.'
+      : 'Add the basic work details. The employee completes personal details during onboarding.'
   );
 
-  setField('employeeId', employee?.id);
+  setField('employeeId', employee?.id || '');
   setField('employeeCode', employee?.employee_code || generateEmployeeCode());
-  setField('fullName', employee?.full_name);
-  setField('jobTitle', employee?.job_title);
-  setField('workEmail', employee?.work_email);
-  setField('personalEmail', employee?.personal_email);
-  setField('personalPhone', employee?.personal_phone);
+  setField('fullName', employee?.full_name || '');
+  setField('jobTitle', employee?.job_title || '');
+  setField('workEmail', employee?.work_email || '');
+  setField('personalEmail', employee?.personal_email || '');
+  setField('personalPhone', employee?.personal_phone || '');
+
   syncEmploymentTypeInputs(employee?.employment_type || 'Full Time');
-  setField('noticePeriod', employee?.notice_period);
-  setField('startDate', employee?.start_date);
+
+  setField('noticePeriod', employee?.notice_period || '');
+  setField('startDate', employee?.start_date || '');
   setField('role', employee?.role || 'employee');
   setField('isAdmin', String(employee?.is_admin || false));
   setField('employmentStatus', employee?.employment_status || 'active');
   setField('annualLeaveAllowance', employee?.annual_leave_allowance || 23);
   setField('includeBankHolidays', String(employee?.include_bank_holidays ?? true));
 
-  setField('title', employee?.title);
-  setField('pronouns', employee?.pronouns);
-  setField('gender', employee?.gender);
-  setField('dob', employee?.dob);
-  setField('nationality', employee?.nationality);
-  setField('niNumber', employee?.ni_number);
-  setField('passportNumber', employee?.passport_number);
-  setField('passportExpiryDate', employee?.passport_expiry_date);
-  setField('drivingLicenceNumber', employee?.driving_licence_number);
+  setField('title', employee?.title || '');
+  setField('pronouns', employee?.pronouns || '');
+  setField('gender', employee?.gender || '');
+  setField('dob', employee?.dob || '');
+  setField('nationality', employee?.nationality || '');
+  setField('niNumber', employee?.ni_number || '');
+  setField('passportNumber', employee?.passport_number || '');
+  setField('passportExpiryDate', employee?.passport_expiry_date || '');
+  setField('drivingLicenceNumber', employee?.driving_licence_number || '');
 
-  setField('addressLine1', employee?.address_line1);
-  setField('addressLine2', employee?.address_line2);
-  setField('addressCity', employee?.address_city);
-  setField('addressCounty', employee?.address_county);
-  setField('addressPostcode', employee?.address_postcode);
+  setField('addressLine1', employee?.address_line1 || '');
+  setField('addressLine2', employee?.address_line2 || '');
+  setField('addressCity', employee?.address_city || '');
+  setField('addressCounty', employee?.address_county || '');
+  setField('addressPostcode', employee?.address_postcode || '');
   setField('addressCountry', employee?.address_country || 'United Kingdom');
 
-  setField('emergencyContactName1', employee?.emergency_contact_name1);
-  setField('emergencyContactRelationship1', employee?.emergency_contact_relationship1);
-  setField('emergencyContactEmail1', employee?.emergency_contact_email1);
-  setField('emergencyContactPhone1', employee?.emergency_contact_phone1);
+  setField('emergencyContactName1', employee?.emergency_contact_name1 || '');
+  setField('emergencyContactRelationship1', employee?.emergency_contact_relationship1 || '');
+  setField('emergencyContactEmail1', employee?.emergency_contact_email1 || '');
+  setField('emergencyContactPhone1', employee?.emergency_contact_phone1 || '');
 
-  setField('emergencyContactName2', employee?.emergency_contact_name2);
-  setField('emergencyContactRelationship2', employee?.emergency_contact_relationship2);
-  setField('emergencyContactEmail2', employee?.emergency_contact_email2);
-  setField('emergencyContactPhone2', employee?.emergency_contact_phone2);
+  setField('emergencyContactName2', employee?.emergency_contact_name2 || '');
+  setField('emergencyContactRelationship2', employee?.emergency_contact_relationship2 || '');
+  setField('emergencyContactEmail2', employee?.emergency_contact_email2 || '');
+  setField('emergencyContactPhone2', employee?.emergency_contact_phone2 || '');
 
   setField('onboardingStatus', employee?.onboarding_status || 'in_progress');
   setField('onboardingExpiresAt', employee?.onboarding_expires_at ? employee.onboarding_expires_at.slice(0, 16) : '');
@@ -454,13 +478,8 @@ function renderViewEmployeeDetails(employee) {
   renderDetailGroup('viewPersonalDetails', [
     { label: 'Title', value: employee.title },
     { label: 'Pronouns', value: employee.pronouns },
-    { label: 'Gender', value: employee.gender },
     { label: 'Date of Birth', value: employee.dob ? formatDate(employee.dob) : '—' },
-    { label: 'Nationality', value: employee.nationality },
-    { label: 'National Insurance Number', value: employee.ni_number },
-    { label: 'Passport Number', value: employee.passport_number },
-    { label: 'Passport Expiry Date', value: employee.passport_expiry_date ? formatDate(employee.passport_expiry_date) : '—' },
-    { label: 'Driving Licence Number', value: employee.driving_licence_number }
+    { label: 'National Insurance Number', value: employee.ni_number }
   ]);
 
   renderDetailGroup('viewAddressDetails', [
@@ -906,11 +925,9 @@ async function init() {
       await loadEmployees();
     }
 
-        if (button.dataset.action === 'delete') {
+    if (button.dataset.action === 'delete') {
       if (!confirm(`Permanently delete ${employee.full_name || 'this employee'}?`)) return;
       if (!confirm('This will also try to delete their login. This cannot be undone. Continue?')) return;
-
-      console.log('Deleting employee:', employee);
 
       await deleteEmployeePermanent(employee.id);
       await loadEmployees();
@@ -918,6 +935,7 @@ async function init() {
   });
 
   document.getElementById('employeeForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
 
     try {
       const payload = getEmployeePayload();
@@ -1001,7 +1019,7 @@ async function init() {
     }
   });
 
-    document.getElementById('sendPersonalInviteBtn')?.addEventListener('click', () => sendInvite('personal'));
+  document.getElementById('sendPersonalInviteBtn')?.addEventListener('click', () => sendInvite('personal'));
   document.getElementById('sendWorkInviteBtn')?.addEventListener('click', () => sendInvite('work'));
 
   await loadShiftPatterns();
