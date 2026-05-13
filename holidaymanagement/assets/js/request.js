@@ -7,7 +7,8 @@ import {
   getCompanyHolidays,
   createLeaveRequest,
   getLeaveOverlap,
-  leaveTypeLabel
+  leaveTypeLabel,
+  dayTypeLabel
 } from '../../shared/api.js';
 import { calculateBusinessDays, calculateCalendarDays, formatDate } from '../../shared/dates.js';
 
@@ -50,6 +51,10 @@ function restrictLeaveTypes(profile) {
 
     leaveTypeEl.value = 'annual';
   }
+}
+
+function isHalfDay(dayType) {
+  return dayType === 'half_am' || dayType === 'half_pm';
 }
 
 async function initRequestPage() {
@@ -101,6 +106,7 @@ async function initRequestPage() {
     const form = document.getElementById('leaveRequestForm');
     const submitButton = form?.querySelector('button[type="submit"]');
     const leaveTypeEl = document.getElementById('leaveType');
+    const dayTypeEl = document.getElementById('dayType');
     const startDateEl = document.getElementById('startDate');
     const endDateEl = document.getElementById('endDate');
     const totalDaysEl = document.getElementById('totalDays');
@@ -108,6 +114,7 @@ async function initRequestPage() {
 
     function updateTotalDays() {
       const leaveType = leaveTypeEl.value;
+      const dayType = dayTypeEl.value;
       const startDate = startDateEl.value;
       const endDate = endDateEl.value;
 
@@ -116,14 +123,28 @@ async function initRequestPage() {
         return;
       }
 
+      if (isHalfDay(dayType)) {
+        if (startDate !== endDate) {
+          totalDaysEl.value = '';
+          showMessage('requestMessage', 'Half days can only be requested when the start date and end date are the same.', 'error');
+          return;
+        }
+
+        totalDaysEl.value = '0.5';
+        showMessage('requestMessage', '');
+        return;
+      }
+
       const days = leaveType === 'annual'
         ? calculateBusinessDays(startDate, endDate, holidayDates)
         : calculateCalendarDays(startDate, endDate);
 
       totalDaysEl.value = days > 0 ? String(days) : '';
+      showMessage('requestMessage', '');
     }
 
     leaveTypeEl?.addEventListener('change', updateTotalDays);
+    dayTypeEl?.addEventListener('change', updateTotalDays);
     startDateEl?.addEventListener('change', updateTotalDays);
     endDateEl?.addEventListener('change', updateTotalDays);
 
@@ -149,7 +170,7 @@ async function initRequestPage() {
         list.innerHTML = filtered.map((item) => `
           <article class="leave-card">
             <p class="leave-card-title">${item.employee_name || 'Employee'}</p>
-            <p class="leave-card-subtitle">${leaveTypeLabel(item.leave_type)} • ${item.status}</p>
+            <p class="leave-card-subtitle">${leaveTypeLabel(item.leave_type)} • ${dayTypeLabel(item.day_type)}</p>
             <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days || 0} day(s)</p>
           </article>
         `).join('');
@@ -163,6 +184,7 @@ async function initRequestPage() {
       showMessage('requestMessage', '');
 
       const leaveType = leaveTypeEl.value;
+      const dayType = dayTypeEl.value;
       const startDate = startDateEl.value;
       const endDate = endDateEl.value;
       const totalDays = Number(totalDaysEl.value || 0);
@@ -171,6 +193,11 @@ async function initRequestPage() {
 
       if (!startDate || !endDate || !totalDays) {
         showMessage('requestMessage', 'Please complete the dates properly.', 'error');
+        return;
+      }
+
+      if (isHalfDay(dayType) && startDate !== endDate) {
+        showMessage('requestMessage', 'Half days can only be requested when the start date and end date are the same.', 'error');
         return;
       }
 
@@ -187,6 +214,7 @@ async function initRequestPage() {
           employee_id: employeeId,
           company_id: profile.company_id,
           leave_type: leaveType,
+          day_type: dayType,
           start_date: startDate,
           end_date: endDate,
           total_days: totalDays,
@@ -197,6 +225,7 @@ async function initRequestPage() {
         });
 
         form.reset();
+        dayTypeEl.value = 'full';
         totalDaysEl.value = '';
 
         const refreshedRequests = await getMyLeaveRequests(authUserId);
