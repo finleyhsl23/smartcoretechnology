@@ -1,836 +1,688 @@
-import { supabase, db } from "./supabaseClient.js";
+import { requireAdminPageAccess } from '../../shared/guards.js';
+import { signOut } from '../../shared/auth.js';
+import { revealApp, renderEmptyState, showMessage } from '../../shared/ui.js';
+import {
+  getAllCompanyLeaveRequests,
+  getAllCompanySickRecords,
+  approveLeaveRequest,
+  rejectLeaveRequest,
+  cancelLeaveRequestAdmin,
+  amendLeaveRequestAdmin,
+  enrichRequestsWithEmployeeInfo,
+  getEmployeeLeaveSummary,
+  searchEmployees,
+  createManualAbsence,
+  sendSupportLeaveApprovedEmail,
+  leaveTypeLabel,
+  dayTypeLabel
+} from '../../shared/api.js';
+import { formatDate, calculateBusinessDays, isDateInRange } from '../../shared/dates.js';
 
-let products = [];
-let settings = null;
-let orders = [];
-let enquiries = [];
-let banners = [];
-let productPendingDelete = null;
-
-const $ = (id) => document.getElementById(id);
-
-const money = (value) =>
-  new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "GBP"
-  }).format(Number(value || 0));
-
-const slugify = (value) =>
-  String(value || "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-async function initAdmin() {
-  bindEvents();
-
-  const { data } = await supabase.auth.getSession();
-
-  if (data.session) {
-    await verifyAdmin();
-  }
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value ?? '—';
 }
 
-function bindEvents() {
-  $("loginBtn")?.addEventListener("click", handleLogin);
-  $("logoutBtn")?.addEventListener("click", handleLogout);
-
-  document.querySelectorAll(".tab").forEach((tab) => {
-    tab.addEventListener("click", () => switchTab(tab.dataset.tab));
-  });
-
-  $("addProductForm")?.addEventListener("submit", addProduct);
-  $("editProductForm")?.addEventListener("submit", saveEditedProduct);
-  $("settingsForm")?.addEventListener("submit", saveSettings);
-  $("bannerForm")?.addEventListener("submit", saveBanner);
-  $("settingPostcodes")?.addEventListener("input", renderPostcodePriceFields);
-
-  $("closeEditProductModal")?.addEventListener("click", closeEditModal);
-  $("editProductModal")?.addEventListener("click", (event) => {
-    if (event.target.id === "editProductModal") closeEditModal();
-  });
-
-  $("cancelDeleteBtn")?.addEventListener("click", closeDeleteModal);
-  $("confirmDeleteBtn")?.addEventListener("click", confirmDeleteProduct);
-  $("deleteConfirmModal")?.addEventListener("click", (event) => {
-    if (event.target.id === "deleteConfirmModal") closeDeleteModal();
-  });
-
-  $("closeContactUserModal")?.addEventListener("click", closeContactUserModal);
-  $("contactUserModal")?.addEventListener("click", (event) => {
-    if (event.target.id === "contactUserModal") closeContactUserModal();
-  });
-
-  $("refreshProductsBtn")?.addEventListener("click", loadProducts);
-  $("refreshOrdersBtn")?.addEventListener("click", loadOrders);
-  $("refreshEnquiriesBtn")?.addEventListener("click", loadEnquiries);
-  $("refreshBannersBtn")?.addEventListener("click", loadBanners);
-
-  $("orderSearchInput")?.addEventListener("input", renderOrders);
-  $("orderStatusFilter")?.addEventListener("change", renderOrders);
+function calendarDays(startDate, endDate) {
+  if (!startDate || !endDate) return 0;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (end < start) return 0;
+  return Math.ceil((end - start) / 86400000) + 1;
 }
 
-async function handleLogin() {
-  $("loginNote").textContent = "Logging in...";
-  $("loginNote").className = "form-note";
-
-  const email = $("adminEmail").value.trim();
-  const password = $("adminPassword").value.trim();
-
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (error) {
-    $("loginNote").textContent = error.message;
-    $("loginNote").className = "form-note error";
-    return;
-  }
-
-  await verifyAdmin();
+function isHalfDay(dayType) {
+  return dayType === 'half_am' || dayType === 'half_pm';
 }
 
-async function verifyAdmin() {
-  const { data, error } = await db()
-    .from("admin_users")
-    .select("id,email,role")
-    .single();
-
-  if (error || !data) {
-    $("loginNote").textContent = "This user is not set up as an admin.";
-    $("loginNote").className = "form-note error";
-    return;
-  }
-
-  $("loginPanel").classList.add("hidden");
-  $("adminDashboard").classList.remove("hidden");
-
-  await loadAll();
+function getCustomSelectValue(id) {
+  return document.getElementById(id)?.dataset.value || 'all';
 }
 
-async function handleLogout() {
-  await supabase.auth.signOut();
-  $("loginPanel").classList.remove("hidden");
-  $("adminDashboard").classList.add("hidden");
+function setCustomSelectValue(selectEl, value, label) {
+  if (!selectEl) return;
+
+  selectEl.dataset.value = value;
+
+  const span = selectEl.querySelector('.custom-select-trigger span');
+  if (span) span.textContent = label;
 }
 
-function switchTab(tabId) {
-  document.querySelectorAll(".tab").forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.tab === tabId);
+function setupCustomSelects(onChange) {
+  document.querySelectorAll('.custom-select').forEach((selectEl) => {
+    const trigger = selectEl.querySelector('.custom-select-trigger');
+    const menu = selectEl.querySelector('.custom-select-menu');
+
+    trigger?.addEventListener('click', (event) => {
+      event.stopPropagation();
+
+      document.querySelectorAll('.custom-select.open').forEach((openSelect) => {
+        if (openSelect !== selectEl) openSelect.classList.remove('open');
+      });
+
+      selectEl.classList.toggle('open');
+    });
+
+    menu?.querySelectorAll('button[data-value]').forEach((option) => {
+      option.addEventListener('click', () => {
+        setCustomSelectValue(selectEl, option.dataset.value, option.textContent.trim());
+        selectEl.classList.remove('open');
+
+        if (typeof onChange === 'function') {
+          onChange(selectEl);
+        }
+      });
+    });
   });
 
-  document.querySelectorAll(".tab-panel").forEach((panel) => {
-    panel.classList.toggle("hidden", panel.id !== tabId);
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.custom-select.open').forEach((selectEl) => {
+      selectEl.classList.remove('open');
+    });
   });
 }
 
-async function loadAll() {
-  await loadProducts();
-  await loadBanners();
-  await loadSettings();
-  await loadOrders();
-  await loadEnquiries();
+function openModal(id) {
+  document.getElementById(id)?.classList.remove('hidden');
 }
 
-async function loadProducts() {
-  const { data, error } = await db()
-    .from("products")
-    .select("*")
-    .order("is_active", { ascending: false })
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error(error);
-    alert(error.message);
-    return;
-  }
-
-  products = data || [];
-  renderProducts();
+function closeModal(id) {
+  document.getElementById(id)?.classList.add('hidden');
 }
 
-function renderProducts() {
-  const list = $("adminProductList");
-  if (!list) return;
-
-  if (!products.length) {
-    list.innerHTML = "<p>No products yet.</p>";
-    return;
-  }
-
-  list.innerHTML = products
-    .map(
-      (product) => `
-      <div class="admin-product-row ${product.is_active ? "" : "inactive-product"}">
-        <img src="${product.image_url || ""}" alt="${escapeHtml(product.name)}" onerror="this.style.display='none'" />
-
-        <div>
-          <strong>${escapeHtml(product.name)}</strong>
-          <div>${escapeHtml(product.category)}</div>
-          <div>${money(product.price)} | Stock: ${product.stock}</div>
-          <div>
-            <span class="${product.is_active ? "status-pill sent" : "status-pill warning"}">
-              ${product.is_active ? "Active on website" : "Not active"}
-            </span>
-            ${product.product_badge ? `<span class="status-pill">${escapeHtml(product.product_badge)}</span>` : ""}
-          </div>
-        </div>
-
-        <div class="admin-actions">
-          <a class="btn secondary small" href="product.html?id=${product.id}" target="_blank" rel="noopener">Preview</a>
-          <button type="button" data-edit="${product.id}">Edit</button>
-          <button type="button" class="delete" data-delete="${product.id}">Delete</button>
-        </div>
-      </div>
-    `
-    )
-    .join("");
-
-  document.querySelectorAll("[data-edit]").forEach((button) => {
-    button.addEventListener("click", () => openEditModal(button.dataset.edit));
-  });
-
-  document.querySelectorAll("[data-delete]").forEach((button) => {
-    button.addEventListener("click", () => openDeleteModal(button.dataset.delete));
-  });
-}
-
-async function addProduct(event) {
-  event.preventDefault();
-
-  const note = $("addProductNote");
-  const submitBtn = event.submitter;
-
-  if (note) {
-    note.textContent = "Adding product...";
-    note.className = "form-note";
-  }
-
-  if (submitBtn) submitBtn.disabled = true;
-
-  try {
-    const name = $("addProductName").value.trim();
-    const uploadedImageUrl = await uploadImageIfSelected($("addProductImageFile")?.files?.[0]);
-
-    const product = {
-      name,
-      slug: await uniqueSlug(name),
-      category: $("addProductCategory").value.trim(),
-      price: Number($("addProductPrice").value),
-      stock: Number($("addProductStock").value),
-      description: $("addProductDescription").value.trim(),
-      image_url: uploadedImageUrl || "",
-      product_badge: $("addProductBadge")?.value.trim() || "",
-      product_highlight: $("addProductHighlight")?.value.trim() || "",
-      ingredients: $("addProductIngredients")?.value.trim() || "",
-      allergens: $("addProductAllergens")?.value.trim() || "",
-      serving_suggestion: $("addProductServing")?.value.trim() || "",
-      is_active: true,
-      sort_order: 0
-    };
-
-    const { data, error } = await db()
-      .from("products")
-      .insert(product)
-      .select("id")
-      .single();
-
-    if (error) throw error;
-
-    $("addProductForm").reset();
-
-    if (note) {
-      note.innerHTML = `Product added. <a href="product.html?id=${data.id}" target="_blank" rel="noopener">Preview product page</a>`;
-      note.className = "form-note success";
-    }
-
-    await loadProducts();
-  } catch (error) {
-    console.error(error);
-
-    if (note) {
-      note.textContent = error.message || "Product could not be added.";
-      note.className = "form-note error";
-    } else {
-      alert(error.message || "Product could not be added.");
-    }
-  } finally {
-    if (submitBtn) submitBtn.disabled = false;
-  }
-}
-
-async function saveEditedProduct(event) {
-  event.preventDefault();
-
-  const note = $("editProductNote");
-  const submitBtn = event.submitter;
-
-  note.textContent = "Saving changes...";
-  note.className = "form-note";
-  if (submitBtn) submitBtn.disabled = true;
-
-  try {
-    const id = $("editProductId").value;
-    const name = $("editProductName").value.trim();
-    const uploadedImage = await uploadImageIfSelected($("editProductImageFile")?.files?.[0]);
-
-    const product = {
-      name,
-      slug: slugify(name),
-      category: $("editProductCategory").value.trim(),
-      price: Number($("editProductPrice").value),
-      stock: Number($("editProductStock").value),
-      image_url: uploadedImage || $("editProductImageUrl").value.trim(),
-      description: $("editProductDescription").value.trim(),
-      product_badge: $("editProductBadge")?.value.trim() || "",
-      product_highlight: $("editProductHighlight")?.value.trim() || "",
-      ingredients: $("editProductIngredients")?.value.trim() || "",
-      allergens: $("editProductAllergens")?.value.trim() || "",
-      serving_suggestion: $("editProductServing")?.value.trim() || "",
-      is_active: $("editProductActive").checked
-    };
-
-    const { error } = await db()
-      .from("products")
-      .update(product)
-      .eq("id", id);
-
-    if (error) throw error;
-
-    note.innerHTML = `Product updated. <a href="product.html?id=${id}" target="_blank" rel="noopener">Preview product page</a>`;
-    note.className = "form-note success";
-
-    await loadProducts();
-  } catch (error) {
-    console.error(error);
-    note.textContent = error.message || "Product could not be updated.";
-    note.className = "form-note error";
-  } finally {
-    if (submitBtn) submitBtn.disabled = false;
-  }
-}
-
-async function uploadImageIfSelected(file) {
-  if (!file) return null;
-
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = (event) => {
-      const img = new Image();
-
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const maxWidth = 900;
-        const scale = Math.min(1, maxWidth / img.width);
-
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
-
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.75);
-        resolve(compressedDataUrl);
-      };
-
-      img.onerror = () => reject(new Error("Image could not be processed."));
-      img.src = event.target.result;
-    };
-
-    reader.onerror = () => reject(new Error("Image could not be read."));
-    reader.readAsDataURL(file);
-  });
-}
-
-async function uniqueSlug(name) {
-  const baseSlug = slugify(name);
-  const randomSuffix = Date.now().toString().slice(-5);
-  return `${baseSlug}-${randomSuffix}`;
-}
-
-function openEditModal(id) {
-  const product = products.find((p) => p.id === id);
-  if (!product) return;
-
-  $("editProductId").value = product.id;
-  $("editProductName").value = product.name;
-  $("editProductCategory").value = product.category;
-  $("editProductPrice").value = product.price;
-  $("editProductStock").value = product.stock;
-  $("editProductImageUrl").value = product.image_url || "";
-  $("editProductDescription").value = product.description;
-  $("editProductBadge").value = product.product_badge || "";
-  $("editProductHighlight").value = product.product_highlight || "";
-  $("editProductIngredients").value = product.ingredients || "";
-  $("editProductAllergens").value = product.allergens || "";
-  $("editProductServing").value = product.serving_suggestion || "";
-  $("editProductActive").checked = product.is_active;
-  $("editProductImageFile").value = "";
-  $("editProductNote").textContent = "";
-  $("editProductPreviewLink").href = `product.html?id=${product.id}`;
-
-  $("editProductModal").classList.add("show");
-}
-
-function closeEditModal() {
-  $("editProductModal").classList.remove("show");
-}
-
-function openDeleteModal(id) {
-  const product = products.find((p) => p.id === id);
-  if (!product) return;
-
-  productPendingDelete = product;
-  $("deleteConfirmText").textContent = `Are you sure you want to delete "${product.name}"? This cannot be undone.`;
-  $("deleteNote").textContent = "";
-  $("deleteConfirmModal").classList.add("show");
-}
-
-function closeDeleteModal() {
-  productPendingDelete = null;
-  $("deleteConfirmModal").classList.remove("show");
-}
-
-async function confirmDeleteProduct() {
-  if (!productPendingDelete) return;
-
-  $("deleteNote").textContent = "Deleting product...";
-  $("deleteNote").className = "form-note";
-  $("confirmDeleteBtn").disabled = true;
-
-  const { error } = await db()
-    .from("products")
-    .delete()
-    .eq("id", productPendingDelete.id);
-
-  $("confirmDeleteBtn").disabled = false;
-
-  if (error) {
-    console.error(error);
-    $("deleteNote").textContent = error.message;
-    $("deleteNote").className = "form-note error";
-    return;
-  }
-
-  closeDeleteModal();
-  await loadProducts();
-}
-
-async function loadBanners() {
-  const { data, error } = await db()
-    .from("event_banners")
-    .select("*")
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error(error);
-    return;
-  }
-
-  banners = data || [];
-  renderBanners();
-}
-
-function renderBanners() {
-  const list = $("adminBannerList");
-  if (!list) return;
-
-  if (!banners.length) {
-    list.innerHTML = "<p>No banners yet.</p>";
-    return;
-  }
-
-  list.innerHTML = banners
-    .map(
-      (banner) => `
-      <div class="admin-product-row ${banner.is_active ? "" : "inactive-product"}">
-        <div>
-          <strong>${escapeHtml(banner.title)}</strong>
-          <div>${escapeHtml(banner.subtitle || "")}</div>
-          <div>
-            <span class="${banner.is_active ? "status-pill sent" : "status-pill warning"}">
-              ${banner.is_active ? "Active on website" : "Not active"}
-            </span>
-          </div>
-        </div>
-
-        <div class="admin-actions">
-          <button type="button" data-edit-banner="${banner.id}">Edit</button>
-          <button type="button" class="delete" data-delete-banner="${banner.id}">Delete</button>
-        </div>
-      </div>
-    `
-    )
-    .join("");
-
-  document.querySelectorAll("[data-edit-banner]").forEach((button) => {
-    button.addEventListener("click", () => editBanner(button.dataset.editBanner));
-  });
-
-  document.querySelectorAll("[data-delete-banner]").forEach((button) => {
-    button.addEventListener("click", () => deleteBanner(button.dataset.deleteBanner));
-  });
-}
-
-function editBanner(id) {
-  const banner = banners.find((item) => item.id === id);
-  if (!banner) return;
-
-  $("bannerId").value = banner.id;
-  $("bannerTitle").value = banner.title || "";
-  $("bannerSubtitle").value = banner.subtitle || "";
-  $("bannerCtaText").value = banner.cta_text || "";
-  $("bannerCtaLink").value = banner.cta_link || "shop.html";
-  $("bannerImageUrl").value = banner.image_url || "";
-  $("bannerActive").checked = banner.is_active;
-  $("bannerNote").textContent = "";
-}
-
-async function saveBanner(event) {
-  event.preventDefault();
-
-  const id = $("bannerId").value;
-
-  const banner = {
-    title: $("bannerTitle").value.trim(),
-    subtitle: $("bannerSubtitle").value.trim(),
-    cta_text: $("bannerCtaText").value.trim(),
-    cta_link: $("bannerCtaLink").value,
-    image_url: $("bannerImageUrl").value.trim(),
-    is_active: $("bannerActive").checked,
-    sort_order: 0
-  };
-
-  const response = id
-    ? await db().from("event_banners").update(banner).eq("id", id)
-    : await db().from("event_banners").insert(banner);
-
-  if (response.error) {
-    $("bannerNote").textContent = response.error.message;
-    $("bannerNote").className = "form-note error";
-    return;
-  }
-
-  $("bannerNote").textContent = "Banner saved.";
-  $("bannerNote").className = "form-note success";
-  $("bannerForm").reset();
-  $("bannerId").value = "";
-  $("bannerActive").checked = true;
-
-  await loadBanners();
-}
-
-async function deleteBanner(id) {
-  if (!confirm("Delete this banner?")) return;
-
-  const { error } = await db()
-    .from("event_banners")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
-    alert(error.message);
-    return;
-  }
-
-  await loadBanners();
-}
-
-async function loadOrders() {
-  const { data, error } = await db().rpc("admin_orders");
-
-  if (error) {
-    console.error(error);
-    $("adminOrderList").innerHTML = `<p>${escapeHtml(error.message)}</p>`;
-    return;
-  }
-
-  orders = data || [];
-  renderOrders();
-}
-
-function renderOrders() {
-  const search = $("orderSearchInput")?.value.trim().toLowerCase() || "";
-  const status = $("orderStatusFilter")?.value || "all";
-
-  const filtered = orders.filter((order) => {
-    const haystack = [
-      order.order_number,
-      order.status,
-      order.customer?.name,
-      order.customer?.email,
-      order.customer?.phone,
-      order.customer?.postcode,
-      order.customer?.address
-    ].join(" ").toLowerCase();
-
-    const matchesSearch = !search || haystack.includes(search);
-    const matchesStatus = status === "all" || order.status === status;
-
-    return matchesSearch && matchesStatus;
-  });
-
-  if (!filtered.length) {
-    $("adminOrderList").innerHTML = "<p>No orders found.</p>";
-    return;
-  }
-
-  $("adminOrderList").innerHTML = filtered
-    .map(
-      (order) => `
-        <div class="admin-order-row">
-          <div class="admin-card-top">
-            <div>
-              <h3>${escapeHtml(order.order_number)}</h3>
-              <p>${new Date(order.created_at).toLocaleString("en-GB")}</p>
-            </div>
-            <span class="status-pill">${escapeHtml(order.status)}</span>
-          </div>
-
-          <div class="detail-grid">
-            <div><span>Customer</span><strong>${escapeHtml(order.customer?.name || "")}</strong></div>
-            <div><span>Email</span><strong>${escapeHtml(order.customer?.email || "")}</strong></div>
-            <div><span>Phone</span><strong>${escapeHtml(order.customer?.phone || "")}</strong></div>
-            <div><span>Postcode</span><strong>${escapeHtml(order.customer?.postcode || "")}</strong></div>
-          </div>
-
-          <p><strong>Address:</strong> ${escapeHtml(order.customer?.address || "")}</p>
-          <p><strong>Total:</strong> ${money(order.total)} including ${money(order.delivery_charge)} delivery</p>
-
-          <button class="btn secondary small" type="button" data-load-items="${order.id}">
-            Show order items
-          </button>
-
-          <div class="order-lines hidden" id="items-${order.id}"></div>
-        </div>
-      `
-    ).join("");
-
-  document.querySelectorAll("[data-load-items]").forEach((button) => {
-    button.addEventListener("click", () => loadOrderItems(button.dataset.loadItems));
-  });
-}
-
-async function loadOrderItems(orderId) {
-  const box = $(`items-${orderId}`);
-  if (!box) return;
-
-  if (!box.classList.contains("hidden")) {
-    box.classList.add("hidden");
-    return;
-  }
-
-  box.textContent = "Loading items...";
-  box.classList.remove("hidden");
-
-  const { data, error } = await db().rpc("admin_order_items", {
-    order_uuid: orderId
-  });
-
-  if (error) {
-    box.textContent = error.message;
-    return;
-  }
-
-  box.innerHTML = (data || [])
-    .map((item) => `${item.quantity} × ${escapeHtml(item.product_name)} at ${money(item.unit_price)}`)
-    .join("<br>");
-}
-
-async function loadEnquiries() {
-  const { data, error } = await db().rpc("admin_enquiries");
-
-  if (error) {
-    console.error(error);
-    $("adminEnquiryList").innerHTML = `<p>${escapeHtml(error.message)}</p>`;
-    return;
-  }
-
-  enquiries = data || [];
-
-  if (!enquiries.length) {
-    $("adminEnquiryList").innerHTML = "<p>No enquiries yet.</p>";
-    return;
-  }
-
-  $("adminEnquiryList").innerHTML = enquiries.map((enquiry) => renderEnquiryCard(enquiry)).join("");
-
-  document.querySelectorAll("[data-contact-enquiry]").forEach((button) => {
-    button.addEventListener("click", () => openContactUserModal(button.dataset.contactEnquiry));
-  });
-}
-
-function renderEnquiryCard(enquiry) {
-  const p = enquiry.payload || {};
-  const title = enquiry.type === "wholesale" ? "Wholesale enquiry" : "Contact message";
-
+function renderDetailTile(label, value) {
   return `
-    <div class="enquiry-card">
-      <div class="admin-card-top">
-        <div>
-          <p class="eyebrow">${escapeHtml(title)}</p>
-          <h3>${escapeHtml(p.company || p.name || "New enquiry")}</h3>
-          <p>${new Date(enquiry.created_at).toLocaleString("en-GB")}</p>
-        </div>
-        <span class="status-pill ${enquiry.email_sent ? "sent" : "warning"}">
-          ${enquiry.email_sent ? "Email sent" : "Saved only"}
-        </span>
-      </div>
-
-      <div class="detail-grid">
-        ${p.company ? `<div><span>Company</span><strong>${escapeHtml(p.company)}</strong></div>` : ""}
-        ${p.name ? `<div><span>Name</span><strong>${escapeHtml(p.name)}</strong></div>` : ""}
-        ${p.phone ? `<div><span>Phone</span><strong>${escapeHtml(p.phone)}</strong></div>` : ""}
-        ${p.email ? `<div><span>Email</span><strong>${escapeHtml(p.email)}</strong></div>` : ""}
-        ${p.address ? `<div><span>Address / Area</span><strong>${escapeHtml(p.address)}</strong></div>` : ""}
-      </div>
-
-      <div class="message-box">
-        <span>Message</span>
-        <p>${escapeHtml(p.message || "No message provided.")}</p>
-      </div>
-
-      <div class="enquiry-actions">
-        <button class="btn primary small" type="button" data-contact-enquiry="${enquiry.id}">
-          Contact user
-        </button>
-      </div>
-
-      ${enquiry.email_error ? `<p class="form-note error">Email error: ${escapeHtml(enquiry.email_error)}</p>` : ""}
+    <div class="detail-tile">
+      <span class="detail-label">${label}</span>
+      <div class="detail-value">${value ?? '—'}</div>
     </div>
   `;
 }
 
-function openContactUserModal(enquiryId) {
-  const enquiry = enquiries.find((item) => item.id === enquiryId);
-  if (!enquiry) return;
+function renderLeaveHistory(entries) {
+  if (!entries || !entries.length) {
+    return '<div class="empty-state">No leave history found.</div>';
+  }
 
-  const p = enquiry.payload || {};
-  const name = p.name || p.company || "this user";
-  const email = p.email || "";
-  const phone = p.phone || "";
-
-  $("contactUserText").textContent = `How would you like to contact ${name}?`;
-  $("contactEmailBtn").classList.toggle("hidden", !email);
-  $("contactPhoneBtn").classList.toggle("hidden", !phone);
-  $("contactEmailBtn").href = email ? `mailto:${email}?subject=${encodeURIComponent("The Travelling Taverna enquiry")}` : "#";
-  $("contactPhoneBtn").href = phone ? `tel:${phone}` : "#";
-  $("contactUserModal").classList.add("show");
+  return entries.slice(0, 8).map((entry) => `
+    <article class="leave-card">
+      <p class="leave-card-title">${leaveTypeLabel(entry.leave_type)} • ${dayTypeLabel(entry.day_type)} • ${entry.status}</p>
+      <p class="leave-card-subtitle">${formatDate(entry.start_date)} to ${formatDate(entry.end_date)} • ${entry.total_days} day(s)</p>
+    </article>
+  `).join('');
 }
 
-function closeContactUserModal() {
-  $("contactUserModal").classList.remove("show");
-}
+function renderEmployeeProfile(employee) {
+  const container = document.getElementById('employeeProfileContent');
+  if (!container) return;
 
-async function loadSettings() {
-  const { data, error } = await db()
-    .from("site_settings")
-    .select("*")
-    .eq("id", 1)
-    .single();
-
-  if (error) {
-    console.error(error);
-    alert(error.message);
+  if (!employee) {
+    container.innerHTML = `<div class="empty-state">No employee profile found.</div>`;
     return;
   }
 
-  settings = data;
-  loadSettingsForm();
+  const hiddenKeys = new Set(['display_name', 'employee_name', 'employee_id_display']);
+  const entries = Object.entries(employee).filter(([key]) => !hiddenKeys.has(key));
+
+  container.innerHTML = entries.map(([key, value]) => {
+    const label = key.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+    return renderDetailTile(label, value);
+  }).join('');
 }
 
-function loadSettingsForm() {
-  $("settingBusinessName").value = settings.business_name || "";
-  $("settingMinimumOrder").value = settings.minimum_order || 0;
-  $("settingEmail").value = settings.management_email || "";
-  $("settingRadiusMessage").value = settings.radius_message || "";
-  $("settingOpenDays").value = settings.delivery_days || "";
-  $("settingOpenTimes").value = settings.delivery_times || "";
-  $("settingPostcodes").value = (settings.allowed_postcode_prefixes || []).join(", ");
+function setDeductAllowanceVisibility(action, leaveType) {
+  const checkbox = document.getElementById('requestDeductAllowance');
+  const row = document.getElementById('requestDeductAllowanceRow');
 
-  renderPostcodePriceFields();
-}
+  const shouldShow = action === 'approve' && ['annual', 'other'].includes(leaveType);
 
-function getPrefixListFromSettingsInput() {
-  return ($("settingPostcodes")?.value || "")
-    .split(",")
-    .map((value) => value.trim().toUpperCase())
-    .filter(Boolean);
-}
+  if (checkbox) checkbox.checked = true;
 
-function renderPostcodePriceFields() {
-  const box = $("postcodePriceFields");
-  if (!box) return;
-
-  const prefixes = getPrefixListFromSettingsInput();
-  const prices = settings?.delivery_charges_by_prefix || {};
-
-  if (!prefixes.length) {
-    box.innerHTML = `<p class="form-note">No postcode prefixes added yet.</p>`;
-    return;
+  if (row) {
+    row.classList.toggle('hidden', !shouldShow);
+    row.style.display = shouldShow ? 'flex' : 'none';
   }
+}
 
-  box.innerHTML = prefixes
-    .map((prefix) => {
-      const value = prices[prefix] ?? "";
-      return `
-        <label class="postcode-price-row">
-          Delivery price for ${escapeHtml(prefix)}
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            data-postcode-price="${escapeHtml(prefix)}"
-            value="${escapeHtml(value)}"
-            placeholder="e.g. 5.00"
-          />
-        </label>
+async function initAdmin() {
+  try {
+    const auth = await requireAdminPageAccess();
+    if (!auth) return;
+
+    const { profile, user } = auth;
+    const authUserId = profile.user_id || profile.auth_user_id || user.id;
+
+    let requests = [];
+    let selectedRequest = null;
+    let pendingAction = null;
+    let selectedEmployee = null;
+
+    const adminLeaveList = document.getElementById('adminLeaveList');
+    const confirmRequestActionBtn = document.getElementById('confirmRequestActionBtn');
+    const requestActionNote = document.getElementById('requestActionNote');
+
+    const employeeSearchInput = document.getElementById('employeeSearchInput');
+    const employeeSearchResults = document.getElementById('employeeSearchResults');
+    const selectedEmployeeBox = document.getElementById('selectedEmployeeBox');
+
+    const manualAbsenceForm = document.getElementById('manualAbsenceForm');
+    const manualDayType = document.getElementById('manualDayType');
+    const manualStartDate = document.getElementById('manualStartDate');
+    const manualEndDate = document.getElementById('manualEndDate');
+    const manualTotalDays = document.getElementById('manualTotalDays');
+
+    const amendForm = document.getElementById('amendForm');
+    const amendDayType = document.getElementById('amendDayType');
+    const amendStartDate = document.getElementById('amendStartDate');
+    const amendEndDate = document.getElementById('amendEndDate');
+    const amendTotalDays = document.getElementById('amendTotalDays');
+
+    document.getElementById('logoutBtn')?.addEventListener('click', async () => {
+      await signOut();
+      window.location.href = './login.html';
+    });
+
+    document.querySelectorAll('[data-close-modal]').forEach((button) => {
+      button.addEventListener('click', () => closeModal(button.dataset.closeModal));
+    });
+
+    setupCustomSelects((selectEl) => {
+      if (selectEl.id === 'adminStatusSelect' || selectEl.id === 'adminTypeSelect') {
+        renderList();
+      }
+
+      if (selectEl.id === 'manualAbsenceTypeSelect') {
+        updateManualDays();
+      }
+    });
+
+    async function loadData() {
+      requests = await getAllCompanyLeaveRequests(profile.company_id);
+      requests = await enrichRequestsWithEmployeeInfo(requests, profile.company_id);
+
+      let sickRecords = [];
+
+      try {
+        sickRecords = await getAllCompanySickRecords(profile.company_id);
+      } catch {
+        sickRecords = [];
+      }
+
+      const todayIso = new Date().toISOString().slice(0, 10);
+
+      setText('adminPendingCount', requests.filter((request) => request.status === 'pending').length);
+      setText('adminCancelCount', requests.filter((request) => request.status === 'cancel_requested').length);
+
+      setText(
+        'adminOffToday',
+        requests.filter((request) =>
+          request.status === 'approved' &&
+          isDateInRange(todayIso, request.start_date, request.end_date)
+        ).length
+      );
+
+      const openSickCount = sickRecords.filter((record) => !record.end_date).length;
+      setText('adminSickOpen', openSickCount);
+
+      renderList();
+    }
+
+    function renderList() {
+      if (!adminLeaveList) return;
+
+      const statusValue = getCustomSelectValue('adminStatusSelect');
+      const typeValue = getCustomSelectValue('adminTypeSelect');
+
+      const filtered = requests.filter((item) => {
+        const statusMatch = statusValue === 'all' || item.status === statusValue;
+        const typeMatch = typeValue === 'all' || item.leave_type === typeValue;
+        return statusMatch && typeMatch;
+      });
+
+      if (!filtered.length) {
+        renderEmptyState(adminLeaveList, 'No requests match the current filters.');
+        return;
+      }
+
+      adminLeaveList.innerHTML = filtered.map((item) => `
+        <article class="leave-card admin-request-card">
+          <div class="leave-card-top">
+            <div>
+              <p class="leave-card-title">${item.employee_name || 'Employee'} • ${leaveTypeLabel(item.leave_type)}</p>
+              <p class="leave-card-subtitle">${item.employee_id_display || item.employee_id || '—'} • ${item.job_title || '—'}</p>
+              <p class="leave-card-subtitle">
+                ${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days} day(s) • ${dayTypeLabel(item.day_type)}
+              </p>
+            </div>
+            <div class="badge badge-${item.status}">${item.status}</div>
+          </div>
+
+          <div class="leave-card-bottom admin-request-bottom">
+            <div>
+              <p class="leave-card-subtitle"><strong>Reason:</strong> ${item.reason || 'No reason provided'}</p>
+              <p class="leave-card-subtitle"><strong>Notes:</strong> ${item.notes || 'No notes added'}</p>
+              ${item.cancellation_reason ? `<p class="leave-card-subtitle"><strong>Cancellation reason:</strong> ${item.cancellation_reason}</p>` : ''}
+            </div>
+
+            <div class="inline-actions">
+              <button class="btn btn-secondary" data-action="more-info" data-id="${item.id}" type="button">More Info</button>
+
+              ${
+                item.status === 'pending'
+                  ? `
+                    <button class="btn btn-primary" data-action="approve" data-id="${item.id}" type="button">Approve</button>
+                    <button class="btn btn-danger" data-action="reject" data-id="${item.id}" type="button">Reject</button>
+                  `
+                  : ''
+              }
+
+              ${
+                item.status === 'approved'
+                  ? `
+                    <button class="btn btn-secondary" data-action="amend" data-id="${item.id}" type="button">Amend</button>
+                    <button class="btn btn-danger" data-action="cancel" data-id="${item.id}" type="button">Cancel Leave</button>
+                  `
+                  : ''
+              }
+
+              ${
+                item.status === 'cancel_requested'
+                  ? `
+                    <button class="btn btn-primary" data-action="approve-cancel" data-id="${item.id}" type="button">Approve Cancellation</button>
+                    <button class="btn btn-danger" data-action="reject-cancel" data-id="${item.id}" type="button">Reject Cancellation</button>
+                  `
+                  : ''
+              }
+            </div>
+          </div>
+        </article>
+      `).join('');
+    }
+
+    function updateAmendDays() {
+      if (!amendStartDate || !amendEndDate || !amendTotalDays || !selectedRequest) return;
+
+      if (isHalfDay(amendDayType.value)) {
+        if (amendStartDate.value !== amendEndDate.value) {
+          amendTotalDays.value = '';
+          showMessage('amendMessage', 'Half days can only be used when the start date and end date are the same.', 'error');
+          return;
+        }
+
+        amendTotalDays.value = '0.5';
+        showMessage('amendMessage', '');
+        return;
+      }
+
+      const total = selectedRequest.leave_type === 'annual'
+        ? calculateBusinessDays(amendStartDate.value, amendEndDate.value)
+        : calendarDays(amendStartDate.value, amendEndDate.value);
+
+      amendTotalDays.value = total > 0 ? String(total) : '';
+      showMessage('amendMessage', '');
+    }
+
+    adminLeaveList?.addEventListener('click', async (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+
+      const action = button.dataset.action;
+      const request = requests.find((item) => item.id === button.dataset.id);
+      if (!request) return;
+
+      selectedRequest = request;
+
+      if (['approve', 'reject', 'cancel', 'approve-cancel', 'reject-cancel'].includes(action)) {
+        pendingAction = action;
+
+        if (requestActionNote) requestActionNote.value = '';
+
+        const titles = {
+          approve: 'Approve Request',
+          reject: 'Reject Request',
+          cancel: 'Cancel Leave',
+          'approve-cancel': 'Approve Cancellation',
+          'reject-cancel': 'Reject Cancellation'
+        };
+
+        setText('requestActionTitle', titles[action] || 'Confirm Action');
+        setText('requestActionSubtitle', `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)} • ${dayTypeLabel(request.day_type)}`);
+        setDeductAllowanceVisibility(action, request.leave_type);
+        openModal('requestActionModal');
+        return;
+      }
+
+      if (action === 'amend') {
+        setText('amendSubtitle', `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)}`);
+
+        if (amendDayType) amendDayType.value = request.day_type || 'full';
+        if (amendStartDate) amendStartDate.value = request.start_date || '';
+        if (amendEndDate) amendEndDate.value = request.end_date || '';
+        if (amendTotalDays) amendTotalDays.value = request.total_days || '';
+        if (document.getElementById('amendReason')) document.getElementById('amendReason').value = '';
+
+        showMessage('amendMessage', '');
+        openModal('amendModal');
+        updateAmendDays();
+        return;
+      }
+
+      if (action === 'more-info') {
+        const summary = await getEmployeeLeaveSummary(request);
+
+        setText('infoEmployeeName', request.employee_name || 'Employee');
+        setText('infoEmployeeSubtitle', `${request.employee_id_display || request.employee_id || '—'} • ${request.job_title || '—'}`);
+
+        const infoContent = document.getElementById('requestInfoContent');
+
+        if (!infoContent) {
+          alert('More Info modal is missing from admin.html');
+          return;
+        }
+
+        infoContent.innerHTML = `
+          <div class="modal-grid">
+            ${renderDetailTile('Request Type', leaveTypeLabel(request.leave_type))}
+            ${renderDetailTile('Day Type', dayTypeLabel(request.day_type))}
+            ${renderDetailTile('Status', request.status)}
+            ${renderDetailTile('Total Days', request.total_days)}
+            ${renderDetailTile('Start Date', formatDate(request.start_date))}
+            ${renderDetailTile('End Date', formatDate(request.end_date))}
+            ${renderDetailTile('Deducts Allowance', request.deduct_allowance ? 'Yes' : 'No')}
+            ${renderDetailTile('Annual Allowance', summary.balance?.total_allowance ?? request.employee?.annual_leave_allowance ?? '—')}
+            ${renderDetailTile('Used Days', summary.balance?.used_days ?? '—')}
+            ${renderDetailTile('Remaining Days', summary.balance?.remaining_days ?? '—')}
+            ${renderDetailTile('Approved At', request.approved_at ? formatDate(request.approved_at) : '—')}
+            ${renderDetailTile('Cancelled At', request.cancelled_at ? formatDate(request.cancelled_at) : '—')}
+          </div>
+
+          <div class="modal-section">
+            <h3>Reason</h3>
+            <p class="muted">${request.reason || 'No reason provided'}</p>
+          </div>
+
+          <div class="modal-section">
+            <h3>Notes</h3>
+            <p class="muted">${request.notes || 'No notes added'}</p>
+          </div>
+
+          <div class="modal-section">
+            <h3>Recent Leave History</h3>
+            <div class="card-list compact-list">
+              ${renderLeaveHistory(summary.requests)}
+            </div>
+          </div>
+        `;
+
+        const profileBtn = document.getElementById('viewEmployeeProfileBtn');
+        if (profileBtn) {
+          profileBtn.onclick = () => {
+            setText('employeeProfileTitle', request.employee_name || 'Employee');
+            renderEmployeeProfile(request.employee);
+            openModal('employeeProfileModal');
+          };
+        }
+
+        openModal('requestInfoModal');
+      }
+    });
+
+    confirmRequestActionBtn?.addEventListener('click', async () => {
+      if (!selectedRequest || !pendingAction) return;
+
+      try {
+        confirmRequestActionBtn.disabled = true;
+
+        const note = requestActionNote?.value?.trim() || '';
+        const deductAllowance = document.getElementById('requestDeductAllowance')?.checked ?? true;
+
+        if (pendingAction === 'approve') {
+          await approveLeaveRequest(selectedRequest, authUserId, note, deductAllowance);
+
+          await sendSupportLeaveApprovedEmail({
+            employee_name: selectedRequest.employee_name || 'Employee',
+            leave_type: selectedRequest.leave_type,
+            day_type: selectedRequest.day_type || 'full',
+            start_date: selectedRequest.start_date,
+            end_date: selectedRequest.end_date,
+            total_days: selectedRequest.total_days,
+            note
+          });
+        }
+
+        if (pendingAction === 'reject') {
+          await rejectLeaveRequest(selectedRequest, authUserId, note);
+        }
+
+        if (pendingAction === 'cancel' || pendingAction === 'approve-cancel') {
+          await cancelLeaveRequestAdmin(selectedRequest, authUserId, note);
+
+          await sendSupportLeaveApprovedEmail({
+            action: 'cancelled',
+            employee_name: selectedRequest.employee_name || 'Employee',
+            leave_type: selectedRequest.leave_type,
+            day_type: selectedRequest.day_type || 'full',
+            start_date: selectedRequest.start_date,
+            end_date: selectedRequest.end_date,
+            total_days: selectedRequest.total_days,
+            note
+          });
+        }
+
+        if (pendingAction === 'reject-cancel') {
+          await approveLeaveRequest(
+            { ...selectedRequest, status: 'pending' },
+            authUserId,
+            note,
+            selectedRequest.deduct_allowance
+          );
+        }
+
+        closeModal('requestActionModal');
+        await loadData();
+      } catch (error) {
+        alert(error.message || 'Unable to update request.');
+      } finally {
+        confirmRequestActionBtn.disabled = false;
+      }
+    });
+
+    amendDayType?.addEventListener('change', updateAmendDays);
+    amendStartDate?.addEventListener('change', updateAmendDays);
+    amendEndDate?.addEventListener('change', updateAmendDays);
+
+    amendForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      if (!selectedRequest) return;
+
+      const dayType = amendDayType?.value || 'full';
+      const startDate = amendStartDate?.value || '';
+      const endDate = amendEndDate?.value || '';
+      const totalDays = Number(amendTotalDays?.value || 0);
+      const reason = document.getElementById('amendReason')?.value?.trim() || '';
+
+      if (!startDate || !endDate || !totalDays) {
+        showMessage('amendMessage', 'Please complete the dates properly.', 'error');
+        return;
+      }
+
+      if (isHalfDay(dayType) && startDate !== endDate) {
+        showMessage('amendMessage', 'Half days can only be used when the start date and end date are the same.', 'error');
+        return;
+      }
+
+      try {
+        await amendLeaveRequestAdmin(selectedRequest, authUserId, {
+          start_date: startDate,
+          end_date: endDate,
+          total_days: totalDays,
+          day_type: dayType,
+          reason
+        });
+
+        closeModal('amendModal');
+        await loadData();
+      } catch (error) {
+        showMessage('amendMessage', error.message || 'Unable to save amendment.', 'error');
+      }
+    });
+
+    document.getElementById('openManualAbsenceBtn')?.addEventListener('click', () => {
+      selectedEmployee = null;
+      manualAbsenceForm?.reset();
+
+      if (manualDayType) manualDayType.value = 'full';
+
+      if (selectedEmployeeBox) {
+        selectedEmployeeBox.classList.add('hidden');
+        selectedEmployeeBox.innerHTML = '';
+      }
+
+      if (employeeSearchResults) {
+        employeeSearchResults.classList.add('hidden');
+        employeeSearchResults.innerHTML = '';
+      }
+
+      setText('manualAbsenceMessage', '');
+      setCustomSelectValue(document.getElementById('manualAbsenceTypeSelect'), 'annual', 'Annual Request');
+      openModal('manualAbsenceModal');
+    });
+
+    let searchTimer;
+
+    employeeSearchInput?.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+
+      searchTimer = setTimeout(async () => {
+        const term = employeeSearchInput.value.trim();
+
+        if (term.length < 2) {
+          employeeSearchResults?.classList.add('hidden');
+          if (employeeSearchResults) employeeSearchResults.innerHTML = '';
+          return;
+        }
+
+        const results = await searchEmployees(profile.company_id, term);
+
+        employeeSearchResults.classList.remove('hidden');
+
+        if (!results.length) {
+          employeeSearchResults.innerHTML = `<div class="search-result-empty">No employees found.</div>`;
+          return;
+        }
+
+        employeeSearchResults.innerHTML = results.map((employee) => `
+          <button type="button" class="search-result-item" data-id="${employee.id}">
+            <strong>${employee.display_name || employee.full_name || 'Employee'}</strong>
+            <span>${employee.employee_code || employee.employee_id_display || '—'} • ${employee.job_title || '—'}</span>
+          </button>
+        `).join('');
+
+        employeeSearchResults.querySelectorAll('.search-result-item').forEach((item) => {
+          item.addEventListener('click', () => {
+            selectedEmployee = results.find((employee) => employee.id === item.dataset.id);
+            if (!selectedEmployee) return;
+
+            employeeSearchInput.value = selectedEmployee.display_name || selectedEmployee.full_name || 'Employee';
+            employeeSearchResults.classList.add('hidden');
+
+            selectedEmployeeBox.classList.remove('hidden');
+            selectedEmployeeBox.innerHTML = `
+              <strong>${selectedEmployee.display_name || selectedEmployee.full_name || 'Employee'}</strong>
+              <span>${selectedEmployee.employee_code || selectedEmployee.employee_id_display || '—'} • ${selectedEmployee.job_title || '—'}</span>
+            `;
+          });
+        });
+      }, 250);
+    });
+
+    function updateManualDays() {
+      if (!manualStartDate || !manualEndDate || !manualTotalDays) return;
+
+      const type = getCustomSelectValue('manualAbsenceTypeSelect');
+      const dayType = manualDayType?.value || 'full';
+
+      if (isHalfDay(dayType)) {
+        if (manualStartDate.value !== manualEndDate.value) {
+          manualTotalDays.value = '';
+          showMessage('manualAbsenceMessage', 'Half days can only be used when the start date and end date are the same.', 'error');
+          return;
+        }
+
+        manualTotalDays.value = '0.5';
+        showMessage('manualAbsenceMessage', '');
+        return;
+      }
+
+      const total = type === 'annual'
+        ? calculateBusinessDays(manualStartDate.value, manualEndDate.value)
+        : calendarDays(manualStartDate.value, manualEndDate.value);
+
+      manualTotalDays.value = total > 0 ? String(total) : '';
+      showMessage('manualAbsenceMessage', '');
+    }
+
+    manualDayType?.addEventListener('change', updateManualDays);
+    manualStartDate?.addEventListener('change', updateManualDays);
+    manualEndDate?.addEventListener('change', updateManualDays);
+
+    manualAbsenceForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      try {
+        const dayType = manualDayType?.value || 'full';
+
+        if (!selectedEmployee) {
+          showMessage('manualAbsenceMessage', 'Please select an employee.', 'error');
+          return;
+        }
+
+        if (!manualStartDate?.value || !manualEndDate?.value || !manualTotalDays?.value) {
+          showMessage('manualAbsenceMessage', 'Please complete the dates.', 'error');
+          return;
+        }
+
+        if (isHalfDay(dayType) && manualStartDate.value !== manualEndDate.value) {
+          showMessage('manualAbsenceMessage', 'Half days can only be used when the start date and end date are the same.', 'error');
+          return;
+        }
+
+        await createManualAbsence({
+          employee: selectedEmployee,
+          company_id: profile.company_id,
+          leave_type: getCustomSelectValue('manualAbsenceTypeSelect'),
+          day_type: dayType,
+          start_date: manualStartDate.value,
+          end_date: manualEndDate.value,
+          total_days: Number(manualTotalDays.value),
+          reason: document.getElementById('manualReason')?.value?.trim() || '',
+          authorising_name: profile.full_name || profile.email || 'Admin',
+          deduct_allowance: document.getElementById('manualDeductAllowance')?.checked ?? true
+        }, authUserId);
+
+        closeModal('manualAbsenceModal');
+        await loadData();
+      } catch (error) {
+        showMessage('manualAbsenceMessage', error.message || 'Unable to save absence.', 'error');
+      }
+    });
+
+    await loadData();
+    revealApp();
+  } catch (error) {
+    console.error('Admin page failed:', error);
+
+    const loader = document.getElementById('appLoader');
+    if (loader) {
+      loader.innerHTML = `
+        <div style="padding:24px;text-align:center;">
+          <h2>Admin failed to load</h2>
+          <p>${error.message || 'Unknown error'}</p>
+        </div>
       `;
-    })
-    .join("");
-}
-
-async function saveSettings(event) {
-  event.preventDefault();
-
-  const prefixes = getPrefixListFromSettingsInput();
-  const prices = {};
-
-  document.querySelectorAll("[data-postcode-price]").forEach((input) => {
-    prices[input.dataset.postcodePrice] = Number(input.value || 0);
-  });
-
-  const update = {
-    business_name: $("settingBusinessName").value.trim(),
-    minimum_order: Number($("settingMinimumOrder").value),
-    management_email: $("settingEmail").value.trim(),
-    radius_message: $("settingRadiusMessage").value.trim(),
-    delivery_days: $("settingOpenDays").value.trim(),
-    delivery_times: $("settingOpenTimes").value.trim(),
-    allowed_postcode_prefixes: prefixes,
-    delivery_charges_by_prefix: prices
-  };
-
-  const { error } = await db()
-    .from("site_settings")
-    .update(update)
-    .eq("id", 1);
-
-  $("settingsNote").textContent = error ? error.message : "Settings saved.";
-  $("settingsNote").className = error ? "form-note error" : "form-note success";
-
-  if (!error) await loadSettings();
-}
-
-function escapeHtml(value) {
-  return String(value || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+    }
+  }
 }
 
 initAdmin();
