@@ -44,6 +44,7 @@ function bindEvents() {
   $("editProductForm")?.addEventListener("submit", saveEditedProduct);
   $("settingsForm")?.addEventListener("submit", saveSettings);
   $("bannerForm")?.addEventListener("submit", saveBanner);
+  $("settingPostcodes")?.addEventListener("input", renderPostcodePriceFields);
 
   $("closeEditProductModal")?.addEventListener("click", closeEditModal);
   $("editProductModal")?.addEventListener("click", (event) => {
@@ -108,7 +109,6 @@ async function verifyAdmin() {
 
 async function handleLogout() {
   await supabase.auth.signOut();
-
   $("loginPanel").classList.remove("hidden");
   $("adminDashboard").classList.add("hidden");
 }
@@ -330,7 +330,8 @@ async function uploadImageIfSelected(file) {
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-        resolve(canvas.toDataURL("image/jpeg", 0.75));
+        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.75);
+        resolve(compressedDataUrl);
       };
 
       img.onerror = () => reject(new Error("Image could not be processed."));
@@ -343,7 +344,9 @@ async function uploadImageIfSelected(file) {
 }
 
 async function uniqueSlug(name) {
-  return `${slugify(name)}-${Date.now().toString().slice(-5)}`;
+  const baseSlug = slugify(name);
+  const randomSuffix = Date.now().toString().slice(-5);
+  return `${baseSlug}-${randomSuffix}`;
 }
 
 function openEditModal(id) {
@@ -404,6 +407,7 @@ async function confirmDeleteProduct() {
   $("confirmDeleteBtn").disabled = false;
 
   if (error) {
+    console.error(error);
     $("deleteNote").textContent = error.message;
     $("deleteNote").className = "form-note error";
     return;
@@ -478,7 +482,7 @@ function editBanner(id) {
   $("bannerTitle").value = banner.title || "";
   $("bannerSubtitle").value = banner.subtitle || "";
   $("bannerCtaText").value = banner.cta_text || "";
-  $("bannerCtaLink").value = banner.cta_link || "";
+  $("bannerCtaLink").value = banner.cta_link || "shop.html";
   $("bannerImageUrl").value = banner.image_url || "";
   $("bannerActive").checked = banner.is_active;
   $("bannerNote").textContent = "";
@@ -493,7 +497,7 @@ async function saveBanner(event) {
     title: $("bannerTitle").value.trim(),
     subtitle: $("bannerSubtitle").value.trim(),
     cta_text: $("bannerCtaText").value.trim(),
-    cta_link: $("bannerCtaLink").value.trim(),
+    cta_link: $("bannerCtaLink").value,
     image_url: $("bannerImageUrl").value.trim(),
     is_active: $("bannerActive").checked,
     sort_order: 0
@@ -538,6 +542,7 @@ async function loadOrders() {
   const { data, error } = await db().rpc("admin_orders");
 
   if (error) {
+    console.error(error);
     $("adminOrderList").innerHTML = `<p>${escapeHtml(error.message)}</p>`;
     return;
   }
@@ -559,11 +564,12 @@ function renderOrders() {
       order.customer?.phone,
       order.customer?.postcode,
       order.customer?.address
-    ]
-      .join(" ")
-      .toLowerCase();
+    ].join(" ").toLowerCase();
 
-    return (!search || haystack.includes(search)) && (status === "all" || order.status === status);
+    const matchesSearch = !search || haystack.includes(search);
+    const matchesStatus = status === "all" || order.status === status;
+
+    return matchesSearch && matchesStatus;
   });
 
   if (!filtered.length) {
@@ -574,31 +580,33 @@ function renderOrders() {
   $("adminOrderList").innerHTML = filtered
     .map(
       (order) => `
-      <div class="admin-order-row">
-        <div class="admin-card-top">
-          <div>
-            <h3>${escapeHtml(order.order_number)}</h3>
-            <p>${new Date(order.created_at).toLocaleString("en-GB")}</p>
+        <div class="admin-order-row">
+          <div class="admin-card-top">
+            <div>
+              <h3>${escapeHtml(order.order_number)}</h3>
+              <p>${new Date(order.created_at).toLocaleString("en-GB")}</p>
+            </div>
+            <span class="status-pill">${escapeHtml(order.status)}</span>
           </div>
-          <span class="status-pill">${escapeHtml(order.status)}</span>
+
+          <div class="detail-grid">
+            <div><span>Customer</span><strong>${escapeHtml(order.customer?.name || "")}</strong></div>
+            <div><span>Email</span><strong>${escapeHtml(order.customer?.email || "")}</strong></div>
+            <div><span>Phone</span><strong>${escapeHtml(order.customer?.phone || "")}</strong></div>
+            <div><span>Postcode</span><strong>${escapeHtml(order.customer?.postcode || "")}</strong></div>
+          </div>
+
+          <p><strong>Address:</strong> ${escapeHtml(order.customer?.address || "")}</p>
+          <p><strong>Total:</strong> ${money(order.total)} including ${money(order.delivery_charge)} delivery</p>
+
+          <button class="btn secondary small" type="button" data-load-items="${order.id}">
+            Show order items
+          </button>
+
+          <div class="order-lines hidden" id="items-${order.id}"></div>
         </div>
-
-        <div class="detail-grid">
-          <div><span>Customer</span><strong>${escapeHtml(order.customer?.name || "")}</strong></div>
-          <div><span>Email</span><strong>${escapeHtml(order.customer?.email || "")}</strong></div>
-          <div><span>Phone</span><strong>${escapeHtml(order.customer?.phone || "")}</strong></div>
-          <div><span>Postcode</span><strong>${escapeHtml(order.customer?.postcode || "")}</strong></div>
-        </div>
-
-        <p><strong>Address:</strong> ${escapeHtml(order.customer?.address || "")}</p>
-        <p><strong>Total:</strong> ${money(order.total)} including ${money(order.delivery_charge)} delivery</p>
-
-        <button class="btn secondary small" type="button" data-load-items="${order.id}">Show order items</button>
-        <div class="order-lines hidden" id="items-${order.id}"></div>
-      </div>
-    `
-    )
-    .join("");
+      `
+    ).join("");
 
   document.querySelectorAll("[data-load-items]").forEach((button) => {
     button.addEventListener("click", () => loadOrderItems(button.dataset.loadItems));
@@ -635,6 +643,7 @@ async function loadEnquiries() {
   const { data, error } = await db().rpc("admin_enquiries");
 
   if (error) {
+    console.error(error);
     $("adminEnquiryList").innerHTML = `<p>${escapeHtml(error.message)}</p>`;
     return;
   }
@@ -646,9 +655,7 @@ async function loadEnquiries() {
     return;
   }
 
-  $("adminEnquiryList").innerHTML = enquiries
-    .map((enquiry) => renderEnquiryCard(enquiry))
-    .join("");
+  $("adminEnquiryList").innerHTML = enquiries.map((enquiry) => renderEnquiryCard(enquiry)).join("");
 
   document.querySelectorAll("[data-contact-enquiry]").forEach((button) => {
     button.addEventListener("click", () => openContactUserModal(button.dataset.contactEnquiry));
@@ -686,8 +693,12 @@ function renderEnquiryCard(enquiry) {
       </div>
 
       <div class="enquiry-actions">
-        <button class="btn primary small" type="button" data-contact-enquiry="${enquiry.id}">Contact user</button>
+        <button class="btn primary small" type="button" data-contact-enquiry="${enquiry.id}">
+          Contact user
+        </button>
       </div>
+
+      ${enquiry.email_error ? `<p class="form-note error">Email error: ${escapeHtml(enquiry.email_error)}</p>` : ""}
     </div>
   `;
 }
@@ -702,16 +713,10 @@ function openContactUserModal(enquiryId) {
   const phone = p.phone || "";
 
   $("contactUserText").textContent = `How would you like to contact ${name}?`;
-
   $("contactEmailBtn").classList.toggle("hidden", !email);
   $("contactPhoneBtn").classList.toggle("hidden", !phone);
-
-  $("contactEmailBtn").href = email
-    ? `mailto:${email}?subject=${encodeURIComponent("The Travelling Taverna enquiry")}`
-    : "#";
-
+  $("contactEmailBtn").href = email ? `mailto:${email}?subject=${encodeURIComponent("The Travelling Taverna enquiry")}` : "#";
   $("contactPhoneBtn").href = phone ? `tel:${phone}` : "#";
-
   $("contactUserModal").classList.add("show");
 }
 
@@ -727,6 +732,7 @@ async function loadSettings() {
     .single();
 
   if (error) {
+    console.error(error);
     alert(error.message);
     return;
   }
@@ -736,21 +742,65 @@ async function loadSettings() {
 }
 
 function loadSettingsForm() {
-  $("settingBusinessName").value = settings.business_name;
-  $("settingMinimumOrder").value = settings.minimum_order;
-  $("settingEmail").value = settings.management_email;
-  $("settingRadiusMessage").value = settings.radius_message;
-  $("settingOpenDays").value = settings.delivery_days;
-  $("settingOpenTimes").value = settings.delivery_times;
+  $("settingBusinessName").value = settings.business_name || "";
+  $("settingMinimumOrder").value = settings.minimum_order || 0;
+  $("settingEmail").value = settings.management_email || "";
+  $("settingRadiusMessage").value = settings.radius_message || "";
+  $("settingOpenDays").value = settings.delivery_days || "";
+  $("settingOpenTimes").value = settings.delivery_times || "";
   $("settingPostcodes").value = (settings.allowed_postcode_prefixes || []).join(", ");
-  $("settingChargeDE").value = settings.delivery_charge_de;
-  $("settingChargeLE").value = settings.delivery_charge_le;
-  $("settingChargeNG").value = settings.delivery_charge_ng;
-  $("settingChargeB").value = settings.delivery_charge_b;
+
+  renderPostcodePriceFields();
+}
+
+function getPrefixListFromSettingsInput() {
+  return ($("settingPostcodes")?.value || "")
+    .split(",")
+    .map((value) => value.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function renderPostcodePriceFields() {
+  const box = $("postcodePriceFields");
+  if (!box) return;
+
+  const prefixes = getPrefixListFromSettingsInput();
+  const prices = settings?.delivery_charges_by_prefix || {};
+
+  if (!prefixes.length) {
+    box.innerHTML = `<p class="form-note">No postcode prefixes added yet.</p>`;
+    return;
+  }
+
+  box.innerHTML = prefixes
+    .map((prefix) => {
+      const value = prices[prefix] ?? "";
+      return `
+        <label class="postcode-price-row">
+          Delivery price for ${escapeHtml(prefix)}
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            data-postcode-price="${escapeHtml(prefix)}"
+            value="${escapeHtml(value)}"
+            placeholder="e.g. 5.00"
+          />
+        </label>
+      `;
+    })
+    .join("");
 }
 
 async function saveSettings(event) {
   event.preventDefault();
+
+  const prefixes = getPrefixListFromSettingsInput();
+  const prices = {};
+
+  document.querySelectorAll("[data-postcode-price]").forEach((input) => {
+    prices[input.dataset.postcodePrice] = Number(input.value || 0);
+  });
 
   const update = {
     business_name: $("settingBusinessName").value.trim(),
@@ -759,11 +809,8 @@ async function saveSettings(event) {
     radius_message: $("settingRadiusMessage").value.trim(),
     delivery_days: $("settingOpenDays").value.trim(),
     delivery_times: $("settingOpenTimes").value.trim(),
-    allowed_postcode_prefixes: $("settingPostcodes").value.split(",").map((value) => value.trim().toUpperCase()).filter(Boolean),
-    delivery_charge_de: Number($("settingChargeDE").value),
-    delivery_charge_le: Number($("settingChargeLE").value),
-    delivery_charge_ng: Number($("settingChargeNG").value),
-    delivery_charge_b: Number($("settingChargeB").value)
+    allowed_postcode_prefixes: prefixes,
+    delivery_charges_by_prefix: prices
   };
 
   const { error } = await db()
