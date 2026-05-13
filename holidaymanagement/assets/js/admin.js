@@ -13,7 +13,8 @@ import {
   searchEmployees,
   createManualAbsence,
   sendSupportLeaveApprovedEmail,
-  leaveTypeLabel
+  leaveTypeLabel,
+  dayTypeLabel
 } from '../../shared/api.js';
 import { formatDate, calculateBusinessDays, isDateInRange } from '../../shared/dates.js';
 
@@ -24,10 +25,17 @@ function setText(id, value) {
 
 function calendarDays(startDate, endDate) {
   if (!startDate || !endDate) return 0;
+
   const start = new Date(startDate);
   const end = new Date(endDate);
+
   if (end < start) return 0;
+
   return Math.ceil((end - start) / 86400000) + 1;
+}
+
+function isHalfDay(dayType) {
+  return dayType === 'half_am' || dayType === 'half_pm';
 }
 
 function getCustomSelectValue(id) {
@@ -101,8 +109,10 @@ function renderLeaveHistory(entries) {
 
   return entries.slice(0, 8).map((entry) => `
     <article class="leave-card">
-      <p class="leave-card-title">${leaveTypeLabel(entry.leave_type)} • ${entry.status}</p>
-      <p class="leave-card-subtitle">${formatDate(entry.start_date)} to ${formatDate(entry.end_date)} • ${entry.total_days} day(s)</p>
+      <p class="leave-card-title">${leaveTypeLabel(entry.leave_type)} • ${dayTypeLabel(entry.day_type)} • ${entry.status}</p>
+      <p class="leave-card-subtitle">
+        ${formatDate(entry.start_date)} to ${formatDate(entry.end_date)} • ${entry.total_days} day(s)
+      </p>
     </article>
   `).join('');
 }
@@ -117,6 +127,7 @@ function renderEmployeeProfile(employee) {
   }
 
   const hiddenKeys = new Set(['display_name', 'employee_name', 'employee_id_display']);
+
   const entries = Object.entries(employee).filter(([key]) => !hiddenKeys.has(key));
 
   container.innerHTML = entries.map(([key, value]) => {
@@ -155,13 +166,25 @@ async function initAdmin() {
     const adminLeaveList = document.getElementById('adminLeaveList');
     const confirmRequestActionBtn = document.getElementById('confirmRequestActionBtn');
     const requestActionNote = document.getElementById('requestActionNote');
+
     const employeeSearchInput = document.getElementById('employeeSearchInput');
     const employeeSearchResults = document.getElementById('employeeSearchResults');
     const selectedEmployeeBox = document.getElementById('selectedEmployeeBox');
+
     const manualAbsenceForm = document.getElementById('manualAbsenceForm');
+    const manualDayType = document.getElementById('manualDayType');
     const manualStartDate = document.getElementById('manualStartDate');
     const manualEndDate = document.getElementById('manualEndDate');
     const manualTotalDays = document.getElementById('manualTotalDays');
+    const manualDeductAllowance = document.getElementById('manualDeductAllowance');
+    const manualReason = document.getElementById('manualReason');
+
+    const amendForm = document.getElementById('amendForm');
+    const amendDayType = document.getElementById('amendDayType');
+    const amendStartDate = document.getElementById('amendStartDate');
+    const amendEndDate = document.getElementById('amendEndDate');
+    const amendTotalDays = document.getElementById('amendTotalDays');
+    const amendReason = document.getElementById('amendReason');
 
     document.getElementById('logoutBtn')?.addEventListener('click', async () => {
       await signOut();
@@ -200,15 +223,6 @@ async function initAdmin() {
       setText('adminCancelCount', requests.filter((request) => request.status === 'cancel_requested').length);
 
       setText(
-        'adminApprovedToday',
-        requests.filter((request) =>
-          request.status === 'approved' &&
-          request.approved_at &&
-          request.approved_at.slice(0, 10) === todayIso
-        ).length
-      );
-
-      setText(
         'adminOffToday',
         requests.filter((request) =>
           request.status === 'approved' &&
@@ -216,19 +230,7 @@ async function initAdmin() {
         ).length
       );
 
-      const openSickCount = sickRecords.filter((record) => !record.end_date).length;
-      const sickTodayCount = sickRecords.filter((record) =>
-        record.sick_date === todayIso ||
-        record.start_date === todayIso ||
-        (
-          record.start_date &&
-          record.start_date <= todayIso &&
-          (!record.end_date || record.end_date >= todayIso)
-        )
-      ).length;
-
-      setText('adminSickOpen', openSickCount);
-      setText('adminSickToday', sickTodayCount || openSickCount);
+      setText('adminSickOpen', sickRecords.filter((record) => !record.end_date).length);
 
       renderList();
     }
@@ -256,7 +258,9 @@ async function initAdmin() {
             <div>
               <p class="leave-card-title">${item.employee_name || 'Employee'} • ${leaveTypeLabel(item.leave_type)}</p>
               <p class="leave-card-subtitle">${item.employee_id_display || item.employee_id || '—'} • ${item.job_title || '—'}</p>
-              <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days} day(s)</p>
+              <p class="leave-card-subtitle">
+                ${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days} day(s) • ${dayTypeLabel(item.day_type)}
+              </p>
             </div>
             <div class="badge badge-${item.status}">${item.status}</div>
           </div>
@@ -303,6 +307,67 @@ async function initAdmin() {
       `).join('');
     }
 
+    function updateManualDays() {
+      if (!manualStartDate || !manualEndDate || !manualTotalDays) return;
+
+      const absenceType = getCustomSelectValue('manualAbsenceTypeSelect');
+      const dayType = manualDayType?.value || 'full';
+
+      if (!manualStartDate.value || !manualEndDate.value) {
+        manualTotalDays.value = '';
+        return;
+      }
+
+      if (isHalfDay(dayType)) {
+        if (manualStartDate.value !== manualEndDate.value) {
+          manualTotalDays.value = '';
+          showMessage('manualAbsenceMessage', 'Half days can only be used when the start date and end date are the same.', 'error');
+          return;
+        }
+
+        manualTotalDays.value = '0.5';
+        showMessage('manualAbsenceMessage', '');
+        return;
+      }
+
+      const total = absenceType === 'annual'
+        ? calculateBusinessDays(manualStartDate.value, manualEndDate.value)
+        : calendarDays(manualStartDate.value, manualEndDate.value);
+
+      manualTotalDays.value = total > 0 ? String(total) : '';
+      showMessage('manualAbsenceMessage', '');
+    }
+
+    function updateAmendDays() {
+      if (!amendStartDate || !amendEndDate || !amendTotalDays || !selectedRequest) return;
+
+      const dayType = amendDayType?.value || 'full';
+
+      if (!amendStartDate.value || !amendEndDate.value) {
+        amendTotalDays.value = '';
+        return;
+      }
+
+      if (isHalfDay(dayType)) {
+        if (amendStartDate.value !== amendEndDate.value) {
+          amendTotalDays.value = '';
+          showMessage('amendMessage', 'Half days can only be used when the start date and end date are the same.', 'error');
+          return;
+        }
+
+        amendTotalDays.value = '0.5';
+        showMessage('amendMessage', '');
+        return;
+      }
+
+      const total = selectedRequest.leave_type === 'annual'
+        ? calculateBusinessDays(amendStartDate.value, amendEndDate.value)
+        : calendarDays(amendStartDate.value, amendEndDate.value);
+
+      amendTotalDays.value = total > 0 ? String(total) : '';
+      showMessage('amendMessage', '');
+    }
+
     adminLeaveList?.addEventListener('click', async (event) => {
       const button = event.target.closest('button[data-action]');
       if (!button) return;
@@ -327,9 +392,31 @@ async function initAdmin() {
         };
 
         setText('requestActionTitle', titles[action] || 'Confirm Action');
-        setText('requestActionSubtitle', `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)}`);
+        setText(
+          'requestActionSubtitle',
+          `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)} • ${dayTypeLabel(request.day_type)}`
+        );
+
         setDeductAllowanceVisibility(action, request.leave_type);
         openModal('requestActionModal');
+        return;
+      }
+
+      if (action === 'amend') {
+        setText(
+          'amendSubtitle',
+          `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)}`
+        );
+
+        if (amendDayType) amendDayType.value = request.day_type || 'full';
+        if (amendStartDate) amendStartDate.value = request.start_date || '';
+        if (amendEndDate) amendEndDate.value = request.end_date || '';
+        if (amendTotalDays) amendTotalDays.value = request.total_days || '';
+        if (amendReason) amendReason.value = '';
+
+        showMessage('amendMessage', '');
+        openModal('amendModal');
+        updateAmendDays();
         return;
       }
 
@@ -349,6 +436,7 @@ async function initAdmin() {
         infoContent.innerHTML = `
           <div class="modal-grid">
             ${renderDetailTile('Request Type', leaveTypeLabel(request.leave_type))}
+            ${renderDetailTile('Day Type', dayTypeLabel(request.day_type))}
             ${renderDetailTile('Status', request.status)}
             ${renderDetailTile('Total Days', request.total_days)}
             ${renderDetailTile('Start Date', formatDate(request.start_date))}
@@ -407,6 +495,7 @@ async function initAdmin() {
           await sendSupportLeaveApprovedEmail({
             employee_name: selectedRequest.employee_name || 'Employee',
             leave_type: selectedRequest.leave_type,
+            day_type: selectedRequest.day_type || 'full',
             start_date: selectedRequest.start_date,
             end_date: selectedRequest.end_date,
             total_days: selectedRequest.total_days,
@@ -419,18 +508,19 @@ async function initAdmin() {
         }
 
         if (pendingAction === 'cancel' || pendingAction === 'approve-cancel') {
-  await cancelLeaveRequestAdmin(selectedRequest, authUserId, note);
+          await cancelLeaveRequestAdmin(selectedRequest, authUserId, note);
 
-  await sendSupportLeaveApprovedEmail({
-    action: 'cancelled',
-    employee_name: selectedRequest.employee_name || 'Employee',
-    leave_type: selectedRequest.leave_type,
-    start_date: selectedRequest.start_date,
-    end_date: selectedRequest.end_date,
-    total_days: selectedRequest.total_days,
-    note
-  });
-}
+          await sendSupportLeaveApprovedEmail({
+            action: 'cancelled',
+            employee_name: selectedRequest.employee_name || 'Employee',
+            leave_type: selectedRequest.leave_type,
+            day_type: selectedRequest.day_type || 'full',
+            start_date: selectedRequest.start_date,
+            end_date: selectedRequest.end_date,
+            total_days: selectedRequest.total_days,
+            note
+          });
+        }
 
         if (pendingAction === 'reject-cancel') {
           await approveLeaveRequest(
@@ -450,9 +540,53 @@ async function initAdmin() {
       }
     });
 
+    amendDayType?.addEventListener('change', updateAmendDays);
+    amendStartDate?.addEventListener('change', updateAmendDays);
+    amendEndDate?.addEventListener('change', updateAmendDays);
+
+    amendForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      if (!selectedRequest) return;
+
+      const dayType = amendDayType?.value || 'full';
+      const startDate = amendStartDate?.value || '';
+      const endDate = amendEndDate?.value || '';
+      const totalDays = Number(amendTotalDays?.value || 0);
+      const reason = amendReason?.value?.trim() || '';
+
+      if (!startDate || !endDate || !totalDays) {
+        showMessage('amendMessage', 'Please complete the dates properly.', 'error');
+        return;
+      }
+
+      if (isHalfDay(dayType) && startDate !== endDate) {
+        showMessage('amendMessage', 'Half days can only be used when the start date and end date are the same.', 'error');
+        return;
+      }
+
+      try {
+        await amendLeaveRequestAdmin(selectedRequest, authUserId, {
+          start_date: startDate,
+          end_date: endDate,
+          total_days: totalDays,
+          day_type: dayType,
+          reason
+        });
+
+        closeModal('amendModal');
+        await loadData();
+      } catch (error) {
+        showMessage('amendMessage', error.message || 'Unable to save amendment.', 'error');
+      }
+    });
+
     document.getElementById('openManualAbsenceBtn')?.addEventListener('click', () => {
       selectedEmployee = null;
       manualAbsenceForm?.reset();
+
+      if (manualDayType) manualDayType.value = 'full';
+      if (manualTotalDays) manualTotalDays.value = '';
 
       if (selectedEmployeeBox) {
         selectedEmployeeBox.classList.add('hidden');
@@ -466,6 +600,7 @@ async function initAdmin() {
 
       setText('manualAbsenceMessage', '');
       setCustomSelectValue(document.getElementById('manualAbsenceTypeSelect'), 'annual', 'Annual Request');
+
       openModal('manualAbsenceModal');
     });
 
@@ -512,22 +647,14 @@ async function initAdmin() {
               <strong>${selectedEmployee.display_name || selectedEmployee.full_name || 'Employee'}</strong>
               <span>${selectedEmployee.employee_code || selectedEmployee.employee_id_display || '—'} • ${selectedEmployee.job_title || '—'}</span>
             `;
+
+            updateManualDays();
           });
         });
       }, 250);
     });
 
-    function updateManualDays() {
-      if (!manualStartDate || !manualEndDate || !manualTotalDays) return;
-
-      const type = getCustomSelectValue('manualAbsenceTypeSelect');
-      const total = type === 'annual'
-        ? calculateBusinessDays(manualStartDate.value, manualEndDate.value)
-        : calendarDays(manualStartDate.value, manualEndDate.value);
-
-      manualTotalDays.value = total > 0 ? String(total) : '';
-    }
-
+    manualDayType?.addEventListener('change', updateManualDays);
     manualStartDate?.addEventListener('change', updateManualDays);
     manualEndDate?.addEventListener('change', updateManualDays);
 
@@ -535,6 +662,8 @@ async function initAdmin() {
       event.preventDefault();
 
       try {
+        const dayType = manualDayType?.value || 'full';
+
         if (!selectedEmployee) {
           showMessage('manualAbsenceMessage', 'Please select an employee.', 'error');
           return;
@@ -545,16 +674,22 @@ async function initAdmin() {
           return;
         }
 
+        if (isHalfDay(dayType) && manualStartDate.value !== manualEndDate.value) {
+          showMessage('manualAbsenceMessage', 'Half days can only be used when the start date and end date are the same.', 'error');
+          return;
+        }
+
         await createManualAbsence({
           employee: selectedEmployee,
           company_id: profile.company_id,
           leave_type: getCustomSelectValue('manualAbsenceTypeSelect'),
+          day_type: dayType,
           start_date: manualStartDate.value,
           end_date: manualEndDate.value,
           total_days: Number(manualTotalDays.value),
-          reason: document.getElementById('manualReason')?.value?.trim() || '',
+          reason: manualReason?.value?.trim() || '',
           authorising_name: profile.full_name || profile.email || 'Admin',
-          deduct_allowance: document.getElementById('manualDeductAllowance')?.checked ?? true
+          deduct_allowance: manualDeductAllowance?.checked ?? true
         }, authUserId);
 
         closeModal('manualAbsenceModal');
