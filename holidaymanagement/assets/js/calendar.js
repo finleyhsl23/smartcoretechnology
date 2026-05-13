@@ -126,19 +126,17 @@ function renderSelectedDateContent(list, leaveItems, holidays) {
   });
 
   leaveItems.forEach((item) => {
-    cards.push(`
-      <article class="leave-card">
-        <div class="leave-card-top">
-          <div>
-            <p class="leave-card-title">${item.employee_name || 'Employee'}</p>
-            <p class="leave-card-subtitle">${item.job_title || '—'} • ${item.employee_id || '—'}</p>
-            <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)}</p>
-          </div>
-          <div class="badge badge-${item.leave_type}">${leaveTypeLabel(item.leave_type)}</div>
+  cards.push(`
+    <article class="leave-card">
+      <div class="leave-card-top">
+        <div>
+          <p class="leave-card-title">${item.employee_name || 'Employee'}</p>
+          <p class="leave-card-subtitle">${item.job_title || '—'}</p>
         </div>
-      </article>
-    `);
-  });
+      </div>
+    </article>
+  `);
+});
 
   if (!cards.length) {
     renderEmptyState(list, 'Nobody is off and there are no holidays on this date.');
