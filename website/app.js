@@ -16,9 +16,11 @@ const money = (value) =>
 
 async function init() {
   bindEvents();
+
   await loadSettings();
   await loadProducts();
   await loadHeroBanner();
+
   renderSettings();
   renderCategories();
   renderProducts();
@@ -122,13 +124,19 @@ function setText(id, text) {
   if (el) el.textContent = text;
 }
 
+function getDeliveryCharges() {
+  return settings?.delivery_charges_by_prefix || {};
+}
+
 function calculateDelivery(postcode) {
   const cleaned = String(postcode || "").trim().toUpperCase().replace(/\s+/g, "");
 
-  if (!cleaned) return { ok: false, message: "Please enter your postcode first.", charge: 0 };
+  if (!cleaned) {
+    return { ok: false, message: "Please enter your postcode first.", charge: 0 };
+  }
 
   const prefixes = settings?.allowed_postcode_prefixes || [];
-  const charges = settings?.delivery_charges_by_prefix || {};
+  const charges = getDeliveryCharges();
 
   const matchedPrefix = prefixes
     .map((prefix) => String(prefix).trim().toUpperCase())
@@ -176,6 +184,7 @@ function renderProducts() {
     const matchesSearch =
       product.name.toLowerCase().includes(search) ||
       product.description.toLowerCase().includes(search);
+
     return matchesCategory && matchesSearch;
   });
 
@@ -250,12 +259,7 @@ function renderBasket() {
 
   if (!basketCount || !basketItems || !basketSubtotal || !basketDelivery || !basketTotal) return;
 
-  const basketDetailed = basket
-    .map((item) => {
-      const product = products.find((p) => p.id === item.id);
-      return product ? { ...product, quantity: item.quantity } : null;
-    })
-    .filter(Boolean);
+  const basketDetailed = getBasketDetailed();
 
   basketCount.textContent = basketDetailed.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -299,6 +303,22 @@ function renderBasket() {
   basketSubtotal.textContent = money(subtotal);
   basketDelivery.textContent = checkedDelivery?.ok ? money(delivery) : "Check postcode";
   basketTotal.textContent = money(subtotal + delivery);
+}
+
+function getBasketDetailed() {
+  return basket
+    .map((item) => {
+      const product = products.find((p) => p.id === item.id);
+      return product
+        ? {
+            ...product,
+            quantity: item.quantity,
+            unit_price: Number(product.price),
+            line_total: Number(product.price) * item.quantity
+          }
+        : null;
+    })
+    .filter(Boolean);
 }
 
 function changeQty(productId, amount) {
@@ -392,10 +412,16 @@ async function completeOrder() {
     postcode: $("checkoutPostcode")?.value || ""
   };
 
-  const items = basket.map((item) => ({
+  const basketDetailed = getBasketDetailed();
+
+  const items = basketDetailed.map((item) => ({
     product_id: item.id,
     quantity: item.quantity
   }));
+
+  const subtotal = basketDetailed.reduce((sum, item) => sum + item.line_total, 0);
+  const deliveryCharge = Number(checkedDelivery?.charge || 0);
+  const calculatedTotal = subtotal + deliveryCharge;
 
   const btn = $("completeTestPayment");
   if (btn) {
@@ -406,31 +432,36 @@ async function completeOrder() {
   const { data, error } = await db().rpc("create_test_order", {
     customer,
     items,
-    delivery_charge: checkedDelivery.charge
+    delivery_charge: deliveryCharge
   });
 
-  if (btn) {
-    btn.disabled = false;
-    btn.textContent = "Complete test payment";
-  }
-
   if (error) {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Complete test payment";
+    }
+
     console.error(error);
     alert(error.message || "Could not save order.");
     return;
   }
 
-  await sendEmailNotification({
-    type: "order",
-    subject: `New test order: ${data.order_number}`,
-    payload: {
-      order_number: data.order_number,
-      customer,
-      items,
-      delivery_charge: checkedDelivery.charge,
-      total: data.total
-    }
-  });
+  const order = {
+    order_number: data?.order_number || "TEST-ORDER",
+    subtotal,
+    delivery_charge: deliveryCharge,
+    total: Number(data?.total ?? calculatedTotal),
+    customer,
+    items: basketDetailed
+  };
+
+  await sendManagementOrderEmail(order);
+  await sendCustomerOrderConfirmation(order);
+
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = "Complete test payment";
+  }
 
   basket = [];
   checkedDelivery = null;
@@ -444,7 +475,7 @@ async function completeOrder() {
   $("paymentModal")?.classList.remove("show");
   closeBasketDrawer();
 
-  alert(`Test payment complete. Order ${data.order_number} has been saved in Supabase.`);
+  alert(`Order ${order.order_number} has been saved. A confirmation email has been sent to the customer.`);
 }
 
 async function handleEnquiry(event, type, noteId) {
@@ -473,9 +504,11 @@ async function handleEnquiry(event, type, noteId) {
   }
 
   const emailResult = await sendEmailNotification({
+    to: settings?.management_email || "support@smartcoretechnology.co.uk",
     type,
     subject: `New ${type} enquiry`,
-    payload
+    payload,
+    html: buildGenericEmailHtml(type, payload)
   });
 
   if (!emailResult.ok) {
@@ -494,7 +527,37 @@ async function handleEnquiry(event, type, noteId) {
   event.target.reset();
 }
 
-async function sendEmailNotification({ type, subject, payload }) {
+async function sendManagementOrderEmail(order) {
+  return sendEmailNotification({
+    to: settings?.management_email || "support@smartcoretechnology.co.uk",
+    type: "order",
+    subject: `New order received: ${order.order_number}`,
+    payload: order,
+    html: buildOrderEmailHtml(order, {
+      heading: "New order received",
+      intro: "A new order has been placed through The Travelling Taverna Greek Deli website.",
+      showCustomerThanks: false
+    })
+  });
+}
+
+async function sendCustomerOrderConfirmation(order) {
+  if (!order.customer.email) return { ok: false };
+
+  return sendEmailNotification({
+    to: order.customer.email,
+    type: "customer_order_confirmation",
+    subject: `Your order confirmation: ${order.order_number}`,
+    payload: order,
+    html: buildOrderEmailHtml(order, {
+      heading: "Thank you for your order",
+      intro: "We have received your order. Here are your order details.",
+      showCustomerThanks: true
+    })
+  });
+}
+
+async function sendEmailNotification({ to, type, subject, payload, html }) {
   try {
     const response = await fetch(EMAIL_ENDPOINT, {
       method: "POST",
@@ -502,11 +565,11 @@ async function sendEmailNotification({ type, subject, payload }) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        to: settings?.management_email || "support@smartcoretechnology.co.uk",
+        to,
         subject,
         type,
         payload,
-        html: buildEmailHtml(type, payload)
+        html
       })
     });
 
@@ -522,7 +585,130 @@ async function sendEmailNotification({ type, subject, payload }) {
   }
 }
 
-function buildEmailHtml(type, payload) {
+function buildOrderEmailHtml(order, options = {}) {
+  const heading = options.heading || "Order confirmation";
+  const intro = options.intro || "Here are your order details.";
+
+  const itemRows = order.items
+    .map((item) => {
+      const imageHtml = item.image_url
+        ? `<img src="${escapeAttribute(item.image_url)}" alt="${escapeAttribute(item.name)}" style="width:72px;height:72px;object-fit:cover;border-radius:14px;display:block;" />`
+        : `<div style="width:72px;height:72px;border-radius:14px;background:#eef4f8;"></div>`;
+
+      return `
+        <tr>
+          <td style="padding:14px 0;border-bottom:1px solid #e6edf3;width:88px;vertical-align:top;">
+            ${imageHtml}
+          </td>
+          <td style="padding:14px 10px;border-bottom:1px solid #e6edf3;vertical-align:top;">
+            <strong style="display:block;color:#071827;font-size:15px;">${escapeHtml(item.name)}</strong>
+            <span style="display:block;color:#617285;font-size:13px;margin-top:4px;">${escapeHtml(item.category || "")}</span>
+            <span style="display:block;color:#617285;font-size:13px;margin-top:4px;">Quantity: ${item.quantity}</span>
+          </td>
+          <td style="padding:14px 10px;border-bottom:1px solid #e6edf3;text-align:right;vertical-align:top;color:#071827;font-size:14px;">
+            ${money(item.unit_price)} each<br />
+            <strong>${money(item.line_total)}</strong>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `
+    <div style="margin:0;padding:0;background:#f6f1e8;font-family:Arial,Helvetica,sans-serif;color:#071827;">
+      <div style="max-width:760px;margin:0 auto;padding:28px 16px;">
+        <div style="background:#ffffff;border-radius:26px;overflow:hidden;box-shadow:0 18px 55px rgba(7,24,39,0.12);">
+          <div style="background:#071827;padding:26px 28px;color:#ffffff;">
+            <div style="font-size:13px;letter-spacing:0.14em;text-transform:uppercase;color:#7cc8ff;font-weight:700;margin-bottom:10px;">
+              The Travelling Taverna | Greek Deli
+            </div>
+            <h1 style="margin:0;font-size:32px;line-height:1.05;color:#ffffff;">${escapeHtml(heading)}</h1>
+            <p style="margin:12px 0 0;color:rgba(255,255,255,0.82);font-size:15px;line-height:1.6;">${escapeHtml(intro)}</p>
+          </div>
+
+          <div style="padding:26px 28px;">
+            <div style="background:#f7fbff;border:1px solid #dceaf5;border-radius:20px;padding:18px;margin-bottom:22px;">
+              <div style="font-size:13px;color:#617285;margin-bottom:4px;">Order number</div>
+              <strong style="font-size:24px;color:#075a96;">${escapeHtml(order.order_number)}</strong>
+            </div>
+
+            <h2 style="font-size:20px;margin:0 0 12px;color:#071827;">Customer details</h2>
+
+            <table style="width:100%;border-collapse:collapse;margin-bottom:26px;">
+              <tr>
+                <td style="padding:8px 0;color:#617285;width:145px;">Name</td>
+                <td style="padding:8px 0;color:#071827;font-weight:700;">${escapeHtml(order.customer.name)}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#617285;">Email</td>
+                <td style="padding:8px 0;color:#071827;font-weight:700;">${escapeHtml(order.customer.email)}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#617285;">Phone</td>
+                <td style="padding:8px 0;color:#071827;font-weight:700;">${escapeHtml(order.customer.phone || "Not provided")}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#617285;">Postcode</td>
+                <td style="padding:8px 0;color:#071827;font-weight:700;">${escapeHtml(order.customer.postcode)}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#617285;vertical-align:top;">Delivery address</td>
+                <td style="padding:8px 0;color:#071827;font-weight:700;">${escapeHtml(order.customer.address)}</td>
+              </tr>
+            </table>
+
+            <h2 style="font-size:20px;margin:0 0 12px;color:#071827;">Order items</h2>
+
+            <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+              ${itemRows}
+            </table>
+
+            <div style="background:#fbf7ef;border-radius:20px;padding:18px;">
+              <table style="width:100%;border-collapse:collapse;">
+                <tr>
+                  <td style="padding:7px 0;color:#617285;">Subtotal</td>
+                  <td style="padding:7px 0;text-align:right;color:#071827;font-weight:700;">${money(order.subtotal)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:7px 0;color:#617285;">Delivery</td>
+                  <td style="padding:7px 0;text-align:right;color:#071827;font-weight:700;">${money(order.delivery_charge)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:13px 0 0;border-top:1px solid #e0d6c6;color:#071827;font-size:18px;font-weight:900;">Total</td>
+                  <td style="padding:13px 0 0;border-top:1px solid #e0d6c6;text-align:right;color:#075a96;font-size:22px;font-weight:900;">${money(order.total)}</td>
+                </tr>
+              </table>
+            </div>
+
+            ${
+              options.showCustomerThanks
+                ? `
+                  <p style="margin:24px 0 0;color:#617285;line-height:1.6;">
+                    Thank you for ordering from The Travelling Taverna Greek Deli. We will prepare your order and contact you if anything else is needed.
+                  </p>
+                `
+                : ""
+            }
+          </div>
+
+          <div style="background:#071827;color:#ffffff;padding:22px 28px;">
+            <p style="margin:0 0 8px;color:rgba(255,255,255,0.8);font-size:13px;">
+              Website and ordering system built by
+              <a href="https://www.smartcoretechnology.co.uk" style="color:#ffffff;font-weight:800;text-decoration:none;">
+                SmartCore Technology
+              </a>
+            </p>
+            <p style="margin:0;color:rgba(255,255,255,0.55);font-size:12px;">
+              Practical Technology. Built to Last.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildGenericEmailHtml(type, payload) {
   const rows = Object.entries(payload)
     .map(
       ([key, value]) => `
@@ -541,6 +727,12 @@ function buildEmailHtml(type, payload) {
       <table style="border-collapse:collapse;width:100%;max-width:700px;">
         ${rows}
       </table>
+      <p style="margin-top:24px;color:#6b7280;font-size:13px;">
+        Website and ordering system built by
+        <a href="https://www.smartcoretechnology.co.uk" style="color:#075a96;font-weight:700;">
+          SmartCore Technology
+        </a>.
+      </p>
     </div>
   `;
 }
@@ -552,6 +744,10 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replaceAll("`", "&#096;");
 }
 
 init().catch((error) => {
