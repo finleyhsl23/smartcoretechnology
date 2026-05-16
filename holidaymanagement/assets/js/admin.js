@@ -12,6 +12,7 @@ import {
   getEmployeeLeaveSummary,
   searchEmployees,
   createManualAbsence,
+  getCompanyHolidays,
   sendSupportLeaveApprovedEmail,
   leaveTypeLabel,
   dayTypeLabel
@@ -36,6 +37,31 @@ function calendarDays(startDate, endDate) {
 
 function isHalfDay(dayType) {
   return dayType === 'half_am' || dayType === 'half_pm';
+}
+
+function isOwnerProfile(profile) {
+  return String(profile?.role || '').toLowerCase() === 'owner';
+}
+
+function isAdminOrOwnerEmployee(request) {
+  const role = String(request?.employee?.role || request?.role || '').toLowerCase();
+  return role === 'admin' || role === 'owner' || request?.employee?.is_admin === true;
+}
+
+function isSelfRequest(request, authUserId, profile) {
+  return (
+    request?.user_id === authUserId ||
+    request?.employee?.user_id === authUserId ||
+    request?.employee_id === profile?.employee_id ||
+    request?.employee_id === profile?.id
+  );
+}
+
+function canActionRequest(request, profile, authUserId) {
+  if (!request) return false;
+  if (isSelfRequest(request, authUserId, profile)) return false;
+  if (isAdminOrOwnerEmployee(request) && !isOwnerProfile(profile)) return false;
+  return true;
 }
 
 function getCustomSelectValue(id) {
@@ -162,6 +188,7 @@ async function initAdmin() {
     let selectedRequest = null;
     let pendingAction = null;
     let selectedEmployee = null;
+    let holidayDates = [];
 
     const adminLeaveList = document.getElementById('adminLeaveList');
     const confirmRequestActionBtn = document.getElementById('confirmRequestActionBtn');
@@ -194,6 +221,8 @@ async function initAdmin() {
     document.querySelectorAll('[data-close-modal]').forEach((button) => {
       button.addEventListener('click', () => closeModal(button.dataset.closeModal));
     });
+
+    holidayDates = (await getCompanyHolidays(profile.company_id).catch(() => [])).map((item) => item.holiday_date).filter(Boolean);
 
     setupCustomSelects((selectEl) => {
       if (selectEl.id === 'adminStatusSelect' || selectEl.id === 'adminTypeSelect') {
@@ -252,7 +281,10 @@ async function initAdmin() {
         return;
       }
 
-      adminLeaveList.innerHTML = filtered.map((item) => `
+      adminLeaveList.innerHTML = filtered.map((item) => {
+        const canManage = canActionRequest(item, profile, authUserId);
+
+        return `
         <article class="leave-card admin-request-card">
           <div class="leave-card-top">
             <div>
@@ -276,7 +308,7 @@ async function initAdmin() {
               <button class="btn btn-secondary" data-action="more-info" data-id="${item.id}" type="button">More Info</button>
 
               ${
-                item.status === 'pending'
+                item.status === 'pending' && canManage
                   ? `
                     <button class="btn btn-primary" data-action="approve" data-id="${item.id}" type="button">Approve</button>
                     <button class="btn btn-danger" data-action="reject" data-id="${item.id}" type="button">Reject</button>
@@ -285,7 +317,7 @@ async function initAdmin() {
               }
 
               ${
-                item.status === 'approved'
+                item.status === 'approved' && canManage
                   ? `
                     <button class="btn btn-secondary" data-action="amend" data-id="${item.id}" type="button">Amend</button>
                     <button class="btn btn-danger" data-action="cancel" data-id="${item.id}" type="button">Cancel Leave</button>
@@ -294,7 +326,7 @@ async function initAdmin() {
               }
 
               ${
-                item.status === 'cancel_requested'
+                item.status === 'cancel_requested' && canManage
                   ? `
                     <button class="btn btn-primary" data-action="approve-cancel" data-id="${item.id}" type="button">Approve Cancellation</button>
                     <button class="btn btn-danger" data-action="reject-cancel" data-id="${item.id}" type="button">Reject Cancellation</button>
@@ -304,7 +336,8 @@ async function initAdmin() {
             </div>
           </div>
         </article>
-      `).join('');
+      `;
+      }).join('');
     }
 
     function updateManualDays() {
@@ -325,13 +358,19 @@ async function initAdmin() {
           return;
         }
 
+        if (absenceType === 'annual' && holidayDates.includes(manualStartDate.value)) {
+          manualTotalDays.value = '';
+          showMessage('manualAbsenceMessage', 'This date is a bank holiday or company holiday, so annual leave is not deducted.', 'error');
+          return;
+        }
+
         manualTotalDays.value = '0.5';
         showMessage('manualAbsenceMessage', '');
         return;
       }
 
       const total = absenceType === 'annual'
-        ? calculateBusinessDays(manualStartDate.value, manualEndDate.value)
+        ? calculateBusinessDays(manualStartDate.value, manualEndDate.value, holidayDates)
         : calendarDays(manualStartDate.value, manualEndDate.value);
 
       manualTotalDays.value = total > 0 ? String(total) : '';
@@ -355,13 +394,19 @@ async function initAdmin() {
           return;
         }
 
+        if (selectedRequest.leave_type === 'annual' && holidayDates.includes(amendStartDate.value)) {
+          amendTotalDays.value = '';
+          showMessage('amendMessage', 'This date is a bank holiday or company holiday, so annual leave is not deducted.', 'error');
+          return;
+        }
+
         amendTotalDays.value = '0.5';
         showMessage('amendMessage', '');
         return;
       }
 
       const total = selectedRequest.leave_type === 'annual'
-        ? calculateBusinessDays(amendStartDate.value, amendEndDate.value)
+        ? calculateBusinessDays(amendStartDate.value, amendEndDate.value, holidayDates)
         : calendarDays(amendStartDate.value, amendEndDate.value);
 
       amendTotalDays.value = total > 0 ? String(total) : '';
@@ -379,6 +424,11 @@ async function initAdmin() {
       selectedRequest = request;
 
       if (['approve', 'reject', 'cancel', 'approve-cancel', 'reject-cancel'].includes(action)) {
+        if (!canActionRequest(request, profile, authUserId)) {
+          alert('Only owners can manage admin requests, and users cannot approve or manage their own leave.');
+          return;
+        }
+
         pendingAction = action;
 
         if (requestActionNote) requestActionNote.value = '';
@@ -403,6 +453,11 @@ async function initAdmin() {
       }
 
       if (action === 'amend') {
+        if (!canActionRequest(request, profile, authUserId)) {
+          alert('Only owners can amend admin requests, and users cannot amend their own leave.');
+          return;
+        }
+
         setText(
           'amendSubtitle',
           `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)}`
