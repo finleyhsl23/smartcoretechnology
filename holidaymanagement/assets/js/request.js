@@ -100,8 +100,8 @@ async function initRequestPage() {
     const balancePreview = document.getElementById('balancePreview');
     if (balancePreview) balancePreview.textContent = stats.remaining;
 
-    const holidays = await getCompanyHolidays(profile.company_id);
-    const holidayDates = holidays.map((item) => item.holiday_date);
+    const holidays = await getCompanyHolidays(profile.company_id).catch(() => []);
+    const holidayDates = holidays.map((item) => item.holiday_date).filter(Boolean);
 
     const form = document.getElementById('leaveRequestForm');
     const submitButton = form?.querySelector('button[type="submit"]');
@@ -114,7 +114,7 @@ async function initRequestPage() {
 
     function updateTotalDays() {
       const leaveType = leaveTypeEl.value;
-      const dayType = dayTypeEl.value;
+      const dayType = dayTypeEl?.value || 'full';
       const startDate = startDateEl.value;
       const endDate = endDateEl.value;
 
@@ -127,6 +127,12 @@ async function initRequestPage() {
         if (startDate !== endDate) {
           totalDaysEl.value = '';
           showMessage('requestMessage', 'Half days can only be requested when the start date and end date are the same.', 'error');
+          return;
+        }
+
+        if (leaveType === 'annual' && holidayDates.includes(startDate)) {
+          totalDaysEl.value = '';
+          showMessage('requestMessage', 'This date is a bank holiday or company holiday, so annual leave is not deducted.', 'error');
           return;
         }
 
@@ -184,7 +190,7 @@ async function initRequestPage() {
       showMessage('requestMessage', '');
 
       const leaveType = leaveTypeEl.value;
-      const dayType = dayTypeEl.value;
+      const dayType = dayTypeEl?.value || 'full';
       const startDate = startDateEl.value;
       const endDate = endDateEl.value;
       const totalDays = Number(totalDaysEl.value || 0);
@@ -225,7 +231,7 @@ async function initRequestPage() {
         });
 
         form.reset();
-        dayTypeEl.value = 'full';
+        if (dayTypeEl) dayTypeEl.value = 'full';
         totalDaysEl.value = '';
 
         const refreshedRequests = await getMyLeaveRequests(authUserId);
