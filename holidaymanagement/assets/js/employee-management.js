@@ -13,6 +13,7 @@ import {
   deleteEmployeePermanent,
   getEmployeeAllLeave,
   getEmployeeLeaveBalanceByYear,
+  setEmployeeLeaveBalanceOverride,
   leaveTypeLabel
 } from '../../shared/api.js';
 
@@ -50,6 +51,18 @@ function roundToNearestHalf(value) {
   return Math.round(Number(value || 0) * 2) / 2;
 }
 
+function daysRemainingInStartYear(startDate) {
+  if (!startDate) return 365;
+
+  const start = new Date(startDate);
+  if (Number.isNaN(start.getTime())) return 365;
+
+  const yearEnd = new Date(start.getFullYear(), 11, 31);
+  if (start > yearEnd) return 0;
+
+  return Math.ceil((yearEnd - start) / 86400000) + 1;
+}
+
 function calculateProratedAllowance(annualAllowance, startDate) {
   const allowance = Number(annualAllowance || 0);
   if (!allowance) return 0;
@@ -58,11 +71,11 @@ function calculateProratedAllowance(annualAllowance, startDate) {
   const today = new Date();
   const start = new Date(startDate);
 
+  if (Number.isNaN(start.getTime())) return allowance;
   if (start.getFullYear() < today.getFullYear()) return allowance;
   if (start.getFullYear() > today.getFullYear()) return 0;
 
-  const monthsLeft = 12 - start.getMonth();
-  return roundToNearestHalf((allowance / 12) * monthsLeft);
+  return roundToNearestHalf((allowance / 365) * daysRemainingInStartYear(startDate));
 }
 
 function updateStartDateAllowanceHint() {
@@ -74,7 +87,18 @@ function updateStartDateAllowanceHint() {
     document.getElementById('startDate')?.value
   );
 
-  hint.textContent = `This person will have ${calculated} days of annual leave allowance this year.`;
+  const overrideToggle = document.getElementById('allowanceOverrideEnabled');
+  const overrideInput = document.getElementById('currentYearAllowanceOverride');
+  const overrideRow = document.getElementById('allowanceOverrideRow');
+
+  if (overrideRow) overrideRow.classList.toggle('hidden', overrideToggle?.checked !== true);
+
+  if (overrideToggle?.checked && overrideInput?.value) {
+    hint.textContent = `Override enabled. This person will have ${Number(overrideInput.value || 0)} days for the current year.`;
+    return;
+  }
+
+  hint.textContent = `This person will have ${calculated} days of annual leave allowance this year, based on annual allowance ÷ 365 × days remaining.`;
 }
 
 function cleanFileName(value) {
@@ -434,6 +458,14 @@ function fillEmployeeForm(employee = null) {
   if (noAuthoriserCheckbox) noAuthoriserCheckbox.checked = employee?.no_authoriser_required === true;
 
   setShiftPattern(employee?.shift_pattern_id || '');
+  const currentYear = new Date().getFullYear();
+  const currentYearBalance = employee?.leave_balances?.find?.((item) => Number(item.year) === currentYear);
+  const overrideToggle = document.getElementById('allowanceOverrideEnabled');
+  const overrideInput = document.getElementById('currentYearAllowanceOverride');
+
+  if (overrideToggle) overrideToggle.checked = false;
+  if (overrideInput) overrideInput.value = currentYearBalance?.total_allowance || '';
+
   updateOwnerAuthoriserUi();
   updateStartDateAllowanceHint();
 }
@@ -798,6 +830,8 @@ async function init() {
 
   document.getElementById('startDate')?.addEventListener('change', updateStartDateAllowanceHint);
   document.getElementById('annualLeaveAllowance')?.addEventListener('input', updateStartDateAllowanceHint);
+  document.getElementById('allowanceOverrideEnabled')?.addEventListener('change', updateStartDateAllowanceHint);
+  document.getElementById('currentYearAllowanceOverride')?.addEventListener('input', updateStartDateAllowanceHint);
   document.getElementById('employmentTypeSelect')?.addEventListener('change', updateEmploymentTypeFromUi);
   document.getElementById('employmentTypeOther')?.addEventListener('input', updateEmploymentTypeFromUi);
   document.getElementById('role')?.addEventListener('change', updateOwnerAuthoriserUi);
@@ -835,12 +869,23 @@ async function init() {
       return;
     }
 
+    const currentEmployeeId = getField('employeeId');
+    const selectedRole = getField('role');
+    const currentUserEmployeeId = profile.employee_id || profile.id;
+
     const results = employees
-      .filter((employee) =>
-        employee.full_name?.toLowerCase().includes(term) ||
-        employee.employee_code?.toLowerCase().includes(term) ||
-        employee.work_email?.toLowerCase().includes(term)
-      )
+      .filter((employee) => {
+        if (employee.id === currentEmployeeId) return false;
+        if (employee.id === currentUserEmployeeId) return false;
+        if (employee.user_id && employee.user_id === profile.user_id) return false;
+        if (selectedRole === 'admin' && employee.role !== 'owner') return false;
+
+        return (
+          employee.full_name?.toLowerCase().includes(term) ||
+          employee.employee_code?.toLowerCase().includes(term) ||
+          employee.work_email?.toLowerCase().includes(term)
+        );
+      })
       .slice(0, 8);
 
     box.classList.remove('hidden');
@@ -961,6 +1006,13 @@ async function init() {
       savedEmployee =
         employees.find((employee) => employee.id === employeeId) ||
         employees.find((employee) => employee.employee_code === payload.employee_code);
+
+      const overrideEnabled = document.getElementById('allowanceOverrideEnabled')?.checked === true;
+      const overrideValue = Number(document.getElementById('currentYearAllowanceOverride')?.value || 0);
+
+      if (overrideEnabled && overrideValue > 0 && savedEmployee?.user_id) {
+        await setEmployeeLeaveBalanceOverride(savedEmployee.user_id, new Date().getFullYear(), overrideValue);
+      }
 
       closeModal('employeeModal');
 
