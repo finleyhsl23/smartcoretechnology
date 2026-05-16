@@ -33,7 +33,7 @@ export function calculateBusinessDays(startDate, endDate, holidayDates = []) {
   const end = new Date(endDate);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
 
-  const holidaySet = new Set(holidayDates);
+  const holidaySet = new Set((holidayDates || []).filter(Boolean));
   let count = 0;
   const current = new Date(start);
 
@@ -62,6 +62,36 @@ export function addDays(isoDate, days) {
   const date = new Date(isoDate);
   date.setDate(date.getDate() + days);
   return toIsoDate(date);
+}
+
+export function getDaysRemainingInYear(startDate) {
+  if (!startDate) return 365;
+
+  const start = new Date(startDate);
+  if (Number.isNaN(start.getTime())) return 365;
+
+  const year = start.getFullYear();
+  const end = new Date(year, 11, 31);
+
+  if (start > end) return 0;
+
+  return Math.ceil((end - start) / 86400000) + 1;
+}
+
+export function calculateProratedYearAllowance(annualAllowance, startDate) {
+  const allowance = Number(annualAllowance || 0);
+  if (!allowance) return 0;
+  if (!startDate) return allowance;
+
+  const start = new Date(startDate);
+  const today = new Date();
+
+  if (Number.isNaN(start.getTime())) return allowance;
+  if (start.getFullYear() < today.getFullYear()) return allowance;
+  if (start.getFullYear() > today.getFullYear()) return 0;
+
+  const daysRemaining = getDaysRemainingInYear(startDate);
+  return Math.round(((allowance / 365) * daysRemaining) * 2) / 2;
 }
 
 export function getMonthMatrix(date = new Date()) {
