@@ -181,6 +181,28 @@ export async function getMyLeaveBalance(userId, year) {
   return data;
 }
 
+
+export async function setEmployeeLeaveBalanceOverride(userId, year, allowance) {
+  if (!userId || !year) return null;
+
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_balances')
+    .upsert(
+      {
+        user_id: userId,
+        year,
+        total_allowance: Number(allowance || 0)
+      },
+      { onConflict: 'user_id,year' }
+    )
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
 /* =========================================================
    MY LEAVE / SICK
 ========================================================= */
@@ -903,7 +925,7 @@ export async function getCompanyHolidays(companyId) {
 
   if (error) return bankHolidays;
 
-  return [...bankHolidays, ...(data || [])];
+  return [...bankHolidays.map((item) => ({ ...item, type: 'bank' })), ...(data || []).map((item) => ({ ...item, type: 'company' }))];
 }
 
 /* =========================================================
