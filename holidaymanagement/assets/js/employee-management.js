@@ -52,18 +52,39 @@ function roundToNearestHalf(value) {
 
 function calculateProratedAllowance(annualAllowance, startDate) {
   const allowance = Number(annualAllowance || 0);
+
   if (!allowance) return 0;
   if (!startDate) return allowance;
 
   const start = new Date(startDate);
-  if (Number.isNaN(start.getTime())) return allowance;
 
-  const year = start.getFullYear();
-  const endOfYear = new Date(year, 11, 31);
-  const millisecondsPerDay = 1000 * 60 * 60 * 24;
-  const daysRemainingIncludingStartDate = Math.ceil((endOfYear - start) / millisecondsPerDay) + 1;
+  if (Number.isNaN(start.getTime())) {
+    return allowance;
+  }
 
-  return roundToNearestHalf((allowance / 365) * daysRemainingIncludingStartDate);
+  const currentYear = new Date().getFullYear();
+
+  // Joined before this year = full allowance
+  if (start.getFullYear() < currentYear) {
+    return allowance;
+  }
+
+  // Future join date = full allowance
+  if (start.getFullYear() > currentYear) {
+    return allowance;
+  }
+
+  // Only prorate if joining THIS year
+  const endOfYear = new Date(currentYear, 11, 31);
+
+  const msPerDay = 1000 * 60 * 60 * 24;
+
+  const daysRemaining =
+    Math.ceil((endOfYear - start) / msPerDay) + 1;
+
+  return roundToNearestHalf(
+    (allowance / 365) * daysRemaining
+  );
 }
 
 function updateOverrideAllowanceUi() {
