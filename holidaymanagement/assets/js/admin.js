@@ -25,14 +25,29 @@ function setText(id, value) {
 
 function calendarDays(startDate, endDate) {
   if (!startDate || !endDate) return 0;
+
   const start = new Date(startDate);
   const end = new Date(endDate);
-  if (end < start) return 0;
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return 0;
+  }
+
   return Math.ceil((end - start) / 86400000) + 1;
+}
+
+function todayIso() {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 10);
 }
 
 function isHalfDay(dayType) {
   return dayType === 'half_am' || dayType === 'half_pm';
+}
+
+function isOwnerProfile(profile) {
+  return String(profile?.role || '').toLowerCase() === 'owner';
 }
 
 function getRequestUserId(request) {
@@ -44,13 +59,28 @@ function isOwnRequest(request, authUserId) {
   return Boolean(requestUserId && authUserId && String(requestUserId) === String(authUserId));
 }
 
+function isSelectedEmployeeSelf(employee, profile, authUserId) {
+  if (!employee) return false;
+
+  const employeeUserId = employee.user_id || employee.auth_user_id || null;
+  const employeeId = employee.id || employee.employee_id || null;
+  const profileEmployeeId = profile?.employee_id || profile?.id || null;
+
+  return Boolean(
+    (employeeUserId && authUserId && String(employeeUserId) === String(authUserId)) ||
+    (employeeId && profileEmployeeId && String(employeeId) === String(profileEmployeeId))
+  );
+}
+
 function getCustomSelectValue(id) {
   return document.getElementById(id)?.dataset.value || 'all';
 }
 
 function setCustomSelectValue(selectEl, value, label) {
   if (!selectEl) return;
+
   selectEl.dataset.value = value;
+
   const span = selectEl.querySelector('.custom-select-trigger span');
   if (span) span.textContent = label;
 }
@@ -62,9 +92,11 @@ function setupCustomSelects(onChange) {
 
     trigger?.addEventListener('click', (event) => {
       event.stopPropagation();
+
       document.querySelectorAll('.custom-select.open').forEach((openSelect) => {
         if (openSelect !== selectEl) openSelect.classList.remove('open');
       });
+
       selectEl.classList.toggle('open');
     });
 
@@ -72,7 +104,10 @@ function setupCustomSelects(onChange) {
       option.addEventListener('click', () => {
         setCustomSelectValue(selectEl, option.dataset.value, option.textContent.trim());
         selectEl.classList.remove('open');
-        if (typeof onChange === 'function') onChange(selectEl);
+
+        if (typeof onChange === 'function') {
+          onChange(selectEl);
+        }
       });
     });
   });
@@ -126,6 +161,7 @@ function renderEmployeeProfile(employee) {
   }
 
   const hiddenKeys = new Set(['display_name', 'employee_name', 'employee_id_display']);
+
   const entries = Object.entries(employee).filter(([key]) => !hiddenKeys.has(key));
 
   container.innerHTML = entries.map(([key, value]) => {
@@ -137,6 +173,7 @@ function renderEmployeeProfile(employee) {
 function setDeductAllowanceVisibility(action, leaveType) {
   const checkbox = document.getElementById('requestDeductAllowance');
   const row = document.getElementById('requestDeductAllowanceRow');
+
   const shouldShow = action === 'approve' && ['annual', 'other'].includes(leaveType);
 
   if (checkbox) checkbox.checked = true;
@@ -154,6 +191,7 @@ async function initAdmin() {
 
     const { profile, user } = auth;
     const authUserId = profile.user_id || profile.auth_user_id || user.id;
+    const currentUserIsOwner = isOwnerProfile(profile);
 
     let requests = [];
     let selectedRequest = null;
@@ -193,8 +231,13 @@ async function initAdmin() {
     });
 
     setupCustomSelects((selectEl) => {
-      if (selectEl.id === 'adminStatusSelect' || selectEl.id === 'adminTypeSelect') renderList();
-      if (selectEl.id === 'manualAbsenceTypeSelect') updateManualDays();
+      if (selectEl.id === 'adminStatusSelect' || selectEl.id === 'adminTypeSelect') {
+        renderList();
+      }
+
+      if (selectEl.id === 'manualAbsenceTypeSelect') {
+        updateManualDays();
+      }
     });
 
     async function loadData() {
@@ -202,23 +245,26 @@ async function initAdmin() {
       requests = await enrichRequestsWithEmployeeInfo(requests, profile.company_id);
 
       let sickRecords = [];
+
       try {
         sickRecords = await getAllCompanySickRecords(profile.company_id);
       } catch {
         sickRecords = [];
       }
 
-      const todayIso = new Date().toISOString().slice(0, 10);
+      const today = todayIso();
 
       setText('adminPendingCount', requests.filter((request) => request.status === 'pending').length);
       setText('adminCancelCount', requests.filter((request) => request.status === 'cancel_requested').length);
+
       setText(
         'adminOffToday',
         requests.filter((request) =>
           request.status === 'approved' &&
-          isDateInRange(todayIso, request.start_date, request.end_date)
+          isDateInRange(today, request.start_date, request.end_date)
         ).length
       );
+
       setText('adminSickOpen', sickRecords.filter((record) => !record.end_date).length);
 
       renderList();
@@ -368,8 +414,12 @@ async function initAdmin() {
       selectedRequest = request;
 
       if (['approve', 'reject', 'cancel', 'approve-cancel', 'reject-cancel'].includes(action)) {
-        if ((action === 'approve' || action === 'approve-cancel') && isOwnRequest(request, authUserId)) {
-          alert('You cannot approve your own leave request. Another admin or owner must approve it.');
+        if (
+          !currentUserIsOwner &&
+          (action === 'approve' || action === 'approve-cancel') &&
+          isOwnRequest(request, authUserId)
+        ) {
+          alert('Admins cannot approve their own leave. An owner or another admin must approve it.');
           selectedRequest = null;
           pendingAction = null;
           return;
@@ -399,7 +449,10 @@ async function initAdmin() {
       }
 
       if (action === 'amend') {
-        setText('amendSubtitle', `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)}`);
+        setText(
+          'amendSubtitle',
+          `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)}`
+        );
 
         if (amendDayType) amendDayType.value = request.day_type || 'full';
         if (amendStartDate) amendStartDate.value = request.start_date || '';
@@ -420,6 +473,7 @@ async function initAdmin() {
         setText('infoEmployeeSubtitle', `${request.employee_id_display || request.employee_id || '—'} • ${request.job_title || '—'}`);
 
         const infoContent = document.getElementById('requestInfoContent');
+
         if (!infoContent) {
           alert('More Info modal is missing from admin.html');
           return;
@@ -475,8 +529,12 @@ async function initAdmin() {
     confirmRequestActionBtn?.addEventListener('click', async () => {
       if (!selectedRequest || !pendingAction) return;
 
-      if ((pendingAction === 'approve' || pendingAction === 'approve-cancel') && isOwnRequest(selectedRequest, authUserId)) {
-        alert('You cannot approve your own leave request. Another admin or owner must approve it.');
+      if (
+        !currentUserIsOwner &&
+        (pendingAction === 'approve' || pendingAction === 'approve-cancel') &&
+        isOwnRequest(selectedRequest, authUserId)
+      ) {
+        alert('Admins cannot approve their own leave. An owner or another admin must approve it.');
         closeModal('requestActionModal');
         selectedRequest = null;
         pendingAction = null;
@@ -491,6 +549,7 @@ async function initAdmin() {
 
         if (pendingAction === 'approve') {
           await approveLeaveRequest(selectedRequest, authUserId, note, deductAllowance);
+
           await sendSupportLeaveApprovedEmail({
             employee_name: selectedRequest.employee_name || 'Employee',
             leave_type: selectedRequest.leave_type,
@@ -508,6 +567,7 @@ async function initAdmin() {
 
         if (pendingAction === 'cancel' || pendingAction === 'approve-cancel') {
           await cancelLeaveRequestAdmin(selectedRequest, authUserId, note);
+
           await sendSupportLeaveApprovedEmail({
             action: 'cancelled',
             employee_name: selectedRequest.employee_name || 'Employee',
@@ -546,6 +606,7 @@ async function initAdmin() {
 
     amendForm?.addEventListener('submit', async (event) => {
       event.preventDefault();
+
       if (!selectedRequest) return;
 
       const dayType = amendDayType?.value || 'full';
@@ -600,6 +661,7 @@ async function initAdmin() {
 
       setText('manualAbsenceMessage', '');
       setCustomSelectValue(document.getElementById('manualAbsenceTypeSelect'), 'annual', 'Annual Request');
+
       openModal('manualAbsenceModal');
     });
 
@@ -618,6 +680,7 @@ async function initAdmin() {
         }
 
         const results = await searchEmployees(profile.company_id, term);
+
         employeeSearchResults.classList.remove('hidden');
 
         if (!results.length) {
@@ -639,6 +702,7 @@ async function initAdmin() {
 
             employeeSearchInput.value = selectedEmployee.display_name || selectedEmployee.full_name || 'Employee';
             employeeSearchResults.classList.add('hidden');
+
             selectedEmployeeBox.classList.remove('hidden');
             selectedEmployeeBox.innerHTML = `
               <strong>${selectedEmployee.display_name || selectedEmployee.full_name || 'Employee'}</strong>
@@ -673,6 +737,19 @@ async function initAdmin() {
 
         if (isHalfDay(dayType) && manualStartDate.value !== manualEndDate.value) {
           showMessage('manualAbsenceMessage', 'Half days can only be used when the start date and end date are the same.', 'error');
+          return;
+        }
+
+        if (
+          !currentUserIsOwner &&
+          isSelectedEmployeeSelf(selectedEmployee, profile, authUserId) &&
+          manualEndDate.value >= todayIso()
+        ) {
+          showMessage(
+            'manualAbsenceMessage',
+            'Admins cannot manually add their own current or future leave. Please submit a leave request instead. Past records can still be added.',
+            'error'
+          );
           return;
         }
 
