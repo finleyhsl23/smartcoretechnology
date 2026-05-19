@@ -60,20 +60,34 @@ function calculateProratedAllowance(annualAllowance, startDate) {
 
   const year = start.getFullYear();
   const endOfYear = new Date(year, 11, 31);
-  const startOfYear = new Date(year, 0, 1);
-
-  if (start > endOfYear) return 0;
-  if (start < startOfYear) return allowance;
-
   const millisecondsPerDay = 1000 * 60 * 60 * 24;
   const daysRemainingIncludingStartDate = Math.ceil((endOfYear - start) / millisecondsPerDay) + 1;
 
   return roundToNearestHalf((allowance / 365) * daysRemainingIncludingStartDate);
 }
 
+function updateOverrideAllowanceUi() {
+  const enabled = document.getElementById('overrideAllowanceCalculation')?.checked === true;
+  const field = document.getElementById('overrideAllowanceField');
+
+  if (field) {
+    field.classList.toggle('hidden', !enabled);
+  }
+
+  updateStartDateAllowanceHint();
+}
+
 function updateStartDateAllowanceHint() {
   const hint = document.getElementById('startDateAllowanceHint');
   if (!hint) return;
+
+  const overrideEnabled = document.getElementById('overrideAllowanceCalculation')?.checked === true;
+  const overrideValue = document.getElementById('overrideAllowanceThisYear')?.value;
+
+  if (overrideEnabled && overrideValue !== '') {
+    hint.textContent = `Executive override active. This person will have ${overrideValue} days of annual leave allowance this year.`;
+    return;
+  }
 
   const calculated = calculateProratedAllowance(
     document.getElementById('annualLeaveAllowance')?.value || 23,
@@ -311,6 +325,8 @@ function getEmployeePayload() {
 
   const isOwner = getField('role') === 'owner';
   const noAuthoriser = isOwner && document.getElementById('noAuthoriserRequired')?.checked === true;
+  const overrideEnabled = document.getElementById('overrideAllowanceCalculation')?.checked === true;
+  const overrideValue = getField('overrideAllowanceThisYear');
 
   return {
     id: getField('employeeId') || null,
@@ -331,6 +347,9 @@ function getEmployeePayload() {
     employment_status: getField('employmentStatus') || 'active',
 
     annual_leave_allowance: Number(getField('annualLeaveAllowance') || 23),
+    override_allowance_calculation: overrideEnabled,
+    override_allowance_this_year: overrideEnabled && overrideValue !== '' ? Number(overrideValue) : null,
+
     bank_holiday_region: 'england',
     include_bank_holidays: getField('includeBankHolidays') === 'true',
     shift_pattern_id: getField('shiftPatternId'),
@@ -403,6 +422,12 @@ function fillEmployeeForm(employee = null) {
   setField('annualLeaveAllowance', employee?.annual_leave_allowance || 23);
   setField('includeBankHolidays', String(employee?.include_bank_holidays ?? true));
 
+  const overrideCheckbox = document.getElementById('overrideAllowanceCalculation');
+  if (overrideCheckbox) {
+    overrideCheckbox.checked = employee?.override_allowance_calculation === true;
+  }
+  setField('overrideAllowanceThisYear', employee?.override_allowance_this_year ?? '');
+
   setField('title', employee?.title || '');
   setField('pronouns', employee?.pronouns || '');
   setField('gender', employee?.gender || '');
@@ -440,6 +465,7 @@ function fillEmployeeForm(employee = null) {
   if (noAuthoriserCheckbox) noAuthoriserCheckbox.checked = employee?.no_authoriser_required === true;
 
   setShiftPattern(employee?.shift_pattern_id || '');
+  updateOverrideAllowanceUi();
   updateOwnerAuthoriserUi();
   updateStartDateAllowanceHint();
 }
@@ -478,7 +504,9 @@ function renderViewEmployeeDetails(employee) {
     { label: 'Start Date', value: employee.start_date ? formatDate(employee.start_date) : '—' },
     { label: 'Role', value: employee.role },
     { label: 'Employment Status', value: employee.employment_status },
-    { label: 'Authoriser Required', value: employee.no_authoriser_required ? 'No' : 'Yes' }
+    { label: 'Authoriser Required', value: employee.no_authoriser_required ? 'No' : 'Yes' },
+    { label: 'Executive Override', value: employee.override_allowance_calculation ? 'Yes' : 'No' },
+    { label: 'Override Allowance This Year', value: employee.override_allowance_this_year }
   ]);
 
   renderDetailGroup('viewPersonalDetails', [
@@ -518,7 +546,7 @@ function calculateYearStats(employee, leave, year, balance) {
     return itemYear === Number(year);
   });
 
-  const fallbackAllowance = Number(employee.annual_leave_allowance || 0);
+  const fallbackAllowance = Number(employee.override_allowance_this_year || employee.annual_leave_allowance || 0);
 
   const fallbackUsed = yearLeave
     .filter((item) =>
@@ -804,6 +832,9 @@ async function init() {
 
   document.getElementById('startDate')?.addEventListener('change', updateStartDateAllowanceHint);
   document.getElementById('annualLeaveAllowance')?.addEventListener('input', updateStartDateAllowanceHint);
+  document.getElementById('overrideAllowanceCalculation')?.addEventListener('change', updateOverrideAllowanceUi);
+  document.getElementById('overrideAllowanceThisYear')?.addEventListener('input', updateStartDateAllowanceHint);
+
   document.getElementById('employmentTypeSelect')?.addEventListener('change', updateEmploymentTypeFromUi);
   document.getElementById('employmentTypeOther')?.addEventListener('input', updateEmploymentTypeFromUi);
   document.getElementById('role')?.addEventListener('change', updateOwnerAuthoriserUi);
@@ -958,6 +989,11 @@ async function init() {
 
       if (!payload.no_authoriser_required && !payload.assigned_authoriser) {
         showMessage('employeeMessage', 'Please select an authorising user.', 'error');
+        return;
+      }
+
+      if (payload.override_allowance_calculation && payload.override_allowance_this_year === null) {
+        showMessage('employeeMessage', 'Please enter the override allowance for this year.', 'error');
         return;
       }
 
