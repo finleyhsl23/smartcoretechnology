@@ -12,7 +12,6 @@ import {
   getEmployeeLeaveSummary,
   searchEmployees,
   createManualAbsence,
-  getCompanyHolidays,
   sendSupportLeaveApprovedEmail,
   leaveTypeLabel,
   dayTypeLabel
@@ -26,12 +25,9 @@ function setText(id, value) {
 
 function calendarDays(startDate, endDate) {
   if (!startDate || !endDate) return 0;
-
   const start = new Date(startDate);
   const end = new Date(endDate);
-
   if (end < start) return 0;
-
   return Math.ceil((end - start) / 86400000) + 1;
 }
 
@@ -39,29 +35,13 @@ function isHalfDay(dayType) {
   return dayType === 'half_am' || dayType === 'half_pm';
 }
 
-function isOwnerProfile(profile) {
-  return String(profile?.role || '').toLowerCase() === 'owner';
+function getRequestUserId(request) {
+  return request?.user_id || request?.employee?.user_id || request?.auth_user_id || null;
 }
 
-function isAdminOrOwnerEmployee(request) {
-  const role = String(request?.employee?.role || request?.role || '').toLowerCase();
-  return role === 'admin' || role === 'owner' || request?.employee?.is_admin === true;
-}
-
-function isSelfRequest(request, authUserId, profile) {
-  return (
-    request?.user_id === authUserId ||
-    request?.employee?.user_id === authUserId ||
-    request?.employee_id === profile?.employee_id ||
-    request?.employee_id === profile?.id
-  );
-}
-
-function canActionRequest(request, profile, authUserId) {
-  if (!request) return false;
-  if (isSelfRequest(request, authUserId, profile)) return false;
-  if (isAdminOrOwnerEmployee(request) && !isOwnerProfile(profile)) return false;
-  return true;
+function isOwnRequest(request, authUserId) {
+  const requestUserId = getRequestUserId(request);
+  return Boolean(requestUserId && authUserId && String(requestUserId) === String(authUserId));
 }
 
 function getCustomSelectValue(id) {
@@ -70,9 +50,7 @@ function getCustomSelectValue(id) {
 
 function setCustomSelectValue(selectEl, value, label) {
   if (!selectEl) return;
-
   selectEl.dataset.value = value;
-
   const span = selectEl.querySelector('.custom-select-trigger span');
   if (span) span.textContent = label;
 }
@@ -84,11 +62,9 @@ function setupCustomSelects(onChange) {
 
     trigger?.addEventListener('click', (event) => {
       event.stopPropagation();
-
       document.querySelectorAll('.custom-select.open').forEach((openSelect) => {
         if (openSelect !== selectEl) openSelect.classList.remove('open');
       });
-
       selectEl.classList.toggle('open');
     });
 
@@ -96,10 +72,7 @@ function setupCustomSelects(onChange) {
       option.addEventListener('click', () => {
         setCustomSelectValue(selectEl, option.dataset.value, option.textContent.trim());
         selectEl.classList.remove('open');
-
-        if (typeof onChange === 'function') {
-          onChange(selectEl);
-        }
+        if (typeof onChange === 'function') onChange(selectEl);
       });
     });
   });
@@ -153,7 +126,6 @@ function renderEmployeeProfile(employee) {
   }
 
   const hiddenKeys = new Set(['display_name', 'employee_name', 'employee_id_display']);
-
   const entries = Object.entries(employee).filter(([key]) => !hiddenKeys.has(key));
 
   container.innerHTML = entries.map(([key, value]) => {
@@ -165,7 +137,6 @@ function renderEmployeeProfile(employee) {
 function setDeductAllowanceVisibility(action, leaveType) {
   const checkbox = document.getElementById('requestDeductAllowance');
   const row = document.getElementById('requestDeductAllowanceRow');
-
   const shouldShow = action === 'approve' && ['annual', 'other'].includes(leaveType);
 
   if (checkbox) checkbox.checked = true;
@@ -188,7 +159,6 @@ async function initAdmin() {
     let selectedRequest = null;
     let pendingAction = null;
     let selectedEmployee = null;
-    let holidayDates = [];
 
     const adminLeaveList = document.getElementById('adminLeaveList');
     const confirmRequestActionBtn = document.getElementById('confirmRequestActionBtn');
@@ -222,16 +192,9 @@ async function initAdmin() {
       button.addEventListener('click', () => closeModal(button.dataset.closeModal));
     });
 
-    holidayDates = (await getCompanyHolidays(profile.company_id).catch(() => [])).map((item) => item.holiday_date).filter(Boolean);
-
     setupCustomSelects((selectEl) => {
-      if (selectEl.id === 'adminStatusSelect' || selectEl.id === 'adminTypeSelect') {
-        renderList();
-      }
-
-      if (selectEl.id === 'manualAbsenceTypeSelect') {
-        updateManualDays();
-      }
+      if (selectEl.id === 'adminStatusSelect' || selectEl.id === 'adminTypeSelect') renderList();
+      if (selectEl.id === 'manualAbsenceTypeSelect') updateManualDays();
     });
 
     async function loadData() {
@@ -239,7 +202,6 @@ async function initAdmin() {
       requests = await enrichRequestsWithEmployeeInfo(requests, profile.company_id);
 
       let sickRecords = [];
-
       try {
         sickRecords = await getAllCompanySickRecords(profile.company_id);
       } catch {
@@ -250,7 +212,6 @@ async function initAdmin() {
 
       setText('adminPendingCount', requests.filter((request) => request.status === 'pending').length);
       setText('adminCancelCount', requests.filter((request) => request.status === 'cancel_requested').length);
-
       setText(
         'adminOffToday',
         requests.filter((request) =>
@@ -258,7 +219,6 @@ async function initAdmin() {
           isDateInRange(todayIso, request.start_date, request.end_date)
         ).length
       );
-
       setText('adminSickOpen', sickRecords.filter((record) => !record.end_date).length);
 
       renderList();
@@ -281,10 +241,7 @@ async function initAdmin() {
         return;
       }
 
-      adminLeaveList.innerHTML = filtered.map((item) => {
-        const canManage = canActionRequest(item, profile, authUserId);
-
-        return `
+      adminLeaveList.innerHTML = filtered.map((item) => `
         <article class="leave-card admin-request-card">
           <div class="leave-card-top">
             <div>
@@ -308,7 +265,7 @@ async function initAdmin() {
               <button class="btn btn-secondary" data-action="more-info" data-id="${item.id}" type="button">More Info</button>
 
               ${
-                item.status === 'pending' && canManage
+                item.status === 'pending'
                   ? `
                     <button class="btn btn-primary" data-action="approve" data-id="${item.id}" type="button">Approve</button>
                     <button class="btn btn-danger" data-action="reject" data-id="${item.id}" type="button">Reject</button>
@@ -317,7 +274,7 @@ async function initAdmin() {
               }
 
               ${
-                item.status === 'approved' && canManage
+                item.status === 'approved'
                   ? `
                     <button class="btn btn-secondary" data-action="amend" data-id="${item.id}" type="button">Amend</button>
                     <button class="btn btn-danger" data-action="cancel" data-id="${item.id}" type="button">Cancel Leave</button>
@@ -326,7 +283,7 @@ async function initAdmin() {
               }
 
               ${
-                item.status === 'cancel_requested' && canManage
+                item.status === 'cancel_requested'
                   ? `
                     <button class="btn btn-primary" data-action="approve-cancel" data-id="${item.id}" type="button">Approve Cancellation</button>
                     <button class="btn btn-danger" data-action="reject-cancel" data-id="${item.id}" type="button">Reject Cancellation</button>
@@ -336,8 +293,7 @@ async function initAdmin() {
             </div>
           </div>
         </article>
-      `;
-      }).join('');
+      `).join('');
     }
 
     function updateManualDays() {
@@ -358,19 +314,13 @@ async function initAdmin() {
           return;
         }
 
-        if (absenceType === 'annual' && holidayDates.includes(manualStartDate.value)) {
-          manualTotalDays.value = '';
-          showMessage('manualAbsenceMessage', 'This date is a bank holiday or company holiday, so annual leave is not deducted.', 'error');
-          return;
-        }
-
         manualTotalDays.value = '0.5';
         showMessage('manualAbsenceMessage', '');
         return;
       }
 
       const total = absenceType === 'annual'
-        ? calculateBusinessDays(manualStartDate.value, manualEndDate.value, holidayDates)
+        ? calculateBusinessDays(manualStartDate.value, manualEndDate.value)
         : calendarDays(manualStartDate.value, manualEndDate.value);
 
       manualTotalDays.value = total > 0 ? String(total) : '';
@@ -394,19 +344,13 @@ async function initAdmin() {
           return;
         }
 
-        if (selectedRequest.leave_type === 'annual' && holidayDates.includes(amendStartDate.value)) {
-          amendTotalDays.value = '';
-          showMessage('amendMessage', 'This date is a bank holiday or company holiday, so annual leave is not deducted.', 'error');
-          return;
-        }
-
         amendTotalDays.value = '0.5';
         showMessage('amendMessage', '');
         return;
       }
 
       const total = selectedRequest.leave_type === 'annual'
-        ? calculateBusinessDays(amendStartDate.value, amendEndDate.value, holidayDates)
+        ? calculateBusinessDays(amendStartDate.value, amendEndDate.value)
         : calendarDays(amendStartDate.value, amendEndDate.value);
 
       amendTotalDays.value = total > 0 ? String(total) : '';
@@ -424,8 +368,10 @@ async function initAdmin() {
       selectedRequest = request;
 
       if (['approve', 'reject', 'cancel', 'approve-cancel', 'reject-cancel'].includes(action)) {
-        if (!canActionRequest(request, profile, authUserId)) {
-          alert('Only owners can manage admin requests, and users cannot approve or manage their own leave.');
+        if ((action === 'approve' || action === 'approve-cancel') && isOwnRequest(request, authUserId)) {
+          alert('You cannot approve your own leave request. Another admin or owner must approve it.');
+          selectedRequest = null;
+          pendingAction = null;
           return;
         }
 
@@ -453,15 +399,7 @@ async function initAdmin() {
       }
 
       if (action === 'amend') {
-        if (!canActionRequest(request, profile, authUserId)) {
-          alert('Only owners can amend admin requests, and users cannot amend their own leave.');
-          return;
-        }
-
-        setText(
-          'amendSubtitle',
-          `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)}`
-        );
+        setText('amendSubtitle', `${request.employee_name || 'Employee'} • ${leaveTypeLabel(request.leave_type)}`);
 
         if (amendDayType) amendDayType.value = request.day_type || 'full';
         if (amendStartDate) amendStartDate.value = request.start_date || '';
@@ -482,7 +420,6 @@ async function initAdmin() {
         setText('infoEmployeeSubtitle', `${request.employee_id_display || request.employee_id || '—'} • ${request.job_title || '—'}`);
 
         const infoContent = document.getElementById('requestInfoContent');
-
         if (!infoContent) {
           alert('More Info modal is missing from admin.html');
           return;
@@ -538,6 +475,14 @@ async function initAdmin() {
     confirmRequestActionBtn?.addEventListener('click', async () => {
       if (!selectedRequest || !pendingAction) return;
 
+      if ((pendingAction === 'approve' || pendingAction === 'approve-cancel') && isOwnRequest(selectedRequest, authUserId)) {
+        alert('You cannot approve your own leave request. Another admin or owner must approve it.');
+        closeModal('requestActionModal');
+        selectedRequest = null;
+        pendingAction = null;
+        return;
+      }
+
       try {
         confirmRequestActionBtn.disabled = true;
 
@@ -546,7 +491,6 @@ async function initAdmin() {
 
         if (pendingAction === 'approve') {
           await approveLeaveRequest(selectedRequest, authUserId, note, deductAllowance);
-
           await sendSupportLeaveApprovedEmail({
             employee_name: selectedRequest.employee_name || 'Employee',
             leave_type: selectedRequest.leave_type,
@@ -564,7 +508,6 @@ async function initAdmin() {
 
         if (pendingAction === 'cancel' || pendingAction === 'approve-cancel') {
           await cancelLeaveRequestAdmin(selectedRequest, authUserId, note);
-
           await sendSupportLeaveApprovedEmail({
             action: 'cancelled',
             employee_name: selectedRequest.employee_name || 'Employee',
@@ -587,6 +530,8 @@ async function initAdmin() {
         }
 
         closeModal('requestActionModal');
+        selectedRequest = null;
+        pendingAction = null;
         await loadData();
       } catch (error) {
         alert(error.message || 'Unable to update request.');
@@ -601,7 +546,6 @@ async function initAdmin() {
 
     amendForm?.addEventListener('submit', async (event) => {
       event.preventDefault();
-
       if (!selectedRequest) return;
 
       const dayType = amendDayType?.value || 'full';
@@ -630,6 +574,7 @@ async function initAdmin() {
         });
 
         closeModal('amendModal');
+        selectedRequest = null;
         await loadData();
       } catch (error) {
         showMessage('amendMessage', error.message || 'Unable to save amendment.', 'error');
@@ -655,7 +600,6 @@ async function initAdmin() {
 
       setText('manualAbsenceMessage', '');
       setCustomSelectValue(document.getElementById('manualAbsenceTypeSelect'), 'annual', 'Annual Request');
-
       openModal('manualAbsenceModal');
     });
 
@@ -674,7 +618,6 @@ async function initAdmin() {
         }
 
         const results = await searchEmployees(profile.company_id, term);
-
         employeeSearchResults.classList.remove('hidden');
 
         if (!results.length) {
@@ -696,7 +639,6 @@ async function initAdmin() {
 
             employeeSearchInput.value = selectedEmployee.display_name || selectedEmployee.full_name || 'Employee';
             employeeSearchResults.classList.add('hidden');
-
             selectedEmployeeBox.classList.remove('hidden');
             selectedEmployeeBox.innerHTML = `
               <strong>${selectedEmployee.display_name || selectedEmployee.full_name || 'Employee'}</strong>
