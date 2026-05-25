@@ -567,7 +567,14 @@ function calculateYearStats(employee, leave, year, balance) {
     return itemYear === Number(year);
   });
 
-  const fallbackAllowance = Number(employee.override_allowance_this_year || employee.annual_leave_allowance || 0);
+  const currentYear = new Date().getFullYear();
+  const normalAllowance = Number(employee.annual_leave_allowance || 0);
+  const fallbackAllowance =
+    Number(year) === currentYear && employee.override_allowance_calculation === true && employee.override_allowance_this_year !== null && employee.override_allowance_this_year !== undefined
+      ? Number(employee.override_allowance_this_year || 0)
+      : Number(year) === currentYear
+        ? calculateProratedAllowance(normalAllowance, employee.start_date)
+        : normalAllowance;
 
   const fallbackUsed = yearLeave
     .filter((item) =>
@@ -597,8 +604,12 @@ function renderViewLeaveList(items) {
     <article class="leave-card">
       <div class="leave-card-top">
         <div>
-          <p class="leave-card-title">${leaveTypeLabel(item.leave_type)} • ${item.status}</p>
+          <p class="leave-card-title">${leaveTypeLabel(item.leave_type)} • ${item.status || 'pending'}</p>
           <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days || 0} day(s)</p>
+        </div>
+
+        <div class="inline-actions">
+          <button class="btn btn-secondary" data-open-admin-request="${item.id}" type="button">Open In Admin</button>
         </div>
       </div>
 
@@ -881,6 +892,13 @@ async function init() {
     if (viewedEmployee) exportWorkbook(viewedEmployee, viewedLeave, false);
   });
 
+  document.getElementById('viewLeaveList')?.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-open-admin-request]');
+    if (!button) return;
+
+    window.location.href = `./admin.html?request=${encodeURIComponent(button.dataset.openAdminRequest)}`;
+  });
+
   document.getElementById('authoriserSearch')?.addEventListener('input', () => {
     const term = getField('authoriserSearch').toLowerCase();
     const box = document.getElementById('authoriserResults');
@@ -1010,6 +1028,17 @@ async function init() {
 
       if (!payload.no_authoriser_required && !payload.assigned_authoriser) {
         showMessage('employeeMessage', 'Please select an authorising user.', 'error');
+        return;
+      }
+
+      if (payload.id && payload.assigned_authoriser && String(payload.id) === String(payload.assigned_authoriser)) {
+        showMessage('employeeMessage', 'An employee cannot be their own authorising user.', 'error');
+        return;
+      }
+
+      const selectedAuthoriser = employees.find((employee) => employee.id === payload.assigned_authoriser);
+      if (payload.role === 'admin' && !payload.no_authoriser_required && selectedAuthoriser?.role !== 'owner') {
+        showMessage('employeeMessage', 'Admin users must have an owner as their authorising user.', 'error');
         return;
       }
 
