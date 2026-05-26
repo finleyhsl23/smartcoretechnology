@@ -5,6 +5,7 @@ import {
   getMyLeaveRequests,
   getMyLeaveBalance,
   leaveTypeLabel,
+  dayTypeLabel,
   requestLeaveCancellation
 } from '../../shared/api.js';
 import { formatDate } from '../../shared/dates.js';
@@ -130,7 +131,7 @@ function renderRequests() {
     <article class="leave-card">
       <div class="leave-card-top">
         <div class="leave-card-main">
-          <p class="leave-card-title">${leaveTypeLabel(request.leave_type)}</p>
+          <p class="leave-card-title">${leaveTypeLabel(request.leave_type)} • ${dayTypeLabel(request.day_type)}</p>
 
           <p class="leave-card-subtitle">
             ${formatDate(request.start_date)} to ${formatDate(request.end_date)} • ${request.total_days || 0} day(s)
@@ -201,8 +202,15 @@ async function initMyLeavePage() {
       window.location.href = './login.html';
     });
 
-    allRequests = await getMyLeaveRequests(authUserId).catch(() => []);
-    const balance = await getMyLeaveBalance(authUserId, currentYear).catch(() => null);
+    allRequests = await getMyLeaveRequests(authUserId).catch((error) => {
+      console.warn('My leave requests failed:', error);
+      return [];
+    });
+
+    const balance = await getMyLeaveBalance(authUserId, currentYear).catch((error) => {
+      console.warn('My leave balance failed:', error);
+      return null;
+    });
 
     const stats = calculateLeaveStats(profile, allRequests, balance);
 
