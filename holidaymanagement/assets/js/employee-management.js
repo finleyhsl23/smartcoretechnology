@@ -23,6 +23,7 @@ let shiftPatterns = [];
 let savedEmployee = null;
 let viewedEmployee = null;
 let viewedLeave = [];
+let currentYearLeaveRecords = [];
 
 function openModal(id) {
   document.getElementById(id)?.classList.remove('hidden');
@@ -621,6 +622,46 @@ function renderViewLeaveList(items) {
   `).join('');
 }
 
+function getFilteredViewLeaveRecords() {
+  let rows = [...currentYearLeaveRecords];
+
+  const search = document.getElementById('leaveRecordSearch')?.value?.trim().toLowerCase() || '';
+  const type = document.getElementById('leaveRecordType')?.value || 'all';
+  const date = document.getElementById('leaveRecordDate')?.value || '';
+
+  if (search) {
+    rows = rows.filter((item) =>
+      [
+        item.reason,
+        item.notes,
+        item.status,
+        leaveTypeLabel(item.leave_type),
+        item.start_date,
+        item.end_date,
+        String(item.total_days || '')
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(search)
+    );
+  }
+
+  if (type !== 'all') {
+    rows = rows.filter((item) => item.leave_type === type);
+  }
+
+  if (date) {
+    rows = rows.filter((item) => date >= item.start_date && date <= item.end_date);
+  }
+
+  return rows;
+}
+
+function applyViewLeaveFilters() {
+  renderViewLeaveList(getFilteredViewLeaveRecords());
+}
+
 async function updateViewYear() {
   if (!viewedEmployee) return;
 
@@ -632,7 +673,8 @@ async function updateViewYear() {
   setText('viewAnnualUsed', stats.used);
   setText('viewAnnualRemaining', stats.remaining);
 
-  renderViewLeaveList(stats.yearLeave);
+  currentYearLeaveRecords = stats.yearLeave;
+  applyViewLeaveFilters();
 }
 
 function buildYearDropdown(leave) {
@@ -873,6 +915,9 @@ async function init() {
   document.getElementById('noAuthoriserRequired')?.addEventListener('change', updateOwnerAuthoriserUi);
 
   document.getElementById('viewLeaveYear')?.addEventListener('change', updateViewYear);
+  document.getElementById('leaveRecordSearch')?.addEventListener('input', applyViewLeaveFilters);
+  document.getElementById('leaveRecordType')?.addEventListener('change', applyViewLeaveFilters);
+  document.getElementById('leaveRecordDate')?.addEventListener('change', applyViewLeaveFilters);
 
   document.getElementById('viewLeaveRecordsBtn')?.addEventListener('click', () => {
     if (!viewedEmployee) return;
@@ -880,6 +925,14 @@ async function init() {
     const year = document.getElementById('viewLeaveYear')?.value || new Date().getFullYear();
     setText('leaveRecordsTitle', `${viewedEmployee.full_name || 'Employee'} Leave Records`);
     setText('leaveRecordsSubtitle', `Leave records for ${year}`);
+
+    const search = document.getElementById('leaveRecordSearch');
+    const type = document.getElementById('leaveRecordType');
+    const date = document.getElementById('leaveRecordDate');
+    if (search) search.value = '';
+    if (type) type.value = 'all';
+    if (date) date.value = '';
+    applyViewLeaveFilters();
 
     openModal('employeeLeaveRecordsModal');
   });
