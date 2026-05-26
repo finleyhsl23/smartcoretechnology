@@ -443,11 +443,22 @@ function fillEmployeeForm(employee = null) {
   setField('employmentStatus', employee?.employment_status || 'active');
   setField('annualLeaveAllowance', employee?.annual_leave_allowance || 23);
   setField('includeBankHolidays', String(employee?.include_bank_holidays ?? true));
+  
 
-  const overrideCheckbox = document.getElementById('allowanceOverrideEnabled');
-  if (overrideCheckbox) {
-    overrideCheckbox.checked = employee?.override_allowance_calculation === true;
-  }
+  const overrideEnabled = employee?.override_allowance_calculation === true;
+
+const overrideCheckbox = document.getElementById('allowanceOverrideEnabled');
+const overrideRow = document.getElementById('allowanceOverrideRow');
+
+if (overrideCheckbox) {
+  overrideCheckbox.checked = overrideEnabled;
+}
+
+setField('currentYearAllowanceOverride', employee?.override_allowance_this_year || '');
+
+if (overrideRow) {
+  overrideRow.classList.toggle('hidden', !overrideEnabled);
+}
   setField('currentYearAllowanceOverride', employee?.override_allowance_this_year ?? '');
 
   setField('title', employee?.title || '');
@@ -918,6 +929,15 @@ async function init() {
   document.getElementById('leaveRecordSearch')?.addEventListener('input', applyViewLeaveFilters);
   document.getElementById('leaveRecordType')?.addEventListener('change', applyViewLeaveFilters);
   document.getElementById('leaveRecordDate')?.addEventListener('change', applyViewLeaveFilters);
+
+  document.getElementById('allowanceOverrideEnabled')?.addEventListener('change', () => {
+  const enabled = document.getElementById('allowanceOverrideEnabled')?.checked === true;
+  document.getElementById('allowanceOverrideRow')?.classList.toggle('hidden', !enabled);
+
+  if (!enabled) {
+    setField('currentYearAllowanceOverride', '');
+  }
+});
 
   document.getElementById('viewLeaveRecordsBtn')?.addEventListener('click', () => {
     if (!viewedEmployee) return;
