@@ -1,1085 +1,1114 @@
-import { requireAdminPageAccess } from '../../shared/guards.js';
-import { signOut } from '../../shared/auth.js';
-import { revealApp, renderEmptyState, showMessage } from '../../shared/ui.js';
-import {
-  getEmployeesByCompany,
-  upsertEmployee,
-  archiveEmployee,
-  restoreEmployee,
-  getMyCompanyInfo,
-  sendEmployeeInvite,
-  getShiftPatterns,
-  createShiftPattern,
-  deleteEmployeePermanent,
-  getEmployeeAllLeave,
-  getEmployeeLeaveBalanceByYear,
-  leaveTypeLabel
-} from '../../shared/api.js';
+import { supabase, leaveSchema } from './supabase.js';
 
-let profile = null;
-let companyInfo = null;
-let employees = [];
-let shiftPatterns = [];
-let savedEmployee = null;
-let viewedEmployee = null;
-let viewedLeave = [];
-
-function openModal(id) {
-  document.getElementById(id)?.classList.remove('hidden');
+export function leaveTypeLabel(value) {
+  if (value === 'annual') return 'Annual Request';
+  if (value === 'sick') return 'Sick Leave';
+  return 'Other Leave';
 }
 
-function closeModal(id) {
-  document.getElementById(id)?.classList.add('hidden');
+export function dayTypeLabel(value) {
+  if (value === 'half_am') return 'Half Day - Morning';
+  if (value === 'half_pm') return 'Half Day - Afternoon';
+  return 'Full Day';
 }
 
-function setField(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.value = value ?? '';
+/* =========================================================
+   EMPLOYEES
+========================================================= */
+
+export async function getEmployeesByCompany() {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('get_employees');
+
+  if (error) throw error;
+
+  return (data || []).map((employee) => ({
+    ...employee,
+    display_name: employee.full_name || 'Employee',
+    employee_name: employee.full_name || 'Employee',
+    employee_id_display: employee.employee_code || '—'
+  }));
 }
 
-function getField(id) {
-  return document.getElementById(id)?.value?.trim() || '';
+export async function searchEmployees(companyId, searchTerm) {
+  const employees = await getEmployeesByCompany(companyId);
+  const term = String(searchTerm || '').toLowerCase();
+
+  if (term.length < 2) return [];
+
+  return employees
+    .filter((employee) => JSON.stringify(employee).toLowerCase().includes(term))
+    .slice(0, 10);
 }
 
-function setText(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = value ?? '—';
-}
+export async function upsertEmployee(payload) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('upsert_employee', { payload });
 
-function roundToNearestHalf(value) {
-  return Math.round(Number(value || 0) * 2) / 2;
-}
+  if (error) {
+    if (error.message?.includes('MAX_EMPLOYEES_REACHED')) {
+      throw new Error(
+        'Sorry, your plan has reached the maximum number of employees. Please contact support@smartcoretechnology.co.uk to upgrade your plan.'
+      );
+    }
 
-function calculateProratedAllowance(annualAllowance, startDate) {
-  const allowance = Number(annualAllowance || 0);
-  if (!allowance) return 0;
-  if (!startDate) return allowance;
-
-  const start = new Date(startDate);
-  if (Number.isNaN(start.getTime())) return allowance;
-
-  const year = start.getFullYear();
-  const endOfYear = new Date(year, 11, 31);
-  const millisecondsPerDay = 1000 * 60 * 60 * 24;
-  const daysRemainingIncludingStartDate = Math.ceil((endOfYear - start) / millisecondsPerDay) + 1;
-
-  return roundToNearestHalf((allowance / 365) * daysRemainingIncludingStartDate);
-}
-
-function updateOverrideAllowanceUi() {
-  const enabled = document.getElementById('allowanceOverrideEnabled')?.checked === true;
-  const field = document.getElementById('allowanceOverrideRow');
-
-  if (field) {
-    field.classList.toggle('hidden', !enabled);
+    throw error;
   }
 
-  updateStartDateAllowanceHint();
+  return data;
 }
 
-function updateStartDateAllowanceHint() {
-  const hint = document.getElementById('startDateAllowanceHint');
-  if (!hint) return;
+export async function archiveEmployee(employee) {
+  return upsertEmployee({
+    ...employee,
+    employment_status: 'archived'
+  });
+}
 
-  const overrideEnabled = document.getElementById('overrideAllowanceCalculation')?.checked === true;
-  const overrideValue = document.getElementById('overrideAllowanceThisYear')?.value;
+export async function restoreEmployee(employee) {
+  return upsertEmployee({
+    ...employee,
+    employment_status: 'active'
+  });
+}
 
-  if (overrideEnabled && overrideValue !== '') {
-    hint.textContent = `Executive override active. This person will have ${overrideValue} days of annual leave allowance this year.`;
-    return;
-  }
+export async function getEmployeeByUserId(userId) {
+  if (!userId) return null;
 
-  const calculated = calculateProratedAllowance(
-    document.getElementById('annualLeaveAllowance')?.value || 23,
-    document.getElementById('startDate')?.value
+  const employees = await getEmployeesByCompany();
+  return employees.find((employee) => employee.user_id === userId) || null;
+}
+
+export async function updateMyEmployeeProfile(profile, updates) {
+  const payload = {
+    id: profile.employee_id || profile.id,
+    company_id: profile.company_id,
+    user_id: profile.user_id,
+
+    employee_code: profile.employee_code,
+    full_name: updates.full_name,
+    job_title: updates.job_title,
+    work_email: updates.work_email,
+    personal_email: updates.personal_email,
+    personal_phone: updates.personal_phone,
+    employment_type: updates.employment_type,
+    notice_period: updates.notice_period,
+    start_date: updates.start_date,
+
+    role: profile.role,
+    is_admin: profile.is_admin,
+    annual_leave_allowance: profile.annual_leave_allowance,
+    employment_status: 'active',
+    onboarding_status: 'complete',
+
+    title: updates.title,
+    pronouns: updates.pronouns,
+    gender: updates.gender || '',
+    dob: updates.dob,
+    nationality: updates.nationality || '',
+    ni_number: updates.ni_number,
+    passport_number: updates.passport_number || '',
+    passport_expiry_date: updates.passport_expiry_date || '',
+    driving_licence_number: updates.driving_licence_number || '',
+
+    address_line1: updates.address_line1,
+    address_line2: updates.address_line2,
+    address_city: updates.address_city,
+    address_county: updates.address_county,
+    address_postcode: updates.address_postcode,
+    address_country: updates.address_country,
+
+    emergency_contact_name1: updates.emergency_contact_name1,
+    emergency_contact_relationship1: updates.emergency_contact_relationship1,
+    emergency_contact_email1: updates.emergency_contact_email1,
+    emergency_contact_phone1: updates.emergency_contact_phone1,
+
+    emergency_contact_name2: updates.emergency_contact_name2,
+    emergency_contact_relationship2: updates.emergency_contact_relationship2,
+    emergency_contact_email2: updates.emergency_contact_email2,
+    emergency_contact_phone2: updates.emergency_contact_phone2
+  };
+
+  return upsertEmployee(payload);
+}
+
+/* =========================================================
+   SHIFT PATTERNS
+========================================================= */
+
+export async function getShiftPatterns(companyId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('shift_patterns')
+    .select('*')
+    .eq('company_id', companyId)
+    .order('name');
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createShiftPattern(payload) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('shift_patterns')
+    .insert([payload])
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+/* =========================================================
+   LEAVE BALANCES
+========================================================= */
+
+export async function getMyLeaveBalance(userId, year) {
+  if (!userId) return null;
+
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_balances')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('year', year)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function getEmployeeLeaveBalanceByYear(userId, year) {
+  if (!userId) return null;
+
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_balances')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('year', year)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+/* =========================================================
+   MY LEAVE / SICK
+========================================================= */
+
+export async function getMyLeaveRequests(userId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getMySickRecords(userId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('sick_records')
+    .select('*')
+    .eq('user_id', userId)
+    .order('sick_date', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/* =========================================================
+   COMPANY LEAVE
+========================================================= */
+
+export async function getAllCompanyLeaveRequests(companyId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .select('*')
+    .eq('company_id', companyId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getAllCompanySickRecords(companyId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('sick_records')
+    .select('*')
+    .eq('company_id', companyId)
+    .order('sick_date', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function enrichRequestsWithEmployeeInfo(requests) {
+  const employees = await getEmployeesByCompany();
+
+  const byEmployeeId = new Map(employees.map((employee) => [employee.id, employee]));
+  const byUserId = new Map(
+    employees
+      .filter((employee) => employee.user_id)
+      .map((employee) => [employee.user_id, employee])
   );
 
-  hint.textContent = `This person will have ${calculated} days of annual leave allowance this year.`;
+  return (requests || []).map((request) => {
+    const employee = byEmployeeId.get(request.employee_id) || byUserId.get(request.user_id);
+
+    return {
+      ...request,
+      employee,
+      employee_name: employee?.full_name || 'Employee',
+      display_name: employee?.full_name || 'Employee',
+      employee_id_display: employee?.employee_code || '—',
+      employee_id: employee?.employee_code || '—',
+      job_title: employee?.job_title || '—',
+      employee_email: employee?.work_email || employee?.personal_email || null,
+      work_email: employee?.work_email || null,
+      personal_email: employee?.personal_email || null
+    };
+  });
 }
 
-function cleanFileName(value) {
-  return String(value || 'employee')
-    .replace(/[^a-z0-9-_ ]/gi, '')
-    .replace(/\s+/g, '-')
-    .toLowerCase();
-}
+/* =========================================================
+   CALENDAR
+========================================================= */
 
-function formatDate(value) {
-  if (!value) return '—';
-
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric'
-  }).format(new Date(value));
-}
-
-function formatDateTime(value) {
-  if (!value) return 'Not logged in yet';
-
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(new Date(value));
-}
-
-function generateDigits(length = 9) {
-  let value = '';
-  for (let i = 0; i < length; i += 1) value += Math.floor(Math.random() * 10);
-  return value;
-}
-
-function getCompanyPrefix() {
-  const name = companyInfo?.company_name || 'Smartfits';
-  const letters = name.toUpperCase().replace(/[^A-Z]/g, '');
-  return `${letters}XXX`.slice(0, 3);
-}
-
-function generateEmployeeCode() {
-  return `${getCompanyPrefix()}${generateDigits(9)}`;
-}
-
-function generateToken() {
-  if (crypto.randomUUID) return crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function expiresIn12Hours() {
-  const date = new Date();
-  date.setHours(date.getHours() + 12);
-  return date.toISOString();
-}
-
-function setupCustomSelects() {
-  document.querySelectorAll('.custom-select').forEach((selectEl) => {
-    const trigger = selectEl.querySelector('.custom-select-trigger');
-    const menu = selectEl.querySelector('.custom-select-menu');
-
-    trigger?.addEventListener('click', (event) => {
-      event.stopPropagation();
-
-      document.querySelectorAll('.custom-select.open').forEach((openSelect) => {
-        if (openSelect !== selectEl) openSelect.classList.remove('open');
-      });
-
-      selectEl.classList.toggle('open');
+export async function getApprovedLeaveForDate(companyId, isoDate) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('get_calendar_leave_for_date', {
+      p_company_id: companyId,
+      p_date: isoDate
     });
 
-    menu?.querySelectorAll('button[data-value]').forEach((option) => {
-      option.addEventListener('click', () => {
-        selectEl.dataset.value = option.dataset.value;
+  if (error) throw error;
+  return data || [];
+}
 
-        const span = selectEl.querySelector('.custom-select-trigger span');
-        if (span) span.textContent = option.textContent.trim();
+export async function getApprovedLeaveInRange(companyId, startDate, endDate) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .select('*')
+    .eq('company_id', companyId)
+    .eq('status', 'approved')
+    .lte('start_date', endDate)
+    .gte('end_date', startDate)
+    .order('start_date', { ascending: true });
 
-        selectEl.classList.remove('open');
-        renderEmployees();
-      });
+  if (error) throw error;
+  return enrichRequestsWithEmployeeInfo(data || []);
+}
+
+export async function getLeaveOverlap(companyId, startDate, endDate) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('get_leave_overlap', {
+      p_company_id: companyId,
+      p_start_date: startDate,
+      p_end_date: endDate
     });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/* =========================================================
+   DASHBOARD BREAKDOWN
+========================================================= */
+
+export async function getDashboardLeaveBreakdown(companyId) {
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+
+  const next7 = new Date(today);
+  next7.setDate(next7.getDate() + 7);
+  const next7Iso = next7.toISOString().slice(0, 10);
+
+  const approved = await getApprovedLeaveInRange(companyId, todayIso, next7Iso);
+  const employees = await getEmployeesByCompany();
+
+  const annualToday = approved.filter((request) =>
+    request.leave_type === 'annual' &&
+    request.start_date <= todayIso &&
+    request.end_date >= todayIso
+  );
+
+  const sickToday = approved.filter((request) =>
+    request.leave_type === 'sick' &&
+    request.start_date <= todayIso &&
+    request.end_date >= todayIso
+  );
+
+  const otherToday = approved.filter((request) =>
+    request.leave_type === 'other' &&
+    request.start_date <= todayIso &&
+    request.end_date >= todayIso
+  );
+
+  const annualNext7 = approved.filter((request) => request.leave_type === 'annual');
+  const sickNext7 = approved.filter((request) => request.leave_type === 'sick');
+  const otherNext7 = approved.filter((request) => request.leave_type === 'other');
+
+  const birthdaysNext7 = employees.filter((employee) => {
+    if (!employee.dob) return false;
+    const dob = new Date(employee.dob);
+
+    for (let i = 0; i <= 7; i += 1) {
+      const check = new Date(today);
+      check.setDate(today.getDate() + i);
+
+      if (check.getMonth() === dob.getMonth() && check.getDate() === dob.getDate()) {
+        return true;
+      }
+    }
+
+    return false;
   });
 
-  document.addEventListener('click', () => {
-    document.querySelectorAll('.custom-select.open').forEach((selectEl) => {
-      selectEl.classList.remove('open');
-    });
-  });
-}
+  const workAnniversariesNext7 = employees.filter((employee) => {
+    if (!employee.start_date) return false;
+    const start = new Date(employee.start_date);
 
-function syncEmploymentTypeInputs(value = '') {
-  const select = document.getElementById('employmentTypeSelect');
-  const other = document.getElementById('employmentTypeOther');
-  const hidden = document.getElementById('employmentType');
+    for (let i = 0; i <= 7; i += 1) {
+      const check = new Date(today);
+      check.setDate(today.getDate() + i);
 
-  if (!select || !other || !hidden) return;
+      if (check.getMonth() === start.getMonth() && check.getDate() === start.getDate()) {
+        return true;
+      }
+    }
 
-  const standardValues = ['Full Time', 'Part Time'];
-
-  if (standardValues.includes(value)) {
-    select.value = value;
-    other.classList.add('hidden');
-    other.value = '';
-    hidden.value = value;
-    return;
-  }
-
-  if (value) {
-    select.value = 'Other';
-    other.classList.remove('hidden');
-    other.value = value;
-    hidden.value = value;
-    return;
-  }
-
-  select.value = 'Full Time';
-  other.classList.add('hidden');
-  other.value = '';
-  hidden.value = 'Full Time';
-}
-
-function updateEmploymentTypeFromUi() {
-  const select = document.getElementById('employmentTypeSelect');
-  const other = document.getElementById('employmentTypeOther');
-  const hidden = document.getElementById('employmentType');
-
-  if (!select || !other || !hidden) return;
-
-  if (select.value === 'Other') {
-    other.classList.remove('hidden');
-    hidden.value = other.value.trim();
-  } else {
-    other.classList.add('hidden');
-    other.value = '';
-    hidden.value = select.value;
-  }
-}
-
-function updateOwnerAuthoriserUi() {
-  const isOwner = getField('role') === 'owner';
-  const row = document.getElementById('noAuthoriserOwnerRow');
-  const checkbox = document.getElementById('noAuthoriserRequired');
-  const authoriserField = document.getElementById('authoriserField');
-
-  row?.classList.toggle('hidden', !isOwner);
-
-  if (!isOwner) {
-    if (checkbox) checkbox.checked = false;
-    authoriserField?.classList.remove('hidden');
-    return;
-  }
-
-  authoriserField?.classList.toggle('hidden', checkbox?.checked === true);
-}
-
-function setAuthoriser(employee) {
-  setField('assignedAuthoriserId', employee?.id || '');
-
-  const box = document.getElementById('selectedAuthoriserBox');
-  if (!box) return;
-
-  if (!employee) {
-    box.classList.add('hidden');
-    box.innerHTML = '';
-    return;
-  }
-
-  box.classList.remove('hidden');
-  box.innerHTML = `
-    <strong>${employee.full_name || 'Employee'}</strong>
-    <span>${employee.employee_code || '—'} • ${employee.job_title || '—'}</span>
-  `;
-}
-
-function setShiftPattern(patternId) {
-  const pattern = shiftPatterns.find((item) => item.id === patternId);
-  setField('shiftPatternId', patternId || '');
-
-  const box = document.getElementById('selectedShiftBox');
-  if (!box) return;
-
-  if (!pattern) {
-    box.innerHTML = `
-      <strong>No shift pattern selected</strong>
-      <span>Press the button below to select or configure one.</span>
-    `;
-    return;
-  }
-
-  box.innerHTML = `
-    <strong>${pattern.name}</strong>
-    <span>${pattern.weekly_hours || '—'} hours/week</span>
-  `;
-}
-
-function setEmployeeModalMode(isEditing) {
-  document.querySelectorAll('[data-edit-only]').forEach((section) => {
-    section.classList.toggle('hidden', !isEditing);
+    return false;
   });
 
-  document.querySelectorAll('[data-edit-only] input, [data-edit-only] select, [data-edit-only] button').forEach((field) => {
-    field.disabled = !isEditing;
-  });
+  const startersNext7 = employees.filter((employee) =>
+    employee.start_date && employee.start_date >= todayIso && employee.start_date <= next7Iso
+  );
 
-  const deleteBtn = document.getElementById('deleteEmployeeBtn');
-  const exportBtn = document.getElementById('exportEmployeeBtn');
-
-  if (deleteBtn) {
-    deleteBtn.classList.toggle('hidden', !isEditing);
-    deleteBtn.disabled = !isEditing;
-  }
-
-  if (exportBtn) {
-    exportBtn.classList.toggle('hidden', !isEditing);
-    exportBtn.disabled = !isEditing;
-  }
-}
-
-function getEmployeePayload() {
-  updateEmploymentTypeFromUi();
-
-  const existingEmployee =
-    savedEmployee ||
-    employees.find((employee) => employee.id === getField('employeeId'));
-
-  const isOwner = getField('role') === 'owner';
-  const noAuthoriser = isOwner && document.getElementById('noAuthoriserRequired')?.checked === true;
-  const overrideEnabled = document.getElementById('overrideAllowanceCalculation')?.checked === true;
-  const overrideValue = getField('overrideAllowanceThisYear');
+  const leaveStartingNext7 = approved.filter((request) =>
+    request.start_date >= todayIso && request.start_date <= next7Iso
+  );
 
   return {
-    id: getField('employeeId') || null,
-    company_id: profile.company_id,
-    employee_code: getField('employeeCode') || existingEmployee?.employee_code || generateEmployeeCode(),
-
-    full_name: getField('fullName'),
-    job_title: getField('jobTitle'),
-    work_email: getField('workEmail').toLowerCase(),
-    personal_email: getField('personalEmail').toLowerCase(),
-    personal_phone: getField('personalPhone'),
-    employment_type: getField('employmentType'),
-    notice_period: getField('noticePeriod'),
-    start_date: getField('startDate'),
-
-    role: getField('role') || 'employee',
-    is_admin: getField('isAdmin') === 'true',
-    employment_status: getField('employmentStatus') || 'active',
-
-    annual_leave_allowance: Number(getField('annualLeaveAllowance') || 23),
-    override_allowance_calculation: overrideEnabled,
-    override_allowance_this_year: overrideEnabled && overrideValue !== '' ? Number(overrideValue) : null,
-
-    bank_holiday_region: 'england',
-    include_bank_holidays: getField('includeBankHolidays') === 'true',
-    shift_pattern_id: getField('shiftPatternId'),
-
-    assigned_authoriser: noAuthoriser ? '' : getField('assignedAuthoriserId'),
-    no_authoriser_required: noAuthoriser,
-
-    title: getField('title'),
-    pronouns: getField('pronouns'),
-    gender: getField('gender'),
-    dob: getField('dob'),
-    nationality: getField('nationality'),
-    ni_number: getField('niNumber'),
-    passport_number: getField('passportNumber'),
-    passport_expiry_date: getField('passportExpiryDate'),
-    driving_licence_number: getField('drivingLicenceNumber'),
-
-    address_line1: getField('addressLine1'),
-    address_line2: getField('addressLine2'),
-    address_city: getField('addressCity'),
-    address_county: getField('addressCounty'),
-    address_postcode: getField('addressPostcode'),
-    address_country: getField('addressCountry'),
-
-    emergency_contact_name1: getField('emergencyContactName1'),
-    emergency_contact_relationship1: getField('emergencyContactRelationship1'),
-    emergency_contact_email1: getField('emergencyContactEmail1'),
-    emergency_contact_phone1: getField('emergencyContactPhone1'),
-
-    emergency_contact_name2: getField('emergencyContactName2'),
-    emergency_contact_relationship2: getField('emergencyContactRelationship2'),
-    emergency_contact_email2: getField('emergencyContactEmail2'),
-    emergency_contact_phone2: getField('emergencyContactPhone2'),
-
-    onboarding_status: getField('onboardingStatus') || existingEmployee?.onboarding_status || 'in_progress',
-    onboarding_token: existingEmployee?.onboarding_token || generateToken(),
-    onboarding_expires_at: existingEmployee?.onboarding_expires_at || expiresIn12Hours()
+    annualToday,
+    sickToday,
+    otherToday,
+    annualNext7,
+    sickNext7,
+    otherNext7,
+    birthdaysNext7,
+    workAnniversariesNext7,
+    startersNext7,
+    leaveStartingNext7
   };
 }
 
-function fillEmployeeForm(employee = null) {
-  savedEmployee = employee;
+/* =========================================================
+   NOTIFICATIONS
+========================================================= */
 
-  const isEditing = !!employee;
-  setEmployeeModalMode(isEditing);
-
-  setText('employeeModalTitle', employee ? 'Edit Employee' : 'Add Employee');
-  setText(
-    'employeeModalSubtitle',
-    employee
-      ? 'Edit all work and personal employee details.'
-      : 'Add the basic work details. The employee completes personal details during onboarding.'
-  );
-
-  setField('employeeId', employee?.id || '');
-  setField('employeeCode', employee?.employee_code || generateEmployeeCode());
-  setField('fullName', employee?.full_name || '');
-  setField('jobTitle', employee?.job_title || '');
-  setField('workEmail', employee?.work_email || '');
-  setField('personalEmail', employee?.personal_email || '');
-  setField('personalPhone', employee?.personal_phone || '');
-
-  syncEmploymentTypeInputs(employee?.employment_type || 'Full Time');
-
-  setField('noticePeriod', employee?.notice_period || '');
-  setField('startDate', employee?.start_date || '');
-  setField('role', employee?.role || 'employee');
-  setField('isAdmin', String(employee?.is_admin || false));
-  setField('employmentStatus', employee?.employment_status || 'active');
-  setField('annualLeaveAllowance', employee?.annual_leave_allowance || 23);
-  setField('includeBankHolidays', String(employee?.include_bank_holidays ?? true));
-
-  const overrideCheckbox = document.getElementById('overrideAllowanceCalculation');
-  if (overrideCheckbox) {
-    overrideCheckbox.checked = employee?.override_allowance_calculation === true;
-  }
-  setField('overrideAllowanceThisYear', employee?.override_allowance_this_year ?? '');
-
-  setField('title', employee?.title || '');
-  setField('pronouns', employee?.pronouns || '');
-  setField('gender', employee?.gender || '');
-  setField('dob', employee?.dob || '');
-  setField('nationality', employee?.nationality || '');
-  setField('niNumber', employee?.ni_number || '');
-  setField('passportNumber', employee?.passport_number || '');
-  setField('passportExpiryDate', employee?.passport_expiry_date || '');
-  setField('drivingLicenceNumber', employee?.driving_licence_number || '');
-
-  setField('addressLine1', employee?.address_line1 || '');
-  setField('addressLine2', employee?.address_line2 || '');
-  setField('addressCity', employee?.address_city || '');
-  setField('addressCounty', employee?.address_county || '');
-  setField('addressPostcode', employee?.address_postcode || '');
-  setField('addressCountry', employee?.address_country || 'United Kingdom');
-
-  setField('emergencyContactName1', employee?.emergency_contact_name1 || '');
-  setField('emergencyContactRelationship1', employee?.emergency_contact_relationship1 || '');
-  setField('emergencyContactEmail1', employee?.emergency_contact_email1 || '');
-  setField('emergencyContactPhone1', employee?.emergency_contact_phone1 || '');
-
-  setField('emergencyContactName2', employee?.emergency_contact_name2 || '');
-  setField('emergencyContactRelationship2', employee?.emergency_contact_relationship2 || '');
-  setField('emergencyContactEmail2', employee?.emergency_contact_email2 || '');
-  setField('emergencyContactPhone2', employee?.emergency_contact_phone2 || '');
-
-  setField('onboardingStatus', employee?.onboarding_status || 'in_progress');
-  setField('onboardingExpiresAt', employee?.onboarding_expires_at ? employee.onboarding_expires_at.slice(0, 16) : '');
-
-  const authEmployee = employees.find((item) => item.id === employee?.assigned_authoriser);
-  setAuthoriser(authEmployee || null);
-
-  const noAuthoriserCheckbox = document.getElementById('noAuthoriserRequired');
-  if (noAuthoriserCheckbox) noAuthoriserCheckbox.checked = employee?.no_authoriser_required === true;
-
-  setShiftPattern(employee?.shift_pattern_id || '');
-  updateOverrideAllowanceUi();
-  updateOwnerAuthoriserUi();
-  updateStartDateAllowanceHint();
-}
-
-function valueOrDash(value) {
-  if (value === null || value === undefined || value === '') return '—';
-  return value;
-}
-
-function detailTile(label, value) {
-  return `
-    <div class="detail-tile">
-      <span class="detail-label">${label}</span>
-      <div class="detail-value">${valueOrDash(value)}</div>
-    </div>
-  `;
-}
-
-function renderDetailGroup(containerId, rows) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-
-  container.innerHTML = rows.map((row) => detailTile(row.label, row.value)).join('');
-}
-
-function renderViewEmployeeDetails(employee) {
-  renderDetailGroup('viewWorkDetails', [
-    { label: 'Employee Code', value: employee.employee_code },
-    { label: 'Full Name', value: employee.full_name },
-    { label: 'Job Title', value: employee.job_title },
-    { label: 'Work Email', value: employee.work_email },
-    { label: 'Personal Email', value: employee.personal_email },
-    { label: 'Personal Phone', value: employee.personal_phone },
-    { label: 'Employment Type', value: employee.employment_type },
-    { label: 'Notice Period', value: employee.notice_period },
-    { label: 'Start Date', value: employee.start_date ? formatDate(employee.start_date) : '—' },
-    { label: 'Role', value: employee.role },
-    { label: 'Employment Status', value: employee.employment_status },
-    { label: 'Authoriser Required', value: employee.no_authoriser_required ? 'No' : 'Yes' },
-    { label: 'Executive Override', value: employee.override_allowance_calculation ? 'Yes' : 'No' },
-    { label: 'Override Allowance This Year', value: employee.override_allowance_this_year }
-  ]);
-
-  renderDetailGroup('viewPersonalDetails', [
-    { label: 'Title', value: employee.title },
-    { label: 'Pronouns', value: employee.pronouns },
-    { label: 'Date of Birth', value: employee.dob ? formatDate(employee.dob) : '—' },
-    { label: 'National Insurance Number', value: employee.ni_number }
-  ]);
-
-  renderDetailGroup('viewAddressDetails', [
-    { label: 'Address Line 1', value: employee.address_line1 },
-    { label: 'Address Line 2', value: employee.address_line2 },
-    { label: 'City', value: employee.address_city },
-    { label: 'County', value: employee.address_county },
-    { label: 'Postcode', value: employee.address_postcode },
-    { label: 'Country', value: employee.address_country }
-  ]);
-
-  renderDetailGroup('viewEmergencyContact1', [
-    { label: 'Name', value: employee.emergency_contact_name1 },
-    { label: 'Relationship', value: employee.emergency_contact_relationship1 },
-    { label: 'Email', value: employee.emergency_contact_email1 },
-    { label: 'Phone', value: employee.emergency_contact_phone1 }
-  ]);
-
-  renderDetailGroup('viewEmergencyContact2', [
-    { label: 'Name', value: employee.emergency_contact_name2 },
-    { label: 'Relationship', value: employee.emergency_contact_relationship2 },
-    { label: 'Email', value: employee.emergency_contact_email2 },
-    { label: 'Phone', value: employee.emergency_contact_phone2 }
-  ]);
-}
-
-function calculateYearStats(employee, leave, year, balance) {
-  const yearLeave = leave.filter((item) => {
-    const itemYear = new Date(item.start_date).getFullYear();
-    return itemYear === Number(year);
+export async function sendLeaveRequestNotification(payload) {
+  const response = await fetch('/api/send-leave-request-notification', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
   });
 
-  const fallbackAllowance = Number(employee.override_allowance_this_year || employee.annual_leave_allowance || 0);
-
-  const fallbackUsed = yearLeave
-    .filter((item) =>
-      item.status === 'approved' &&
-      item.deduct_allowance !== false &&
-      ['annual', 'other'].includes(item.leave_type)
-    )
-    .reduce((sum, item) => sum + Number(item.total_days || 0), 0);
-
-  const allowance = Number(balance?.total_allowance ?? fallbackAllowance);
-  const used = Number(balance?.used_days ?? fallbackUsed);
-  const remaining = Number(balance?.remaining_days ?? Math.max(0, allowance - used));
-
-  return { allowance, used, remaining, yearLeave };
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) console.warn('Leave notification failed:', result);
+  return result;
 }
 
-function renderViewLeaveList(items) {
-  const list = document.getElementById('viewLeaveList');
-  if (!list) return;
-
-  if (!items.length) {
-    renderEmptyState(list, 'No leave records found for this year.');
-    return;
-  }
-
-  list.innerHTML = items.map((item) => `
-    <article class="leave-card">
-      <div class="leave-card-top">
-        <div>
-          <p class="leave-card-title">${leaveTypeLabel(item.leave_type)} • ${item.status}</p>
-          <p class="leave-card-subtitle">${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days || 0} day(s)</p>
-        </div>
-      </div>
-
-      <div class="leave-card-bottom stacked-bottom">
-        <p class="leave-card-subtitle"><strong>Reason:</strong> ${item.reason || 'No reason provided'}</p>
-        <p class="leave-card-subtitle"><strong>Notes:</strong> ${item.notes || 'No notes added'}</p>
-      </div>
-    </article>
-  `).join('');
-}
-
-async function updateViewYear() {
-  if (!viewedEmployee) return;
-
-  const year = Number(document.getElementById('viewLeaveYear')?.value || new Date().getFullYear());
-  const balance = await getEmployeeLeaveBalanceByYear(viewedEmployee.user_id, year).catch(() => null);
-  const stats = calculateYearStats(viewedEmployee, viewedLeave, year, balance);
-
-  setText('viewAnnualAllowance', stats.allowance);
-  setText('viewAnnualUsed', stats.used);
-  setText('viewAnnualRemaining', stats.remaining);
-
-  renderViewLeaveList(stats.yearLeave);
-}
-
-function buildYearDropdown(leave) {
-  const yearSelect = document.getElementById('viewLeaveYear');
-  if (!yearSelect) return;
-
-  const currentYear = new Date().getFullYear();
-  const years = new Set([currentYear]);
-
-  leave.forEach((item) => {
-    if (item.start_date) years.add(new Date(item.start_date).getFullYear());
+export async function sendLeaveCancelNotification(payload) {
+  const response = await fetch('/api/send-leave-cancel-notification', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
   });
 
-  yearSelect.innerHTML = [...years]
-    .sort((a, b) => b - a)
-    .map((year) => `<option value="${year}">${year}</option>`)
-    .join('');
-
-  yearSelect.value = String(currentYear);
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) console.warn('Cancel notification failed:', result);
+  return result;
 }
 
-async function openViewEmployee(employee) {
-  viewedEmployee = employee;
-  viewedLeave = await getEmployeeAllLeave(employee.id);
-
-  setText('viewEmployeeTitle', employee.full_name || 'Employee');
-  setText('viewEmployeeSubtitle', `${employee.employee_code || '—'} • ${employee.job_title || '—'}`);
-  setText('viewFirstLogin', formatDateTime(employee.first_login_at));
-
-  renderViewEmployeeDetails(employee);
-  buildYearDropdown(viewedLeave);
-  await updateViewYear();
-
-  openModal('employeeViewModal');
-}
-
-function exportWorkbook(employee, leaveRecords, selectedOnly = false) {
-  if (!window.XLSX) {
-    alert('Excel export library has not loaded.');
-    return;
-  }
-
-  const year = Number(document.getElementById('viewLeaveYear')?.value || new Date().getFullYear());
-
-  const leaveToExport = selectedOnly
-    ? leaveRecords.filter((item) => new Date(item.start_date).getFullYear() === year)
-    : leaveRecords;
-
-  const detailRows = Object.entries(employee || {}).map(([key, value]) => ({
-    Field: key.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
-    Value: value ?? ''
-  }));
-
-  const leaveRows = leaveToExport.map((item) => ({
-    Type: leaveTypeLabel(item.leave_type),
-    Status: item.status || '',
-    'Start Date': item.start_date || '',
-    'End Date': item.end_date || '',
-    'Total Days': item.total_days || 0,
-    'Deduct Allowance': item.deduct_allowance === false ? 'No' : 'Yes',
-    Reason: item.reason || '',
-    Notes: item.notes || '',
-    'Approved At': item.approved_at || '',
-    'Cancelled At': item.cancelled_at || '',
-    'Cancellation Reason': item.cancellation_reason || '',
-    'Created At': item.created_at || ''
-  }));
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailRows), 'Employee Details');
-  XLSX.utils.book_append_sheet(
-    wb,
-    XLSX.utils.json_to_sheet(leaveRows.length ? leaveRows : [{ Message: 'No leave records found.' }]),
-    selectedOnly ? `Leave ${year}` : 'All Leave'
-  );
-
-  XLSX.writeFile(
-    wb,
-    `${cleanFileName(employee.full_name || employee.employee_code)}-${selectedOnly ? year : 'all'}-leave-report.xlsx`
-  );
-}
-
-function renderShiftPatterns() {
-  const list = document.getElementById('shiftPatternList');
-  if (!list) return;
-
-  if (!shiftPatterns.length) {
-    renderEmptyState(list, 'No shift patterns yet. Create one below.');
-    return;
-  }
-
-  list.innerHTML = shiftPatterns.map((pattern) => `
-    <article class="leave-card">
-      <div class="leave-card-top">
-        <div>
-          <p class="leave-card-title">${pattern.name}</p>
-          <p class="leave-card-subtitle">${pattern.weekly_hours || '—'} hours/week</p>
-        </div>
-        <button class="btn btn-primary" data-select-shift="${pattern.id}" type="button">Select</button>
-      </div>
-    </article>
-  `).join('');
-}
-
-function renderEmployees() {
-  const list = document.getElementById('employeesList');
-  const search = document.getElementById('employeeSearch')?.value?.toLowerCase() || '';
-  const status = document.getElementById('statusFilter')?.dataset.value || 'active';
-
-  let filtered = [...employees];
-
-  if (status !== 'all') {
-    filtered = filtered.filter((employee) => employee.employment_status === status);
-  }
-
-  if (search) {
-    filtered = filtered.filter((employee) =>
-      JSON.stringify(employee).toLowerCase().includes(search)
-    );
-  }
-
-  setText('employeeCount', `${filtered.length} employee${filtered.length === 1 ? '' : 's'} shown`);
-
-  if (!filtered.length) {
-    renderEmptyState(list, 'No employees found.');
-    return;
-  }
-
-  list.innerHTML = filtered.map((employee) => {
-    const shift = shiftPatterns.find((pattern) => pattern.id === employee.shift_pattern_id);
-    const auth = employees.find((item) => item.id === employee.assigned_authoriser);
-
-    return `
-      <article class="leave-card">
-        <div class="leave-card-top">
-          <div>
-            <p class="leave-card-title">${employee.full_name || 'Employee'}</p>
-            <p class="leave-card-subtitle">
-              ${employee.employee_code || '—'} • ${employee.job_title || '—'} • ${employee.work_email || 'No work email'}
-            </p>
-            <p class="leave-card-subtitle">
-              ${employee.employment_status || 'active'} • ${employee.role || 'employee'} • Shift: ${shift?.name || 'Not configured'} • Authoriser: ${
-                employee.no_authoriser_required ? 'Not required' : (auth?.full_name || 'Not set')
-              }
-            </p>
-            <p class="leave-card-subtitle">
-              First login: ${employee.first_login_at ? formatDateTime(employee.first_login_at) : 'Not logged in yet'}
-            </p>
-          </div>
-
-          <div class="inline-actions">
-            <button class="btn btn-secondary" data-action="view" data-id="${employee.id}" type="button">View</button>
-            <button class="btn btn-secondary" data-action="edit" data-id="${employee.id}" type="button">Edit</button>
-            <button class="btn btn-primary" data-action="invite" data-id="${employee.id}" type="button">Send Invite</button>
-            ${
-              employee.employment_status === 'archived'
-                ? `<button class="btn btn-primary" data-action="restore" data-id="${employee.id}" type="button">Restore</button>`
-                : `<button class="btn btn-danger" data-action="archive" data-id="${employee.id}" type="button">Archive</button>`
-            }
-            <button class="btn btn-danger" data-action="delete" data-id="${employee.id}" type="button">Delete</button>
-          </div>
-        </div>
-      </article>
-    `;
-  }).join('');
-}
-
-async function loadEmployees() {
-  employees = await getEmployeesByCompany(profile.company_id);
-  renderEmployees();
-}
-
-async function loadShiftPatterns() {
-  shiftPatterns = await getShiftPatterns(profile.company_id);
-  renderShiftPatterns();
-}
-
-async function sendInvite(toType) {
-  if (!savedEmployee) return;
-
-  const toEmail = toType === 'personal' ? savedEmployee.personal_email : savedEmployee.work_email;
-
-  if (!toEmail) {
-    showMessage('inviteMessage', 'That email address is missing.', 'error');
-    return;
-  }
-
-  const onboardingUrl =
-    `${window.location.origin}/holidaymanagement/onboarding.html?token=${encodeURIComponent(savedEmployee.onboarding_token)}`;
-
-  try {
-    showMessage('inviteMessage', 'Sending invitation...', 'info');
-
-    await sendEmployeeInvite({
-      to: toEmail,
-      employee_name: savedEmployee.full_name,
-      onboarding_url: onboardingUrl,
-      expires_at: savedEmployee.onboarding_expires_at
+export async function getLeaveAuthoriserNotificationInfo(employeeId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('get_leave_authoriser_notification_info', {
+      p_employee_id: employeeId
     });
 
-    showMessage('inviteMessage', `Invitation sent to ${toEmail}.`, 'success');
+  if (error) throw error;
+  return data?.[0] || null;
+}
+
+export async function sendLeaveDecisionNotification(payload) {
+  const response = await fetch('/api/send-leave-decision-notification', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) console.warn('Leave decision notification failed:', result);
+  return result;
+}
+
+export async function sendSupportLeaveApprovedEmail(payload) {
+  const response = await fetch('/api/send-support-leave-approved-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) console.warn('Support approval email failed:', result);
+  return result;
+}
+
+/* =========================================================
+   CREATE REQUESTS
+========================================================= */
+
+export async function calculateEmployeeLeaveDays(payload) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('calculate_employee_leave_days', {
+      p_employee_id: payload.employee_id,
+      p_company_id: payload.company_id,
+      p_start_date: payload.start_date,
+      p_end_date: payload.end_date,
+      p_leave_type: payload.leave_type || 'annual',
+      p_day_type: payload.day_type || 'full'
+    });
+
+  if (error) throw error;
+  return Number(data || 0);
+}
+
+export async function createLeaveRequest(payload) {
+  const employee = await getEmployeeByUserId(payload.user_id);
+
+  const isOwnerAutoApprove =
+    employee?.role === 'owner' &&
+    employee?.no_authoriser_required === true;
+
+  let totalDays = Number(payload.total_days || 0);
+
+  try {
+    totalDays = await calculateEmployeeLeaveDays({
+      employee_id: payload.employee_id || employee?.id || null,
+      company_id: payload.company_id,
+      start_date: payload.start_date,
+      end_date: payload.end_date,
+      leave_type: payload.leave_type,
+      day_type: payload.day_type || 'full'
+    });
   } catch (error) {
-    showMessage('inviteMessage', error.message || 'Invitation failed.', 'error');
+    console.warn('Server day calculation failed, using submitted total:', error);
   }
+
+  const insertPayload = {
+    ...payload,
+    employee_id: payload.employee_id || employee?.id || null,
+    day_type: payload.day_type || 'full',
+    total_days: totalDays,
+    status: isOwnerAutoApprove ? 'approved' : 'pending',
+    approved_at: isOwnerAutoApprove ? new Date().toISOString() : null,
+    approved_by: isOwnerAutoApprove ? payload.user_id : null,
+    deduct_allowance: payload.leave_type !== 'sick'
+  };
+
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .insert([insertPayload])
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw new Error('Leave request was inserted, but no row was returned.');
+
+  await supabase.schema(leaveSchema).from('leave_logs').insert([{
+    leave_request_id: data.id,
+    action: isOwnerAutoApprove ? 'approved' : 'created',
+    performed_by: payload.user_id,
+    details: insertPayload
+  }]);
+
+  if (!isOwnerAutoApprove && insertPayload.employee_id) {
+    try {
+      const notifyInfo = await getLeaveAuthoriserNotificationInfo(insertPayload.employee_id);
+
+      if (notifyInfo?.authoriser_email) {
+        await sendLeaveRequestNotification({
+          to: notifyInfo.authoriser_email,
+          authoriser_name: notifyInfo.authoriser_name,
+          employee_name: notifyInfo.employee_name,
+          leave_type: payload.leave_type,
+          day_type: insertPayload.day_type,
+          start_date: payload.start_date,
+          end_date: payload.end_date,
+          total_days: totalDays,
+          manage_url: `${window.location.origin}/holidaymanagement/admin.html?request=${data.id}`
+        });
+      }
+    } catch (notificationError) {
+      console.warn('Leave notification failed:', notificationError);
+    }
+  }
+
+  return data;
 }
 
-async function init() {
-  const auth = await requireAdminPageAccess();
-  if (!auth) return;
+export async function createManualAbsence(payload, authorisingUserId) {
+  let totalDays = Number(payload.total_days || 0);
 
-  profile = auth.profile;
-  companyInfo = await getMyCompanyInfo();
-
-  const roleSelect = document.getElementById('role');
-  if (profile.role !== 'owner') {
-    roleSelect?.querySelector('option[value="owner"]')?.remove();
+  try {
+    totalDays = await calculateEmployeeLeaveDays({
+      employee_id: payload.employee.id,
+      company_id: payload.company_id,
+      start_date: payload.start_date,
+      end_date: payload.end_date,
+      leave_type: payload.leave_type,
+      day_type: payload.day_type || 'full'
+    });
+  } catch (error) {
+    console.warn('Server day calculation failed, using submitted total:', error);
   }
 
-  setupCustomSelects();
+  const insertPayload = {
+    user_id: payload.employee.user_id || null,
+    employee_id: payload.employee.id,
+    company_id: payload.company_id,
+    leave_type: payload.leave_type,
+    day_type: payload.day_type || 'full',
+    start_date: payload.start_date,
+    end_date: payload.end_date,
+    total_days: totalDays,
+    status: 'approved',
+    reason: payload.reason || null,
+    notes: `Manually added by admin.${payload.authorising_name ? ` Authorising user: ${payload.authorising_name}.` : ''}`,
+    approved_by: authorisingUserId,
+    approved_at: new Date().toISOString(),
+    deduct_allowance: payload.deduct_allowance
+  };
 
-  document.getElementById('logoutBtn')?.addEventListener('click', async () => {
-    await signOut();
-    window.location.href = './login.html';
-  });
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .insert([insertPayload])
+    .select('*')
+    .maybeSingle();
 
-  document.querySelectorAll('[data-close-modal]').forEach((button) => {
-    button.addEventListener('click', () => closeModal(button.dataset.closeModal));
-  });
+  if (error) throw error;
+  if (!data) throw new Error('Manual absence could not be saved.');
 
-  document.getElementById('startDate')?.addEventListener('change', updateStartDateAllowanceHint);
-  document.getElementById('annualLeaveAllowance')?.addEventListener('input', updateStartDateAllowanceHint);
-  document.getElementById('overrideAllowanceCalculation')?.addEventListener('change', updateOverrideAllowanceUi);
-  document.getElementById('overrideAllowanceThisYear')?.addEventListener('input', updateStartDateAllowanceHint);
-
-  document.getElementById('employmentTypeSelect')?.addEventListener('change', updateEmploymentTypeFromUi);
-  document.getElementById('employmentTypeOther')?.addEventListener('input', updateEmploymentTypeFromUi);
-  document.getElementById('role')?.addEventListener('change', updateOwnerAuthoriserUi);
-  document.getElementById('noAuthoriserRequired')?.addEventListener('change', updateOwnerAuthoriserUi);
-
-  document.getElementById('viewLeaveYear')?.addEventListener('change', updateViewYear);
-
-  document.getElementById('viewLeaveRecordsBtn')?.addEventListener('click', () => {
-    if (!viewedEmployee) return;
-
-    const year = document.getElementById('viewLeaveYear')?.value || new Date().getFullYear();
-    setText('leaveRecordsTitle', `${viewedEmployee.full_name || 'Employee'} Leave Records`);
-    setText('leaveRecordsSubtitle', `Leave records for ${year}`);
-
-    openModal('employeeLeaveRecordsModal');
-  });
-
-  document.getElementById('viewExportYearBtn')?.addEventListener('click', () => {
-    if (viewedEmployee) exportWorkbook(viewedEmployee, viewedLeave, true);
-  });
-
-  document.getElementById('viewExportAllBtn')?.addEventListener('click', () => {
-    if (viewedEmployee) exportWorkbook(viewedEmployee, viewedLeave, false);
-  });
-
-  document.getElementById('authoriserSearch')?.addEventListener('input', () => {
-    const term = getField('authoriserSearch').toLowerCase();
-    const box = document.getElementById('authoriserResults');
-
-    if (!box) return;
-
-    if (term.length < 2) {
-      box.classList.add('hidden');
-      box.innerHTML = '';
-      return;
+  await supabase.schema(leaveSchema).from('leave_logs').insert([{
+    leave_request_id: data.id,
+    action: 'approved',
+    performed_by: authorisingUserId,
+    details: {
+      manual_absence: true,
+      leave_type: payload.leave_type,
+      day_type: payload.day_type || 'full',
+      employee_id: payload.employee.id,
+      reason: payload.reason || null,
+      deduct_allowance: payload.deduct_allowance
     }
+  }]);
 
-    const results = employees
-      .filter((employee) =>
-        employee.full_name?.toLowerCase().includes(term) ||
-        employee.employee_code?.toLowerCase().includes(term) ||
-        employee.work_email?.toLowerCase().includes(term)
-      )
-      .slice(0, 8);
+  return data;
+}
 
-    box.classList.remove('hidden');
-    box.innerHTML = results.length
-      ? results.map((employee) => `
-          <button type="button" class="search-result-item" data-authoriser-id="${employee.id}">
-            <strong>${employee.full_name || 'Employee'}</strong>
-            <span>${employee.employee_code || '—'} • ${employee.job_title || '—'}</span>
-          </button>
-        `).join('')
-      : `<div class="search-result-empty">No employees found.</div>`;
-  });
+/* =========================================================
+   APPROVE / REJECT / CANCEL / AMEND
+========================================================= */
 
-  document.getElementById('authoriserResults')?.addEventListener('click', (event) => {
-    const button = event.target.closest('button[data-authoriser-id]');
-    if (!button) return;
+export async function approveLeaveRequest(request, approverId, note = '', deductAllowance = true) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .update({
+      status: 'approved',
+      approved_by: approverId,
+      approved_at: new Date().toISOString(),
+      notes: note || request.notes || null,
+      deduct_allowance: deductAllowance
+    })
+    .eq('id', request.id)
+    .select('*')
+    .maybeSingle();
 
-    const employee = employees.find((item) => item.id === button.dataset.authoriserId);
-    setAuthoriser(employee);
-    document.getElementById('authoriserResults')?.classList.add('hidden');
-    setField('authoriserSearch', '');
-  });
+  if (error) throw error;
+  if (!data) throw new Error('The request could not be approved.');
 
-  document.getElementById('addEmployeeBtn')?.addEventListener('click', () => {
-    fillEmployeeForm(null);
-    openModal('employeeModal');
-  });
+  await supabase.schema(leaveSchema).from('leave_logs').insert([{
+    leave_request_id: request.id,
+    action: 'approved',
+    performed_by: approverId,
+    details: { note, deduct_allowance: deductAllowance }
+  }]);
 
-  document.getElementById('exportEmployeeBtn')?.addEventListener('click', async () => {
-    if (!savedEmployee?.id) return;
-    const leave = await getEmployeeAllLeave(savedEmployee.id);
-    exportWorkbook(savedEmployee, leave, false);
-  });
+  try {
+    await sendLeaveDecisionNotification({
+      status: 'approved',
+      to: request.employee_email || request.personal_email || request.work_email,
+      employee_name: request.employee_name || 'Employee',
+      leave_type: leaveTypeLabel(request.leave_type),
+      day_type: dayTypeLabel(request.day_type),
+      start_date: request.start_date,
+      end_date: request.end_date,
+      total_days: request.total_days,
+      note
+    });
+  } catch (notificationError) {
+    console.warn('Approval notification failed:', notificationError);
+  }
 
-  document.getElementById('openShiftPatternPickerBtn')?.addEventListener('click', () => {
-    renderShiftPatterns();
-    openModal('shiftPatternModal');
-  });
+  return true;
+}
 
-  document.getElementById('employeeSearch')?.addEventListener('input', renderEmployees);
+export async function rejectLeaveRequest(request, approverId, note = '') {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .update({
+      status: 'rejected',
+      approved_by: approverId,
+      approved_at: new Date().toISOString(),
+      notes: note || request.notes || null
+    })
+    .eq('id', request.id)
+    .select('id')
+    .maybeSingle();
 
-  document.getElementById('shiftPatternList')?.addEventListener('click', (event) => {
-    const button = event.target.closest('button[data-select-shift]');
-    if (!button) return;
+  if (error) throw error;
+  if (!data) throw new Error('The request could not be rejected.');
 
-    setShiftPattern(button.dataset.selectShift);
-    closeModal('shiftPatternModal');
-  });
+  await supabase.schema(leaveSchema).from('leave_logs').insert([{
+    leave_request_id: request.id,
+    action: 'rejected',
+    performed_by: approverId,
+    details: { note }
+  }]);
 
-  document.getElementById('employeesList')?.addEventListener('click', async (event) => {
-    const button = event.target.closest('button[data-action]');
-    if (!button) return;
+  try {
+    await sendLeaveDecisionNotification({
+      status: 'rejected',
+      to: request.employee_email || request.personal_email || request.work_email,
+      employee_name: request.employee_name || 'Employee',
+      leave_type: leaveTypeLabel(request.leave_type),
+      day_type: dayTypeLabel(request.day_type),
+      start_date: request.start_date,
+      end_date: request.end_date,
+      total_days: request.total_days,
+      note
+    });
+  } catch (notificationError) {
+    console.warn('Rejection notification failed:', notificationError);
+  }
 
-    const employee = employees.find((item) => item.id === button.dataset.id);
-    if (!employee) return;
+  return true;
+}
 
-    if (button.dataset.action === 'view') {
-      await openViewEmployee(employee);
-    }
+export async function requestLeaveCancellation(request, userId, reason) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .update({
+      status: 'cancel_requested',
+      cancellation_requested_at: new Date().toISOString(),
+      cancellation_requested_by: userId,
+      cancellation_reason: reason || null
+    })
+    .eq('id', request.id)
+    .select()
+    .maybeSingle();
 
-    if (button.dataset.action === 'edit') {
-      fillEmployeeForm(employee);
-      openModal('employeeModal');
-    }
+  if (error) throw error;
+  if (!data) throw new Error('Cancellation request could not be submitted.');
 
-    if (button.dataset.action === 'invite') {
-      savedEmployee = employee;
-      setText(
-        'inviteSummary',
-        `${employee.full_name} • ${employee.personal_email || 'No personal email'} • ${employee.work_email || 'No work email'}`
-      );
-      openModal('inviteModal');
-    }
+  try {
+    const notifyInfo = await getLeaveAuthoriserNotificationInfo(request.employee_id);
 
-    if (button.dataset.action === 'archive') {
-      await archiveEmployee(employee);
-      await loadEmployees();
-    }
-
-    if (button.dataset.action === 'restore') {
-      await restoreEmployee(employee);
-      await loadEmployees();
-    }
-
-    if (button.dataset.action === 'delete') {
-      if (!confirm(`Permanently delete ${employee.full_name || 'this employee'}?`)) return;
-      if (!confirm('This will also try to delete their login. This cannot be undone. Continue?')) return;
-
-      await deleteEmployeePermanent(employee.id);
-      await loadEmployees();
-    }
-  });
-
-  document.getElementById('employeeForm')?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-
-    try {
-      const payload = getEmployeePayload();
-
-      if (!payload.full_name || !payload.work_email || !payload.personal_email) {
-        showMessage('employeeMessage', 'Full name, work email and personal email are required.', 'error');
-        return;
-      }
-
-      if (!payload.shift_pattern_id) {
-        showMessage('employeeMessage', 'Please select or configure a shift pattern before saving.', 'error');
-        return;
-      }
-
-      if (!payload.no_authoriser_required && !payload.assigned_authoriser) {
-        showMessage('employeeMessage', 'Please select an authorising user.', 'error');
-        return;
-      }
-
-      if (payload.override_allowance_calculation && payload.override_allowance_this_year === null) {
-        showMessage('employeeMessage', 'Please enter the override allowance for this year.', 'error');
-        return;
-      }
-
-      const employeeId = await upsertEmployee(payload);
-      await loadEmployees();
-
-      savedEmployee =
-        employees.find((employee) => employee.id === employeeId) ||
-        employees.find((employee) => employee.employee_code === payload.employee_code);
-
-      closeModal('employeeModal');
-
-      if (savedEmployee?.onboarding_status !== 'complete') {
-        setText('inviteSummary', `${savedEmployee.full_name} • ${savedEmployee.personal_email} • ${savedEmployee.work_email}`);
-        openModal('inviteModal');
-      }
-    } catch (error) {
-      showMessage('employeeMessage', error.message || 'Unable to save employee.', 'error');
-    }
-  });
-
-  document.getElementById('shiftPatternForm')?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-
-    try {
-      const pattern = await createShiftPattern({
-        company_id: profile.company_id,
-        name: getField('shiftName'),
-
-        monday: document.getElementById('shiftMonday').checked,
-        tuesday: document.getElementById('shiftTuesday').checked,
-        wednesday: document.getElementById('shiftWednesday').checked,
-        thursday: document.getElementById('shiftThursday').checked,
-        friday: document.getElementById('shiftFriday').checked,
-        saturday: document.getElementById('shiftSaturday').checked,
-        sunday: document.getElementById('shiftSunday').checked,
-
-        start_time: getField('mondayStartTime'),
-        end_time: getField('mondayEndTime'),
-
-        monday_start_time: getField('mondayStartTime'),
-        monday_end_time: getField('mondayEndTime'),
-        tuesday_start_time: getField('tuesdayStartTime'),
-        tuesday_end_time: getField('tuesdayEndTime'),
-        wednesday_start_time: getField('wednesdayStartTime'),
-        wednesday_end_time: getField('wednesdayEndTime'),
-        thursday_start_time: getField('thursdayStartTime'),
-        thursday_end_time: getField('thursdayEndTime'),
-        friday_start_time: getField('fridayStartTime'),
-        friday_end_time: getField('fridayEndTime'),
-        saturday_start_time: getField('saturdayStartTime'),
-        saturday_end_time: getField('saturdayEndTime'),
-        sunday_start_time: getField('sundayStartTime'),
-        sunday_end_time: getField('sundayEndTime'),
-
-        weekly_hours: Number(getField('shiftWeeklyHours') || 0),
-        annual_allowance_days: 23
+    if (notifyInfo?.authoriser_email) {
+      await sendLeaveCancelNotification({
+        to: notifyInfo.authoriser_email,
+        type: 'employee_requested_cancel',
+        employee_name: notifyInfo.employee_name || request.employee_name || 'Employee',
+        leave_type: request.leave_type,
+        day_type: request.day_type || 'full',
+        start_date: request.start_date,
+        end_date: request.end_date,
+        reason,
+        manage_url: `${window.location.origin}/holidaymanagement/admin.html?request=${request.id}`
       });
-
-      await loadShiftPatterns();
-      setShiftPattern(pattern.id);
-      closeModal('shiftPatternModal');
-    } catch (error) {
-      showMessage('shiftPatternMessage', error.message || 'Unable to save shift pattern.', 'error');
     }
-  });
+  } catch (error) {
+    console.warn('Cancellation email failed:', error);
+  }
 
-  document.getElementById('sendPersonalInviteBtn')?.addEventListener('click', () => sendInvite('personal'));
-  document.getElementById('sendWorkInviteBtn')?.addEventListener('click', () => sendInvite('work'));
-
-  await loadShiftPatterns();
-  await loadEmployees();
-
-  revealApp();
+  return data;
 }
 
-init().catch((error) => {
-  console.error(error);
+export async function cancelLeaveRequestAdmin(request, adminId, reason = '') {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .update({
+      status: 'cancelled',
+      cancelled_at: new Date().toISOString(),
+      cancelled_by: adminId,
+      cancel_admin_reason: reason || null
+    })
+    .eq('id', request.id)
+    .select('*')
+    .maybeSingle();
 
-  const loader = document.getElementById('appLoader');
-  if (loader) {
-    loader.innerHTML = `
-      <div style="padding:24px;text-align:center;">
-        <h2>Employee Management failed to load</h2>
-        <p>${error.message || 'Unknown error'}</p>
-      </div>
-    `;
+  if (error) throw error;
+  if (!data) throw new Error('Leave could not be cancelled.');
+
+  await supabase.schema(leaveSchema).from('leave_logs').insert([{
+    leave_request_id: request.id,
+    action: 'cancelled',
+    performed_by: adminId,
+    details: { reason }
+  }]);
+
+  try {
+    if (request.employee_email || request.personal_email || request.work_email) {
+      await sendLeaveCancelNotification({
+        type: 'admin_cancelled',
+        to: request.employee_email || request.personal_email || request.work_email,
+        employee_name: request.employee_name || 'Employee',
+        leave_type: request.leave_type,
+        day_type: request.day_type || 'full',
+        start_date: request.start_date,
+        end_date: request.end_date,
+        reason
+      });
+    }
+  } catch (error) {
+    console.warn('Admin cancellation email failed:', error);
   }
-});
+
+  return data;
+}
+
+export async function amendLeaveRequestAdmin(request, adminId, payload) {
+  let totalDays = Number(payload.total_days || 0);
+
+  try {
+    totalDays = await calculateEmployeeLeaveDays({
+      employee_id: request.employee_id,
+      company_id: request.company_id,
+      start_date: payload.start_date,
+      end_date: payload.end_date,
+      leave_type: request.leave_type,
+      day_type: payload.day_type || request.day_type || 'full'
+    });
+  } catch (error) {
+    console.warn('Server day calculation failed, using submitted total:', error);
+  }
+
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .update({
+      start_date: payload.start_date,
+      end_date: payload.end_date,
+      day_type: payload.day_type || request.day_type || 'full',
+      total_days: totalDays,
+      amendment_reason: payload.reason || null,
+      amended_by: adminId,
+      amended_at: new Date().toISOString()
+    })
+    .eq('id', request.id)
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw new Error('Leave could not be amended.');
+
+  await supabase.schema(leaveSchema).from('leave_logs').insert([{
+    leave_request_id: request.id,
+    action: 'edited',
+    performed_by: adminId,
+    details: {
+      ...payload,
+      total_days: totalDays
+    }
+  }]);
+
+  return data;
+}
+
+/* =========================================================
+   EMPLOYEE LEAVE SUMMARY
+========================================================= */
+
+export async function getEmployeeLeaveSummary(request) {
+  const userId = request.user_id;
+  const employeeUuid = request.employee?.id || request.employee_id || null;
+  const year = new Date().getFullYear();
+
+  let balance = null;
+  if (userId) balance = await getMyLeaveBalance(userId, year);
+
+  let query = supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .select('*')
+    .eq('company_id', request.company_id)
+    .order('start_date', { ascending: false });
+
+  if (employeeUuid) {
+    query = query.eq('employee_id', employeeUuid);
+  } else if (userId) {
+    query = query.eq('user_id', userId);
+  } else {
+    return { balance, requests: [] };
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return {
+    balance,
+    requests: data || []
+  };
+}
+
+/* =========================================================
+   SICKNESS EPISODES
+========================================================= */
+
+export async function createSicknessEpisode(payload, adminId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('sickness_episodes')
+    .insert([{ ...payload, created_by: adminId }])
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function closeSicknessEpisode(id, endDate, adminId, notes = '') {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('sickness_episodes')
+    .update({
+      end_date: endDate,
+      status: 'closed',
+      closed_by: adminId,
+      closed_at: new Date().toISOString(),
+      notes
+    })
+    .eq('id', id)
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function getSicknessEpisodes(companyId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('sickness_episodes')
+    .select('*')
+    .eq('company_id', companyId)
+    .order('start_date', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/* =========================================================
+   HOLIDAYS
+========================================================= */
+
+export async function getBankHolidays(region = 'england') {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('bank_holidays')
+    .select('*')
+    .eq('region', region)
+    .order('holiday_date', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getCompanyHolidays(companyId) {
+  const bankHolidays = await getBankHolidays('england');
+
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('company_holidays')
+    .select('holiday_date, name')
+    .eq('company_id', companyId)
+    .order('holiday_date', { ascending: true });
+
+  if (error) return bankHolidays;
+
+  return [...bankHolidays, ...(data || [])];
+}
+
+export async function getAllHolidayDates(companyId) {
+  const bank = await getBankHolidays('england');
+
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('company_holidays')
+    .select('*')
+    .eq('company_id', companyId)
+    .order('holiday_date');
+
+  if (error) throw error;
+
+  return [
+    ...bank.map((item) => ({ ...item, type: 'bank' })),
+    ...(data || []).map((item) => ({ ...item, type: 'company' }))
+  ];
+}
+
+export async function addCompanyHoliday(payload) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('company_holidays')
+    .insert([payload])
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteCompanyHoliday(id) {
+  const { error } = await supabase
+    .schema(leaveSchema)
+    .from('company_holidays')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
+export async function updateCompanyHoliday(id, payload) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('company_holidays')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function updateBankHoliday(id, payload) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('bank_holidays')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+/* =========================================================
+   COMPANY / ONBOARDING / INVITES
+========================================================= */
+
+export async function getMyCompanyInfo() {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .rpc('get_my_company_info');
+
+  if (error) throw error;
+  return data?.[0] || null;
+}
+
+export async function sendEmployeeInvite(payload) {
+  const response = await fetch('/api/send-employee-invite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'Invitation could not be sent.');
+  return result;
+}
+
+export async function completeEmployeeOnboarding(payload) {
+  const response = await fetch('/api/complete-employee-onboarding', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'Onboarding could not be completed.');
+  return result;
+}
+
+export async function deleteEmployeePermanent(employeeId) {
+  const response = await fetch('/api/delete-employee-permanent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employee_id: employeeId })
+  });
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'Employee could not be deleted.');
+  return result;
+}
+
+/* =========================================================
+   EMPLOYEE REPORTS
+========================================================= */
+
+export async function getEmployeeAllLeave(employeeId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .order('start_date', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getEmployeeLeaveReport(employeeId) {
+  const { data, error } = await supabase
+    .schema(leaveSchema)
+    .from('leave_requests')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .order('start_date', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
