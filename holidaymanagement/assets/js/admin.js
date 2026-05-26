@@ -440,7 +440,7 @@ async function initAdmin() {
           (action === 'approve' || action === 'approve-cancel') &&
           isOwnRequest(request, authUserId)
         ) {
-          alert('Admins cannot approve their own leave. An owner or another admin must approve it.');
+          alert('Admins cannot approve their own leave. An owner must approve it, unless you are the owner.');
           selectedRequest = null;
           pendingAction = null;
           return;
@@ -555,7 +555,7 @@ async function initAdmin() {
         (pendingAction === 'approve' || pendingAction === 'approve-cancel') &&
         isOwnRequest(selectedRequest, authUserId)
       ) {
-        alert('Admins cannot approve their own leave. An owner or another admin must approve it.');
+        alert('Admins cannot approve their own leave. An owner must approve it, unless you are the owner.');
         closeModal('requestActionModal');
         selectedRequest = null;
         pendingAction = null;
