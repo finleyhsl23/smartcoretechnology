@@ -638,16 +638,32 @@ export async function createManualAbsence(payload, authorisingUserId) {
 ========================================================= */
 
 export async function approveLeaveRequest(request, approverId, note = '', deductAllowance = true) {
-  const { data, error } = await supabase
-    .schema(leaveSchema)
-    .from('leave_requests')
-    .update({
-      status: 'approved',
-      approved_by: approverId,
-      approved_at: new Date().toISOString(),
-      notes: note || request.notes || null,
-      deduct_allowance: deductAllowance
-    })
+  let totalDays = Number(request.total_days || 0);
+
+try {
+  totalDays = await calculateEmployeeLeaveDays({
+    employee_id: request.employee?.id || request.employee_id,
+    company_id: request.company_id,
+    start_date: request.start_date,
+    end_date: request.end_date,
+    leave_type: request.leave_type,
+    day_type: request.day_type || 'full'
+  });
+} catch (error) {
+  console.warn('Approval day recalculation failed, using existing total:', error);
+}
+
+const { data, error } = await supabase
+  .schema(leaveSchema)
+  .from('leave_requests')
+  .update({
+    status: 'approved',
+    approved_by: approverId,
+    approved_at: new Date().toISOString(),
+    notes: note || request.notes || null,
+    deduct_allowance: deductAllowance,
+    total_days: totalDays
+  })
     .eq('id', request.id)
     .select('*')
     .maybeSingle();
