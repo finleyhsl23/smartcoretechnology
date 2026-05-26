@@ -53,47 +53,32 @@ function roundToNearestHalf(value) {
 
 function calculateProratedAllowance(annualAllowance, startDate) {
   const allowance = Number(annualAllowance || 0);
-
   if (!allowance) return 0;
   if (!startDate) return allowance;
 
   const start = new Date(startDate);
-
-  if (Number.isNaN(start.getTime())) {
-    return allowance;
-  }
+  if (Number.isNaN(start.getTime())) return allowance;
 
   const currentYear = new Date().getFullYear();
 
-  // Joined before this year = full allowance
-  if (start.getFullYear() < currentYear) {
-    return allowance;
-  }
+  if (start.getFullYear() < currentYear) return allowance;
+  if (start.getFullYear() > currentYear) return allowance;
 
-  // Future join date = full allowance
-  if (start.getFullYear() > currentYear) {
-    return allowance;
-  }
-
-  // Only prorate if joining THIS year
   const endOfYear = new Date(currentYear, 11, 31);
-
   const msPerDay = 1000 * 60 * 60 * 24;
+  const daysRemaining = Math.ceil((endOfYear - start) / msPerDay) + 1;
 
-  const daysRemaining =
-    Math.ceil((endOfYear - start) / msPerDay) + 1;
-
-  return roundToNearestHalf(
-    (allowance / 365) * daysRemaining
-  );
+  return roundToNearestHalf((allowance / 365) * daysRemaining);
 }
 
-function updateOverrideAllowanceUi() {
+function updateOverrideAllowanceUi(clearWhenOff = true) {
   const enabled = document.getElementById('allowanceOverrideEnabled')?.checked === true;
-  const field = document.getElementById('allowanceOverrideRow');
+  const row = document.getElementById('allowanceOverrideRow');
 
-  if (field) {
-    field.classList.toggle('hidden', !enabled);
+  row?.classList.toggle('hidden', !enabled);
+
+  if (!enabled && clearWhenOff) {
+    setField('currentYearAllowanceOverride', '');
   }
 
   updateStartDateAllowanceHint();
@@ -104,7 +89,7 @@ function updateStartDateAllowanceHint() {
   if (!hint) return;
 
   const overrideEnabled = document.getElementById('allowanceOverrideEnabled')?.checked === true;
-  const overrideValue = document.getElementById('currentYearAllowanceOverride')?.value;
+  const overrideValue = getField('currentYearAllowanceOverride');
 
   if (overrideEnabled && overrideValue !== '') {
     hint.textContent = `Executive override active. This person will have ${overrideValue} days of annual leave allowance this year.`;
@@ -443,23 +428,15 @@ function fillEmployeeForm(employee = null) {
   setField('employmentStatus', employee?.employment_status || 'active');
   setField('annualLeaveAllowance', employee?.annual_leave_allowance || 23);
   setField('includeBankHolidays', String(employee?.include_bank_holidays ?? true));
-  
 
   const overrideEnabled = employee?.override_allowance_calculation === true;
+  const overrideCheckbox = document.getElementById('allowanceOverrideEnabled');
+  const overrideRow = document.getElementById('allowanceOverrideRow');
 
-const overrideCheckbox = document.getElementById('allowanceOverrideEnabled');
-const overrideRow = document.getElementById('allowanceOverrideRow');
-
-if (overrideCheckbox) {
-  overrideCheckbox.checked = overrideEnabled;
-}
-
-setField('currentYearAllowanceOverride', employee?.override_allowance_this_year || '');
-
-if (overrideRow) {
-  overrideRow.classList.toggle('hidden', !overrideEnabled);
-}
+  if (overrideCheckbox) overrideCheckbox.checked = overrideEnabled;
   setField('currentYearAllowanceOverride', employee?.override_allowance_this_year ?? '');
+
+  if (overrideRow) overrideRow.classList.toggle('hidden', !overrideEnabled);
 
   setField('title', employee?.title || '');
   setField('pronouns', employee?.pronouns || '');
@@ -498,7 +475,6 @@ if (overrideRow) {
   if (noAuthoriserCheckbox) noAuthoriserCheckbox.checked = employee?.no_authoriser_required === true;
 
   setShiftPattern(employee?.shift_pattern_id || '');
-  updateOverrideAllowanceUi();
   updateOwnerAuthoriserUi();
   updateStartDateAllowanceHint();
 }
@@ -581,8 +557,12 @@ function calculateYearStats(employee, leave, year, balance) {
 
   const currentYear = new Date().getFullYear();
   const normalAllowance = Number(employee.annual_leave_allowance || 0);
+
   const fallbackAllowance =
-    Number(year) === currentYear && employee.override_allowance_calculation === true && employee.override_allowance_this_year !== null && employee.override_allowance_this_year !== undefined
+    Number(year) === currentYear &&
+    employee.override_allowance_calculation === true &&
+    employee.override_allowance_this_year !== null &&
+    employee.override_allowance_this_year !== undefined
       ? Number(employee.override_allowance_this_year || 0)
       : Number(year) === currentYear
         ? calculateProratedAllowance(normalAllowance, employee.start_date)
@@ -658,13 +638,8 @@ function getFilteredViewLeaveRecords() {
     );
   }
 
-  if (type !== 'all') {
-    rows = rows.filter((item) => item.leave_type === type);
-  }
-
-  if (date) {
-    rows = rows.filter((item) => date >= item.start_date && date <= item.end_date);
-  }
+  if (type !== 'all') rows = rows.filter((item) => item.leave_type === type);
+  if (date) rows = rows.filter((item) => date >= item.start_date && date <= item.end_date);
 
   return rows;
 }
@@ -917,7 +892,7 @@ async function init() {
 
   document.getElementById('startDate')?.addEventListener('change', updateStartDateAllowanceHint);
   document.getElementById('annualLeaveAllowance')?.addEventListener('input', updateStartDateAllowanceHint);
-  document.getElementById('allowanceOverrideEnabled')?.addEventListener('change', updateOverrideAllowanceUi);
+  document.getElementById('allowanceOverrideEnabled')?.addEventListener('change', () => updateOverrideAllowanceUi(true));
   document.getElementById('currentYearAllowanceOverride')?.addEventListener('input', updateStartDateAllowanceHint);
 
   document.getElementById('employmentTypeSelect')?.addEventListener('change', updateEmploymentTypeFromUi);
@@ -930,15 +905,6 @@ async function init() {
   document.getElementById('leaveRecordType')?.addEventListener('change', applyViewLeaveFilters);
   document.getElementById('leaveRecordDate')?.addEventListener('change', applyViewLeaveFilters);
 
-  document.getElementById('allowanceOverrideEnabled')?.addEventListener('change', () => {
-  const enabled = document.getElementById('allowanceOverrideEnabled')?.checked === true;
-  document.getElementById('allowanceOverrideRow')?.classList.toggle('hidden', !enabled);
-
-  if (!enabled) {
-    setField('currentYearAllowanceOverride', '');
-  }
-});
-
   document.getElementById('viewLeaveRecordsBtn')?.addEventListener('click', () => {
     if (!viewedEmployee) return;
 
@@ -949,11 +915,12 @@ async function init() {
     const search = document.getElementById('leaveRecordSearch');
     const type = document.getElementById('leaveRecordType');
     const date = document.getElementById('leaveRecordDate');
+
     if (search) search.value = '';
     if (type) type.value = 'all';
     if (date) date.value = '';
-    applyViewLeaveFilters();
 
+    applyViewLeaveFilters();
     openModal('employeeLeaveRecordsModal');
   });
 
@@ -968,7 +935,6 @@ async function init() {
   document.getElementById('viewLeaveList')?.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-open-admin-request]');
     if (!button) return;
-
     window.location.href = `./admin.html?request=${encodeURIComponent(button.dataset.openAdminRequest)}`;
   });
 
@@ -1046,9 +1012,7 @@ async function init() {
     const employee = employees.find((item) => item.id === button.dataset.id);
     if (!employee) return;
 
-    if (button.dataset.action === 'view') {
-      await openViewEmployee(employee);
-    }
+    if (button.dataset.action === 'view') await openViewEmployee(employee);
 
     if (button.dataset.action === 'edit') {
       fillEmployeeForm(employee);
@@ -1110,6 +1074,7 @@ async function init() {
       }
 
       const selectedAuthoriser = employees.find((employee) => employee.id === payload.assigned_authoriser);
+
       if (payload.role === 'admin' && !payload.no_authoriser_required && selectedAuthoriser?.role !== 'owner') {
         showMessage('employeeMessage', 'Admin users must have an owner as their authorising user.', 'error');
         return;
