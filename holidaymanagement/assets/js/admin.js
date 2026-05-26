@@ -199,6 +199,7 @@ async function initAdmin() {
     let selectedEmployee = null;
 
     const adminLeaveList = document.getElementById('adminLeaveList');
+    const adminLeaveSearch = document.getElementById('adminLeaveSearch');
     const confirmRequestActionBtn = document.getElementById('confirmRequestActionBtn');
     const requestActionNote = document.getElementById('requestActionNote');
 
@@ -275,11 +276,31 @@ async function initAdmin() {
 
       const statusValue = getCustomSelectValue('adminStatusSelect');
       const typeValue = getCustomSelectValue('adminTypeSelect');
+      const searchTerm = String(adminLeaveSearch?.value || '').trim().toLowerCase();
 
       const filtered = requests.filter((item) => {
         const statusMatch = statusValue === 'all' || item.status === statusValue;
         const typeMatch = typeValue === 'all' || item.leave_type === typeValue;
-        return statusMatch && typeMatch;
+
+        const searchable = [
+          item.employee_name,
+          item.display_name,
+          item.employee_id_display,
+          item.employee_id,
+          item.job_title,
+          item.leave_type,
+          leaveTypeLabel(item.leave_type),
+          dayTypeLabel(item.day_type),
+          item.status,
+          item.reason,
+          item.notes,
+          item.start_date,
+          item.end_date
+        ].filter(Boolean).join(' ').toLowerCase();
+
+        const searchMatch = !searchTerm || searchable.includes(searchTerm);
+
+        return statusMatch && typeMatch && searchMatch;
       });
 
       if (!filtered.length) {
@@ -772,6 +793,8 @@ async function initAdmin() {
         showMessage('manualAbsenceMessage', error.message || 'Unable to save absence.', 'error');
       }
     });
+
+    adminLeaveSearch?.addEventListener('input', renderList);
 
     await loadData();
     revealApp();
