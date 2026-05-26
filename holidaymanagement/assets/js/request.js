@@ -8,7 +8,8 @@ import {
   createLeaveRequest,
   getLeaveOverlap,
   leaveTypeLabel,
-  dayTypeLabel
+  dayTypeLabel,
+  calculateEmployeeLeaveDays
 } from '../../shared/api.js';
 import { calculateBusinessDays, calculateCalendarDays, formatDate } from '../../shared/dates.js';
 
@@ -55,6 +56,48 @@ function restrictLeaveTypes(profile) {
 
 function isHalfDay(dayType) {
   return dayType === 'half_am' || dayType === 'half_pm';
+}
+
+function isHoliday(holidayDates, isoDate) {
+  return holidayDates.includes(isoDate);
+}
+
+async function calculateTotalDays({
+  employeeId,
+  companyId,
+  leaveType,
+  dayType,
+  startDate,
+  endDate,
+  holidayDates
+}) {
+  if (!startDate || !endDate) return 0;
+
+  if (isHalfDay(dayType) && startDate !== endDate) return 0;
+
+  try {
+    const serverDays = await calculateEmployeeLeaveDays({
+      employee_id: employeeId,
+      company_id: companyId,
+      start_date: startDate,
+      end_date: endDate,
+      leave_type: leaveType,
+      day_type: dayType
+    });
+
+    return Number(serverDays || 0);
+  } catch (error) {
+    console.warn('Server leave calculation failed, using browser fallback:', error);
+  }
+
+  if (isHalfDay(dayType)) {
+    if (leaveType === 'annual' && isHoliday(holidayDates, startDate)) return 0;
+    return 0.5;
+  }
+
+  return leaveType === 'annual'
+    ? calculateBusinessDays(startDate, endDate, holidayDates)
+    : calculateCalendarDays(startDate, endDate);
 }
 
 async function initRequestPage() {
@@ -112,40 +155,48 @@ async function initRequestPage() {
     const totalDaysEl = document.getElementById('totalDays');
     const whoElseOffBtn = document.getElementById('whoElseOffBtn');
 
-    function updateTotalDays() {
-      const leaveType = leaveTypeEl.value;
+    async function updateTotalDays() {
+      const leaveType = leaveTypeEl?.value || 'annual';
       const dayType = dayTypeEl?.value || 'full';
-      const startDate = startDateEl.value;
-      const endDate = endDateEl.value;
+      const startDate = startDateEl?.value || '';
+      const endDate = endDateEl?.value || '';
+
+      if (!totalDaysEl) return;
 
       if (!startDate || !endDate) {
         totalDaysEl.value = '';
         return;
       }
 
-      if (isHalfDay(dayType)) {
-        if (startDate !== endDate) {
-          totalDaysEl.value = '';
-          showMessage('requestMessage', 'Half days can only be requested when the start date and end date are the same.', 'error');
-          return;
-        }
-
-        if (leaveType === 'annual' && holidayDates.includes(startDate)) {
-          totalDaysEl.value = '';
-          showMessage('requestMessage', 'This date is a bank holiday or company holiday, so annual leave is not deducted.', 'error');
-          return;
-        }
-
-        totalDaysEl.value = '0.5';
-        showMessage('requestMessage', '');
+      if (isHalfDay(dayType) && startDate !== endDate) {
+        totalDaysEl.value = '';
+        showMessage('requestMessage', 'Half days can only be requested when the start date and end date are the same.', 'error');
         return;
       }
 
-      const days = leaveType === 'annual'
-        ? calculateBusinessDays(startDate, endDate, holidayDates)
-        : calculateCalendarDays(startDate, endDate);
+      const days = await calculateTotalDays({
+        employeeId,
+        companyId: profile.company_id,
+        leaveType,
+        dayType,
+        startDate,
+        endDate,
+        holidayDates
+      });
 
-      totalDaysEl.value = days > 0 ? String(days) : '';
+      if (!days) {
+        totalDaysEl.value = '';
+        showMessage(
+          'requestMessage',
+          leaveType === 'annual'
+            ? 'No annual leave days are deducted for this selection. Check bank/company holidays and your working pattern.'
+            : 'Please check the selected dates.',
+          'error'
+        );
+        return;
+      }
+
+      totalDaysEl.value = String(days);
       showMessage('requestMessage', '');
     }
 
@@ -155,8 +206,8 @@ async function initRequestPage() {
     endDateEl?.addEventListener('change', updateTotalDays);
 
     whoElseOffBtn?.addEventListener('click', async () => {
-      const startDate = startDateEl.value;
-      const endDate = endDateEl.value;
+      const startDate = startDateEl?.value || '';
+      const endDate = endDateEl?.value || '';
       const list = document.getElementById('overlapList');
       const subtitle = document.getElementById('overlapSubtitle');
 
@@ -189,13 +240,22 @@ async function initRequestPage() {
       event.preventDefault();
       showMessage('requestMessage', '');
 
-      const leaveType = leaveTypeEl.value;
+      const leaveType = leaveTypeEl?.value || 'annual';
       const dayType = dayTypeEl?.value || 'full';
-      const startDate = startDateEl.value;
-      const endDate = endDateEl.value;
-      const totalDays = Number(totalDaysEl.value || 0);
-      const reason = document.getElementById('reason').value.trim();
-      const notes = document.getElementById('notes').value.trim();
+      const startDate = startDateEl?.value || '';
+      const endDate = endDateEl?.value || '';
+      const reason = document.getElementById('reason')?.value?.trim() || '';
+      const notes = document.getElementById('notes')?.value?.trim() || '';
+
+      const totalDays = await calculateTotalDays({
+        employeeId,
+        companyId: profile.company_id,
+        leaveType,
+        dayType,
+        startDate,
+        endDate,
+        holidayDates
+      });
 
       if (!startDate || !endDate || !totalDays) {
         showMessage('requestMessage', 'Please complete the dates properly.', 'error');
@@ -232,7 +292,7 @@ async function initRequestPage() {
 
         form.reset();
         if (dayTypeEl) dayTypeEl.value = 'full';
-        totalDaysEl.value = '';
+        if (totalDaysEl) totalDaysEl.value = '';
 
         const refreshedRequests = await getMyLeaveRequests(authUserId);
         const refreshedBalance = await getMyLeaveBalance(authUserId, currentYear).catch(() => null);
