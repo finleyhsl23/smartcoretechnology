@@ -1,5 +1,5 @@
-const SUPABASE_URL = window.SMARTCORE_SUPABASE_URL || 'https://hjdpcfhozhoyeqevnupm.supabase.co';
-const SUPABASE_ANON = window.SMARTCORE_SUPABASE_ANON || window.SUPABASE_ANON || '';
+const SUPABASE_URL = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts';
 const APP_BASE = '/systems/holidaymanagement';
 const SCHEMA = 'holidaymanagement';
 let sb = null;
