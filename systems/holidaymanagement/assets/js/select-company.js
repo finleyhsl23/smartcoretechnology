@@ -1,6 +1,0 @@
-
-import { getMemberships, signOut } from '../../shared/auth.js';
-import { renderEmptyState } from '../../shared/ui.js';
-const list=document.getElementById('companyList');
-document.getElementById('logoutBtn')?.addEventListener('click',async()=>{await signOut();location.href='./login.html'});
-try{const memberships=await getMemberships(); if(!memberships.length){renderEmptyState(list,'No companies are linked to this account yet.');}else if(memberships.length===1){localStorage.setItem('sc_selected_company_id',memberships[0].company_id); location.href='./dashboard.html';}else{list.innerHTML=memberships.map(m=>`<article class="leave-card"><div class="leave-card-top"><div><p class="leave-card-title">${m.logo_url?`<img src="${m.logo_url}" style="height:28px;vertical-align:middle;margin-right:8px">`:''}${m.company_name}</p><p class="leave-card-subtitle">Role: ${m.role}</p></div><button class="btn btn-primary" data-id="${m.company_id}">Enter</button></div></article>`).join(''); list.onclick=e=>{const b=e.target.closest('button[data-id]');if(!b)return;localStorage.setItem('sc_selected_company_id',b.dataset.id);location.href='./dashboard.html'}}}catch(e){renderEmptyState(list,e.message||'Could not load companies.')} 
