@@ -131,3 +131,27 @@ export function smartcoreEmailShell({ title, intro, buttonText, buttonUrl, bodyH
     </div>
   `;
 }
+export function json(data, status = 200) {
+  return jsonResponse(data, status);
+}
+
+export function bad(message = 'Bad request', status = 400) {
+  return jsonResponse({ error: message }, status);
+}
+
+export function supaHeaders(env, useServiceRole = true) {
+  const key = useServiceRole
+    ? env.SUPABASE_SERVICE_ROLE
+    : env.SUPABASE_ANON;
+
+  if (!key) {
+    throw new Error(useServiceRole ? 'Missing SUPABASE_SERVICE_ROLE' : 'Missing SUPABASE_ANON');
+  }
+
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    'Content-Type': 'application/json',
+    Prefer: 'return=representation'
+  };
+}
