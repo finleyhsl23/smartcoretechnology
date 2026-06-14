@@ -165,14 +165,10 @@ export async function createLeaveRequest(payload) {
 
   // Auto-deduct allowance for owner approvals
   if (status === 'approved' && payload.leave_type === 'annual' && payload.days_requested) {
-    await db.from('employees').update({
-      leave_taken: db.raw ? undefined : undefined // handled below
-    }).eq('id', payload.employee_id);
-    // Use RPC to increment leave_taken safely
     await supabase.rpc('increment_leave_taken', {
       p_employee_id: payload.employee_id,
       p_days: payload.days_requested
-    }).schema('holidaymanagement');
+    }).catch(() => {});
   }
 
   if (status === 'pending') {
@@ -196,7 +192,7 @@ export async function approveLeaveRequest(request, approverId, note = '', deduct
     await supabase.rpc('increment_leave_taken', {
       p_employee_id: request.employee_id,
       p_days: request.days_requested
-    }).schema('holidaymanagement').catch(() => {});
+    }).catch(() => {});
   }
 
   await notifyLeaveDecision(data, 'approved', note).catch(() => {});
@@ -251,7 +247,7 @@ export async function cancelLeaveRequestAdmin(request, adminId, reason = '') {
     await supabase.rpc('decrement_leave_taken', {
       p_employee_id: request.employee_id,
       p_days: request.days_requested
-    }).schema('holidaymanagement').catch(() => {});
+    }).catch(() => {});
   }
 
   const { data, error } = await db
