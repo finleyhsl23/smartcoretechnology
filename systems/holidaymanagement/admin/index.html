@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartCore Admin — Holiday Management</title>
+  <link rel="stylesheet" href="/assets/css/main.css">
+</head>
+<body>
+<div id="app" style="min-height:100vh;background:var(--bg-primary)">
+
+  <!-- Admin top bar -->
+  <div class="admin-header">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:32px;height:32px;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:center">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px;color:#fff"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+      </div>
+      <span style="font-size:14px;font-weight:700;color:var(--text-primary)">SmartCore</span>
+      <span class="admin-badge">Admin Portal</span>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+      <button class="btn btn-ghost btn-sm btn-icon" onclick="toggleTheme()" id="theme-btn" title="Toggle theme">
+        <span id="theme-toggle-icon"></span>
+      </button>
+      <span class="text-sm text-muted" id="admin-name"></span>
+      <button class="btn btn-ghost btn-sm" onclick="signOut()">Sign Out</button>
+    </div>
+  </div>
+
+  <div style="max-width:1200px;margin:0 auto;padding:28px">
+
+    <!-- Stats row -->
+    <div class="grid grid-4 mb-6" id="admin-stats">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:var(--accent-soft)">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="color:var(--accent)"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
+        </div>
+        <div><div class="stat-label">Total Companies</div><div class="stat-value" id="s-total">—</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:var(--success-soft)">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="color:var(--success)"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+        </div>
+        <div><div class="stat-label">Active</div><div class="stat-value text-success" id="s-active">—</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:var(--warning-soft)">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="color:var(--warning)"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+        </div>
+        <div><div class="stat-label">Onboarding</div><div class="stat-value" id="s-onboarding">—</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:var(--danger-soft)">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="color:var(--danger)"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+        </div>
+        <div><div class="stat-label">Suspended</div><div class="stat-value text-danger" id="s-suspended">—</div></div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="font-size:18px;font-weight:800;color:var(--text-primary);flex:1">Companies</div>
+      <div class="search-wrap">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>
+        <input type="text" class="form-control search-input" id="search" placeholder="Search companies…" style="width:220px">
+      </div>
+      <select class="form-control" id="status-filter" style="width:140px">
+        <option value="">All Statuses</option>
+        <option value="active">Active</option>
+        <option value="suspended">Suspended</option>
+        <option value="pending">Pending</option>
+      </select>
+      <button class="btn btn-primary btn-sm" id="create-company-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        Create Company
+      </button>
+    </div>
+
+    <!-- Companies table -->
+    <div class="card">
+      <div id="companies-loading" class="page-loading" style="min-height:300px"><div class="spinner spinner-lg"></div></div>
+      <div class="table-wrap hidden" id="companies-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Company</th>
+              <th>Owner</th>
+              <th>Status</th>
+              <th>Onboarding</th>
+              <th>Employees</th>
+              <th>Limit</th>
+              <th>Created</th>
+              <th>Created By</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="companies-tbody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state hidden" id="companies-empty">
+        <div class="empty-state-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18"/></svg>
+        </div>
+        <h3>No companies found</h3>
+        <p>Create the first company to get started.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Company Modal -->
+<div class="modal-overlay" id="create-modal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div><div class="modal-title">Create Company</div><div class="modal-sub">A setup invite will be sent to the owner.</div></div>
+      <button class="modal-close" onclick="closeCreateModal()">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="grid grid-2" style="gap:14px">
+        <div class="form-group">
+          <label class="form-label">Company Name <span class="required">*</span></label>
+          <input class="form-control" id="cc-name" placeholder="Acme Ltd">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Owner Name <span class="required">*</span></label>
+          <input class="form-control" id="cc-owner-name" placeholder="John Smith">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Owner Email <span class="required">*</span></label>
+          <input type="email" class="form-control" id="cc-owner-email" placeholder="john@acme.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Owner Phone</label>
+          <input class="form-control" id="cc-owner-phone" placeholder="+44 7700 000000">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Max Employees <span class="required">*</span></label>
+          <select class="form-control" id="cc-max-emp">
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="250">250</option>
+            <option value="500">500</option>
+            <option value="">Unlimited</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Plan</label>
+          <select class="form-control" id="cc-plan">
+            <option value="starter">Starter</option>
+            <option value="professional" selected>Professional</option>
+            <option value="enterprise">Enterprise</option>
+          </select>
+        </div>
+        <div class="form-group col-span-2">
+          <label class="form-label">Notes</label>
+          <textarea class="form-control" id="cc-notes" rows="2" placeholder="Internal notes about this company…"></textarea>
+        </div>
+      </div>
+      <div id="cc-error" class="warning-box mt-3 hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:15px;height:15px;flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
+        <span id="cc-error-msg"></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeCreateModal()">Cancel</button>
+      <button class="btn btn-primary" id="cc-submit">
+        <span id="cc-text">Create &amp; Send Invite</span>
+        <span class="spinner spinner-sm hidden" id="cc-spin" style="border-top-color:#fff"></span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/assets/js/config.js"></script>
+<script src="/assets/js/auth.js"></script>
+<script src="/assets/js/api.js"></script>
+<script src="/assets/js/components.js"></script>
+<script>
+let _allCompanies = [];
+let _adminUser    = null;
+
+async function init() {
+  initTheme();
+  updateThemeIcon();
+  document.getElementById('theme-btn').addEventListener('click', () => { toggleTheme(); updateThemeIcon(); });
+
+  const user = await requireAuth();
+  if (!user) return;
+  _adminUser = user;
+
+  const isAdmin = await isSmartcoreAdmin();
+  if (!isAdmin) {
+    document.getElementById('app').innerHTML = `<div class="page-loading" style="min-height:100vh"><div style="text-align:center"><div style="font-size:32px;margin-bottom:12px">🚫</div><div style="font-weight:700">Access Denied</div><div class="text-muted text-sm mt-2">SmartCore staff only.</div><a href="/systems/holidaymanagement/login.html" class="btn btn-secondary mt-4">Back to Login</a></div></div>`;
+    return;
+  }
+
+  // Show admin name
+  const { data: staffRecord } = await getSupabase().schema('public').from('smartcore_staff')
+    .select('full_name').eq('user_id', user.id).single();
+  document.getElementById('admin-name').textContent = staffRecord?.full_name || user.email;
+
+  await loadCompanies();
+  document.getElementById('search').addEventListener('input', applyFilters);
+  document.getElementById('status-filter').addEventListener('change', applyFilters);
+  document.getElementById('create-company-btn').addEventListener('click', () => {
+    document.getElementById('create-modal').classList.add('open');
+  });
+  document.getElementById('cc-submit').addEventListener('click', createCompany);
+}
+
+async function loadCompanies() {
+  const sb = getSupabase();
+  const { data, error } = await sb.from('companies').select('*').order('created_at', { ascending: false });
+  document.getElementById('companies-loading').classList.add('hidden');
+  if (error) { toast('Failed to load companies: ' + error.message, 'error'); return; }
+  _allCompanies = data || [];
+
+  // Stats
+  document.getElementById('s-total').textContent      = _allCompanies.length;
+  document.getElementById('s-active').textContent     = _allCompanies.filter(c => c.status === 'active').length;
+  document.getElementById('s-onboarding').textContent = _allCompanies.filter(c => !c.onboarding_completed_at).length;
+  document.getElementById('s-suspended').textContent  = _allCompanies.filter(c => c.status === 'suspended').length;
+
+  applyFilters();
+}
+
+function applyFilters() {
+  const q      = document.getElementById('search').value.toLowerCase().trim();
+  const status = document.getElementById('status-filter').value;
+  const filtered = _allCompanies.filter(c => {
+    const matchQ = !q || c.company_name?.toLowerCase().includes(q) || c.display_name?.toLowerCase().includes(q) || c.owner_email?.toLowerCase().includes(q) || c.owner_name?.toLowerCase().includes(q);
+    const matchS = !status || c.status === status;
+    return matchQ && matchS;
+  });
+  renderTable(filtered);
+}
+
+function renderTable(rows) {
+  const wrap  = document.getElementById('companies-table');
+  const empty = document.getElementById('companies-empty');
+  const tbody = document.getElementById('companies-tbody');
+  if (!rows.length) { wrap.classList.add('hidden'); empty.classList.remove('hidden'); return; }
+  wrap.classList.remove('hidden'); empty.classList.add('hidden');
+
+  tbody.innerHTML = rows.map(c => {
+    const statusClass = c.status === 'active' ? 'badge-success' : c.status === 'suspended' ? 'badge-danger' : 'badge-warning';
+    const onboarded   = !!c.onboarding_completed_at;
+    return `<tr class="clickable" onclick="window.location='/systems/holidaymanagement/admin/company.html?id=${c.id}'">
+      <td>
+        <div style="font-weight:700;font-size:13px">${c.display_name || c.company_name}</div>
+        ${c.display_name && c.company_name !== c.display_name ? `<div class="text-muted text-sm">${c.company_name}</div>` : ''}
+      </td>
+      <td>
+        <div style="font-size:12px">${c.owner_name || '—'}</div>
+        <div class="text-muted" style="font-size:11px">${c.owner_email || ''}</div>
+      </td>
+      <td><span class="badge ${statusClass}">${c.status || 'unknown'}</span></td>
+      <td><span class="badge ${onboarded ? 'badge-success' : 'badge-warning'}">${onboarded ? 'Complete' : 'Pending'}</span></td>
+      <td id="emp-count-${c.id}"><span class="text-muted text-sm">—</span></td>
+      <td>${c.max_employees || '∞'}</td>
+      <td class="text-muted text-sm">${formatDate(c.created_at)}</td>
+      <td class="text-muted text-sm">${c.created_by_smartcore_user || '—'}</td>
+      <td onclick="event.stopPropagation()">
+        <div style="display:flex;gap:4px">
+          <a href="/systems/holidaymanagement/admin/company.html?id=${c.id}" class="btn btn-ghost btn-sm">View</a>
+          ${c.status === 'active'
+            ? `<button class="btn btn-ghost btn-sm text-danger" onclick="suspendCompany('${c.id}','${(c.display_name||c.company_name).replace(/'/g,'\\\'')}')" >Suspend</button>`
+            : `<button class="btn btn-ghost btn-sm text-success" onclick="reactivateCompany('${c.id}')">Reactivate</button>`}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Load employee counts async
+  rows.forEach(async c => {
+    const { data } = await getSupabase().rpc('get_company_active_employee_count', { p_company_id: c.id });
+    const el = document.getElementById('emp-count-' + c.id);
+    if (el) el.innerHTML = `<strong>${data ?? 0}</strong>`;
+  });
+}
+
+async function createCompany() {
+  const name      = document.getElementById('cc-name').value.trim();
+  const ownerName = document.getElementById('cc-owner-name').value.trim();
+  const ownerEmail= document.getElementById('cc-owner-email').value.trim();
+  const ownerPhone= document.getElementById('cc-owner-phone').value.trim();
+  const maxEmp    = document.getElementById('cc-max-emp').value;
+  const plan      = document.getElementById('cc-plan').value;
+  const notes     = document.getElementById('cc-notes').value.trim();
+
+  if (!name || !ownerName || !ownerEmail) {
+    document.getElementById('cc-error-msg').textContent = 'Company name, owner name, and owner email are required.';
+    document.getElementById('cc-error').classList.remove('hidden'); return;
+  }
+
+  document.getElementById('cc-submit').disabled = true;
+  document.getElementById('cc-text').classList.add('hidden');
+  document.getElementById('cc-spin').classList.remove('hidden');
+  document.getElementById('cc-error').classList.add('hidden');
+
+  try {
+    const result = await callAPI('/api/send-invite', {
+      action:       'create_company',
+      company_name:  name,
+      owner_name:    ownerName,
+      owner_email:   ownerEmail,
+      owner_phone:   ownerPhone || null,
+      max_employees: maxEmp ? parseInt(maxEmp) : null,
+      plan_name:     plan,
+      notes:         notes || null,
+      created_by:    _adminUser.id,
+    });
+    toast(`Company created and invite sent to ${ownerEmail}.`, 'success');
+    closeCreateModal();
+    await loadCompanies();
+  } catch(e) {
+    document.getElementById('cc-error-msg').textContent = e.message;
+    document.getElementById('cc-error').classList.remove('hidden');
+  } finally {
+    document.getElementById('cc-submit').disabled = false;
+    document.getElementById('cc-text').classList.remove('hidden');
+    document.getElementById('cc-spin').classList.add('hidden');
+  }
+}
+
+function closeCreateModal() {
+  document.getElementById('create-modal').classList.remove('open');
+  document.getElementById('cc-error').classList.add('hidden');
+}
+
+async function suspendCompany(id, name) {
+  const ok = await confirm('Suspend Company', `Suspend ${name}? All users will lose access immediately.`, { danger: true, confirmLabel: 'Suspend' });
+  if (!ok) return;
+  try {
+    await Companies.update(id, { status: 'suspended', updated_at: new Date().toISOString() });
+    toast('Company suspended.', 'success');
+    await loadCompanies();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function reactivateCompany(id) {
+  try {
+    await Companies.update(id, { status: 'active', updated_at: new Date().toISOString() });
+    toast('Company reactivated.', 'success');
+    await loadCompanies();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+init();
+</script>
+</body>
+</html>

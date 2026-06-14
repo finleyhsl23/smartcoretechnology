@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leave Requests — SmartCore</title>
+  <link rel="stylesheet" href="/assets/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-mount"></div>
+  <main class="main-content">
+    <div class="topbar">
+      <div class="topbar-title">Leave Requests</div>
+      <div class="topbar-actions">
+        <select class="form-control" id="status-filter" style="width:160px">
+          <option value="pending">Pending</option>
+          <option value="cancellation_requested">Cancellations</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+          <option value="all">All</option>
+        </select>
+        <select class="form-control" id="dept-filter" style="width:160px">
+          <option value="">All Departments</option>
+        </select>
+      </div>
+    </div>
+    <div class="page-content">
+      <div class="card">
+        <div id="req-loading" class="page-loading" style="min-height:300px"><div class="spinner spinner-lg"></div></div>
+        <div class="table-wrap hidden" id="req-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Type</th>
+                <th>Dates</th>
+                <th>Days</th>
+                <th>Reason</th>
+                <th>Status</th>
+                <th>Submitted</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="req-tbody"></tbody>
+          </table>
+        </div>
+        <div class="empty-state hidden" id="req-empty">
+          <div class="empty-state-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z"/></svg>
+          </div>
+          <h3>No requests found</h3>
+          <p id="req-empty-msg">No leave requests in this category.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Approve/Reject modal -->
+<div class="modal-overlay" id="action-modal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="action-modal-title">Review Request</div>
+        <div class="modal-sub" id="action-modal-sub"></div>
+      </div>
+      <button class="modal-close" onclick="closeActionModal()">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div id="action-details" class="card" style="margin-bottom:14px">
+        <div class="card-body" style="padding:12px 14px;font-size:13px"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="action-note-label">Note (optional)</label>
+        <textarea class="form-control" id="action-note" rows="2" placeholder="Add a note…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeActionModal()">Cancel</button>
+      <button class="btn btn-danger" id="reject-btn" onclick="doAction('reject')">Reject</button>
+      <button class="btn btn-success" id="approve-btn" onclick="doAction('approve')">Approve</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/assets/js/config.js"></script>
+<script src="/assets/js/auth.js"></script>
+<script src="/assets/js/api.js"></script>
+<script src="/assets/js/components.js"></script>
+<script>
+let _company   = null;
+let _user      = null;
+let _allReqs   = [];
+let _activeReq = null;
+
+async function init() {
+  const ctx = await requireCompany();
+  if (!ctx) return;
+  if (!isAdmin()) { window.location.href = APP_BASE + '/app/dashboard.html'; return; }
+
+  _company = ctx.company;
+  _user    = ctx.user;
+  await renderSidebar('leave-requests');
+  await loadRequests();
+
+  document.getElementById('status-filter').addEventListener('change', applyFilters);
+  document.getElementById('dept-filter').addEventListener('change', applyFilters);
+}
+
+async function loadRequests() {
+  const { data, error } = await getSupabase()
+    .from('leave_requests')
+    .select('*, employees(full_name, job_title, department, shift_pattern_id)')
+    .eq('company_id', _company.id)
+    .order('created_at', { ascending: false });
+
+  document.getElementById('req-loading').classList.add('hidden');
+  if (error) { toast('Failed to load: ' + error.message, 'error'); return; }
+  _allReqs = data || [];
+
+  // Populate dept filter
+  const depts = [...new Set(_allReqs.map(r => r.employees?.department).filter(Boolean))].sort();
+  const sel = document.getElementById('dept-filter');
+  depts.forEach(d => {
+    const o = document.createElement('option'); o.value = d; o.textContent = d; sel.appendChild(o);
+  });
+
+  applyFilters();
+}
+
+function applyFilters() {
+  const status = document.getElementById('status-filter').value;
+  const dept   = document.getElementById('dept-filter').value;
+
+  const filtered = _allReqs.filter(r => {
+    const matchS = status === 'all' || r.status === status;
+    const matchD = !dept || r.employees?.department === dept;
+    return matchS && matchD;
+  });
+
+  renderTable(filtered);
+}
+
+function renderTable(rows) {
+  const wrap  = document.getElementById('req-table-wrap');
+  const empty = document.getElementById('req-empty');
+  const tbody = document.getElementById('req-tbody');
+
+  if (!rows.length) {
+    wrap.classList.add('hidden');
+    empty.classList.remove('hidden');
+    return;
+  }
+  wrap.classList.remove('hidden');
+  empty.classList.add('hidden');
+
+  tbody.innerHTML = rows.map(r => {
+    const emp        = r.employees;
+    const statusBadge= STATUS_BADGE[r.status] || 'badge-muted';
+    const isCancelReq= r.status === 'cancellation_requested';
+    const isPending  = r.status === 'pending';
+    const deptColour = getDeptColour(emp?.department);
+
+    return `<tr>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="avatar avatar-sm" style="background:${avatarBg(emp?.full_name)};color:#fff">${initials(emp?.full_name)}</div>
+          <div>
+            <div style="font-weight:600;font-size:12px">${emp?.full_name || 'Unknown'}</div>
+            ${emp?.department ? `<span style="font-size:10px;color:${deptColour};font-weight:600">${emp.department}</span>` : ''}
+          </div>
+        </div>
+      </td>
+      <td>${LEAVE_TYPES[r.leave_type] || r.leave_type}</td>
+      <td style="white-space:nowrap">${formatDate(r.start_date)}${r.start_date !== r.end_date ? '<br><span class="text-muted text-sm">→ ' + formatDate(r.end_date) + '</span>' : ''}</td>
+      <td><strong>${r.total_days}</strong></td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.reason || r.cancellation_reason || '<span class="text-muted">—</span>'}</td>
+      <td><span class="badge ${statusBadge}">${isCancelReq ? 'Cancel Req.' : r.status}</span></td>
+      <td class="text-muted text-sm">${formatDate(r.created_at)}</td>
+      <td>
+        <div style="display:flex;gap:4px">
+          ${isPending ? `
+            <button class="btn btn-success btn-sm" onclick="openActionModal('${r.id}','approve')">Approve</button>
+            <button class="btn btn-danger btn-sm" onclick="openActionModal('${r.id}','reject')">Reject</button>
+          ` : ''}
+          ${isCancelReq ? `
+            <button class="btn btn-success btn-sm" onclick="approveCancellation('${r.id}')">Approve Cancel</button>
+            <button class="btn btn-secondary btn-sm" onclick="denyCancellation('${r.id}')">Deny</button>
+          ` : ''}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openActionModal(id, action) {
+  _activeReq = { id, action };
+  const req = _allReqs.find(r => r.id === id);
+  if (!req) return;
+
+  document.getElementById('action-modal-title').textContent = action === 'approve' ? 'Approve Leave Request' : 'Reject Leave Request';
+  document.getElementById('action-modal-sub').textContent = req.employees?.full_name || '';
+  document.getElementById('action-details').querySelector('.card-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div><div class="text-muted text-sm">Type</div><strong>${LEAVE_TYPES[req.leave_type] || req.leave_type}</strong></div>
+      <div><div class="text-muted text-sm">Days</div><strong>${req.total_days}</strong></div>
+      <div><div class="text-muted text-sm">From</div><strong>${formatDate(req.start_date)}</strong></div>
+      <div><div class="text-muted text-sm">To</div><strong>${formatDate(req.end_date)}</strong></div>
+      ${req.reason ? `<div style="grid-column:span 2"><div class="text-muted text-sm">Reason</div><span>${req.reason}</span></div>` : ''}
+    </div>
+  `;
+  document.getElementById('action-note').value = '';
+  document.getElementById('approve-btn').style.display = action === 'approve' ? '' : 'none';
+  document.getElementById('reject-btn').style.display  = action !== 'approve' ? '' : 'none';
+  document.getElementById('action-modal').classList.add('open');
+}
+
+function closeActionModal() {
+  document.getElementById('action-modal').classList.remove('open');
+  _activeReq = null;
+}
+
+async function doAction(action) {
+  if (!_activeReq) return;
+  const { id } = _activeReq;
+  const note   = document.getElementById('action-note').value.trim();
+  const req    = _allReqs.find(r => r.id === id);
+  if (!req) return;
+
+  try {
+    const update = action === 'approve'
+      ? { status: 'approved', approved_by: _user.id, approved_at: new Date().toISOString() }
+      : { status: 'rejected', rejected_by: _user.id, rejected_at: new Date().toISOString(), notes: note || null };
+
+    await LeaveRequests.update(id, update);
+    await LeaveBalances.sync(req.employee_id);
+
+    // Send email notification
+    await callAPI('/api/leave-action', {
+      leave_request_id: id,
+      action,
+      company_id: _company.id,
+      note,
+    }).catch(() => {}); // Non-fatal
+
+    toast(`Request ${action === 'approve' ? 'approved' : 'rejected'}.`, 'success');
+    closeActionModal();
+    await loadRequests();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function approveCancellation(id) {
+  const req = _allReqs.find(r => r.id === id);
+  if (!req) return;
+  const ok = await confirm('Approve Cancellation', `Approve the cancellation of ${req.employees?.full_name}'s leave from ${formatDate(req.start_date)}?`, { confirmLabel: 'Approve Cancellation' });
+  if (!ok) return;
+  try {
+    await LeaveRequests.update(id, { status: 'cancelled', cancelled_by: _user.id, cancelled_at: new Date().toISOString() });
+    await LeaveBalances.sync(req.employee_id);
+    toast('Cancellation approved.', 'success');
+    await loadRequests();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function denyCancellation(id) {
+  const req = _allReqs.find(r => r.id === id);
+  if (!req) return;
+  try {
+    await LeaveRequests.update(id, { status: 'approved', cancellation_requested_at: null, cancellation_reason: null });
+    toast('Cancellation request denied. Leave remains approved.', 'info');
+    await loadRequests();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+init();
+</script>
+</body>
+</html>

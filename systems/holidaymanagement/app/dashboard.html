@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — SmartCore Holiday Management</title>
+  <link rel="stylesheet" href="/assets/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-mount"></div>
+  <main class="main-content">
+    <div class="topbar">
+      <div class="topbar-title" id="page-heading">Dashboard</div>
+      <div class="topbar-actions">
+        <button class="btn btn-primary btn-sm" id="request-leave-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+          Request Leave
+        </button>
+      </div>
+    </div>
+
+    <div class="page-content">
+      <!-- Dev mode banner -->
+      <div id="dev-banner" class="hidden devmode-banner">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:15px;height:15px;flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 12.75c1.148 0 2.278.08 3.383.237 1.037.146 1.866.966 1.866 2.013 0 3.728-2.35 6.75-5.25 6.75S6.75 18.728 6.75 15c0-1.046.83-1.867 1.866-2.013A24.204 24.204 0 0 1 12 12.75Z"/></svg>
+        Developer Mode Active — viewing as <strong id="dev-role-label"></strong>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          <button class="btn btn-sm" style="background:var(--warning-soft);color:var(--warning);border:1px solid var(--warning);padding:2px 8px;font-size:11px" onclick="setDevMode(true,'owner');location.reload()">Owner</button>
+          <button class="btn btn-sm" style="background:var(--warning-soft);color:var(--warning);border:1px solid var(--warning);padding:2px 8px;font-size:11px" onclick="setDevMode(true,'admin');location.reload()">Admin</button>
+          <button class="btn btn-sm" style="background:var(--warning-soft);color:var(--warning);border:1px solid var(--warning);padding:2px 8px;font-size:11px" onclick="setDevMode(true,'employee');location.reload()">Employee</button>
+          <button class="btn btn-sm" style="background:var(--danger-soft);color:var(--danger);border:1px solid var(--danger);padding:2px 8px;font-size:11px" onclick="setDevMode(false);location.reload()">Exit Dev</button>
+        </div>
+      </div>
+
+      <!-- Stat cards -->
+      <div class="grid grid-4 mb-4" id="stat-cards">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:var(--warning-soft)">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="color:var(--warning)"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">Pending Requests</div>
+            <div class="stat-value" id="stat-pending">—</div>
+            <div class="stat-sub" id="stat-pending-sub"></div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:var(--success-soft)">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="color:var(--success)"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">Off Today</div>
+            <div class="stat-value" id="stat-off-today">—</div>
+            <div class="stat-sub">approved leave</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:var(--danger-soft)">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="color:var(--danger)"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">Cancellations</div>
+            <div class="stat-value" id="stat-cancellations">—</div>
+            <div class="stat-sub">awaiting review</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:var(--info-soft)">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="color:var(--info)"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">Sick Leave</div>
+            <div class="stat-value" id="stat-sick">—</div>
+            <div class="stat-sub">this month</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main grid -->
+      <div class="grid" style="grid-template-columns:1fr 340px;gap:16px">
+        <!-- Left column -->
+        <div style="display:flex;flex-direction:column;gap:16px">
+
+          <!-- My Leave Balance (for employees) -->
+          <div class="card" id="my-balance-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">My Leave Balance</div>
+                <div class="card-sub" id="balance-year-label"></div>
+              </div>
+              <a href="/systems/holidaymanagement/app/my-leave.html" class="btn btn-secondary btn-sm">View All</a>
+            </div>
+            <div class="card-body">
+              <div id="balance-loading" class="page-loading" style="min-height:80px"><div class="spinner"></div></div>
+              <div id="balance-content" class="hidden">
+                <div style="display:flex;align-items:flex-end;gap:6px;margin-bottom:12px">
+                  <div class="leave-allowance-number" id="bal-remaining">—</div>
+                  <div style="font-size:13px;color:var(--text-muted);padding-bottom:4px">days remaining</div>
+                </div>
+                <div class="progress-bar mb-3">
+                  <div class="progress-fill" id="bal-bar" style="width:0%"></div>
+                </div>
+                <div class="leave-breakdown">
+                  <div class="leave-stat">
+                    <div class="leave-stat-value" id="bal-total">—</div>
+                    <div class="leave-stat-label">Total</div>
+                  </div>
+                  <div class="leave-stat">
+                    <div class="leave-stat-value" id="bal-used">—</div>
+                    <div class="leave-stat-label">Used</div>
+                  </div>
+                  <div class="leave-stat">
+                    <div class="leave-stat-value text-warning" id="bal-pending">—</div>
+                    <div class="leave-stat-label">Pending</div>
+                  </div>
+                </div>
+              </div>
+              <div id="balance-empty" class="hidden text-muted text-sm text-center" style="padding:16px">No balance data available.</div>
+            </div>
+          </div>
+
+          <!-- People off today -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Off Today</div>
+              <div class="card-sub" id="today-date-label"></div>
+            </div>
+            <div class="card-body" id="off-today-list">
+              <div class="page-loading" style="min-height:80px"><div class="spinner"></div></div>
+            </div>
+          </div>
+
+          <!-- Upcoming leave -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Upcoming Leave</div>
+              <a href="/systems/holidaymanagement/app/calendar.html" class="btn btn-secondary btn-sm">Calendar</a>
+            </div>
+            <div class="card-body" id="upcoming-list">
+              <div class="page-loading" style="min-height:80px"><div class="spinner"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right column -->
+        <div style="display:flex;flex-direction:column;gap:16px">
+
+          <!-- Quick actions -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">Quick Actions</div></div>
+            <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
+              <button class="btn btn-primary w-full" id="qa-request-leave">Request Leave</button>
+              <a href="/systems/holidaymanagement/app/my-leave.html" class="btn btn-secondary w-full">View My Leave</a>
+              <a href="/systems/holidaymanagement/app/calendar.html" class="btn btn-secondary w-full">Open Calendar</a>
+              <div id="admin-actions" class="hidden" style="display:none;flex-direction:column;gap:8px">
+                <div class="divider"></div>
+                <a href="/systems/holidaymanagement/app/employees.html" class="btn btn-secondary w-full">Manage Employees</a>
+                <a href="/systems/holidaymanagement/app/leave-requests.html" class="btn btn-secondary w-full">Review Requests</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Birthdays -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">🎂 Birthdays (Next 7 Days)</div>
+            </div>
+            <div class="card-body" id="birthdays-list">
+              <div class="page-loading" style="min-height:60px"><div class="spinner"></div></div>
+            </div>
+          </div>
+
+          <!-- Work Anniversaries -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">⭐ Work Anniversaries (Next 7 Days)</div>
+            </div>
+            <div class="card-body" id="anniversaries-list">
+              <div class="page-loading" style="min-height:60px"><div class="spinner"></div></div>
+            </div>
+          </div>
+
+          <!-- Pending requests (admin) -->
+          <div class="card hidden" id="pending-card">
+            <div class="card-header">
+              <div class="card-title">Pending Requests</div>
+              <a href="/systems/holidaymanagement/app/leave-requests.html" class="btn btn-secondary btn-sm">View All</a>
+            </div>
+            <div class="card-body" id="pending-list">
+              <div class="page-loading" style="min-height:80px"><div class="spinner"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Request Leave Modal -->
+<div class="modal-overlay" id="request-modal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">Request Leave</div>
+        <div class="modal-sub">Submit a new leave request</div>
+      </div>
+      <button class="modal-close" onclick="closeRequestModal()">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="grid grid-2" style="gap:14px">
+        <div class="form-group">
+          <label class="form-label">Leave Type <span class="required">*</span></label>
+          <select class="form-control" id="req-type">
+            <option value="annual">Annual Leave</option>
+            <option value="sick">Sick Leave</option>
+            <option value="compassionate">Compassionate Leave</option>
+            <option value="unpaid">Unpaid Leave</option>
+            <option value="maternity">Maternity Leave</option>
+            <option value="paternity">Paternity Leave</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Day Type <span class="required">*</span></label>
+          <select class="form-control" id="req-day-type">
+            <option value="full">Full Day(s)</option>
+            <option value="half_am">Half Day — AM</option>
+            <option value="half_pm">Half Day — PM</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Start Date <span class="required">*</span></label>
+          <input type="date" class="form-control" id="req-start">
+        </div>
+        <div class="form-group" id="end-date-group">
+          <label class="form-label">End Date <span class="required">*</span></label>
+          <input type="date" class="form-control" id="req-end">
+        </div>
+        <div class="form-group col-span-2">
+          <label class="form-label">Reason</label>
+          <input type="text" class="form-control" id="req-reason" placeholder="Optional reason">
+        </div>
+        <div class="form-group col-span-2">
+          <label class="form-label">Notes</label>
+          <textarea class="form-control" id="req-notes" rows="2" placeholder="Any additional notes"></textarea>
+        </div>
+      </div>
+
+      <!-- Who else is off -->
+      <div id="who-off-wrap" class="hidden" style="margin-top:12px">
+        <button class="btn btn-ghost btn-sm" type="button" id="who-off-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg>
+          Who else is off?
+        </button>
+        <span id="days-preview" class="text-sm text-muted ml-auto"></span>
+      </div>
+
+      <div id="req-error" class="warning-box mt-3 hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:15px;height:15px;flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
+        <span id="req-error-msg"></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeRequestModal()">Cancel</button>
+      <button class="btn btn-primary" id="submit-request-btn">
+        <span id="req-btn-text">Submit Request</span>
+        <span class="spinner spinner-sm hidden" id="req-spinner" style="border-top-color:#fff"></span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/assets/js/config.js"></script>
+<script src="/assets/js/auth.js"></script>
+<script src="/assets/js/api.js"></script>
+<script src="/assets/js/components.js"></script>
+<script>
+let _ctx = null; // { user, company, employee }
+
+async function init() {
+  const ctx = await requireCompany();
+  if (!ctx) return;
+  const { user, company } = ctx;
+  _ctx = { user, company };
+
+  await renderSidebar('dashboard');
+  document.getElementById('page-heading').textContent = `Welcome back`;
+
+  // Dev mode
+  if (isDevModeActive()) {
+    const b = document.getElementById('dev-banner');
+    b.classList.remove('hidden');
+    document.getElementById('dev-role-label').textContent = getDevRole();
+  }
+
+  // Show admin actions if admin
+  if (isAdmin()) {
+    const aa = document.getElementById('admin-actions');
+    aa.style.display = 'flex';
+    aa.classList.remove('hidden');
+    document.getElementById('pending-card').classList.remove('hidden');
+  }
+
+  // Get employee record
+  const employee = await Employees.getByUserId(user.id, company.id);
+  _ctx.employee = employee;
+
+  // Greet
+  const name = employee?.full_name?.split(' ')[0] || 'there';
+  document.getElementById('page-heading').textContent = `Good ${getGreeting()}, ${name}`;
+
+  // Load everything
+  await Promise.all([
+    loadStats(company),
+    loadBalance(employee, company),
+    loadOffToday(company),
+    loadUpcoming(company),
+    loadBirthdays(company),
+    loadAnniversaries(company),
+    isAdmin() ? loadPendingList(company) : Promise.resolve(),
+  ]);
+
+  // Request leave buttons
+  document.getElementById('request-leave-btn').addEventListener('click', openRequestModal);
+  document.getElementById('qa-request-leave').addEventListener('click', openRequestModal);
+}
+
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  return 'evening';
+}
+
+async function loadStats(company) {
+  const today = todayISO();
+  const monthStart = today.slice(0,7) + '-01';
+
+  const [pending, offToday, cancellations, sick] = await Promise.all([
+    getSupabase().from('leave_requests').select('id', {count:'exact',head:true}).eq('company_id', company.id).eq('status','pending'),
+    getSupabase().from('leave_requests').select('id', {count:'exact',head:true}).eq('company_id', company.id).eq('status','approved').lte('start_date', today).gte('end_date', today),
+    getSupabase().from('leave_requests').select('id', {count:'exact',head:true}).eq('company_id', company.id).eq('status','cancellation_requested'),
+    getSupabase().from('leave_requests').select('id', {count:'exact',head:true}).eq('company_id', company.id).eq('leave_type','sick').gte('start_date', monthStart),
+  ]);
+
+  document.getElementById('stat-pending').textContent = pending.count ?? 0;
+  document.getElementById('stat-off-today').textContent = offToday.count ?? 0;
+  document.getElementById('stat-cancellations').textContent = cancellations.count ?? 0;
+  document.getElementById('stat-sick').textContent = sick.count ?? 0;
+
+  const pendingBadge = document.getElementById('pendingBadge');
+  if (pendingBadge && (pending.count ?? 0) > 0) {
+    pendingBadge.textContent = pending.count;
+    pendingBadge.classList.remove('hidden');
+  }
+}
+
+async function loadBalance(employee, company) {
+  if (!employee) {
+    document.getElementById('balance-loading').classList.add('hidden');
+    document.getElementById('balance-empty').classList.remove('hidden');
+    return;
+  }
+  const year = currentYear();
+  document.getElementById('balance-year-label').textContent = `Leave year ${year}`;
+  const bal = await LeaveBalances.get(employee.id, year);
+  document.getElementById('balance-loading').classList.add('hidden');
+  if (!bal) {
+    document.getElementById('balance-empty').classList.remove('hidden');
+    return;
+  }
+  const used = bal.used_days || 0;
+  const total = bal.total_allowance || 0;
+  const remaining = bal.remaining_days ?? (total - used);
+  const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
+
+  document.getElementById('bal-remaining').textContent = remaining.toFixed(1);
+  document.getElementById('bal-total').textContent = total.toFixed(1);
+  document.getElementById('bal-used').textContent = used.toFixed(1);
+  document.getElementById('bal-pending').textContent = (bal.pending_days || 0).toFixed(1);
+  const bar = document.getElementById('bal-bar');
+  bar.style.width = pct + '%';
+  if (pct > 90) bar.classList.add('danger');
+  else if (pct > 70) bar.classList.add('warning');
+  document.getElementById('balance-content').classList.remove('hidden');
+}
+
+async function loadOffToday(company) {
+  const today = todayISO();
+  document.getElementById('today-date-label').textContent = new Date().toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long'});
+  const { data } = await getSupabase()
+    .from('leave_requests')
+    .select('leave_type, day_type, employees(full_name, job_title, department)')
+    .eq('company_id', company.id)
+    .eq('status', 'approved')
+    .lte('start_date', today)
+    .gte('end_date', today);
+
+  const el = document.getElementById('off-today-list');
+  if (!data?.length) {
+    el.innerHTML = `<div class="empty-state" style="padding:20px"><div class="text-muted text-sm">Nobody off today 🎉</div></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="people-list">${data.map(r => {
+    const e = r.employees;
+    return `<div class="person-row">
+      <div class="avatar avatar-sm" style="background:${avatarBg(e?.full_name)};color:#fff">${initials(e?.full_name)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="person-name truncate">${e?.full_name || 'Unknown'}</div>
+        <div class="person-sub truncate">${e?.job_title || ''}${e?.department ? ' · ' + e.department : ''}</div>
+      </div>
+      <span class="badge badge-muted" style="flex-shrink:0">${DAY_TYPES[r.day_type] || r.day_type}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+async function loadUpcoming(company) {
+  const today = todayISO();
+  const in30  = new Date(); in30.setDate(in30.getDate() + 30);
+  const to    = in30.toISOString().split('T')[0];
+
+  const { data } = await getSupabase()
+    .from('leave_requests')
+    .select('start_date, end_date, leave_type, total_days, employees(full_name, job_title)')
+    .eq('company_id', company.id)
+    .eq('status', 'approved')
+    .gte('start_date', today)
+    .lte('start_date', to)
+    .order('start_date')
+    .limit(8);
+
+  const el = document.getElementById('upcoming-list');
+  if (!data?.length) {
+    el.innerHTML = `<div class="text-muted text-sm text-center" style="padding:16px">No upcoming leave in the next 30 days.</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="people-list">${data.map(r => {
+    const e = r.employees;
+    return `<div class="person-row">
+      <div class="avatar avatar-sm" style="background:${avatarBg(e?.full_name)};color:#fff">${initials(e?.full_name)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="person-name truncate">${e?.full_name || 'Unknown'}</div>
+        <div class="person-sub">${formatDateShort(r.start_date)} → ${formatDateShort(r.end_date)} · ${r.total_days}d</div>
+      </div>
+      <span class="badge badge-accent" style="flex-shrink:0;font-size:10px">${LEAVE_TYPES[r.leave_type] || r.leave_type}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+async function loadBirthdays(company) {
+  const today = new Date();
+  const in7   = new Date(); in7.setDate(today.getDate() + 7);
+  const { data } = await getSupabase()
+    .from('employees')
+    .select('full_name, job_title, dob')
+    .eq('company_id', company.id)
+    .eq('employment_status', 'active')
+    .not('dob', 'is', null);
+
+  const el = document.getElementById('birthdays-list');
+  if (!data?.length) { el.innerHTML = '<div class="text-muted text-sm text-center" style="padding:8px">No data available.</div>'; return; }
+
+  const upcoming = data.filter(e => {
+    const dob = new Date(e.dob);
+    const thisYear = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+    return thisYear >= today && thisYear <= in7;
+  });
+
+  if (!upcoming.length) { el.innerHTML = '<div class="text-muted text-sm text-center" style="padding:8px">No birthdays in the next 7 days.</div>'; return; }
+  el.innerHTML = `<div class="people-list">${upcoming.map(e => {
+    const dob = new Date(e.dob);
+    const bd = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+    const isToday = bd.toDateString() === today.toDateString();
+    return `<div class="person-row">
+      <div class="avatar avatar-sm" style="background:${avatarBg(e.full_name)};color:#fff">${initials(e.full_name)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="person-name truncate">${e.full_name}</div>
+        <div class="person-sub">${isToday ? '🎂 Today!' : formatDateShort(bd.toISOString())}</div>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+async function loadAnniversaries(company) {
+  const today = new Date();
+  const in7   = new Date(); in7.setDate(today.getDate() + 7);
+  const { data } = await getSupabase()
+    .from('employees')
+    .select('full_name, job_title, start_date')
+    .eq('company_id', company.id)
+    .eq('employment_status', 'active')
+    .not('start_date', 'is', null);
+
+  const el = document.getElementById('anniversaries-list');
+  if (!data?.length) { el.innerHTML = '<div class="text-muted text-sm text-center" style="padding:8px">No data available.</div>'; return; }
+
+  const upcoming = data.filter(e => {
+    const s = new Date(e.start_date);
+    if (s.getFullYear() === today.getFullYear()) return false; // First year doesn't count
+    const ann = new Date(today.getFullYear(), s.getMonth(), s.getDate());
+    return ann >= today && ann <= in7;
+  });
+
+  if (!upcoming.length) { el.innerHTML = '<div class="text-muted text-sm text-center" style="padding:8px">No anniversaries in the next 7 days.</div>'; return; }
+  el.innerHTML = `<div class="people-list">${upcoming.map(e => {
+    const s = new Date(e.start_date);
+    const years = today.getFullYear() - s.getFullYear();
+    return `<div class="person-row">
+      <div class="avatar avatar-sm" style="background:${avatarBg(e.full_name)};color:#fff">${initials(e.full_name)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="person-name truncate">${e.full_name}</div>
+        <div class="person-sub">⭐ ${years} year${years !== 1 ? 's' : ''}</div>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+async function loadPendingList(company) {
+  const { data } = await getSupabase()
+    .from('leave_requests')
+    .select('id, leave_type, start_date, end_date, total_days, employees(full_name)')
+    .eq('company_id', company.id)
+    .eq('status', 'pending')
+    .order('created_at')
+    .limit(5);
+
+  const el = document.getElementById('pending-list');
+  if (!data?.length) {
+    el.innerHTML = '<div class="text-muted text-sm text-center" style="padding:16px">No pending requests.</div>';
+    return;
+  }
+  el.innerHTML = `<div class="people-list">${data.map(r => `
+    <div class="person-row" style="cursor:pointer" onclick="window.location='/systems/holidaymanagement/app/leave-requests.html'">
+      <div class="avatar avatar-sm" style="background:${avatarBg(r.employees?.full_name)};color:#fff">${initials(r.employees?.full_name)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="person-name truncate">${r.employees?.full_name || 'Unknown'}</div>
+        <div class="person-sub">${LEAVE_TYPES[r.leave_type] || r.leave_type} · ${formatDateShort(r.start_date)} · ${r.total_days}d</div>
+      </div>
+      <span class="badge badge-warning">Pending</span>
+    </div>`).join('')}</div>`;
+}
+
+// ── Request Leave Modal ───────────────────────────────────────
+function openRequestModal() {
+  if (!_ctx?.employee) { toast('Your employee profile is incomplete. Please complete onboarding first.', 'warning'); return; }
+  if (_ctx.employee.onboarding_status !== 'complete') { toast('Please complete your onboarding before requesting leave.', 'warning'); return; }
+  const today = todayISO();
+  document.getElementById('req-start').value = today;
+  document.getElementById('req-end').value   = today;
+  updateDaysPreview();
+  document.getElementById('request-modal').classList.add('open');
+}
+
+function closeRequestModal() {
+  document.getElementById('request-modal').classList.remove('open');
+  document.getElementById('req-error').classList.add('hidden');
+}
+
+function updateDaysPreview() {
+  const start = document.getElementById('req-start').value;
+  const end   = document.getElementById('req-end').value;
+  const dtype = document.getElementById('req-day-type').value;
+  if (start && end) {
+    document.getElementById('who-off-wrap').classList.remove('hidden');
+    if (dtype !== 'full') {
+      document.getElementById('days-preview').textContent = '0.5 days';
+    } else {
+      const d = daysBetween(start, end);
+      document.getElementById('days-preview').textContent = d + ' calendar day' + (d !== 1 ? 's' : '') + ' selected';
+    }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('req-start').addEventListener('change', () => {
+    const s = document.getElementById('req-start').value;
+    if (document.getElementById('req-end').value < s) document.getElementById('req-end').value = s;
+    updateDaysPreview();
+  });
+  document.getElementById('req-end').addEventListener('change', updateDaysPreview);
+  document.getElementById('req-day-type').addEventListener('change', () => {
+    const isHalf = document.getElementById('req-day-type').value !== 'full';
+    document.getElementById('end-date-group').style.opacity = isHalf ? '0.4' : '1';
+    if (isHalf) document.getElementById('req-end').value = document.getElementById('req-start').value;
+    updateDaysPreview();
+  });
+
+  document.getElementById('who-off-btn').addEventListener('click', () => {
+    if (!_ctx) return;
+    showWhoIsOff(_ctx.company.id, document.getElementById('req-start').value, document.getElementById('req-end').value, _ctx.employee?.id);
+  });
+
+  document.getElementById('submit-request-btn').addEventListener('click', submitRequest);
+
+  document.getElementById('request-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('request-modal')) closeRequestModal();
+  });
+});
+
+async function submitRequest() {
+  const { user, company, employee } = _ctx;
+  const start = document.getElementById('req-start').value;
+  const end   = document.getElementById('req-end').value;
+  const type  = document.getElementById('req-type').value;
+  const dtype = document.getElementById('req-day-type').value;
+  const reason= document.getElementById('req-reason').value.trim();
+  const notes = document.getElementById('req-notes').value.trim();
+
+  if (!start || !end) { showReqError('Please select dates.'); return; }
+  if (end < start)    { showReqError('End date must be after start date.'); return; }
+
+  document.getElementById('req-btn-text').classList.add('hidden');
+  document.getElementById('req-spinner').classList.remove('hidden');
+  document.getElementById('submit-request-btn').disabled = true;
+  document.getElementById('req-error').classList.add('hidden');
+
+  try {
+    // Calculate working days via RPC
+    const { data: workDays } = await getSupabase().rpc('calculate_employee_leave_days', {
+      p_employee_id: employee.id,
+      p_start_date:  start,
+      p_end_date:    end,
+      p_day_type:    dtype,
+    });
+
+    await LeaveRequests.create({
+      company_id:    company.id,
+      user_id:       user.id,
+      employee_id:   employee.id,
+      leave_type:    type,
+      day_type:      dtype,
+      start_date:    start,
+      end_date:      dtype !== 'full' ? start : end,
+      total_days:    workDays ?? (dtype !== 'full' ? 0.5 : daysBetween(start, end)),
+      status:        'pending',
+      reason:        reason || null,
+      notes:         notes  || null,
+      deduct_allowance: type === 'annual',
+    });
+
+    await LeaveBalances.sync(employee.id);
+    toast('Leave request submitted successfully.', 'success');
+    closeRequestModal();
+    await Promise.all([loadStats(company), loadBalance(employee, company), loadUpcoming(company)]);
+  } catch(e) {
+    showReqError(e.message || 'Failed to submit request.');
+  } finally {
+    document.getElementById('req-btn-text').classList.remove('hidden');
+    document.getElementById('req-spinner').classList.add('hidden');
+    document.getElementById('submit-request-btn').disabled = false;
+  }
+}
+
+function showReqError(msg) {
+  document.getElementById('req-error-msg').textContent = msg;
+  document.getElementById('req-error').classList.remove('hidden');
+}
+
+init();
+</script>
+</body>
+</html>

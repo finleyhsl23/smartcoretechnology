@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Leave — SmartCore</title>
+  <link rel="stylesheet" href="/assets/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-mount"></div>
+  <main class="main-content">
+    <div class="topbar">
+      <div class="topbar-title">My Leave</div>
+      <div class="topbar-actions">
+        <button class="btn btn-primary btn-sm" id="request-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+          Request Leave
+        </button>
+      </div>
+    </div>
+    <div class="page-content">
+
+      <!-- Balance cards -->
+      <div class="grid grid-4 mb-4" id="balance-cards">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:var(--accent-soft)">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="color:var(--accent)"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>
+          </div>
+          <div><div class="stat-label">Total Allowance</div><div class="stat-value" id="b-total">—</div><div class="stat-sub" id="b-year"></div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:var(--success-soft)">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="color:var(--success)"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+          </div>
+          <div><div class="stat-label">Remaining</div><div class="stat-value text-success" id="b-remaining">—</div><div class="stat-sub">days left</div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:var(--danger-soft)">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="color:var(--danger)"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+          </div>
+          <div><div class="stat-label">Used</div><div class="stat-value" id="b-used">—</div><div class="stat-sub">days taken</div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:var(--warning-soft)">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="color:var(--warning)"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg>
+          </div>
+          <div><div class="stat-label">Pending</div><div class="stat-value text-warning" id="b-pending">—</div><div class="stat-sub">awaiting approval</div></div>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="card mb-4">
+        <div class="card-body" style="padding:14px 20px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span class="text-sm text-muted">Leave used this year</span>
+            <span class="text-sm font-semibold" id="b-pct">—</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="b-bar" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="card">
+        <div class="card-header" style="border-bottom:none;padding-bottom:0">
+          <div class="tabs" style="margin-bottom:0;border-bottom:1px solid var(--border);width:100%">
+            <button class="tab-btn active" data-tab="approved">Approved</button>
+            <button class="tab-btn" data-tab="pending">Pending</button>
+            <button class="tab-btn" data-tab="cancelled">Cancelled / Rejected</button>
+          </div>
+        </div>
+        <div class="card-body" style="padding:0">
+          <div id="leave-loading" class="page-loading" style="min-height:200px"><div class="spinner spinner-lg"></div></div>
+          <div id="leave-table-wrap" class="table-wrap hidden">
+            <table>
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Dates</th>
+                  <th>Days</th>
+                  <th>Day Type</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="leave-tbody"></tbody>
+            </table>
+          </div>
+          <div id="leave-empty" class="empty-state hidden">
+            <div class="empty-state-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>
+            </div>
+            <h3>No leave requests</h3>
+            <p id="leave-empty-msg">No leave found in this category.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Cancellation Modal -->
+<div class="modal-overlay" id="cancel-modal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <div><div class="modal-title">Request Cancellation</div><div class="modal-sub">This will be sent to your manager for approval.</div></div>
+      <button class="modal-close" onclick="document.getElementById('cancel-modal').classList.remove('open')">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Reason for cancellation</label>
+        <textarea class="form-control" id="cancel-reason" rows="3" placeholder="Please provide a reason..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="document.getElementById('cancel-modal').classList.remove('open')">Cancel</button>
+      <button class="btn btn-danger" id="confirm-cancel-btn">Request Cancellation</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/assets/js/config.js"></script>
+<script src="/assets/js/auth.js"></script>
+<script src="/assets/js/api.js"></script>
+<script src="/assets/js/components.js"></script>
+<script>
+let _ctx = null;
+let _allLeave = [];
+let _currentTab = 'approved';
+let _cancelId = null;
+
+async function init() {
+  const ctx = await requireCompany();
+  if (!ctx) return;
+  const { user, company } = ctx;
+  _ctx = { user, company };
+
+  await renderSidebar('my-leave');
+
+  const employee = await Employees.getByUserId(user.id, company.id);
+  _ctx.employee = employee;
+
+  if (!employee) {
+    document.getElementById('leave-loading').classList.add('hidden');
+    document.getElementById('leave-empty').classList.remove('hidden');
+    document.getElementById('leave-empty-msg').textContent = 'Employee profile not found.';
+    return;
+  }
+
+  await Promise.all([loadBalance(employee), loadLeave(employee)]);
+
+  document.getElementById('request-btn').addEventListener('click', () => {
+    window.location.href = APP_BASE + '/app/dashboard.html';
+  });
+
+  // Tabs
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _currentTab = btn.dataset.tab;
+      renderLeaveTable();
+    });
+  });
+}
+
+async function loadBalance(employee) {
+  const year = currentYear();
+  document.getElementById('b-year').textContent = `Year ${year}`;
+  const bal = await LeaveBalances.get(employee.id, year);
+  if (!bal) return;
+  const used = bal.used_days || 0;
+  const total = bal.total_allowance || 0;
+  const remaining = bal.remaining_days ?? (total - used);
+  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+
+  document.getElementById('b-total').textContent     = total.toFixed(1);
+  document.getElementById('b-remaining').textContent = remaining.toFixed(1);
+  document.getElementById('b-used').textContent      = used.toFixed(1);
+  document.getElementById('b-pending').textContent   = (bal.pending_days || 0).toFixed(1);
+  document.getElementById('b-pct').textContent       = pct + '%';
+  const bar = document.getElementById('b-bar');
+  bar.style.width = pct + '%';
+  if (pct > 90) bar.classList.add('danger');
+  else if (pct > 70) bar.classList.add('warning');
+}
+
+async function loadLeave(employee) {
+  const { data, error } = await getSupabase()
+    .from('leave_requests')
+    .select('*')
+    .eq('employee_id', employee.id)
+    .order('start_date', { ascending: false });
+
+  document.getElementById('leave-loading').classList.add('hidden');
+
+  if (error) { toast('Failed to load leave: ' + error.message, 'error'); return; }
+  _allLeave = data || [];
+  renderLeaveTable();
+}
+
+function renderLeaveTable() {
+  let filtered;
+  if (_currentTab === 'approved')   filtered = _allLeave.filter(r => r.status === 'approved' || r.status === 'cancellation_requested');
+  else if (_currentTab === 'pending') filtered = _allLeave.filter(r => r.status === 'pending');
+  else filtered = _allLeave.filter(r => ['cancelled','rejected'].includes(r.status));
+
+  const tbody = document.getElementById('leave-tbody');
+  const wrap  = document.getElementById('leave-table-wrap');
+  const empty = document.getElementById('leave-empty');
+
+  if (!filtered.length) {
+    wrap.classList.add('hidden');
+    empty.classList.remove('hidden');
+    document.getElementById('leave-empty-msg').textContent =
+      _currentTab === 'approved'  ? 'No approved leave yet.' :
+      _currentTab === 'pending'   ? 'No pending requests.' :
+      'No cancelled or rejected leave.';
+    return;
+  }
+
+  wrap.classList.remove('hidden');
+  empty.classList.add('hidden');
+
+  tbody.innerHTML = filtered.map(r => {
+    const statusClass = STATUS_BADGE[r.status] || 'badge-muted';
+    const statusLabel = r.status === 'cancellation_requested' ? 'Cancel Req.' : r.status.charAt(0).toUpperCase() + r.status.slice(1);
+    const canCancel   = r.status === 'approved';
+    const canWithdraw = r.status === 'pending';
+
+    return `<tr>
+      <td><strong>${LEAVE_TYPES[r.leave_type] || r.leave_type}</strong></td>
+      <td>${formatDate(r.start_date)}${r.start_date !== r.end_date ? ' – ' + formatDate(r.end_date) : ''}</td>
+      <td>${r.total_days}</td>
+      <td>${DAY_TYPES[r.day_type] || r.day_type}</td>
+      <td><span class="badge ${statusClass}">${statusLabel}</span></td>
+      <td>
+        ${canCancel ? `<button class="btn btn-ghost btn-sm text-danger" onclick="openCancelModal('${r.id}')">Cancel</button>` : ''}
+        ${canWithdraw ? `<button class="btn btn-ghost btn-sm text-danger" onclick="withdrawRequest('${r.id}')">Withdraw</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openCancelModal(id) {
+  _cancelId = id;
+  document.getElementById('cancel-reason').value = '';
+  document.getElementById('cancel-modal').classList.add('open');
+}
+
+document.getElementById('confirm-cancel-btn').addEventListener('click', async () => {
+  if (!_cancelId) return;
+  const reason = document.getElementById('cancel-reason').value.trim();
+  if (!reason) { toast('Please provide a reason.', 'warning'); return; }
+  try {
+    await LeaveRequests.update(_cancelId, {
+      status: 'cancellation_requested',
+      cancellation_requested_at: new Date().toISOString(),
+      cancellation_requested_by: _ctx.user.id,
+      cancellation_reason: reason,
+    });
+    toast('Cancellation request submitted.', 'success');
+    document.getElementById('cancel-modal').classList.remove('open');
+    await loadLeave(_ctx.employee);
+  } catch(e) { toast(e.message, 'error'); }
+});
+
+async function withdrawRequest(id) {
+  const ok = await confirm('Withdraw Request', 'Are you sure you want to withdraw this leave request?', { danger: true, confirmLabel: 'Withdraw' });
+  if (!ok) return;
+  try {
+    await LeaveRequests.update(id, { status: 'cancelled', cancelled_at: new Date().toISOString(), cancelled_by: _ctx.user.id });
+    await LeaveBalances.sync(_ctx.employee.id);
+    toast('Request withdrawn.', 'success');
+    await loadLeave(_ctx.employee);
+    await loadBalance(_ctx.employee);
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+init();
+</script>
+</body>
+</html>

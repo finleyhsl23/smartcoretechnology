@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Company Detail — SmartCore Admin</title>
+  <link rel="stylesheet" href="/assets/css/main.css">
+</head>
+<body>
+<div id="app" style="min-height:100vh;background:var(--bg-primary)">
+
+  <!-- Admin top bar -->
+  <div class="admin-header">
+    <div style="display:flex;align-items:center;gap:10px">
+      <a href="/systems/holidaymanagement/admin/" class="btn btn-ghost btn-sm btn-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+      </a>
+      <div style="width:32px;height:32px;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:center">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px;color:#fff"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+      </div>
+      <span style="font-size:14px;font-weight:700;color:var(--text-primary)">SmartCore</span>
+      <span class="admin-badge">Admin Portal</span>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+      <button class="btn btn-ghost btn-sm btn-icon" onclick="toggleTheme(); updateThemeIcon()" title="Toggle theme" id="theme-btn">
+        <span id="theme-toggle-icon"></span>
+      </button>
+      <span class="text-sm text-muted" id="admin-name"></span>
+      <button class="btn btn-ghost btn-sm" onclick="signOut()">Sign Out</button>
+    </div>
+  </div>
+
+  <div style="max-width:1100px;margin:0 auto;padding:28px" id="page-wrap">
+    <div class="page-loading" style="min-height:400px"><div class="spinner spinner-lg"></div></div>
+  </div>
+</div>
+
+<!-- Edit Notes Modal -->
+<div class="modal-overlay" id="notes-modal">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-header">
+      <div class="modal-title">Internal Notes</div>
+      <button class="modal-close" onclick="document.getElementById('notes-modal').classList.remove('open')">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <textarea class="form-control" id="notes-input" rows="5" placeholder="Notes visible to SmartCore staff only…"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="document.getElementById('notes-modal').classList.remove('open')">Cancel</button>
+      <button class="btn btn-primary" id="notes-save-btn">Save Notes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Limits Modal -->
+<div class="modal-overlay" id="limits-modal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <div class="modal-title">Edit Company Limits</div>
+      <button class="modal-close" onclick="document.getElementById('limits-modal').classList.remove('open')">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group mb-3">
+        <label class="form-label">Max Employees</label>
+        <select class="form-control" id="lim-max-emp">
+          <option value="10">10</option>
+          <option value="25">25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+          <option value="250">250</option>
+          <option value="500">500</option>
+          <option value="">Unlimited</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Plan</label>
+        <select class="form-control" id="lim-plan">
+          <option value="starter">Starter</option>
+          <option value="professional">Professional</option>
+          <option value="enterprise">Enterprise</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="document.getElementById('limits-modal').classList.remove('open')">Cancel</button>
+      <button class="btn btn-primary" id="limits-save-btn">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/assets/js/config.js"></script>
+<script src="/assets/js/auth.js"></script>
+<script src="/assets/js/api.js"></script>
+<script src="/assets/js/components.js"></script>
+<script>
+let _company   = null;
+let _companyId = null;
+
+async function init() {
+  initTheme();
+  updateThemeIcon();
+
+  const user = await requireAuth();
+  if (!user) return;
+
+  const ok = await isSmartcoreAdmin();
+  if (!ok) { document.getElementById('app').innerHTML = '<div class="page-loading" style="min-height:100vh"><div class="text-center"><div style="font-size:32px;margin-bottom:12px">🚫</div><div style="font-weight:700">Access Denied</div><a href="/systems/holidaymanagement/admin/" class="btn btn-secondary mt-4">Back</a></div></div>'; return; }
+
+  const { data: staffRecord } = await getSupabase().schema('public').from('smartcore_staff').select('full_name').eq('user_id', user.id).single();
+  document.getElementById('admin-name').textContent = staffRecord?.full_name || user.email;
+
+  const params = new URLSearchParams(location.search);
+  _companyId = params.get('id');
+  if (!_companyId) { location.href = '/systems/holidaymanagement/admin/'; return; }
+
+  await loadCompany();
+
+  document.getElementById('notes-save-btn').addEventListener('click', saveNotes);
+  document.getElementById('limits-save-btn').addEventListener('click', saveLimits);
+}
+
+async function loadCompany() {
+  const sb = getSupabase();
+  const { data, error } = await sb.from('companies').select('*').eq('id', _companyId).single();
+  if (error || !data) { document.getElementById('page-wrap').innerHTML = '<div class="page-loading" style="min-height:400px"><div class="text-center"><div style="font-size:32px;margin-bottom:12px">⚠️</div><div>Company not found.</div><a href="/systems/holidaymanagement/admin/" class="btn btn-secondary mt-4">Back</a></div></div>'; return; }
+  _company = data;
+
+  // Load employee count
+  const { data: empCount } = await sb.rpc('get_company_active_employee_count', { p_company_id: _companyId });
+
+  // Load employees
+  const { data: employees } = await sb.from('employees').select('id,first_name,last_name,email,role,status,department,created_at').eq('company_id', _companyId).order('first_name');
+
+  // Load audit log
+  const { data: auditLog } = await sb.from('audit_log').select('*').eq('company_id', _companyId).order('created_at', { ascending: false }).limit(50);
+
+  renderPage(data, empCount || 0, employees || [], auditLog || []);
+}
+
+function renderPage(c, empCount, employees, auditLog) {
+  const statusClass   = c.status === 'active' ? 'badge-success' : c.status === 'suspended' ? 'badge-danger' : 'badge-warning';
+  const onboarded     = !!c.onboarding_completed_at;
+  const empPct        = c.max_employees ? Math.round((empCount / c.max_employees) * 100) : null;
+  const empBarColor   = empPct >= 90 ? 'var(--danger)' : empPct >= 70 ? 'var(--warning)' : 'var(--success)';
+
+  document.getElementById('page-wrap').innerHTML = `
+    <!-- Page header -->
+    <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:24px;flex-wrap:wrap">
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+          <h1 style="font-size:22px;font-weight:800;margin:0">${esc(c.display_name || c.company_name)}</h1>
+          <span class="badge ${statusClass}">${c.status || 'unknown'}</span>
+          ${onboarded ? '<span class="badge badge-success">Onboarded</span>' : '<span class="badge badge-warning">Onboarding Pending</span>'}
+        </div>
+        <div class="text-muted text-sm">ID: ${c.id} &bull; Created ${formatDate(c.created_at)}</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${c.status === 'active'
+          ? `<button class="btn btn-danger btn-sm" onclick="suspendCompany()">Suspend Company</button>`
+          : `<button class="btn btn-success btn-sm" onclick="reactivateCompany()">Reactivate Company</button>`}
+        <button class="btn btn-secondary btn-sm" onclick="openLimitsModal()">Edit Limits</button>
+        <button class="btn btn-secondary btn-sm" onclick="openNotesModal()">Edit Notes</button>
+        ${!onboarded ? `<button class="btn btn-primary btn-sm" onclick="resendOwnerInvite()">Resend Invite</button>` : ''}
+      </div>
+    </div>
+
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+      <!-- Left column -->
+      <div>
+        <!-- Company info -->
+        <div class="card mb-4">
+          <div class="card-header"><div class="card-title">Company Details</div></div>
+          <div class="card-body">
+            <div class="detail-row"><span class="detail-label">Legal Name</span><span>${esc(c.company_name || '—')}</span></div>
+            <div class="detail-row"><span class="detail-label">Display Name</span><span>${esc(c.display_name || '—')}</span></div>
+            <div class="detail-row"><span class="detail-label">Email</span><span>${esc(c.main_email || '—')}</span></div>
+            <div class="detail-row"><span class="detail-label">Phone</span><span>${esc(c.main_phone || '—')}</span></div>
+            <div class="detail-row"><span class="detail-label">Address</span><span>${[c.address_line_1,c.city,c.postcode].filter(Boolean).join(', ') || '—'}</span></div>
+            <div class="detail-row"><span class="detail-label">Plan</span><span>${esc(c.plan_name || '—')}</span></div>
+            <div class="detail-row"><span class="detail-label">BH Region</span><span>${esc(c.default_bank_holiday_region || '—')}</span></div>
+            <div class="detail-row"><span class="detail-label">Default Leave</span><span>${c.default_annual_leave_allowance || '—'} days</span></div>
+          </div>
+        </div>
+
+        <!-- Owner info -->
+        <div class="card mb-4">
+          <div class="card-header"><div class="card-title">Owner</div></div>
+          <div class="card-body">
+            <div class="detail-row"><span class="detail-label">Name</span><span>${esc(c.owner_name || '—')}</span></div>
+            <div class="detail-row"><span class="detail-label">Email</span><span>${c.owner_email ? `<a href="mailto:${esc(c.owner_email)}" class="text-accent">${esc(c.owner_email)}</a>` : '—'}</span></div>
+            <div class="detail-row"><span class="detail-label">Phone</span><span>${esc(c.owner_phone || '—')}</span></div>
+            <div class="detail-row"><span class="detail-label">Onboarding</span><span>${onboarded ? `Completed ${formatDate(c.onboarding_completed_at)}` : '<span class="text-warning">Pending</span>'}</span></div>
+            <div class="detail-row"><span class="detail-label">Created By</span><span>${esc(c.created_by_smartcore_user || '—')}</span></div>
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div class="card mb-4">
+          <div class="card-header" style="display:flex;align-items:center">
+            <div class="card-title" style="flex:1">Internal Notes</div>
+            <button class="btn btn-ghost btn-sm" onclick="openNotesModal()">Edit</button>
+          </div>
+          <div class="card-body">
+            <p class="text-sm" style="white-space:pre-wrap;margin:0;color:var(--text-secondary)">${c.notes ? esc(c.notes) : '<span class="text-muted">No notes.</span>'}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right column -->
+      <div>
+        <!-- Employee stats -->
+        <div class="card mb-4">
+          <div class="card-header"><div class="card-title">Employee Usage</div></div>
+          <div class="card-body">
+            <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px">
+              <span style="font-size:28px;font-weight:800">${empCount}</span>
+              <span class="text-muted">/ ${c.max_employees || '∞'}</span>
+              <span class="text-muted text-sm">&nbsp;employees</span>
+            </div>
+            ${empPct !== null ? `
+              <div class="progress-bar" style="background:var(--bg-secondary);border-radius:99px;height:6px;overflow:hidden;margin-bottom:8px">
+                <div style="height:100%;width:${Math.min(empPct,100)}%;background:${empBarColor};border-radius:99px;transition:width .3s"></div>
+              </div>
+              <div class="text-sm text-muted">${empPct}% of limit used</div>
+            ` : '<div class="text-sm text-muted">Unlimited plan</div>'}
+          </div>
+        </div>
+
+        <!-- Employee list -->
+        <div class="card mb-4">
+          <div class="card-header"><div class="card-title">Employees (${employees.length})</div></div>
+          ${employees.length ? `
+            <div style="max-height:320px;overflow-y:auto">
+              <table>
+                <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Dept</th></tr></thead>
+                <tbody>
+                  ${employees.map(e => `<tr>
+                    <td>
+                      <div style="font-size:12px;font-weight:600">${esc(e.first_name)} ${esc(e.last_name)}</div>
+                      <div class="text-muted" style="font-size:11px">${esc(e.email||'')}</div>
+                    </td>
+                    <td><span class="badge badge-accent" style="font-size:10px">${e.role||'employee'}</span></td>
+                    <td><span class="badge ${e.status==='active'?'badge-success':e.status==='invited'?'badge-warning':'badge-secondary'}" style="font-size:10px">${e.status||'unknown'}</span></td>
+                    <td class="text-muted text-sm">${esc(e.department||'—')}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          ` : '<div class="card-body text-muted text-sm">No employees yet.</div>'}
+        </div>
+
+        <!-- Audit log -->
+        <div class="card">
+          <div class="card-header"><div class="card-title">Audit Log</div></div>
+          ${auditLog.length ? `
+            <div style="max-height:320px;overflow-y:auto">
+              <table>
+                <thead><tr><th>Date</th><th>Action</th><th>By</th></tr></thead>
+                <tbody>
+                  ${auditLog.slice(0,30).map(a => `<tr>
+                    <td class="text-muted text-sm" style="white-space:nowrap">${formatDate(a.created_at)}</td>
+                    <td style="font-size:12px">${esc(a.action||'')} ${a.details ? `<span class="text-muted">— ${esc(JSON.stringify(a.details).slice(0,60))}</span>` : ''}</td>
+                    <td class="text-muted text-sm">${esc(a.performed_by_email||a.performed_by||'system')}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          ` : '<div class="card-body text-muted text-sm">No audit events yet.</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function openNotesModal() {
+  document.getElementById('notes-input').value = _company?.notes || '';
+  document.getElementById('notes-modal').classList.add('open');
+}
+
+async function saveNotes() {
+  const notes = document.getElementById('notes-input').value.trim() || null;
+  try {
+    await getSupabase().from('companies').update({ notes, updated_at: new Date().toISOString() }).eq('id', _companyId);
+    _company.notes = notes;
+    toast('Notes saved.', 'success');
+    document.getElementById('notes-modal').classList.remove('open');
+    await loadCompany();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+function openLimitsModal() {
+  const sel = document.getElementById('lim-max-emp');
+  sel.value = _company?.max_employees || '';
+  document.getElementById('lim-plan').value = _company?.plan_name || 'professional';
+  document.getElementById('limits-modal').classList.add('open');
+}
+
+async function saveLimits() {
+  const maxEmp = document.getElementById('lim-max-emp').value;
+  const plan   = document.getElementById('lim-plan').value;
+  try {
+    await getSupabase().from('companies').update({
+      max_employees: maxEmp ? parseInt(maxEmp) : null,
+      plan_name:     plan,
+      updated_at:    new Date().toISOString(),
+    }).eq('id', _companyId);
+    toast('Limits updated.', 'success');
+    document.getElementById('limits-modal').classList.remove('open');
+    await loadCompany();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function suspendCompany() {
+  const ok = await confirm('Suspend Company', `Suspend ${_company.display_name || _company.company_name}? All users will immediately lose access.`, { danger: true, confirmLabel: 'Suspend' });
+  if (!ok) return;
+  try {
+    await getSupabase().from('companies').update({ status: 'suspended', updated_at: new Date().toISOString() }).eq('id', _companyId);
+    toast('Company suspended.', 'success');
+    await loadCompany();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function reactivateCompany() {
+  try {
+    await getSupabase().from('companies').update({ status: 'active', updated_at: new Date().toISOString() }).eq('id', _companyId);
+    toast('Company reactivated.', 'success');
+    await loadCompany();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function resendOwnerInvite() {
+  const ok = await confirm('Resend Invite', `Send a new setup link to ${_company.owner_email}?`, { confirmLabel: 'Send' });
+  if (!ok) return;
+  try {
+    await callAPI('/api/send-invite', {
+      action:      'resend_owner_invite',
+      company_id:  _companyId,
+      owner_email: _company.owner_email,
+      owner_name:  _company.owner_name,
+    });
+    toast('Invite resent.', 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+init();
+</script>
+</body>
+</html>

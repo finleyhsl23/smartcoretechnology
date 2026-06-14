@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Employee — SmartCore</title>
+  <link rel="stylesheet" href="/assets/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-mount"></div>
+  <main class="main-content">
+    <div class="topbar">
+      <div class="topbar-title" id="page-title">Employee</div>
+      <div class="topbar-actions" id="topbar-actions">
+        <a href="/systems/holidaymanagement/app/employees.html" class="btn btn-secondary btn-sm">← Employees</a>
+      </div>
+    </div>
+    <div class="page-content" id="page-content">
+      <div class="page-loading" style="min-height:400px"><div class="spinner spinner-lg"></div></div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/assets/js/config.js"></script>
+<script src="/assets/js/auth.js"></script>
+<script src="/assets/js/api.js"></script>
+<script src="/assets/js/components.js"></script>
+<script>
+let _emp     = null;
+let _company = null;
+let _user    = null;
+let _editMode = false;
+
+async function init() {
+  const ctx = await requireCompany();
+  if (!ctx) return;
+  if (!isAdmin()) { window.location.href = APP_BASE + '/app/dashboard.html'; return; }
+
+  _company = ctx.company;
+  _user    = ctx.user;
+  await renderSidebar('employees');
+
+  const id = new URLSearchParams(location.search).get('id');
+  if (!id) { window.location.href = APP_BASE + '/app/employees.html'; return; }
+
+  const emp = await Employees.get(id);
+  if (!emp || emp.company_id !== _company.id) { toast('Employee not found.', 'error'); return; }
+
+  _emp = emp;
+  document.getElementById('page-title').textContent = emp.full_name;
+  renderProfile();
+}
+
+async function renderProfile() {
+  const emp  = _emp;
+  const year = currentYear();
+
+  // Load balance and leave in parallel
+  const [bal, leaveList, patterns] = await Promise.all([
+    LeaveBalances.get(emp.id, year),
+    LeaveRequests.list(_company.id, { employeeId: emp.id, limit: 10 }),
+    ShiftPatterns.list(_company.id),
+  ]);
+
+  const deptColour = getDeptColour(emp.department);
+  const onboardBadge = emp.onboarding_status === 'complete' ? 'badge-success' :
+                       emp.onboarding_status === 'invited'  ? 'badge-warning' : 'badge-muted';
+  const onboardLabel = emp.onboarding_status === 'complete' ? 'Complete' :
+                       emp.onboarding_status === 'invited'  ? 'Invite Sent' : 'Pending';
+
+  // Build action buttons
+  const actionBtns = `
+    ${emp.onboarding_status !== 'complete' ? `<button class="btn btn-secondary btn-sm" onclick="resendInvite()">Resend Invite</button>` : ''}
+    <button class="btn btn-primary btn-sm" onclick="enableEdit()">Edit Employee</button>
+    ${emp.employment_status === 'active'
+      ? `<button class="btn btn-ghost btn-sm text-danger" onclick="deactivateEmployee()">Deactivate</button>`
+      : `<button class="btn btn-secondary btn-sm" onclick="reactivateEmployee()">Reactivate</button>`}
+  `;
+  document.getElementById('topbar-actions').innerHTML =
+    `<a href="/systems/holidaymanagement/app/employees.html" class="btn btn-secondary btn-sm">← Employees</a>${actionBtns}`;
+
+  const pattern = patterns.find(p => p.id === emp.shift_pattern_id);
+
+  document.getElementById('page-content').innerHTML = `
+    <!-- Onboarding warning -->
+    ${emp.onboarding_status !== 'complete' ? `
+    <div class="warning-box mb-4">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:15px;height:15px;flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
+      <span>Onboarding incomplete. Leave cannot be added until the employee completes their onboarding.</span>
+    </div>` : ''}
+
+    <div class="grid" style="grid-template-columns:1fr 300px;gap:16px">
+      <!-- Left -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+
+        <!-- Profile header -->
+        <div class="card">
+          <div class="card-body" style="display:flex;align-items:center;gap:16px">
+            <div class="avatar avatar-xl" style="background:${avatarBg(emp.full_name)};color:#fff;font-size:24px;font-weight:800">${initials(emp.full_name)}</div>
+            <div style="flex:1">
+              <div style="font-size:20px;font-weight:800;color:var(--text-primary)">${emp.full_name}</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-top:2px">${emp.job_title || ''}${emp.department ? ' · ' + emp.department : ''}</div>
+              <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+                <span class="badge ${onboardBadge}">${onboardLabel}</span>
+                <span class="badge ${emp.employment_status === 'active' ? 'badge-success' : 'badge-muted'}">${emp.employment_status === 'active' ? 'Active' : 'Inactive'}</span>
+                <span class="badge badge-muted">${emp.role}</span>
+                ${emp.department ? `<span class="badge" style="background:${deptColour}22;color:${deptColour}">${emp.department}</span>` : ''}
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-muted text-sm">Employee Code</div>
+              <div style="font-size:15px;font-weight:700;font-family:monospace;color:var(--text-primary)">${emp.employee_code || '—'}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Details tabs -->
+        <div class="card">
+          <div class="card-header" style="padding-bottom:0;border-bottom:none">
+            <div class="tabs" style="width:100%;margin-bottom:0">
+              <button class="tab-btn active" data-tab="details">Details</button>
+              <button class="tab-btn" data-tab="leave">Leave History</button>
+              <button class="tab-btn" data-tab="edit">Edit</button>
+            </div>
+          </div>
+
+          <!-- Details tab -->
+          <div class="tab-panel active card-body" id="tab-details">
+            <div class="grid grid-2" style="gap:0">
+              ${detail('Full Name', emp.full_name)}
+              ${detail('Job Title', emp.job_title)}
+              ${detail('Department', emp.department)}
+              ${detail('Employment Type', emp.employment_type)}
+              ${detail('Work Email', emp.work_email)}
+              ${detail('Personal Email', emp.personal_email)}
+              ${detail('Phone', emp.phone || emp.personal_phone)}
+              ${detail('Notice Period', emp.notice_period)}
+              ${detail('Start Date', formatDate(emp.start_date))}
+              ${detail('Shift Pattern', pattern?.name || '—')}
+              ${detail('Bank Holiday Region', emp.bank_holiday_region || _company.default_bank_holiday_region || '—')}
+              ${detail('First Login', emp.first_login_at ? formatDate(emp.first_login_at) : 'Not yet')}
+            </div>
+            ${emp.address_line_1 ? `
+            <div class="divider"></div>
+            <div class="text-muted text-sm font-semibold mb-2" style="text-transform:uppercase;letter-spacing:.05em">Address</div>
+            <div style="font-size:13px;color:var(--text-primary);line-height:1.7">
+              ${[emp.address_line_1,emp.address_line_2,emp.city,emp.county,emp.postcode,emp.country].filter(Boolean).join(', ')}
+            </div>` : ''}
+            ${emp.emergency_contact_1_name ? `
+            <div class="divider"></div>
+            <div class="text-muted text-sm font-semibold mb-2" style="text-transform:uppercase;letter-spacing:.05em">Emergency Contacts</div>
+            <div class="grid grid-2" style="gap:0">
+              ${detail('Contact 1', emp.emergency_contact_1_name)}
+              ${detail('Relationship', emp.emergency_contact_1_relationship)}
+              ${detail('Phone', emp.emergency_contact_1_phone)}
+              ${detail('Email', emp.emergency_contact_1_email)}
+            </div>` : ''}
+          </div>
+
+          <!-- Leave history tab -->
+          <div class="tab-panel card-body" id="tab-leave" style="padding:0">
+            ${!leaveList.length ? `<div class="empty-state" style="padding:32px"><h3>No leave history</h3><p>No leave requests found for this employee.</p></div>` :
+            `<div class="table-wrap">
+              <table>
+                <thead><tr><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th>Submitted</th></tr></thead>
+                <tbody>${leaveList.map(r => `
+                  <tr>
+                    <td>${LEAVE_TYPES[r.leave_type] || r.leave_type}</td>
+                    <td>${formatDate(r.start_date)}${r.start_date !== r.end_date ? ' – ' + formatDate(r.end_date) : ''}</td>
+                    <td>${r.total_days}</td>
+                    <td><span class="badge ${STATUS_BADGE[r.status] || 'badge-muted'}">${r.status}</span></td>
+                    <td>${formatDate(r.created_at)}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>`}
+          </div>
+
+          <!-- Edit tab -->
+          <div class="tab-panel card-body" id="tab-edit">
+            <form id="edit-form">
+              <div class="grid grid-2" style="gap:14px">
+                <div class="form-group"><label class="form-label">Full Name</label><input class="form-control" id="e-name" value="${esc(emp.full_name)}"></div>
+                <div class="form-group"><label class="form-label">Job Title</label><input class="form-control" id="e-title" value="${esc(emp.job_title || '')}"></div>
+                <div class="form-group"><label class="form-label">Department</label>
+                  <div class="dropdown-wrap"><input class="form-control" id="e-dept" value="${esc(emp.department || '')}" autocomplete="off"><div class="dropdown-list" id="e-dept-list"></div></div>
+                </div>
+                <div class="form-group"><label class="form-label">Employment Type</label>
+                  <select class="form-control" id="e-emp-type">
+                    ${EMPLOYMENT_TYPES.map(t => `<option${emp.employment_type===t?' selected':''}>${t}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="form-group"><label class="form-label">Work Email</label><input class="form-control" id="e-work-email" value="${esc(emp.work_email || '')}"></div>
+                <div class="form-group"><label class="form-label">Phone</label><input class="form-control" id="e-phone" value="${esc(emp.phone || emp.personal_phone || '')}"></div>
+                <div class="form-group"><label class="form-label">Role</label>
+                  <select class="form-control" id="e-role">
+                    <option value="employee"${emp.role==='employee'?' selected':''}>Employee</option>
+                    <option value="admin"${emp.role==='admin'?' selected':''}>Admin</option>
+                    <option value="owner"${emp.role==='owner'?' selected':''}>Owner</option>
+                  </select>
+                </div>
+                <div class="form-group"><label class="form-label">Annual Leave (days)</label>
+                  <input type="number" class="form-control" id="e-allowance" value="${emp.annual_leave_allowance}" step="0.5" min="0">
+                </div>
+                <div class="form-group"><label class="form-label">Shift Pattern</label>
+                  <select class="form-control" id="e-shift">
+                    <option value="">None</option>
+                    ${patterns.map(p => `<option value="${p.id}"${emp.shift_pattern_id===p.id?' selected':''}>${p.name}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="form-group"><label class="form-label">Bank Holiday Region</label>
+                  <select class="form-control" id="e-bh">
+                    <option value="">Company default</option>
+                    <option value="england-and-wales"${emp.bank_holiday_region==='england-and-wales'?' selected':''}>England &amp; Wales</option>
+                    <option value="scotland"${emp.bank_holiday_region==='scotland'?' selected':''}>Scotland</option>
+                    <option value="northern-ireland"${emp.bank_holiday_region==='northern-ireland'?' selected':''}>Northern Ireland</option>
+                  </select>
+                </div>
+                <div class="form-group col-span-2">
+                  <div class="toggle-wrap">
+                    <label class="toggle"><input type="checkbox" id="e-override-calc"${emp.override_allowance_calculation?' checked':''}><span class="toggle-slider"></span></label>
+                    <span class="toggle-label">Executive override — use custom allowance for current year only</span>
+                  </div>
+                </div>
+                <div class="form-group" id="e-override-wrap"${!emp.override_allowance_calculation?' style="display:none"':''}>
+                  <label class="form-label">Override Allowance (current year)</label>
+                  <input type="number" class="form-control" id="e-override-amt" value="${emp.override_allowance_this_year || ''}" step="0.5" min="0">
+                </div>
+              </div>
+              <div id="edit-error" class="warning-box mt-3 hidden">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:15px;height:15px;flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
+                <span id="edit-error-msg"></span>
+              </div>
+              <div class="mt-4" style="display:flex;justify-content:flex-end;gap:8px">
+                <button type="button" class="btn btn-secondary" onclick="switchTab('details')">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="save-btn">
+                  <span id="save-text">Save Changes</span>
+                  <span class="spinner spinner-sm hidden" id="save-spin" style="border-top-color:#fff"></span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right sidebar -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <!-- Leave balance -->
+        <div class="card">
+          <div class="card-header"><div class="card-title">Leave Balance ${year}</div></div>
+          <div class="card-body">
+            ${!bal ? '<div class="text-muted text-sm text-center">No balance data.</div>' : `
+            <div style="margin-bottom:12px">
+              <div class="leave-allowance-number">${(bal.remaining_days ?? 0).toFixed(1)}</div>
+              <div class="text-muted text-sm">days remaining</div>
+            </div>
+            <div class="progress-bar mb-3">
+              <div class="progress-fill${bal.total_allowance > 0 && (bal.used_days/bal.total_allowance) > 0.9 ? ' danger' : ''}" style="width:${bal.total_allowance > 0 ? Math.min(100,(bal.used_days/bal.total_allowance)*100) : 0}%"></div>
+            </div>
+            <div class="leave-breakdown">
+              <div class="leave-stat"><div class="leave-stat-value">${(bal.total_allowance||0).toFixed(1)}</div><div class="leave-stat-label">Total</div></div>
+              <div class="leave-stat"><div class="leave-stat-value">${(bal.used_days||0).toFixed(1)}</div><div class="leave-stat-label">Used</div></div>
+              <div class="leave-stat"><div class="leave-stat-value text-warning">${(bal.pending_days||0).toFixed(1)}</div><div class="leave-stat-label">Pending</div></div>
+            </div>
+            <button class="btn btn-secondary btn-sm w-full mt-3" onclick="resyncBalance()">Recalculate Balance</button>
+            `}
+          </div>
+        </div>
+
+        <!-- Leave allowance info -->
+        <div class="card">
+          <div class="card-header"><div class="card-title">Allowance Settings</div></div>
+          <div class="card-body">
+            <div class="grid" style="gap:8px">
+              ${infoRow('Base allowance', (emp.annual_leave_allowance||0) + ' days')}
+              ${infoRow('Override active', emp.override_allowance_calculation ? 'Yes — ' + (emp.override_allowance_this_year||'') + ' days' : 'No')}
+              ${infoRow('Bank holidays', emp.include_bank_holidays ? 'Count against allowance' : 'Not counted')}
+              ${infoRow('BH Region', emp.bank_holiday_region || _company.default_bank_holiday_region || '—')}
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick actions -->
+        <div class="card">
+          <div class="card-header"><div class="card-title">Quick Actions</div></div>
+          <div class="card-body" style="display:flex;flex-direction:column;gap:6px">
+            ${emp.onboarding_status !== 'complete' ? `<button class="btn btn-secondary w-full" onclick="resendInvite()">Resend Invite</button>` : ''}
+            <button class="btn btn-secondary w-full" onclick="switchTab('edit')">Edit Details</button>
+            ${emp.employment_status === 'active'
+              ? `<button class="btn btn-ghost w-full text-danger" onclick="deactivateEmployee()">Deactivate Employee</button>`
+              : `<button class="btn btn-secondary w-full" onclick="reactivateEmployee()">Reactivate Employee</button>`}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Wire tabs
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+
+  // Edit form
+  document.getElementById('e-override-calc').addEventListener('change', function() {
+    document.getElementById('e-override-wrap').style.display = this.checked ? '' : 'none';
+  });
+  initDeptPicker('e-dept', 'e-dept-list', _company.id, emp.department || '');
+  document.getElementById('edit-form').addEventListener('submit', saveEdit);
+}
+
+function detail(label, value) {
+  return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+    <div class="text-muted" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${label}</div>
+    <div style="font-size:13px;color:var(--text-primary)">${value || '—'}</div>
+  </div>`;
+}
+
+function infoRow(label, value) {
+  return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+    <span class="text-sm text-muted">${label}</span>
+    <span class="text-sm font-semibold">${value}</span>
+  </div>`;
+}
+
+function esc(s) { return (s || '').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+}
+
+function enableEdit() { switchTab('edit'); }
+
+async function saveEdit(e) {
+  e.preventDefault();
+  document.getElementById('save-btn').disabled = true;
+  document.getElementById('save-text').classList.add('hidden');
+  document.getElementById('save-spin').classList.remove('hidden');
+  document.getElementById('edit-error').classList.add('hidden');
+
+  const overrideCalc = document.getElementById('e-override-calc').checked;
+
+  try {
+    await Employees.update(_emp.id, {
+      full_name:                     document.getElementById('e-name').value.trim(),
+      job_title:                     document.getElementById('e-title').value.trim(),
+      department:                    document.getElementById('e-dept').value.trim() || null,
+      employment_type:               document.getElementById('e-emp-type').value || null,
+      work_email:                    document.getElementById('e-work-email').value.trim() || null,
+      phone:                         document.getElementById('e-phone').value.trim() || null,
+      role:                          document.getElementById('e-role').value,
+      is_admin:                      ['admin','owner'].includes(document.getElementById('e-role').value),
+      annual_leave_allowance:        parseFloat(document.getElementById('e-allowance').value) || _emp.annual_leave_allowance,
+      shift_pattern_id:              document.getElementById('e-shift').value || null,
+      bank_holiday_region:           document.getElementById('e-bh').value || null,
+      override_allowance_calculation:overrideCalc,
+      override_allowance_this_year:  overrideCalc ? (parseFloat(document.getElementById('e-override-amt').value) || null) : _emp.override_allowance_this_year,
+      updated_at:                    new Date().toISOString(),
+    });
+
+    await LeaveBalances.sync(_emp.id);
+    toast('Employee updated successfully.', 'success');
+    _emp = await Employees.get(_emp.id);
+    await renderProfile();
+    switchTab('details');
+  } catch(err) {
+    document.getElementById('edit-error-msg').textContent = err.message;
+    document.getElementById('edit-error').classList.remove('hidden');
+  } finally {
+    document.getElementById('save-btn').disabled = false;
+    document.getElementById('save-text').classList.remove('hidden');
+    document.getElementById('save-spin').classList.add('hidden');
+  }
+}
+
+async function resyncBalance() {
+  try {
+    await LeaveBalances.sync(_emp.id);
+    toast('Balance recalculated.', 'success');
+    await renderProfile();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function resendInvite() {
+  try {
+    await callAPI('/api/send-invite', {
+      company_id:  _company.id,
+      employee_id: _emp.id,
+      email:       _emp.personal_email || _emp.work_email,
+      invite_type: 'employee',
+      created_by:  _user.id,
+    });
+    toast('Invite resent to ' + (_emp.personal_email || _emp.work_email), 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function deactivateEmployee() {
+  const ok = await confirm('Deactivate Employee', `Are you sure you want to deactivate ${_emp.full_name}? They will no longer be able to access the system.`, { danger: true, confirmLabel: 'Deactivate' });
+  if (!ok) return;
+  try {
+    await Employees.update(_emp.id, { employment_status: 'inactive', updated_at: new Date().toISOString() });
+    toast(_emp.full_name + ' has been deactivated.', 'success');
+    _emp = await Employees.get(_emp.id);
+    await renderProfile();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function reactivateEmployee() {
+  try {
+    await Employees.update(_emp.id, { employment_status: 'active', updated_at: new Date().toISOString() });
+    toast(_emp.full_name + ' has been reactivated.', 'success');
+    _emp = await Employees.get(_emp.id);
+    await renderProfile();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+init();
+</script>
+</body>
+</html>

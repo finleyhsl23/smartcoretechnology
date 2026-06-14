@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Company Settings — SmartCore</title>
+  <link rel="stylesheet" href="/assets/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-mount"></div>
+  <main class="main-content">
+    <div class="topbar">
+      <div class="topbar-title">Settings</div>
+      <div class="topbar-actions">
+        <button class="btn btn-primary btn-sm" id="save-btn">
+          <span id="save-text">Save Changes</span>
+          <span class="spinner spinner-sm hidden" id="save-spin" style="border-top-color:#fff"></span>
+        </button>
+      </div>
+    </div>
+    <div class="page-content">
+      <div class="grid" style="grid-template-columns:200px 1fr;gap:20px;align-items:start">
+        <!-- Settings nav -->
+        <div class="card">
+          <div class="card-body" style="padding:8px 0">
+            <a href="/systems/holidaymanagement/app/settings/departments.html" class="nav-link">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></svg>
+              Departments
+            </a>
+            <a href="/systems/holidaymanagement/app/settings/shift-patterns.html" class="nav-link">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+              Shift Patterns
+            </a>
+            <a href="/systems/holidaymanagement/app/settings/holidays.html" class="nav-link">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>
+              Holidays
+            </a>
+            <a href="/systems/holidaymanagement/app/settings/company.html" class="nav-link active">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
+              Company
+            </a>
+          </div>
+        </div>
+
+        <!-- Company form -->
+        <div id="form-wrap">
+          <div class="page-loading" style="min-height:300px"><div class="spinner spinner-lg"></div></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/assets/js/config.js"></script>
+<script src="/assets/js/auth.js"></script>
+<script src="/assets/js/api.js"></script>
+<script src="/assets/js/components.js"></script>
+<script>
+let _company = null;
+
+async function init() {
+  const ctx = await requireCompany();
+  if (!ctx) return;
+  if (!isOwner()) { window.location.href = APP_BASE + '/app/settings/departments.html'; return; }
+  _company = ctx.company;
+  await renderSidebar('settings');
+
+  const c = await Companies.get(_company.id);
+  renderForm(c);
+
+  document.getElementById('save-btn').addEventListener('click', saveSettings);
+}
+
+function renderForm(c) {
+  document.getElementById('form-wrap').innerHTML = `
+    <form id="company-form">
+      <!-- Identity -->
+      <div class="card mb-4">
+        <div class="card-header"><div class="card-title">Company Identity</div></div>
+        <div class="card-body">
+          <div class="grid grid-2" style="gap:14px">
+            <div class="form-group">
+              <label class="form-label">Display Name <span class="required">*</span></label>
+              <input class="form-control" id="c-display" value="${esc(c.display_name || '')}" placeholder="How your company appears in the app">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Legal Name</label>
+              <input class="form-control" id="c-legal" value="${esc(c.company_name || '')}" placeholder="Registered company name">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Main Email</label>
+              <input type="email" class="form-control" id="c-email" value="${esc(c.main_email || '')}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Main Phone</label>
+              <input class="form-control" id="c-phone" value="${esc(c.main_phone || '')}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Logo URL</label>
+              <input class="form-control" id="c-logo" value="${esc(c.logo_url || '')}" placeholder="https://…">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Address -->
+      <div class="card mb-4">
+        <div class="card-header"><div class="card-title">Address</div></div>
+        <div class="card-body">
+          <div class="grid grid-2" style="gap:14px">
+            <div class="form-group col-span-2">
+              <label class="form-label">Address Line 1</label>
+              <input class="form-control" id="c-addr1" value="${esc(c.address_line_1 || '')}">
+            </div>
+            <div class="form-group col-span-2">
+              <label class="form-label">Address Line 2</label>
+              <input class="form-control" id="c-addr2" value="${esc(c.address_line_2 || '')}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">City</label>
+              <input class="form-control" id="c-city" value="${esc(c.city || '')}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">County</label>
+              <input class="form-control" id="c-county" value="${esc(c.county || '')}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Postcode</label>
+              <input class="form-control" id="c-postcode" value="${esc(c.postcode || '')}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Country</label>
+              <input class="form-control" id="c-country" value="${esc(c.country || 'United Kingdom')}">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Leave settings -->
+      <div class="card mb-4">
+        <div class="card-header"><div class="card-title">Leave &amp; Holiday Settings</div></div>
+        <div class="card-body">
+          <div class="grid grid-2" style="gap:14px">
+            <div class="form-group">
+              <label class="form-label">Holiday Year Start Month</label>
+              <select class="form-control" id="c-ys-month">
+                ${MONTHS.map((m,i) => `<option value="${i+1}"${c.holiday_year_start_month===(i+1)?' selected':''}>${m}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Holiday Year Start Day</label>
+              <input type="number" class="form-control" id="c-ys-day" value="${c.holiday_year_start_day || 1}" min="1" max="28">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Default Annual Leave (days)</label>
+              <input type="number" class="form-control" id="c-leave" value="${c.default_annual_leave_allowance || 28}" step="0.5" min="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Default Bank Holiday Region</label>
+              <select class="form-control" id="c-bh-region">
+                ${BH_REGIONS.map(r => `<option value="${r.value}"${c.default_bank_holiday_region===r.value?' selected':''}>${r.label}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group col-span-2">
+              <div class="toggle-wrap">
+                <label class="toggle">
+                  <input type="checkbox" id="c-bh-include" ${c.bank_holidays_included_in_allowance?' checked':''}>
+                  <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Bank holidays count against annual leave allowance by default</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div id="form-error" class="warning-box mb-4 hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:15px;height:15px;flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
+        <span id="form-error-msg"></span>
+      </div>
+    </form>
+  `;
+}
+
+function esc(s) { return (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+async function saveSettings() {
+  document.getElementById('save-btn').disabled = true;
+  document.getElementById('save-text').classList.add('hidden');
+  document.getElementById('save-spin').classList.remove('hidden');
+  document.getElementById('form-error').classList.add('hidden');
+
+  const display = document.getElementById('c-display').value.trim();
+  if (!display) {
+    document.getElementById('form-error-msg').textContent = 'Display name is required.';
+    document.getElementById('form-error').classList.remove('hidden');
+    document.getElementById('save-btn').disabled = false;
+    document.getElementById('save-text').classList.remove('hidden');
+    document.getElementById('save-spin').classList.add('hidden');
+    return;
+  }
+
+  try {
+    await Companies.update(_company.id, {
+      display_name:                    display,
+      company_name:                    document.getElementById('c-legal').value.trim() || null,
+      main_email:                      document.getElementById('c-email').value.trim() || null,
+      main_phone:                      document.getElementById('c-phone').value.trim() || null,
+      logo_url:                        document.getElementById('c-logo').value.trim() || null,
+      address_line_1:                  document.getElementById('c-addr1').value.trim() || null,
+      address_line_2:                  document.getElementById('c-addr2').value.trim() || null,
+      city:                            document.getElementById('c-city').value.trim() || null,
+      county:                          document.getElementById('c-county').value.trim() || null,
+      postcode:                        document.getElementById('c-postcode').value.trim() || null,
+      country:                         document.getElementById('c-country').value.trim() || null,
+      holiday_year_start_month:        parseInt(document.getElementById('c-ys-month').value),
+      holiday_year_start_day:          parseInt(document.getElementById('c-ys-day').value) || 1,
+      default_annual_leave_allowance:  parseFloat(document.getElementById('c-leave').value) || 28,
+      default_bank_holiday_region:     document.getElementById('c-bh-region').value,
+      bank_holidays_included_in_allowance: document.getElementById('c-bh-include').checked,
+      updated_at:                      new Date().toISOString(),
+    });
+
+    // Refresh session company data
+    const updated = await Companies.get(_company.id);
+    setSelectedCompany({ ...getSelectedCompany(), ...updated });
+
+    toast('Company settings saved.', 'success');
+  } catch(e) {
+    document.getElementById('form-error-msg').textContent = e.message;
+    document.getElementById('form-error').classList.remove('hidden');
+  } finally {
+    document.getElementById('save-btn').disabled = false;
+    document.getElementById('save-text').classList.remove('hidden');
+    document.getElementById('save-spin').classList.add('hidden');
+  }
+}
+
+init();
+</script>
+</body>
+</html>

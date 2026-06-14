@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Employees — SmartCore</title>
+  <link rel="stylesheet" href="/assets/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebar-mount"></div>
+  <main class="main-content">
+    <div class="topbar">
+      <div class="topbar-title">Employees</div>
+      <div class="topbar-actions">
+        <div class="search-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>
+          <input type="text" class="form-control search-input" id="search" placeholder="Search employees…" style="width:220px">
+        </div>
+        <select class="form-control" id="dept-filter" style="width:160px">
+          <option value="">All Departments</option>
+        </select>
+        <select class="form-control" id="status-filter" style="width:140px">
+          <option value="active">Active</option>
+          <option value="all">All Statuses</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        <a href="/systems/holidaymanagement/app/employee-new.html" class="btn btn-primary btn-sm" id="add-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+          Add Employee
+        </button>
+      </div>
+    </div>
+    <div class="page-content">
+
+      <!-- Employee limit warning -->
+      <div id="limit-warning" class="warning-box mb-4 hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:15px;height:15px;flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
+        <span id="limit-msg"></span>
+      </div>
+
+      <div class="card">
+        <div id="emp-loading" class="page-loading" style="min-height:300px"><div class="spinner spinner-lg"></div></div>
+        <div class="table-wrap hidden" id="emp-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Department</th>
+                <th>Job Title</th>
+                <th>Employment Type</th>
+                <th>Start Date</th>
+                <th>Onboarding</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="emp-tbody"></tbody>
+          </table>
+        </div>
+        <div class="empty-state hidden" id="emp-empty">
+          <div class="empty-state-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg>
+          </div>
+          <h3>No employees found</h3>
+          <p>Try adjusting your filters, or add your first employee.</p>
+          <a href="/systems/holidaymanagement/app/employee-new.html" class="btn btn-primary mt-2">Add Employee</a>
+        </div>
+      </div>
+
+      <!-- Summary footer -->
+      <div id="emp-summary" class="text-sm text-muted mt-2 hidden"></div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/assets/js/config.js"></script>
+<script src="/assets/js/auth.js"></script>
+<script src="/assets/js/api.js"></script>
+<script src="/assets/js/components.js"></script>
+<script>
+let _company  = null;
+let _allEmps  = [];
+let _filtered = [];
+
+async function init() {
+  const ctx = await requireCompany();
+  if (!ctx) return;
+
+  if (!isAdmin()) { window.location.href = APP_BASE + '/app/dashboard.html'; return; }
+
+  _company = ctx.company;
+  await renderSidebar('employees');
+
+  await loadEmployees();
+  checkLimit();
+
+  document.getElementById('search').addEventListener('input', applyFilters);
+  document.getElementById('dept-filter').addEventListener('change', applyFilters);
+  document.getElementById('status-filter').addEventListener('change', applyFilters);
+}
+
+async function checkLimit() {
+  const max = _company.max_employees;
+  if (!max) return;
+  const { data } = await getSupabase().rpc('get_company_active_employee_count', { p_company_id: _company.id });
+  const count = data ?? 0;
+  if (count >= max) {
+    document.getElementById('limit-msg').textContent =
+      `Employee limit reached (${count}/${max}). Upgrade your plan to add more employees.`;
+    document.getElementById('limit-warning').classList.remove('hidden');
+    document.getElementById('add-btn').classList.add('hidden');
+  } else if (count >= max * 0.9) {
+    document.getElementById('limit-msg').textContent =
+      `Approaching employee limit (${count}/${max}).`;
+    document.getElementById('limit-warning').classList.remove('hidden');
+  }
+}
+
+async function loadEmployees() {
+  const { data, error } = await getSupabase()
+    .from('employees')
+    .select('*')
+    .eq('company_id', _company.id)
+    .order('full_name');
+
+  document.getElementById('emp-loading').classList.add('hidden');
+
+  if (error) { toast('Failed to load employees: ' + error.message, 'error'); return; }
+  _allEmps = data || [];
+
+  // Populate department filter
+  const depts = [...new Set(_allEmps.map(e => e.department).filter(Boolean))].sort();
+  const deptSelect = document.getElementById('dept-filter');
+  depts.forEach(d => {
+    const o = document.createElement('option');
+    o.value = d; o.textContent = d;
+    deptSelect.appendChild(o);
+  });
+
+  applyFilters();
+}
+
+function applyFilters() {
+  const q      = document.getElementById('search').value.toLowerCase().trim();
+  const dept   = document.getElementById('dept-filter').value;
+  const status = document.getElementById('status-filter').value;
+
+  _filtered = _allEmps.filter(e => {
+    const matchQ = !q || e.full_name?.toLowerCase().includes(q) ||
+                   e.job_title?.toLowerCase().includes(q) ||
+                   e.work_email?.toLowerCase().includes(q) ||
+                   e.employee_code?.toLowerCase().includes(q);
+    const matchD = !dept || e.department === dept;
+    const matchS = status === 'all' ||
+                   (status === 'active'   && e.employment_status === 'active') ||
+                   (status === 'inactive' && e.employment_status !== 'active');
+    return matchQ && matchD && matchS;
+  });
+
+  renderTable();
+}
+
+function renderTable() {
+  const wrap  = document.getElementById('emp-table-wrap');
+  const empty = document.getElementById('emp-empty');
+  const tbody = document.getElementById('emp-tbody');
+  const summary = document.getElementById('emp-summary');
+
+  if (!_filtered.length) {
+    wrap.classList.add('hidden');
+    empty.classList.remove('hidden');
+    summary.classList.add('hidden');
+    return;
+  }
+
+  wrap.classList.remove('hidden');
+  empty.classList.add('hidden');
+  summary.classList.remove('hidden');
+  summary.textContent = `Showing ${_filtered.length} of ${_allEmps.length} employees`;
+
+  tbody.innerHTML = _filtered.map(e => {
+    const onboardClass = e.onboarding_status === 'complete' ? 'badge-success' :
+                         e.onboarding_status === 'invited'  ? 'badge-warning' : 'badge-muted';
+    const onboardLabel = e.onboarding_status === 'complete' ? 'Complete' :
+                         e.onboarding_status === 'invited'  ? 'Invited' : 'Pending';
+    const statusClass  = e.employment_status === 'active' ? 'badge-success' : 'badge-muted';
+    const deptColour   = getDeptColour(e.department);
+    return `<tr class="clickable" onclick="window.location='/systems/holidaymanagement/app/employee-detail.html?id=${e.id}'">
+      <td>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="avatar avatar-sm" style="background:${avatarBg(e.full_name)};color:#fff;flex-shrink:0">${initials(e.full_name)}</div>
+          <div>
+            <div style="font-weight:600;font-size:13px">${e.full_name}</div>
+            <div class="text-muted" style="font-size:11px">${e.work_email || e.personal_email || ''}</div>
+          </div>
+        </div>
+      </td>
+      <td>${e.department ? `<span class="badge" style="background:${deptColour}22;color:${deptColour};border:1px solid ${deptColour}44">${e.department}</span>` : '<span class="text-muted">—</span>'}</td>
+      <td>${e.job_title || '<span class="text-muted">—</span>'}</td>
+      <td>${e.employment_type || '<span class="text-muted">—</span>'}</td>
+      <td>${formatDate(e.start_date)}</td>
+      <td><span class="badge ${onboardClass}">${onboardLabel}</span></td>
+      <td><span class="badge ${statusClass}">${e.employment_status === 'active' ? 'Active' : 'Inactive'}</span></td>
+      <td>
+        <a href="/systems/holidaymanagement/app/employee-detail.html?id=${e.id}" class="btn btn-ghost btn-sm" onclick="event.stopPropagation()">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z"/></svg>
+          Edit
+        </a>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+init();
+</script>
+</body>
+</html>
