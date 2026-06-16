@@ -10,6 +10,7 @@ import {
   amendLeaveRequestAdmin,
   enrichRequestsWithEmployeeInfo,
   getEmployeeLeaveSummary,
+  getLeaveOverlap,
   searchEmployees,
   createManualAbsence,
   sendSupportLeaveApprovedEmail,
@@ -161,7 +162,6 @@ function renderEmployeeProfile(employee) {
   }
 
   const hiddenKeys = new Set(['display_name', 'employee_name', 'employee_id_display']);
-
   const entries = Object.entries(employee).filter(([key]) => !hiddenKeys.has(key));
 
   container.innerHTML = entries.map(([key, value]) => {
@@ -330,6 +330,7 @@ async function initAdmin() {
 
             <div class="inline-actions">
               <button class="btn btn-secondary" data-action="more-info" data-id="${item.id}" type="button">More Info</button>
+              <button class="btn btn-secondary" data-action="who-else-off" data-id="${item.id}" type="button">Who Else Is Off</button>
 
               ${
                 item.status === 'pending'
@@ -361,6 +362,61 @@ async function initAdmin() {
           </div>
         </article>
       `).join('');
+    }
+
+    async function openWhoElseOffModal(request) {
+      const subtitle = document.getElementById('adminWhoElseOffSubtitle');
+      const list = document.getElementById('adminWhoElseOffList');
+
+      if (!list) {
+        alert('Who Else Is Off modal is missing from admin.html');
+        return;
+      }
+
+      if (subtitle) {
+        subtitle.textContent = `${request.employee_name || 'Employee'} • ${formatDate(request.start_date)} to ${formatDate(request.end_date)}`;
+      }
+
+      list.innerHTML = '<div class="empty-state">Checking who else is off...</div>';
+
+      openModal('adminWhoElseOffModal');
+
+      try {
+        const overlaps = await getLeaveOverlap(
+          request.company_id,
+          request.start_date,
+          request.end_date
+        );
+
+        const currentEmployeeId = String(request.employee?.id || request.employee_id || '');
+
+        const filtered = (overlaps || []).filter((item) =>
+          String(item.employee_id || '') !== currentEmployeeId &&
+          item.status !== 'cancelled' &&
+          item.status !== 'rejected'
+        );
+
+        if (!filtered.length) {
+          renderEmptyState(list, 'Nobody else is off during this period.');
+          return;
+        }
+
+        list.innerHTML = filtered.map((item) => `
+          <article class="leave-card">
+            <div class="leave-card-top">
+              <div>
+                <p class="leave-card-title">${item.employee_name || 'Employee'} • ${leaveTypeLabel(item.leave_type)}</p>
+                <p class="leave-card-subtitle">
+                  ${formatDate(item.start_date)} to ${formatDate(item.end_date)} • ${item.total_days || 0} day(s)
+                </p>
+              </div>
+              <div class="badge badge-${item.status}">${item.status || 'approved'}</div>
+            </div>
+          </article>
+        `).join('');
+      } catch (error) {
+        list.innerHTML = `<div class="empty-state">${error.message || 'Unable to check who else is off.'}</div>`;
+      }
     }
 
     function updateManualDays() {
@@ -433,6 +489,11 @@ async function initAdmin() {
       if (!request) return;
 
       selectedRequest = request;
+
+      if (action === 'who-else-off') {
+        await openWhoElseOffModal(request);
+        return;
+      }
 
       if (['approve', 'reject', 'cancel', 'approve-cancel', 'reject-cancel'].includes(action)) {
         if (
