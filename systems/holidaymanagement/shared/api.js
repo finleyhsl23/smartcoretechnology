@@ -40,6 +40,36 @@ export async function updateCompany(companyId, payload) {
   return data;
 }
 
+// ── Departments ───────────────────────────────────────────────────────────
+
+export async function getDepartments(companyId) {
+  const { data } = await db
+    .from('departments')
+    .select('*')
+    .eq('company_id', companyId)
+    .order('name');
+  return data || [];
+}
+
+export async function createDepartment(companyId, name) {
+  const { data, error } = await db
+    .from('departments')
+    .insert({ company_id: companyId, name })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteDepartment(id, companyId) {
+  const { error } = await db
+    .from('departments')
+    .delete()
+    .eq('id', id)
+    .eq('company_id', companyId);
+  if (error) throw error;
+}
+
 // ── Employees ─────────────────────────────────────────────────────────────
 
 export async function getEmployeesByCompany(companyId) {
@@ -94,12 +124,34 @@ export async function reactivateEmployee(employeeId, companyId) {
   return updateEmployee(employeeId, companyId, { employment_status: 'active' });
 }
 
+export async function deleteEmployee(employeeId, companyId) {
+  await db.from('leave_requests').delete().eq('employee_id', employeeId).eq('company_id', companyId);
+  await db.from('leave_balances').delete().eq('employee_id', employeeId);
+  await db.from('company_users').delete().eq('employee_id', employeeId);
+  const { error } = await db.from('employees').delete().eq('id', employeeId).eq('company_id', companyId);
+  if (error) throw error;
+}
+
+export async function getLeaveUsedThisYear(employeeId, companyId) {
+  const year = new Date().getFullYear();
+  const { data } = await db
+    .from('leave_requests')
+    .select('total_days')
+    .eq('employee_id', employeeId)
+    .eq('company_id', companyId)
+    .eq('status', 'approved')
+    .eq('leave_type', 'annual')
+    .gte('start_date', `${year}-01-01`)
+    .lte('start_date', `${year}-12-31`);
+  return (data || []).reduce((s, r) => s + (r.total_days || 0), 0);
+}
+
 // ── Leave Requests ────────────────────────────────────────────────────────
 
 export async function getLeaveRequestsByCompany(companyId, filters = {}) {
   let q = db
     .from('leave_requests')
-    .select('*, employees(full_name, department, role, annual_leave_allowance)')
+    .select('*, employees(full_name, department, role, annual_leave_allowance, employment_status)')
     .eq('company_id', companyId)
     .order('created_at', { ascending: false });
 
@@ -166,6 +218,28 @@ export async function createLeaveRequest(payload) {
     await notifyLeaveRequest(data, payload.employee_name, payload.company_name).catch(() => {});
   }
 
+  return data;
+}
+
+export async function addLeaveAdmin(payload) {
+  const { data, error } = await db
+    .from('leave_requests')
+    .insert({
+      company_id: payload.company_id,
+      employee_id: payload.employee_id,
+      user_id: payload.user_id || null,
+      leave_type: payload.leave_type,
+      start_date: payload.start_date,
+      end_date: payload.end_date,
+      total_days: payload.total_days,
+      notes: payload.notes || null,
+      status: 'approved',
+      approved_by: payload.approved_by,
+      approved_at: new Date().toISOString()
+    })
+    .select()
+    .single();
+  if (error) throw error;
   return data;
 }
 
@@ -277,11 +351,11 @@ export async function deleteCompanyHoliday(id, companyId) {
   if (error) throw error;
 }
 
-export async function syncBankHolidays(companyId) {
+export async function syncBankHolidays(companyId, country_codes) {
   const res = await fetch('/holidaymanagement/bank-holidays', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ company_id: companyId })
+    body: JSON.stringify({ company_id: companyId, country_codes })
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -429,6 +503,16 @@ export async function createCompany(payload) {
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function getEmployeesByCompanyAdmin(companyId) {
+  const { data, error } = await db
+    .from('employees')
+    .select('id, full_name, email, role, employment_status')
+    .eq('company_id', companyId)
+    .order('full_name');
+  if (error) throw error;
+  return data || [];
 }
 
 // ── Invites ───────────────────────────────────────────────────────────────

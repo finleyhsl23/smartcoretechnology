@@ -1,5 +1,5 @@
 const SCHEMA = 'holidaymanagement';
-const BANK_HOLIDAY_API = 'https://www.gov.uk/bank-holidays.json';
+const NAGER_API = 'https://date.nager.at/api/v3/PublicHolidays';
 
 function db(supabaseUrl, serviceKey) {
   const base = `${supabaseUrl}/rest/v1`;
@@ -39,27 +39,45 @@ export async function onRequestPost({ request, env }) {
   try { body = await request.json(); }
   catch { return new Response('Invalid JSON', { status: 400 }); }
 
-  const { company_id, region = 'england-and-wales' } = body;
+  const { company_id, country_codes = ['GB'] } = body;
   if (!company_id) return new Response('company_id required', { status: 400 });
-
-  const bhRes = await fetch(BANK_HOLIDAY_API);
-  if (!bhRes.ok) return new Response('Failed to fetch bank holidays', { status: 502 });
-
-  const bhData = await bhRes.json();
-  const regionData = bhData[region];
-  if (!regionData) return new Response(`Unknown region: ${region}`, { status: 400 });
 
   const client = db(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
   const existing = await client.select(
     'company_holidays',
-    `company_id=eq.${company_id}&source=eq.bank&select=date`
+    `company_id=eq.${company_id}&type=eq.bank&select=holiday_date`
   );
-  const existingDates = new Set((existing || []).map(h => h.date));
+  const existingDates = new Set((existing || []).map(h => h.holiday_date));
 
-  const toInsert = (regionData.events || [])
-    .filter(e => !existingDates.has(e.date))
-    .map(e => ({ company_id, date: e.date, name: e.title, source: 'bank', region }));
+  const toInsert = [];
+  const year = new Date().getFullYear();
+  const years = [year, year + 1];
+  const multiCountry = country_codes.length > 1;
+
+  for (const countryCode of country_codes) {
+    for (const y of years) {
+      try {
+        const res = await fetch(`${NAGER_API}/${y}/${countryCode}`);
+        if (!res.ok) continue;
+        const holidays = await res.json();
+        for (const holiday of (holidays || [])) {
+          const key = `${holiday.date}|${countryCode}`;
+          if (!existingDates.has(holiday.date)) {
+            toInsert.push({
+              company_id,
+              holiday_date: holiday.date,
+              name: multiCountry
+                ? `${holiday.localName || holiday.name} (${countryCode})`
+                : (holiday.localName || holiday.name),
+              type: 'bank'
+            });
+            existingDates.add(holiday.date);
+          }
+        }
+      } catch { /* skip failed country/year */ }
+    }
+  }
 
   if (!toInsert.length) {
     return Response.json({ success: true, added: 0, message: 'Already up to date' });

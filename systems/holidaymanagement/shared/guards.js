@@ -33,22 +33,39 @@ function setupThemeToggle() {
   const saved = localStorage.getItem(THEME_KEY);
   if (saved === 'light') document.body.classList.add('light-mode');
 
-  const btn = document.createElement('button');
-  btn.className = 'btn btn-white theme-toggle-btn';
-  btn.id = 'themeToggleBtn';
-  btn.textContent = document.body.classList.contains('light-mode') ? '🌙 Dark' : '☀️ Light';
-  btn.addEventListener('click', () => {
-    const isLight = document.body.classList.toggle('light-mode');
-    localStorage.setItem(THEME_KEY, isLight ? 'light' : 'dark');
-    btn.textContent = isLight ? '🌙 Dark' : '☀️ Light';
-  });
-  document.body.appendChild(btn);
+  const btn = document.getElementById('themeToggleBtn');
+  const label = document.getElementById('themeToggleLabel');
+
+  function updateBtn() {
+    const isLight = document.body.classList.contains('light-mode');
+    if (label) label.textContent = isLight ? 'Dark' : 'Light';
+    if (btn) btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+  }
+  updateBtn();
+
+  if (btn) {
+    btn.addEventListener('click', () => {
+      const isLight = document.body.classList.toggle('light-mode');
+      localStorage.setItem(THEME_KEY, isLight ? 'light' : 'dark');
+      updateBtn();
+    });
+  } else {
+    // fallback for pages without sidebar button
+    const b = document.createElement('button');
+    b.className = 'btn btn-white theme-toggle-btn';
+    b.textContent = document.body.classList.contains('light-mode') ? '🌙 Dark' : '☀️ Light';
+    b.addEventListener('click', () => {
+      const isLight = document.body.classList.toggle('light-mode');
+      localStorage.setItem(THEME_KEY, isLight ? 'light' : 'dark');
+      b.textContent = isLight ? '🌙 Dark' : '☀️ Light';
+    });
+    document.body.appendChild(b);
+  }
 }
 
 export async function requireAuth(opts = {}) {
   const { adminOnly = false, requireCompany = true } = opts;
 
-  // Apply theme immediately to avoid flash
   if (localStorage.getItem(THEME_KEY) === 'light') {
     document.body.classList.add('light-mode');
   }
@@ -59,14 +76,12 @@ export async function requireAuth(opts = {}) {
     return null;
   }
 
-  // Company selection check
   const company = getSelectedCompany();
   if (requireCompany && !company) {
     window.location.href = '/systems/holidaymanagement/select-company.html';
     return null;
   }
 
-  // Load profile from DB
   let profile = null;
   if (company) {
     const { data } = await db
