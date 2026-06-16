@@ -9,7 +9,7 @@ let companies = [];
 async function init() {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
-    window.location.href = '/holidaymanagement/login.html';
+    window.location.href = '/systems/holidaymanagement/login.html';
     return;
   }
 
@@ -24,7 +24,7 @@ async function init() {
 
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await supabase.auth.signOut();
-    window.location.href = '/holidaymanagement/login.html';
+    window.location.href = '/systems/holidaymanagement/login.html';
   });
 
   document.getElementById('createCompanyBtn').addEventListener('click', () => openModal('createCompanyModal'));

@@ -129,7 +129,7 @@ async function submitRequest(e) {
       company_name: ctx.company.name
     });
 
-    window.location.href = '/holidaymanagement/my-leave.html';
+    window.location.href = '/systems/holidaymanagement/my-leave.html';
   } catch (err) {
     showMessage('requestMsg', err.message, 'error');
     setLoadingButton(btn, false);

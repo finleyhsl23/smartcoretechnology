@@ -55,14 +55,14 @@ export async function requireAuth(opts = {}) {
 
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
-    window.location.href = '/holidaymanagement/login.html';
+    window.location.href = '/systems/holidaymanagement/login.html';
     return null;
   }
 
   // Company selection check
   const company = getSelectedCompany();
   if (requireCompany && !company) {
-    window.location.href = '/holidaymanagement/select-company.html';
+    window.location.href = '/systems/holidaymanagement/select-company.html';
     return null;
   }
 
@@ -79,7 +79,7 @@ export async function requireAuth(opts = {}) {
   }
 
   if (adminOnly && !isAdminProfile(profile)) {
-    window.location.href = '/holidaymanagement/home.html';
+    window.location.href = '/systems/holidaymanagement/home.html';
     return null;
   }
 
@@ -100,6 +100,6 @@ function setupLogout() {
   btn.addEventListener('click', async () => {
     clearSelectedCompany();
     await supabase.auth.signOut();
-    window.location.href = '/holidaymanagement/login.html';
+    window.location.href = '/systems/holidaymanagement/login.html';
   });
 }

@@ -9,13 +9,13 @@ if (localStorage.getItem('holidayTheme') === 'light') {
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {
   await supabase.auth.signOut();
-  window.location.href = '/holidaymanagement/login.html';
+  window.location.href = '/systems/holidaymanagement/login.html';
 });
 
 async function init() {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
-    window.location.href = '/holidaymanagement/login.html';
+    window.location.href = '/systems/holidaymanagement/login.html';
     return;
   }
 
@@ -77,7 +77,7 @@ function selectCompany(company) {
     is_admin: company.is_admin,
     employee_id: company.employee_id
   });
-  window.location.href = '/holidaymanagement/home.html';
+  window.location.href = '/systems/holidaymanagement/home.html';
 }
 
 init();
