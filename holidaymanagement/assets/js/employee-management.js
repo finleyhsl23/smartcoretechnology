@@ -260,44 +260,62 @@ function updateOwnerAuthoriserUi() {
   authoriserField?.classList.toggle('hidden', checkbox?.checked === true);
 }
 
-function setAuthoriser(employee) {
-  setField('assignedAuthoriserId', employee?.id || '');
+function setAuthoriser(employee, fallbackId = '') {
+  setField('assignedAuthoriserId', employee?.id || fallbackId || '');
 
   const box = document.getElementById('selectedAuthoriserBox');
   if (!box) return;
 
-  if (!employee) {
+  if (!employee && !fallbackId) {
     box.classList.add('hidden');
     box.innerHTML = '';
     return;
   }
 
   box.classList.remove('hidden');
-  box.innerHTML = `
-    <strong>${employee.full_name || 'Employee'}</strong>
-    <span>${employee.employee_code || '—'} • ${employee.job_title || '—'}</span>
-  `;
+
+  if (employee) {
+    box.innerHTML = `
+      <strong>${employee.full_name || 'Employee'}</strong>
+      <span>${employee.employee_code || '—'} • ${employee.job_title || '—'}</span>
+    `;
+  } else {
+    box.innerHTML = `
+      <strong>Authoriser selected</strong>
+      <span>${fallbackId}</span>
+    `;
+  }
 }
 
 function setShiftPattern(patternId) {
-  const pattern = shiftPatterns.find((item) => item.id === patternId);
-  setField('shiftPatternId', patternId || '');
+  const cleanId = patternId ? String(patternId) : '';
+  const pattern = shiftPatterns.find((item) => String(item.id) === cleanId);
 
-  const box = document.getElementById('selectedShiftBox');
-  if (!box) return;
+  setField('shiftPatternId', cleanId);
 
-  if (!pattern) {
-    box.innerHTML = `
-      <strong>No shift pattern selected</strong>
-      <span>Press the button below to select or configure one.</span>
-    `;
-    return;
-  }
+  const box = document.getElementById('selectedShiftBox');
+  if (!box) return;
 
-  box.innerHTML = `
-    <strong>${pattern.name}</strong>
-    <span>${pattern.weekly_hours || '—'} hours/week</span>
-  `;
+  if (!cleanId) {
+    box.innerHTML = `
+      <strong>No shift pattern selected</strong>
+      <span>Press the button below to select or configure one.</span>
+    `;
+    return;
+  }
+
+  if (!pattern) {
+    box.innerHTML = `
+      <strong>Shift pattern selected</strong>
+      <span>${cleanId}</span>
+    `;
+    return;
+  }
+
+  box.innerHTML = `
+    <strong>${pattern.name}</strong>
+    <span>${pattern.weekly_hours || '—'} hours/week</span>
+  `;
 }
 
 function setEmployeeModalMode(isEditing) {
@@ -468,8 +486,15 @@ function fillEmployeeForm(employee = null) {
   setField('onboardingStatus', employee?.onboarding_status || 'in_progress');
   setField('onboardingExpiresAt', employee?.onboarding_expires_at ? employee.onboarding_expires_at.slice(0, 16) : '');
 
-  const authEmployee = employees.find((item) => item.id === employee?.assigned_authoriser);
-  setAuthoriser(authEmployee || null);
+const assignedAuthoriserId = employee?.assigned_authoriser
+  ? String(employee.assigned_authoriser)
+  : '';
+
+const authEmployee = employees.find(
+  (item) => String(item.id || '') === assignedAuthoriserId
+);
+
+setAuthoriser(authEmployee || null, assignedAuthoriserId);
 
   const noAuthoriserCheckbox = document.getElementById('noAuthoriserRequired');
   if (noAuthoriserCheckbox) noAuthoriserCheckbox.checked = employee?.no_authoriser_required === true;
