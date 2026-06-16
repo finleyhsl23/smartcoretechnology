@@ -33,8 +33,8 @@ async function loadHolidays() {
 
 function renderList() {
   const list = document.getElementById('holidayList');
-  const bank = holidays.filter(h => h.source === 'bank');
-  const company = holidays.filter(h => h.source !== 'bank');
+  const bank = holidays.filter(h => h.type === 'bank');
+  const company = holidays.filter(h => h.type !== 'bank');
   const total = holidays.length;
 
   document.getElementById('holidayCount').textContent = `${total} holiday${total !== 1 ? 's' : ''}`;
@@ -48,18 +48,18 @@ function renderList() {
   }
 
   // Sort by date
-  const sorted = [...holidays].sort((a, b) => a.date.localeCompare(b.date));
+  const sorted = [...holidays].sort((a, b) => a.holiday_date.localeCompare(b.holiday_date));
 
   list.innerHTML = sorted.map(h => `
     <div class="leave-card compact">
       <div class="leave-card-top">
         <div class="leave-card-main">
           <p class="leave-card-title">${escapeHtml(h.name)}</p>
-          <p class="leave-card-subtitle">${formatDate(h.date)}</p>
+          <p class="leave-card-subtitle">${formatDate(h.holiday_date)}</p>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
-          <span class="${badgeClass(h.source === 'bank' ? 'bank' : 'company')}">${h.source === 'bank' ? 'Bank' : 'Company'}</span>
-          ${h.source !== 'bank' ? `<button class="btn btn-danger icon-btn" data-del-id="${h.id}">✕</button>` : ''}
+          <span class="${badgeClass(h.type === 'bank' ? 'bank' : 'company')}">${h.type === 'bank' ? 'Bank' : 'Company'}</span>
+          ${h.type !== 'bank' ? `<button class="btn btn-danger icon-btn" data-del-id="${h.id}">✕</button>` : ''}
         </div>
       </div>
     </div>
@@ -88,7 +88,7 @@ async function saveHoliday() {
   showMessage('addHolidayMsg', '', 'info');
 
   try {
-    await addCompanyHoliday(ctx.company.id, { name, date, source: 'company' });
+    await addCompanyHoliday(ctx.company.id, { name, holiday_date: date, type: 'company' });
     document.getElementById('holidayName').value = '';
     document.getElementById('holidayDate').value = '';
     closeModal('addHolidayModal');
