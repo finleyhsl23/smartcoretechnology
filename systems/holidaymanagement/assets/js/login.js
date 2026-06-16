@@ -13,7 +13,7 @@ if (localStorage.getItem('holidayTheme') === 'light') {
 
 // If already signed in, go to company selector
 supabase.auth.getSession().then(({ data: { session } }) => {
-  if (session) window.location.href = '/holidaymanagement/select-company.html';
+  if (session) window.location.href = '/systems/holidaymanagement/select-company.html';
 });
 
 form.addEventListener('submit', async e => {
@@ -30,6 +30,6 @@ form.addEventListener('submit', async e => {
     showMessage('loginMsg', error.message, 'error');
     setLoadingButton(loginBtn, false);
   } else {
-    window.location.href = '/holidaymanagement/select-company.html';
+    window.location.href = '/systems/holidaymanagement/select-company.html';
   }
 });
