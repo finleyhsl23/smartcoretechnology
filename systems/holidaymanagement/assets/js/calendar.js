@@ -1,11 +1,12 @@
 import { requireAuth } from '../../shared/guards.js';
-import { getLeaveRequestsByCompany, getAllHolidayDates } from '../../shared/api.js';
+import { getLeaveRequestsByCompany, getAllHolidayDates, getEmployeesByCompany } from '../../shared/api.js';
 import { revealApp, badgeClass, formatDate, escapeHtml } from '../../shared/ui.js';
 import { monthName, daysInMonth, firstDayOfMonth, toISODate } from '../../shared/dates.js';
 
-let ctx, approvedLeave = [], holidays = [];
+let ctx, approvedLeave = [], holidays = [], allEmployees = [];
 let year = new Date().getFullYear();
 let month = new Date().getMonth();
+let activeDeptFilter = '';
 
 async function init() {
   ctx = await requireAuth();
@@ -14,11 +15,13 @@ async function init() {
   const { company } = ctx;
   populateSidebar(company);
 
-  [approvedLeave, holidays] = await Promise.all([
+  [approvedLeave, holidays, allEmployees] = await Promise.all([
     getLeaveRequestsByCompany(company.id, { status: 'approved' }),
-    getAllHolidayDates(company.id)
+    getAllHolidayDates(company.id),
+    getEmployeesByCompany(company.id)
   ]);
 
+  buildDeptFilter();
   renderCalendar();
   revealApp();
 
@@ -26,6 +29,34 @@ async function init() {
   document.getElementById('nextMonth').addEventListener('click', () => { month++; if (month > 11) { month = 0; year++; } renderCalendar(); });
   document.getElementById('todayBtn').addEventListener('click', () => { year = new Date().getFullYear(); month = new Date().getMonth(); renderCalendar(); });
   document.getElementById('closeDayPanel').addEventListener('click', () => document.getElementById('dayPanel').classList.add('hidden'));
+
+  document.getElementById('jumpDateInput').addEventListener('keydown', e => { if (e.key === 'Enter') jumpToDate(); });
+  document.getElementById('jumpDateBtn').addEventListener('click', jumpToDate);
+
+  document.getElementById('deptFilterSelect').addEventListener('change', e => {
+    activeDeptFilter = e.target.value;
+    renderCalendar();
+  });
+}
+
+function buildDeptFilter() {
+  const depts = [...new Set(allEmployees.map(e => e.department).filter(Boolean))].sort();
+  const sel = document.getElementById('deptFilterSelect');
+  depts.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d; opt.textContent = d;
+    sel.appendChild(opt);
+  });
+}
+
+function jumpToDate() {
+  const val = document.getElementById('jumpDateInput').value;
+  if (!val) return;
+  const d = new Date(val);
+  if (isNaN(d)) return;
+  year = d.getFullYear();
+  month = d.getMonth();
+  renderCalendar();
 }
 
 function populateSidebar(company) {
@@ -40,16 +71,20 @@ function renderCalendar() {
 
   const grid = document.getElementById('calGrid');
   const days = daysInMonth(year, month);
-  const firstDay = firstDayOfMonth(year, month); // 0=Mon
+  const firstDay = firstDayOfMonth(year, month);
   const todayStr = toISODate(new Date());
 
   const holidaySet = new Set(holidays.map(h => h.date));
   const holidayMap = {};
   holidays.forEach(h => { holidayMap[h.date] = h.name; });
 
-  // Build map of leave per day
+  // Filter leave by dept
+  const filteredLeave = activeDeptFilter
+    ? approvedLeave.filter(r => r.employees?.department === activeDeptFilter)
+    : approvedLeave;
+
   const leaveByDay = {};
-  approvedLeave.forEach(r => {
+  filteredLeave.forEach(r => {
     const start = new Date(r.start_date);
     const end = new Date(r.end_date);
     const cur = new Date(start);
@@ -62,22 +97,13 @@ function renderCalendar() {
   });
 
   let html = '';
-
-  // Empty cells before first day
-  for (let i = 0; i < firstDay; i++) {
-    html += `<div class="calendar-cell calendar-empty"></div>`;
-  }
+  for (let i = 0; i < firstDay; i++) html += `<div class="calendar-cell calendar-empty"></div>`;
 
   for (let d = 1; d <= days; d++) {
     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const isToday = dateStr === todayStr;
     const isHoliday = holidaySet.has(dateStr);
     const dayLeave = leaveByDay[dateStr] || [];
-
-    let cls = 'calendar-cell calendar-day';
-    if (isToday) cls += ' today-calendar-day';
-    if (isHoliday) cls += ' holiday-calendar-day';
-    if (dayLeave.length) cls += ' active-calendar-day';
 
     const holiday = isHoliday ? `<div class="calendar-day-note">${escapeHtml(holidayMap[dateStr])}</div>` : '';
     const chips = dayLeave.slice(0, 3).map(r => {
@@ -98,7 +124,6 @@ function renderCalendar() {
   }
 
   grid.innerHTML = html;
-
   grid.querySelectorAll('[data-date]').forEach(cell => {
     cell.addEventListener('click', () => showDayPanel(cell.dataset.date));
   });
@@ -112,10 +137,12 @@ function showDayPanel(dateStr) {
   title.textContent = formatDate(dateStr, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   const holiday = holidays.find(h => h.date === dateStr);
-  const dayLeave = approvedLeave.filter(r => r.start_date <= dateStr && r.end_date >= dateStr);
+  const filteredLeave = activeDeptFilter
+    ? approvedLeave.filter(r => r.employees?.department === activeDeptFilter)
+    : approvedLeave;
+  const dayLeave = filteredLeave.filter(r => r.start_date <= dateStr && r.end_date >= dateStr);
 
   let html = '';
-
   if (holiday) {
     html += `<div class="detail-tile" style="margin-bottom:12px">
       <span class="detail-label">Bank / Company Holiday</span>
@@ -130,7 +157,7 @@ function showDayPanel(dateStr) {
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
           <div>
             <p style="margin:0;font-weight:700">${escapeHtml(r.employees?.full_name || '—')}</p>
-            <p class="muted small" style="margin:4px 0 0">${formatDate(r.start_date)} — ${formatDate(r.end_date)}</p>
+            <p class="muted small" style="margin:4px 0 0">${escapeHtml(r.employees?.department || '')} · ${formatDate(r.start_date)} — ${formatDate(r.end_date)}</p>
           </div>
           <span class="${badgeClass(r.leave_type)}">${escapeHtml(r.leave_type || '')}</span>
         </div>
@@ -138,9 +165,7 @@ function showDayPanel(dateStr) {
     `).join('');
   }
 
-  if (!html) {
-    html = `<p class="muted">No leave or holidays on this day.</p>`;
-  }
+  if (!html) html = `<p class="muted">No leave or holidays on this day.</p>`;
 
   content.innerHTML = html;
   panel.classList.remove('hidden');

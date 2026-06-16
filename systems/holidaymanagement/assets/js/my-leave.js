@@ -1,8 +1,8 @@
 import { requireAuth } from '../../shared/guards.js';
-import { getMyLeaveRequests, requestLeaveCancellation, getMyEmployee } from '../../shared/api.js';
+import { getMyLeaveRequests, requestLeaveCancellation, getMyEmployee, getLeaveRequestsByCompany, getLeaveUsedThisYear } from '../../shared/api.js';
 import { revealApp, badgeClass, formatDate, showMessage, setLoadingButton, escapeHtml } from '../../shared/ui.js';
 
-let ctx, requests;
+let ctx, requests, whoOffData = [];
 let currentFilter = '';
 let selectedRequestId = null;
 
@@ -13,24 +13,35 @@ async function init() {
   const { session, company } = ctx;
   populateSidebar(company);
 
-  const employee = await getMyEmployee(session.user.id, company.id);
-  renderAllowance(employee);
+  const [employee, leaveUsed] = await Promise.all([
+    getMyEmployee(session.user.id, company.id),
+    getLeaveUsedThisYear(null, company.id) // will be overridden below
+  ]);
+
+  // Get actual used days for this employee
+  let taken = 0;
+  if (employee) taken = await getLeaveUsedThisYear(employee.id, company.id);
+  renderAllowance(employee, taken);
 
   requests = await getMyLeaveRequests(session.user.id, company.id);
   renderList(requests);
   revealApp();
 
-  // Filter dropdown
   initCustomSelect('statusFilter', val => {
     currentFilter = val;
     const filtered = val ? requests.filter(r => r.status === val) : requests;
     renderList(filtered);
   });
 
-  // Cancel modal
-  document.getElementById('closeCancelModal').addEventListener('click', () => closeCancel());
-  document.getElementById('closeCancelModal2').addEventListener('click', () => closeCancel());
+  document.getElementById('closeCancelModal').addEventListener('click', closeCancel);
+  document.getElementById('closeCancelModal2').addEventListener('click', closeCancel);
   document.getElementById('confirmCancelBtn').addEventListener('click', submitCancel);
+
+  document.getElementById('whoOffBtn').addEventListener('click', openWhoOff);
+  document.getElementById('closeWhoOffModal').addEventListener('click', () => document.getElementById('whoOffModal').classList.add('hidden'));
+  document.getElementById('whoOffSearch').addEventListener('input', renderWhoOff);
+  document.getElementById('whoOffDept').addEventListener('change', renderWhoOff);
+  document.getElementById('whoOffPeriod').addEventListener('change', renderWhoOff);
 }
 
 function populateSidebar(company) {
@@ -40,9 +51,8 @@ function populateSidebar(company) {
   document.getElementById('companyRole').textContent = company.role || 'Employee';
 }
 
-function renderAllowance(employee) {
+function renderAllowance(employee, taken) {
   const allowance = employee?.annual_leave_allowance ?? 28;
-  const taken = employee?.leave_taken ?? 0;
   const remaining = Math.max(0, allowance - taken);
   document.getElementById('statAllowance').textContent = allowance;
   document.getElementById('statTaken').textContent = taken;
@@ -61,17 +71,17 @@ function renderList(items) {
 
   list.innerHTML = items.map(r => {
     const canCancel = r.status === 'pending';
-    const canRequestCancel = r.status === 'approved' && !r.cancel_requested;
-    const isCancelRequested = r.cancel_requested;
+    const canRequestCancel = r.status === 'approved' && r.status !== 'cancellation_requested';
+    const isCancelRequested = r.status === 'cancellation_requested';
+    const days = r.total_days || 0;
 
     return `
       <div class="leave-card">
         <div class="leave-card-top">
           <div class="leave-card-main">
             <p class="leave-card-title">${escapeHtml(r.leave_type?.charAt(0).toUpperCase() + r.leave_type?.slice(1) || 'Leave')} Leave</p>
-            <p class="leave-card-subtitle">${formatDate(r.start_date)} — ${formatDate(r.end_date)} &middot; ${r.days_requested} day${r.days_requested !== 1 ? 's' : ''}</p>
+            <p class="leave-card-subtitle">${formatDate(r.start_date)} — ${formatDate(r.end_date)} &middot; ${days} day${days !== 1 ? 's' : ''}</p>
             ${r.notes ? `<p class="muted small" style="margin-top:6px">${escapeHtml(r.notes)}</p>` : ''}
-            ${r.approver_note ? `<p class="muted small" style="margin-top:6px;font-style:italic">Note: ${escapeHtml(r.approver_note)}</p>` : ''}
           </div>
           <div class="leave-card-actions">
             <span class="${badgeClass(r.status)}">${isCancelRequested ? 'Cancel Requested' : escapeHtml(r.status)}</span>
@@ -128,6 +138,54 @@ async function submitCancel() {
   } finally {
     setLoadingButton(btn, false);
   }
+}
+
+// ── Who's off modal ──────────────────────────────────────────────
+
+async function openWhoOff() {
+  document.getElementById('whoOffModal').classList.remove('hidden');
+  if (!whoOffData.length) {
+    whoOffData = await getLeaveRequestsByCompany(ctx.company.id, { status: 'approved' });
+  }
+  // Populate dept filter
+  const depts = [...new Set(whoOffData.map(r => r.employees?.department).filter(Boolean))].sort();
+  const sel = document.getElementById('whoOffDept');
+  sel.innerHTML = '<option value="">All Departments</option>';
+  depts.forEach(d => { sel.innerHTML += `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`; });
+  renderWhoOff();
+}
+
+function renderWhoOff() {
+  const search = document.getElementById('whoOffSearch').value.toLowerCase();
+  const dept = document.getElementById('whoOffDept').value;
+  const period = document.getElementById('whoOffPeriod').value;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const in30 = new Date(); in30.setDate(in30.getDate() + 30);
+  const in30Str = in30.toISOString().split('T')[0];
+
+  let filtered = whoOffData;
+  if (period === 'current') filtered = filtered.filter(r => r.start_date <= todayStr && r.end_date >= todayStr);
+  else if (period === 'upcoming') filtered = filtered.filter(r => r.start_date > todayStr && r.start_date <= in30Str);
+  if (dept) filtered = filtered.filter(r => r.employees?.department === dept);
+  if (search) filtered = filtered.filter(r =>
+    r.employees?.full_name?.toLowerCase().includes(search) ||
+    r.employees?.department?.toLowerCase().includes(search)
+  );
+
+  const list = document.getElementById('whoOffList');
+  if (!filtered.length) { list.innerHTML = `<p class="muted">No one found for this filter.</p>`; return; }
+
+  list.innerHTML = filtered.map(r => `
+    <div class="leave-card compact" style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <div>
+          <p style="margin:0;font-weight:700">${escapeHtml(r.employees?.full_name || '—')}</p>
+          <p class="muted small" style="margin:4px 0 0">${escapeHtml(r.employees?.department || 'No dept')} &middot; ${formatDate(r.start_date)} — ${formatDate(r.end_date)}</p>
+        </div>
+        <span class="${badgeClass(r.leave_type)}">${escapeHtml(r.leave_type || '')}</span>
+      </div>
+    </div>
+  `).join('');
 }
 
 function initCustomSelect(id, onChange) {
