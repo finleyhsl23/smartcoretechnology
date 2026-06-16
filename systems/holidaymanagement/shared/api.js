@@ -4,18 +4,18 @@ import { supabase, db } from './supabase.js';
 
 export async function getCompaniesForUser(userId) {
   const { data, error } = await db
-    .from('employees')
-    .select('company_id, role, is_admin, companies(id, name, logo_url)')
+    .from('company_users')
+    .select('company_id, role, employee_id, companies(id, company_name, logo_url), employees(is_admin)')
     .eq('user_id', userId)
     .in('status', ['active', 'invited']);
   if (error) throw error;
   return (data || []).map(row => ({
     id: row.company_id,
-    name: row.companies?.name || '',
+    name: row.companies?.company_name || '',
     logo_url: row.companies?.logo_url || null,
     role: row.role,
-    is_admin: row.is_admin,
-    employee_id: row.id
+    is_admin: row.employees?.is_admin || false,
+    employee_id: row.employee_id
   }));
 }
 
@@ -87,11 +87,11 @@ export async function updateEmployee(employeeId, companyId, payload) {
 }
 
 export async function deactivateEmployee(employeeId, companyId) {
-  return updateEmployee(employeeId, companyId, { status: 'inactive' });
+  return updateEmployee(employeeId, companyId, { employment_status: 'archived' });
 }
 
 export async function reactivateEmployee(employeeId, companyId) {
-  return updateEmployee(employeeId, companyId, { status: 'active' });
+  return updateEmployee(employeeId, companyId, { employment_status: 'active' });
 }
 
 // ── Leave Requests ────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ export async function reactivateEmployee(employeeId, companyId) {
 export async function getLeaveRequestsByCompany(companyId, filters = {}) {
   let q = db
     .from('leave_requests')
-    .select('*, employees(full_name, department, role, annual_leave_allowance, leave_taken)')
+    .select('*, employees(full_name, department, role, annual_leave_allowance)')
     .eq('company_id', companyId)
     .order('created_at', { ascending: false });
 
@@ -133,7 +133,7 @@ export async function getMyLeaveRequests(userId, companyId, filters = {}) {
 export async function getLeaveRequest(requestId, companyId) {
   const { data, error } = await db
     .from('leave_requests')
-    .select('*, employees(full_name, department, role, email, annual_leave_allowance, leave_taken)')
+    .select('*, employees(full_name, department, role, work_email, annual_leave_allowance)')
     .eq('id', requestId)
     .eq('company_id', companyId)
     .single();
@@ -142,7 +142,6 @@ export async function getLeaveRequest(requestId, companyId) {
 }
 
 export async function createLeaveRequest(payload) {
-  // payload: { company_id, employee_id, user_id, leave_type, start_date, end_date, days_requested, notes, is_owner }
   const status = payload.is_owner ? 'approved' : 'pending';
   const insertPayload = {
     company_id: payload.company_id,
@@ -151,7 +150,7 @@ export async function createLeaveRequest(payload) {
     leave_type: payload.leave_type,
     start_date: payload.start_date,
     end_date: payload.end_date,
-    days_requested: payload.days_requested,
+    total_days: payload.days_requested,
     notes: payload.notes || null,
     status
   };
@@ -163,14 +162,6 @@ export async function createLeaveRequest(payload) {
     .single();
   if (error) throw error;
 
-  // Auto-deduct allowance for owner approvals
-  if (status === 'approved' && payload.leave_type === 'annual' && payload.days_requested) {
-    await supabase.rpc('increment_leave_taken', {
-      p_employee_id: payload.employee_id,
-      p_days: payload.days_requested
-    }).catch(() => {});
-  }
-
   if (status === 'pending') {
     await notifyLeaveRequest(data, payload.employee_name, payload.company_name).catch(() => {});
   }
@@ -181,20 +172,12 @@ export async function createLeaveRequest(payload) {
 export async function approveLeaveRequest(request, approverId, note = '', deductAllowance = true) {
   const { data, error } = await db
     .from('leave_requests')
-    .update({ status: 'approved', approver_id: approverId, approver_note: note || null, updated_at: new Date().toISOString() })
+    .update({ status: 'approved', approved_by: approverId, approved_at: new Date().toISOString(), notes: note || null, updated_at: new Date().toISOString() })
     .eq('id', request.id)
     .eq('company_id', request.company_id)
     .select()
     .single();
   if (error) throw error;
-
-  if (deductAllowance && request.leave_type === 'annual' && request.days_requested) {
-    await supabase.rpc('increment_leave_taken', {
-      p_employee_id: request.employee_id,
-      p_days: request.days_requested
-    }).catch(() => {});
-  }
-
   await notifyLeaveDecision(data, 'approved', note).catch(() => {});
   return data;
 }
@@ -202,7 +185,7 @@ export async function approveLeaveRequest(request, approverId, note = '', deduct
 export async function rejectLeaveRequest(request, approverId, note = '') {
   const { data, error } = await db
     .from('leave_requests')
-    .update({ status: 'rejected', approver_id: approverId, approver_note: note || null, updated_at: new Date().toISOString() })
+    .update({ status: 'rejected', rejected_by: approverId, rejected_at: new Date().toISOString(), notes: note || null, updated_at: new Date().toISOString() })
     .eq('id', request.id)
     .eq('company_id', request.company_id)
     .select()
@@ -215,7 +198,7 @@ export async function rejectLeaveRequest(request, approverId, note = '') {
 export async function cancelLeaveRequest(requestId, companyId, userId) {
   const { data, error } = await db
     .from('leave_requests')
-    .update({ status: 'cancelled', cancel_requested: false, updated_at: new Date().toISOString() })
+    .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancelled_by: userId, updated_at: new Date().toISOString() })
     .eq('id', requestId)
     .eq('company_id', companyId)
     .eq('user_id', userId)
@@ -228,7 +211,7 @@ export async function cancelLeaveRequest(requestId, companyId, userId) {
 export async function requestLeaveCancellation(request, userId, reason = '') {
   const { data, error } = await db
     .from('leave_requests')
-    .update({ cancel_requested: true, cancel_reason: reason || null, updated_at: new Date().toISOString() })
+    .update({ status: 'cancellation_requested', cancellation_requested_at: new Date().toISOString(), cancellation_requested_by: userId, cancellation_reason: reason || null, updated_at: new Date().toISOString() })
     .eq('id', request.id)
     .eq('company_id', request.company_id)
     .eq('user_id', userId)
@@ -240,19 +223,9 @@ export async function requestLeaveCancellation(request, userId, reason = '') {
 }
 
 export async function cancelLeaveRequestAdmin(request, adminId, reason = '') {
-  const updatePayload = { status: 'cancelled', cancel_requested: false, approver_id: adminId, approver_note: reason || null, updated_at: new Date().toISOString() };
-
-  // Restore allowance if annual leave was approved
-  if (request.status === 'approved' && request.leave_type === 'annual' && request.days_requested) {
-    await supabase.rpc('decrement_leave_taken', {
-      p_employee_id: request.employee_id,
-      p_days: request.days_requested
-    }).catch(() => {});
-  }
-
   const { data, error } = await db
     .from('leave_requests')
-    .update(updatePayload)
+    .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancelled_by: adminId, cancel_admin_reason: reason || null, updated_at: new Date().toISOString() })
     .eq('id', request.id)
     .eq('company_id', request.company_id)
     .select()
@@ -264,7 +237,7 @@ export async function cancelLeaveRequestAdmin(request, adminId, reason = '') {
 export async function amendLeaveRequestAdmin(request, adminId, payload) {
   const { data, error } = await db
     .from('leave_requests')
-    .update({ ...payload, approver_id: adminId, updated_at: new Date().toISOString() })
+    .update({ ...payload, amended_by: adminId, amended_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq('id', request.id)
     .eq('company_id', request.company_id)
     .select()
@@ -280,7 +253,7 @@ export async function getCompanyHolidays(companyId) {
     .from('company_holidays')
     .select('*')
     .eq('company_id', companyId)
-    .order('date');
+    .order('holiday_date');
   if (error) throw error;
   return data || [];
 }
@@ -316,7 +289,7 @@ export async function syncBankHolidays(companyId) {
 
 export async function getAllHolidayDates(companyId) {
   const holidays = await getCompanyHolidays(companyId);
-  return holidays.map(h => ({ date: h.date, name: h.name, source: h.source || 'company' }));
+  return holidays.map(h => ({ date: h.holiday_date, name: h.name, source: h.type || 'company' }));
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
@@ -342,23 +315,21 @@ export async function getDashboardData(companyId, userId) {
 
   const pendingRequests = allRequests.filter(r => r.status === 'pending');
 
-  const todayHoliday = holidays.find(h => h.date === todayStr);
+  const todayHoliday = holidays.find(h => h.holiday_date === todayStr);
 
-  // Upcoming birthdays (next 30 days)
   const now = new Date();
   const birthdays = allEmployees.filter(e => {
-    if (!e.date_of_birth) return false;
-    const dob = new Date(e.date_of_birth);
+    if (!e.dob) return false;
+    const dob = new Date(e.dob);
     const thisYear = new Date(now.getFullYear(), dob.getMonth(), dob.getDate());
     const diff = thisYear - now;
     return diff >= 0 && diff <= 30 * 86400000;
   }).map(e => {
-    const dob = new Date(e.date_of_birth);
+    const dob = new Date(e.dob);
     const next = new Date(now.getFullYear(), dob.getMonth(), dob.getDate());
     return { ...e, days_until: Math.round((next - now) / 86400000) };
   }).sort((a, b) => a.days_until - b.days_until);
 
-  // Work anniversaries (next 30 days)
   const anniversaries = allEmployees.filter(e => {
     if (!e.start_date) return false;
     const start = new Date(e.start_date);
@@ -372,8 +343,7 @@ export async function getDashboardData(companyId, userId) {
     return { ...e, days_until: Math.round((next - now) / 86400000), years };
   }).sort((a, b) => a.days_until - b.days_until);
 
-  // Cancel requests
-  const cancelRequests = allRequests.filter(r => r.cancel_requested);
+  const cancelRequests = allRequests.filter(r => r.status === 'cancellation_requested');
 
   return {
     onLeaveToday,
@@ -384,7 +354,7 @@ export async function getDashboardData(companyId, userId) {
     birthdays,
     anniversaries,
     totalEmployees: allEmployees.length,
-    activeEmployees: allEmployees.filter(e => e.status === 'active').length
+    activeEmployees: allEmployees.filter(e => e.employment_status === 'active').length
   };
 }
 
@@ -435,7 +405,7 @@ export async function deleteShiftPattern(id, companyId) {
 
 export async function isSmartCoreAdmin(userId) {
   const { data } = await db
-    .from('smartcore_staff')
+    .from('smartcore_admins')
     .select('id')
     .eq('user_id', userId)
     .maybeSingle();
@@ -446,7 +416,7 @@ export async function getAllCompanies() {
   const { data, error } = await db
     .from('companies')
     .select('*')
-    .order('name');
+    .order('company_name');
   if (error) throw error;
   return data || [];
 }
@@ -479,7 +449,7 @@ export async function sendEmployeeInvite(payload) {
 export async function getOnboardingInvite(token) {
   const { data, error } = await db
     .from('onboarding_invites')
-    .select('*, companies(name)')
+    .select('*, companies(company_name)')
     .eq('token', token)
     .maybeSingle();
   if (error) throw error;
