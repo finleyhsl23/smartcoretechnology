@@ -146,6 +146,8 @@
       width: min(1100px, 100%);
       max-height: 90vh; overflow: auto;
     }
+    #detailModal { position:fixed; inset:0; z-index:200; overflow-y:auto; background: linear-gradient(180deg,#020617,#06153a); display:none; }
+    #detailModal.show { display:block; }
     .skeleton {
       background: linear-gradient(90deg, rgba(255,255,255,.05) 25%, rgba(255,255,255,.09) 50%, rgba(255,255,255,.05) 75%);
       background-size: 200% 100%;
@@ -250,7 +252,7 @@
 
 <!-- MODULES GRID -->
 <section class="max-w-7xl mx-auto px-4 pb-40">
-  <div id="moduleGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+  <div id="moduleGrid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
     <!-- loading skeletons -->
     <div class="skeleton h-72"></div><div class="skeleton h-72"></div>
     <div class="skeleton h-72"></div><div class="skeleton h-72"></div>
@@ -284,10 +286,8 @@
 </div>
 
 <!-- MODULE DETAIL MODAL -->
-<div class="modal-backdrop" id="detailModal">
-  <div class="modal-box glass p-6 sm:p-8">
-    <div id="detailBody"></div>
-  </div>
+<div id="detailModal">
+  <div id="detailBody"></div>
 </div>
 
 <!-- BASKET MODAL -->
@@ -450,8 +450,13 @@ function renderGrid() {
     if (m.popular)     flags.push('<span class="badge badge-green">Popular</span>');
     if (m.recommended) flags.push('<span class="badge badge-blue">Recommended</span>');
 
+    const accentColor = {'badge-blue':'#78aaff','badge-green':'#4ade80','badge-amber':'#fbbf24','badge-purple':'#c084fc'}[catBadge(m.category)] || '#78aaff';
+    const featurePreview = Array.isArray(m.features) && m.features.length
+      ? `<ul class="mt-2 space-y-0.5">${m.features.slice(0,3).map(f=>`<li class="text-xs flex items-center gap-1.5" style="color:var(--muted2)"><span style="color:${accentColor};font-size:8px">●</span>${esc(f)}</li>`).join('')}</ul>`
+      : '';
     return `
-      <div class="module-card p-5 flex flex-col gap-3 ${inBasket ? 'in-basket' : ''}" id="card-${m.id}" onclick="openDetail('${m.id}')">
+      <div class="module-card p-6 flex flex-col gap-4 ${inBasket ? 'in-basket' : ''}" id="card-${m.id}" onclick="openDetail('${m.id}')" style="position:relative;overflow:hidden;">
+        <div style="position:absolute;top:0;left:0;right:0;height:4px;background:${accentColor};border-radius:12px 12px 0 0"></div>
         ${inBasket ? `<div style="position:absolute;top:14px;right:14px;width:22px;height:22px;border-radius:999px;background:#22c55e;display:flex;align-items:center;justify-content:center">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>
         </div>` : ''}
@@ -462,11 +467,12 @@ function renderGrid() {
         </div>
 
         <div class="flex-1">
-          <div class="font-extrabold text-lg leading-tight tracking-tight">${esc(m.name)}</div>
+          <div class="font-extrabold text-xl leading-tight tracking-tight">${esc(m.name)}</div>
           <p class="mt-2 text-sm leading-relaxed" style="color:var(--muted)">${esc(m.short_description || '')}</p>
+          ${featurePreview}
         </div>
 
-        <div class="flex items-center justify-between gap-3 mt-1">
+        <div class="flex items-center justify-between gap-4 mt-1">
           <div>
             <div class="font-extrabold text-xl">${isFree ? 'Included' : fmtPer(price)}</div>
             ${state.billing === 'yearly' && !isFree ? `<div class="text-xs mt-0.5" style="color:var(--muted2)">was ${fmt(m.monthly_price)}/mo</div>` : ''}
@@ -494,31 +500,79 @@ async function openDetail(id) {
   const isFree = !price || price === 0;
   const features = Array.isArray(m.features) ? m.features : [];
 
+  const screenshots = Array.isArray(m.screenshots) ? m.screenshots : [];
+  const videos = Array.isArray(m.videos) ? m.videos : [];
+
   document.getElementById('detailBody').innerHTML = `
-    <div class="flex items-start justify-between gap-4 mb-6">
-      <div>
-        <div class="flex flex-wrap gap-2 mb-3">
-          <span class="badge ${catBadge(m.category)}">${esc(m.category)}</span>
-          ${m.featured ? '<span class="badge badge-amber">Featured</span>' : ''}
-          ${m.popular ? '<span class="badge badge-green">Popular</span>' : ''}
-          ${m.recommended ? '<span class="badge badge-blue">Recommended</span>' : ''}
-        </div>
-        <h2 class="text-3xl font-extrabold tracking-tight">${esc(m.name)}</h2>
-        <p class="mt-2" style="color:var(--muted)">${esc(m.short_description || '')}</p>
+    <!-- Sticky top bar -->
+    <div style="position:sticky;top:0;z-index:10;background:rgba(2,6,23,0.92);backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,0.07)">
+      <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+        <button class="btn shrink-0 flex items-center gap-2" onclick="closeDetail()">← Back to Marketplace</button>
+        <button class="btn ${inBasket ? 'btn-accent' : 'btn-primary'} shrink-0 px-5 py-2.5 text-sm font-bold" id="detailAddBtn"
+          onclick="toggleBasket('${m.id}'); refreshDetailBtn('${m.id}')">
+          ${inBasket ? '✓ Remove from basket' : '+ Add to basket'}
+        </button>
       </div>
-      <button class="btn shrink-0" onclick="closeDetail()">Close</button>
     </div>
 
-    <div class="grid lg:grid-cols-[1fr_320px] gap-6">
-      <div>
-        ${m.long_description ? `
-          <h3 class="font-extrabold text-lg mb-3">About this module</h3>
-          <p class="text-sm leading-relaxed" style="color:var(--muted)">${esc(m.long_description)}</p>
-        ` : ''}
+    <!-- Main content -->
+    <div class="max-w-4xl mx-auto px-4 py-10">
+      <!-- Badges + flags -->
+      <div class="flex flex-wrap gap-2 mb-4">
+        <span class="badge ${catBadge(m.category)}">${esc(m.category)}</span>
+        ${m.featured ? '<span class="badge badge-amber">Featured</span>' : ''}
+        ${m.popular ? '<span class="badge badge-green">Popular</span>' : ''}
+        ${m.recommended ? '<span class="badge badge-blue">Recommended</span>' : ''}
+      </div>
 
-        ${features.length ? `
-          <h3 class="font-extrabold text-lg mt-6 mb-3">Features included</h3>
-          <ul class="grid sm:grid-cols-2 gap-2">
+      <!-- Module name -->
+      <h1 class="text-4xl font-extrabold tracking-tight leading-tight">${esc(m.name)}</h1>
+      <p class="mt-3 text-lg" style="color:var(--muted)">${esc(m.short_description || '')}</p>
+
+      <!-- Thumbnail -->
+      ${m.thumbnail_url ? `
+        <img src="${esc(m.thumbnail_url)}" alt="${esc(m.name)}" class="w-full rounded-2xl mt-8 object-cover" style="max-height:360px" />
+      ` : ''}
+
+      <!-- Screenshots gallery -->
+      ${screenshots.length ? `
+        <div class="mt-8">
+          <h3 class="font-extrabold text-lg mb-3">Screenshots</h3>
+          <div class="flex gap-3 overflow-x-auto pb-2" style="scroll-snap-type:x mandatory">
+            ${screenshots.map(s => `<img src="${esc(s)}" class="rounded-xl object-cover shrink-0" style="height:200px;width:auto;scroll-snap-align:start" />`).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- Videos -->
+      ${videos.length ? `
+        <div class="mt-8">
+          <h3 class="font-extrabold text-lg mb-3">Videos</h3>
+          <div class="space-y-4">
+            ${videos.map(v => {
+              const ytMatch = v.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+              if (ytMatch) {
+                return `<div class="rounded-2xl overflow-hidden" style="aspect-ratio:16/9"><iframe class="w-full h-full" src="https://www.youtube.com/embed/${ytMatch[1]}" frameborder="0" allowfullscreen></iframe></div>`;
+              }
+              return `<video controls class="w-full rounded-2xl" style="max-height:400px"><source src="${esc(v)}" /></video>`;
+            }).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- About -->
+      ${m.long_description ? `
+        <div class="mt-8">
+          <h3 class="font-extrabold text-xl mb-3">About this module</h3>
+          <p class="text-base leading-relaxed" style="color:var(--muted)">${esc(m.long_description)}</p>
+        </div>
+      ` : ''}
+
+      <!-- Features -->
+      ${features.length ? `
+        <div class="mt-8">
+          <h3 class="font-extrabold text-xl mb-4">Features included</h3>
+          <ul class="grid sm:grid-cols-2 gap-3">
             ${features.map(f => `
               <li class="flex items-start gap-2 text-sm" style="color:var(--muted)">
                 <svg class="shrink-0 mt-0.5 w-4 h-4" style="color:#4ade80" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -526,10 +580,11 @@ async function openDetail(id) {
               </li>
             `).join('')}
           </ul>
-        ` : ''}
-      </div>
+        </div>
+      ` : ''}
 
-      <div class="card p-5 h-fit">
+      <!-- Pricing card -->
+      <div class="card p-6 mt-10">
         <div class="text-xs font-bold mb-1" style="color:var(--muted2)">PRICING</div>
         <div class="flex items-end gap-2 mt-1">
           <div class="font-extrabold text-3xl">${isFree ? 'Included' : fmtPer(price)}</div>
@@ -537,15 +592,17 @@ async function openDetail(id) {
         </div>
         ${!isFree && state.billing === 'yearly' ? `<div class="discount-pill mt-2 inline-flex">Save 8% with annual billing</div>` : ''}
         ${!isFree ? `
-          <div class="mt-4 space-y-2 text-sm" style="color:var(--muted)">
-            <div class="flex justify-between">
-              <span>Monthly</span><span class="font-bold" style="color:var(--text)">${fmt(m.monthly_price)}/mo</span>
+          <div class="mt-4 grid sm:grid-cols-2 gap-3">
+            <div class="p-4 rounded-xl text-sm" style="background:rgba(255,255,255,0.05)">
+              <div style="color:var(--muted2)" class="text-xs mb-1 font-bold">MONTHLY</div>
+              <div class="font-extrabold text-xl">${fmt(m.monthly_price)}<span class="text-sm font-normal" style="color:var(--muted)">/mo</span></div>
             </div>
-            <div class="flex justify-between">
-              <span>Annual</span><span class="font-bold" style="color:var(--text)">${fmt(m.yearly_price || m.monthly_price * 0.92)}/mo</span>
+            <div class="p-4 rounded-xl text-sm" style="background:rgba(255,255,255,0.05)">
+              <div style="color:var(--muted2)" class="text-xs mb-1 font-bold">ANNUAL (save 8%)</div>
+              <div class="font-extrabold text-xl">${fmt(m.yearly_price || m.monthly_price * 0.92)}<span class="text-sm font-normal" style="color:var(--muted)">/mo</span></div>
             </div>
           </div>
-          <div class="text-xs mt-3 p-3 rounded-xl" style="background:var(--accentSoft);color:var(--accent)">
+          <div class="text-xs mt-4 p-3 rounded-xl" style="background:var(--accentSoft);color:var(--accent)">
             Package discounts apply when you add 3+ modules. Up to 40% off.
           </div>
         ` : `
@@ -565,11 +622,11 @@ async function openDetail(id) {
 
 function refreshDetailBtn(id) {
   const inBasket = state.basket.some(b => b.id === id);
-  const btn = document.getElementById('detailModal').querySelector('button.btn-primary, button.btn-accent');
-  if (btn) {
-    btn.className = `btn ${inBasket ? 'btn-accent' : 'btn-primary'} w-full mt-5 py-3 text-sm font-bold`;
+  document.getElementById('detailModal').querySelectorAll('button.btn-primary, button.btn-accent').forEach(btn => {
+    const isTopBtn = btn.id === 'detailAddBtn';
+    btn.className = `btn ${inBasket ? 'btn-accent' : 'btn-primary'}${isTopBtn ? ' shrink-0 px-5 py-2.5 text-sm font-bold' : ' w-full mt-5 py-3 text-sm font-bold'}`;
     btn.textContent = inBasket ? '✓ Remove from basket' : '+ Add to basket';
-  }
+  });
 }
 
 function closeDetail() {
@@ -747,9 +804,7 @@ document.getElementById('searchInput').addEventListener('input', e => {
 });
 
 // ── Close modals on backdrop click ───────────────────────
-document.getElementById('detailModal').addEventListener('click', e => {
-  if (e.target.id === 'detailModal') closeDetail();
-});
+// Detail modal is now full-screen; close via the Back button only
 document.getElementById('basketModal').addEventListener('click', e => {
   if (e.target.id === 'basketModal') closeBasket();
 });

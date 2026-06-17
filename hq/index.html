@@ -1648,6 +1648,7 @@
               <tbody id="mktRows"></tbody>
             </table>
           </div>
+          <div id="mktFormPanel" style="display:none"></div>
         `
       );
       ["mktSearch","mktCat","mktStatus"].forEach(id => {
@@ -1663,6 +1664,7 @@
     }
 
     function drawMarketplace() {
+      if (!$("#mktStats") || !$("#mktRows")) return;
       const q = ($("#mktSearch")?.value || "").toLowerCase();
       const cat = $("#mktCat")?.value || "";
       const status = $("#mktStatus")?.value || "";
@@ -1708,15 +1710,41 @@
       }).join("") || `<tr><td colspan="8" class="muted">No modules found.</td></tr>`;
     }
 
+    window.closeMktForm = function closeMktForm() {
+      const panel = document.getElementById('mktFormPanel');
+      if (panel) { panel.innerHTML = ''; panel.style.display = 'none'; }
+    };
+
+    window.updateMktPreview = function updateMktPreview() {
+      const panel = document.getElementById('mktFormPanel');
+      if (!panel) return;
+      const nameEl = panel.querySelector('#mName');
+      const shortEl = panel.querySelector('#mShort');
+      const preview = panel.querySelector('#mktCardPreview');
+      if (!preview) return;
+      const name = nameEl?.value || 'Module Name';
+      const short = shortEl?.value || 'Short description will appear here.';
+      preview.innerHTML = `
+        <div class="card p-5 flex flex-col gap-3" style="max-width:320px;opacity:0.9">
+          <div class="font-extrabold text-lg leading-tight">${esc(name)}</div>
+          <p class="text-sm" style="color:var(--muted)">${esc(short)}</p>
+        </div>
+      `;
+    };
+
     window.openModuleForm = function openModuleForm(id) {
       const m = id ? (state.mktModules||[]).find(x=>x.id===id) : {};
       const featuresVal = Array.isArray(m?.features) ? m.features.join("\n") : "";
-      openModal(
-        id ? "Edit Module" : "Add Module",
-        "Marketplace module details, pricing and settings.",
-        `
+      const screenshotsVal = Array.isArray(m?.screenshots) ? m.screenshots.join("\n") : "";
+      const videosVal = Array.isArray(m?.videos) ? m.videos.join("\n") : "";
+      const panel = document.getElementById('mktFormPanel');
+      if (!panel) return;
+      panel.innerHTML = `
+        <div class="card p-6 mt-6">
+          <h2 class="text-xl font-extrabold mb-4">${id ? "Edit Module" : "Add Module"}</h2>
+          <p class="muted mb-4">Marketplace module details, pricing and settings.</p>
           <div class="grid md:grid-cols-2 gap-3">
-            <div><label class="label">Module Name *</label><input id="mName" class="inp" value="${esc(m?.name||"")}" /></div>
+            <div><label class="label">Module Name *</label><input id="mName" class="inp" value="${esc(m?.name||"")}" oninput="updateMktPreview()" /></div>
             <div><label class="label">Slug (URL-safe, unique) *</label><input id="mSlug" class="inp" value="${esc(m?.slug||"")}" placeholder="holiday-management" /></div>
             <div><label class="label">Category *</label>
               <select id="mCat" class="inp">
@@ -1732,39 +1760,65 @@
             </div>
             <div><label class="label">Monthly Price (£)</label><input id="mMonthly" class="inp" type="number" step="0.01" min="0" value="${esc(m?.monthly_price||"0")}" /></div>
             <div><label class="label">Yearly Price (£) <span class="muted" style="font-weight:400">(auto = monthly × 0.92)</span></label><input id="mYearly" class="inp" type="number" step="0.01" min="0" value="${esc(m?.yearly_price||"")}" /></div>
-            <div class="md:col-span-2"><label class="label">Short Description</label><input id="mShort" class="inp" value="${esc(m?.short_description||"")}" /></div>
-            <div class="md:col-span-2"><label class="label">Long Description</label><textarea id="mLong" class="inp">${esc(m?.long_description||"")}</textarea></div>
-            <div class="md:col-span-2"><label class="label">Features (one per line)</label><textarea id="mFeatures" class="inp" placeholder="Holiday booking&#10;Leave approvals&#10;Calendar view">${esc(featuresVal)}</textarea></div>
+            <div><label class="label">Thumbnail URL</label><input id="mThumbnail" class="inp" value="${esc(m?.thumbnail_url||"")}" placeholder="https://..." /></div>
             <div><label class="label">Sort Order (lower = first)</label><input id="mSort" class="inp" type="number" value="${esc(m?.sort_order||0)}" /></div>
+            <div class="md:col-span-2"><label class="label">Short Description</label><input id="mShort" class="inp" value="${esc(m?.short_description||"")}" oninput="updateMktPreview()" /></div>
+            <div class="md:col-span-2"><label class="label">Long Description</label><textarea id="mLong" class="inp" rows="4">${esc(m?.long_description||"")}</textarea></div>
+            <div class="md:col-span-2"><label class="label">Features (one per line)</label><textarea id="mFeatures" class="inp" rows="5" placeholder="Holiday booking&#10;Leave approvals&#10;Calendar view">${esc(featuresVal)}</textarea></div>
+            <div class="md:col-span-2"><label class="label">Screenshots (one URL per line)</label><textarea id="mScreenshots" class="inp" rows="3" placeholder="https://...">${esc(screenshotsVal)}</textarea></div>
+            <div class="md:col-span-2"><label class="label">Videos (one URL per line — YouTube or direct)</label><textarea id="mVideos" class="inp" rows="3" placeholder="https://youtube.com/watch?v=...">${esc(videosVal)}</textarea></div>
             <div class="flex flex-col gap-2 justify-end">
               <label class="flex gap-2 items-center"><input type="checkbox" id="mFeatured" ${m?.featured?"checked":""}> Featured</label>
               <label class="flex gap-2 items-center"><input type="checkbox" id="mPopular" ${m?.popular?"checked":""}> Popular</label>
               <label class="flex gap-2 items-center"><input type="checkbox" id="mRecommended" ${m?.recommended?"checked":""}> Recommended</label>
             </div>
           </div>
-          <button class="btn primary mt-6 w-full" onclick="saveModule('${id||""}')">Save Module</button>
-        `
-      );
+          <div class="flex gap-3 mt-6">
+            <button class="btn primary flex-1" onclick="saveModule('${id||""}')">Save Module</button>
+            <button class="btn" onclick="closeMktForm()">Cancel</button>
+          </div>
+
+          <!-- Live card preview -->
+          <div class="mt-8">
+            <div class="label mb-2">Card Preview</div>
+            <div id="mktCardPreview">
+              <div class="card p-5 flex flex-col gap-3" style="max-width:320px;opacity:0.9">
+                <div class="font-extrabold text-lg leading-tight">${esc(m?.name||'Module Name')}</div>
+                <p class="text-sm" style="color:var(--muted)">${esc(m?.short_description||'Short description will appear here.')}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      panel.style.display = 'block';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     window.saveModule = async function saveModule(id) {
-      const monthly = parseFloat($("#mMonthly").value) || 0;
-      const yearly = parseFloat($("#mYearly").value) || parseFloat((monthly * 0.92).toFixed(2));
-      const features = ($("#mFeatures").value || "").split("\n").map(s=>s.trim()).filter(Boolean);
+      const panel = document.getElementById('mktFormPanel');
+      const q = sel => panel ? panel.querySelector(sel) : null;
+      const monthly = parseFloat(q('#mMonthly')?.value) || 0;
+      const yearly = parseFloat(q('#mYearly')?.value) || parseFloat((monthly * 0.92).toFixed(2));
+      const features = (q('#mFeatures')?.value || "").split("\n").map(s=>s.trim()).filter(Boolean);
+      const screenshots = (q('#mScreenshots')?.value || "").split("\n").map(s=>s.trim()).filter(Boolean);
+      const videos = (q('#mVideos')?.value || "").split("\n").map(s=>s.trim()).filter(Boolean);
       const payload = {
-        name: $("#mName").value.trim(),
-        slug: $("#mSlug").value.trim().toLowerCase().replace(/\s+/g,"-"),
-        category: $("#mCat").value,
-        status: $("#mStatus").value,
+        name: q('#mName')?.value.trim() || "",
+        slug: (q('#mSlug')?.value.trim() || "").toLowerCase().replace(/\s+/g,"-"),
+        category: q('#mCat')?.value || "",
+        status: q('#mStatus')?.value || "draft",
         monthly_price: monthly,
         yearly_price: yearly,
-        short_description: $("#mShort").value.trim() || null,
-        long_description: $("#mLong").value.trim() || null,
+        short_description: q('#mShort')?.value.trim() || null,
+        long_description: q('#mLong')?.value.trim() || null,
+        thumbnail_url: q('#mThumbnail')?.value.trim() || null,
         features,
-        sort_order: parseInt($("#mSort").value) || 0,
-        featured: $("#mFeatured").checked,
-        popular: $("#mPopular").checked,
-        recommended: $("#mRecommended").checked
+        screenshots,
+        videos,
+        sort_order: parseInt(q('#mSort')?.value) || 0,
+        featured: q('#mFeatured')?.checked || false,
+        popular: q('#mPopular')?.checked || false,
+        recommended: q('#mRecommended')?.checked || false
       };
       if (!payload.name || !payload.slug) return alert("Name and slug are required.");
       const result = id
@@ -1772,7 +1826,7 @@
         : await sb.from("marketplace_modules").insert(payload);
       if (result.error) return alert(result.error.message);
       await audit(id?"update_module":"add_module","marketplace_modules",id||payload.slug,{name:payload.name});
-      closeModal();
+      closeMktForm();
       await loadMarketplaceModules();
       drawMarketplace();
     };
@@ -1783,7 +1837,7 @@
       if (error) return alert(error.message);
       await audit("toggle_module_status","marketplace_modules",id,{from:current,to:next});
       await loadMarketplaceModules();
-      drawMarketplace();
+      if ($("#mktStats")) drawMarketplace();
     };
 
     window.deleteModule = async function deleteModule(id) {
@@ -1792,7 +1846,7 @@
       if (error) return alert(error.message);
       await audit("delete_module","marketplace_modules",id,{});
       await loadMarketplaceModules();
-      drawMarketplace();
+      if ($("#mktStats")) drawMarketplace();
     };
 
     /******************************************************************
