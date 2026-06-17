@@ -37,7 +37,27 @@ export async function onRequestPost({ request, env }) {
   try { body = await request.json(); }
   catch { return new Response('Invalid JSON', { status: 400 }); }
 
-  const { token, user_id, full_name, phone, date_of_birth, start_date, emergency_contact_name, emergency_contact_phone } = body;
+  const {
+    token, user_id,
+    // Personal
+    title, full_name, preferred_name, pronouns, gender,
+    personal_email, personal_phone_country_code, personal_phone_number,
+    date_of_birth,
+    national_insurance_number,
+    // Address
+    address_line_1, address_line_2, city, county, postcode, country,
+    // Emergency 1
+    emergency_contact_1_name, emergency_contact_1_relationship,
+    emergency_contact_1_email, emergency_contact_1_phone,
+    // Emergency 2
+    emergency_contact_2_name, emergency_contact_2_relationship,
+    emergency_contact_2_email, emergency_contact_2_phone,
+    // Financial / employment
+    student_loan_status, tax_code,
+    bank_account_name, bank_account_sort_code, bank_account_number,
+    dietary_requirements, accessibility_needs
+  } = body;
+
   if (!token || !user_id) return new Response('token and user_id are required', { status: 400 });
 
   const client = db(SUPABASE_URL, SUPABASE_SERVICE_KEY);
@@ -51,19 +71,50 @@ export async function onRequestPost({ request, env }) {
     return new Response('Invite token has expired', { status: 400 });
   }
 
-  // Update employee record
+  const personal_phone = personal_phone_country_code && personal_phone_number
+    ? `${personal_phone_country_code}${personal_phone_number}`
+    : (personal_phone_number || null);
+
+  // Update employee record with all profile data
   await client.update(
     'employees',
-    `company_id=eq.${invite.company_id}&email=eq.${encodeURIComponent(invite.email)}`,
+    `company_id=eq.${invite.company_id}&work_email=eq.${encodeURIComponent(invite.email)}`,
     {
       user_id,
+      title: title || null,
       full_name: full_name || invite.full_name || null,
-      phone: phone || null,
-      date_of_birth: date_of_birth || null,
-      start_date: start_date || null,
-      emergency_contact_name: emergency_contact_name || null,
-      emergency_contact_phone: emergency_contact_phone || null,
-      status: 'active'
+      preferred_name: preferred_name || null,
+      pronouns: pronouns || null,
+      gender: gender || null,
+      personal_email: personal_email || null,
+      personal_phone: personal_phone || null,
+      dob: date_of_birth || null,
+      national_insurance_number: national_insurance_number || null,
+      address_line_1: address_line_1 || null,
+      address_line_2: address_line_2 || null,
+      city: city || null,
+      county: county || null,
+      postcode: postcode || null,
+      country: country || 'United Kingdom',
+      emergency_contact_1_name: emergency_contact_1_name || null,
+      emergency_contact_1_relationship: emergency_contact_1_relationship || null,
+      emergency_contact_1_email: emergency_contact_1_email || null,
+      emergency_contact_1_phone: emergency_contact_1_phone || null,
+      emergency_contact_2_name: emergency_contact_2_name || null,
+      emergency_contact_2_relationship: emergency_contact_2_relationship || null,
+      emergency_contact_2_email: emergency_contact_2_email || null,
+      emergency_contact_2_phone: emergency_contact_2_phone || null,
+      student_loan_status: student_loan_status || null,
+      tax_code: tax_code || null,
+      bank_account_name: bank_account_name || null,
+      bank_account_sort_code: bank_account_sort_code || null,
+      bank_account_number: bank_account_number || null,
+      dietary_requirements: dietary_requirements || null,
+      accessibility_needs: accessibility_needs || null,
+      employment_status: 'active',
+      onboarding_status: 'completed',
+      first_login_at: new Date().toISOString(),
+      profile_updated_at: new Date().toISOString()
     }
   );
 

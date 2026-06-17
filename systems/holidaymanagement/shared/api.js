@@ -578,3 +578,66 @@ async function notifyCancelRequest(request, reason) {
     body: JSON.stringify({ action: 'cancel_request', request, reason })
   });
 }
+
+// ── Employee authorisers ──────────────────────────────────────────────────
+
+export async function getEmployeeAuthorisers(employeeId, companyId) {
+  const { data, error } = await db
+    .from('employee_authorisers')
+    .select('*, authoriser:authoriser_employee_id(id, full_name, work_email, role)')
+    .eq('employee_id', employeeId)
+    .eq('company_id', companyId);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function setEmployeeAuthorisers(employeeId, companyId, authoriserIds) {
+  // Delete all existing, then insert new ones
+  await db.from('employee_authorisers').delete().eq('employee_id', employeeId).eq('company_id', companyId);
+  if (!authoriserIds.length) return;
+  const rows = authoriserIds.map(aid => ({ employee_id: employeeId, authoriser_employee_id: aid, company_id: companyId }));
+  const { error } = await db.from('employee_authorisers').insert(rows);
+  if (error) throw error;
+}
+
+export async function searchAdminsAndOwners(companyId, query) {
+  const { data, error } = await db
+    .from('employees')
+    .select('id, full_name, work_email, role')
+    .eq('company_id', companyId)
+    .in('role', ['admin', 'owner'])
+    .eq('employment_status', 'active')
+    .ilike('full_name', `%${query}%`)
+    .limit(10);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createEmployeeFull(companyId, payload) {
+  const { data, error } = await db
+    .from('employees')
+    .insert({ company_id: companyId, ...payload })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// ── Onboarding field settings ─────────────────────────────────────────────
+
+export async function getOnboardingFieldSettings(companyId) {
+  const { data, error } = await db.from('onboarding_field_settings').select('*').eq('company_id', companyId);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function updateOnboardingFieldSettings(companyId, settings) {
+  // settings = [{field_key, is_required}]
+  for (const s of settings) {
+    const { error } = await db.from('onboarding_field_settings').upsert(
+      { company_id: companyId, field_key: s.field_key, is_required: s.is_required, updated_at: new Date().toISOString() },
+      { onConflict: 'company_id,field_key' }
+    );
+    if (error) throw error;
+  }
+}
