@@ -200,6 +200,7 @@
       ["marketplace", "Marketplace", "Module catalogue & orders"],
       ["orders", "Orders", "Review and approve orders"],
       ["core", "SmartCore Core", "Provisioned companies & employees"],
+      ["analytics", "Analytics", "Marketplace performance & revenue"],
       ["finance", "Payments & Finance", "Admin only"],
       ["vault", "Credentials Vault", "Admin only"],
       ["calendar", "Calendar", "Shared calendar"],
@@ -421,7 +422,7 @@
     function renderNav() {
       const allowed = modules.filter((module) => {
         const key = module[0];
-        if (["finance", "vault", "staff", "marketplace", "orders", "core"].includes(key) && !isAdmin()) return false;
+        if (["finance", "vault", "staff", "marketplace", "orders", "core", "analytics"].includes(key) && !isAdmin()) return false;
         if (key === "audit" && !isOwner()) return false;
         return true;
       });
@@ -449,6 +450,7 @@
         marketplace: renderMarketplace,
         orders: renderOrders,
         core: renderCore,
+        analytics: renderAnalytics,
         finance: renderFinance,
         vault: renderVault,
         calendar: renderCalendar,
@@ -2289,6 +2291,186 @@
       closeModal();
       await openCoreEmployees(companyId);
     };
+
+    // ── Analytics Module ───────────────────────────────────────────────────
+    async function renderAnalytics() {
+      shell(
+        "Analytics",
+        "Marketplace performance, revenue, and engagement",
+        `<button class="btn primary" onclick="loadAnalytics()">↺ Refresh</button>`,
+        `<div id="analyticsBody"><div class="text-center py-12" style="color:var(--muted)">Loading analytics…</div></div>`
+      );
+      await loadAnalytics();
+    }
+
+    async function loadAnalytics() {
+      const body = document.getElementById('analyticsBody');
+      if (!body) return;
+      body.innerHTML = `<div class="text-center py-12" style="color:var(--muted)">Loading…</div>`;
+
+      try {
+        const [eventsRes, ordersRes, modulesRes] = await Promise.all([
+          sb.from('marketplace_analytics').select('event_type, module_id, created_at'),
+          sb.from('marketplace_orders').select('status, total, billing_type, created_at, modules'),
+          sb.from('marketplace_modules').select('id, name, slug, category, status, view_count'),
+        ]);
+
+        const events  = eventsRes.data  || [];
+        const orders  = ordersRes.data  || [];
+        const modules = modulesRes.data || [];
+
+        const approved   = orders.filter(o => o.status === 'approved');
+        const pending    = orders.filter(o => o.status === 'pending');
+        const rejected   = orders.filter(o => o.status === 'rejected');
+        const revenue    = approved.reduce((s, o) => s + (+o.total || 0), 0);
+
+        const byEvent = {};
+        events.forEach(e => { byEvent[e.event_type] = (byEvent[e.event_type] || 0) + 1; });
+
+        // Module popularity from analytics events
+        const modAdds = {};
+        events.filter(e => e.event_type === 'add_to_basket' && e.module_id).forEach(e => {
+          modAdds[e.module_id] = (modAdds[e.module_id] || 0) + 1;
+        });
+
+        // Revenue over last 30 days
+        const now = Date.now();
+        const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+        const recentRevenue = approved
+          .filter(o => new Date(o.created_at).getTime() >= thirtyDaysAgo)
+          .reduce((s, o) => s + (+o.total || 0), 0);
+
+        // Orders per day (last 14 days)
+        const dailyOrders = {};
+        for (let i = 13; i >= 0; i--) {
+          const d = new Date(now - i * 86400000).toISOString().slice(0, 10);
+          dailyOrders[d] = 0;
+        }
+        orders.forEach(o => {
+          const d = o.created_at?.slice(0, 10);
+          if (d && dailyOrders[d] !== undefined) dailyOrders[d]++;
+        });
+
+        // Top modules by add-to-basket
+        const topModules = modules
+          .map(m => ({ ...m, adds: modAdds[m.id] || 0 }))
+          .filter(m => m.slug !== 'smartcore-core')
+          .sort((a, b) => b.adds - a.adds)
+          .slice(0, 10);
+
+        // Conversion rate: orders submitted / unique checkout starts
+        const checkoutStarts  = byEvent['checkout_start'] || 0;
+        const ordersSubmitted = byEvent['order_submitted'] || 0;
+        const convRate = checkoutStarts > 0 ? ((ordersSubmitted / checkoutStarts) * 100).toFixed(1) : '—';
+
+        const fmt = n => `£${(+n || 0).toFixed(2)}`;
+
+        body.innerHTML = `
+          <!-- KPI row -->
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            ${kpiCard('Total Revenue', fmt(revenue), 'Approved orders', '#4ade80')}
+            ${kpiCard('Revenue (30d)', fmt(recentRevenue), 'Last 30 days', '#60a5fa')}
+            ${kpiCard('Orders', orders.length, `${pending.length} pending · ${approved.length} approved`, '#a78bfa')}
+            ${kpiCard('Conversion', convRate + (convRate !== '—' ? '%' : ''), 'Checkout starts → orders', '#fb923c')}
+          </div>
+
+          <!-- Event funnel -->
+          <div class="glass p-5 mb-6">
+            <div class="font-bold mb-4 text-sm" style="color:var(--muted2)">ENGAGEMENT FUNNEL</div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              ${funnelStep('Page Views',      byEvent['view']           || 0, '#60a5fa')}
+              ${funnelStep('Detail Views',    byEvent['detail_view']    || 0, '#818cf8')}
+              ${funnelStep('Added to Basket', byEvent['add_to_basket']  || 0, '#a78bfa')}
+              ${funnelStep('Basket Removes',  byEvent['remove_from_basket'] || 0, '#f87171')}
+              ${funnelStep('Checkout Starts', checkoutStarts,              '#fb923c')}
+              ${funnelStep('Orders Submitted',ordersSubmitted,             '#4ade80')}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- Orders breakdown -->
+            <div class="glass p-5">
+              <div class="font-bold mb-4 text-sm" style="color:var(--muted2)">ORDERS BY STATUS</div>
+              <div class="space-y-3">
+                ${orderBar('Pending',  pending.length,  orders.length, '#fb923c')}
+                ${orderBar('Approved', approved.length, orders.length, '#4ade80')}
+                ${orderBar('Rejected', rejected.length, orders.length, '#f87171')}
+              </div>
+              <div class="mt-4 pt-4 border-t" style="border-color:var(--line2)">
+                <div class="text-sm" style="color:var(--muted)">Billing mix</div>
+                <div class="flex gap-6 mt-2 text-sm">
+                  <span style="color:var(--text)"><strong>${orders.filter(o=>o.billing_type==='monthly').length}</strong> <span style="color:var(--muted2)">monthly</span></span>
+                  <span style="color:var(--text)"><strong>${orders.filter(o=>o.billing_type==='yearly').length}</strong> <span style="color:var(--muted2)">annual</span></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Top modules by basket adds -->
+            <div class="glass p-5">
+              <div class="font-bold mb-4 text-sm" style="color:var(--muted2)">TOP MODULES (BASKET ADDS)</div>
+              ${topModules.length === 0
+                ? `<div style="color:var(--muted2)" class="text-sm">No data yet.</div>`
+                : `<div class="space-y-2">
+                  ${topModules.slice(0, 8).map(m => `
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-sm truncate" style="max-width:200px">${esc(m.name)}</div>
+                      <div class="flex items-center gap-2 shrink-0">
+                        <div style="height:6px;width:${Math.max(4, Math.round((m.adds / (topModules[0].adds || 1)) * 80))}px;background:#3b82f6;border-radius:99px"></div>
+                        <div class="text-xs font-bold" style="color:var(--muted)">${m.adds}</div>
+                      </div>
+                    </div>`).join('')}
+                </div>`}
+            </div>
+          </div>
+
+          <!-- Orders per day (last 14 days) -->
+          <div class="glass p-5">
+            <div class="font-bold mb-4 text-sm" style="color:var(--muted2)">ORDERS — LAST 14 DAYS</div>
+            <div class="flex items-end gap-1 h-24">
+              ${Object.entries(dailyOrders).map(([d, cnt]) => {
+                const maxVal = Math.max(...Object.values(dailyOrders), 1);
+                const h = Math.max(4, Math.round((cnt / maxVal) * 88));
+                return `<div class="flex-1 flex flex-col items-center gap-1" title="${d}: ${cnt} order${cnt!==1?'s':''}">
+                  <div style="height:${h}px;background:rgba(59,130,246,${cnt>0?'.7':'.18'});border-radius:4px 4px 0 0;width:100%"></div>
+                  <div class="text-xs" style="color:var(--muted2);writing-mode:vertical-rl;transform:rotate(180deg);font-size:9px">${d.slice(5)}</div>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      } catch (err) {
+        body.innerHTML = `<div class="text-center py-12" style="color:#f87171">Failed to load analytics: ${esc(err.message)}</div>`;
+      }
+    }
+
+    function kpiCard(label, value, sub, color) {
+      return `<div class="glass p-4">
+        <div class="text-xs font-bold mb-1" style="color:var(--muted2)">${esc(label)}</div>
+        <div class="text-2xl font-extrabold" style="color:${color}">${esc(String(value))}</div>
+        <div class="text-xs mt-1" style="color:var(--muted2)">${esc(sub)}</div>
+      </div>`;
+    }
+
+    function funnelStep(label, count, color) {
+      return `<div class="text-center p-3 rounded-xl" style="background:rgba(255,255,255,.04)">
+        <div class="text-xl font-extrabold" style="color:${color}">${count}</div>
+        <div class="text-xs mt-1" style="color:var(--muted2)">${esc(label)}</div>
+      </div>`;
+    }
+
+    function orderBar(label, count, total, color) {
+      const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+      return `<div>
+        <div class="flex justify-between text-sm mb-1">
+          <span style="color:var(--muted)">${esc(label)}</span>
+          <span style="color:${color};font-weight:700">${count}</span>
+        </div>
+        <div style="height:6px;background:rgba(255,255,255,.08);border-radius:99px">
+          <div style="height:6px;width:${pct}%;background:${color};border-radius:99px;transition:width .3s"></div>
+        </div>
+      </div>`;
+    }
+    // ── End Analytics Module ───────────────────────────────────────────────
 
     document.addEventListener("mousemove", () => { if (state.vaultUnlocked) resetVaultTimer(); }, { passive: true });
     document.addEventListener("keydown", () => { if (state.vaultUnlocked) resetVaultTimer(); }, { passive: true });

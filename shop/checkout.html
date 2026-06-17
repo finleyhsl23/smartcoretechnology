@@ -300,7 +300,7 @@ async function submitOrder() {
   btn.textContent = 'Submitting…';
 
   try {
-    const { error } = await sb.from('marketplace_orders').insert({
+    const { data: insertedRows, error } = await sb.from('marketplace_orders').insert({
       order_reference:      ref,
       company_name:         company,
       contact_name:         contact,
@@ -309,11 +309,12 @@ async function submitOrder() {
       staff_count:          staff,
       notes:                notes || null,
       modules:              basket.map(m => ({
-        id:           m.id,
-        slug:         m.slug,
-        name:         m.name,
+        id:            m.id,
+        slug:          m.slug,
+        name:          m.name,
         monthly_price: m.monthly_price,
-        yearly_price:  m.yearly_price
+        yearly_price:  m.yearly_price,
+        price:         billingType === 'yearly' ? m.yearly_price : m.monthly_price
       })),
       billing_type:         billingType,
       subtotal:             totals.subtotal,
@@ -322,9 +323,21 @@ async function submitOrder() {
       annual_discount_amount: totals.annualDiscount,
       total:                totals.total,
       status:               'pending'
-    });
+    }).select('id');
 
     if (error) throw new Error(error.message);
+
+    // Send confirmation emails (non-blocking — don't fail order if email fails)
+    try {
+      const orderId = insertedRows?.[0]?.id;
+      if (orderId) {
+        fetch('/api/marketplace-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: orderId }),
+        }).catch(() => {});
+      }
+    } catch (_) {}
 
     // Track conversion
     try {
