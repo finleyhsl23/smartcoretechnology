@@ -1760,12 +1760,30 @@
             </div>
             <div><label class="label">Monthly Price (£)</label><input id="mMonthly" class="inp" type="number" step="0.01" min="0" value="${esc(m?.monthly_price||"0")}" /></div>
             <div><label class="label">Yearly Price (£) <span class="muted" style="font-weight:400">(auto = monthly × 0.92)</span></label><input id="mYearly" class="inp" type="number" step="0.01" min="0" value="${esc(m?.yearly_price||"")}" /></div>
-            <div><label class="label">Thumbnail URL</label><input id="mThumbnail" class="inp" value="${esc(m?.thumbnail_url||"")}" placeholder="https://..." /></div>
+            <div class="md:col-span-2">
+              <label class="label">Thumbnail Image</label>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <input type="file" id="mThumbnailFile" accept="image/*" style="flex:1;min-width:0" onchange="uploadThumbnail(this)" />
+                <span id="mThumbnailStatus" style="font-size:12px;color:var(--muted)"></span>
+              </div>
+              ${m?.thumbnail_url ? `<img src="${esc(m.thumbnail_url)}" style="margin-top:8px;height:80px;border-radius:8px;object-fit:cover" />` : ''}
+              <input id="mThumbnail" type="hidden" value="${esc(m?.thumbnail_url||"")}" />
+            </div>
             <div><label class="label">Sort Order (lower = first)</label><input id="mSort" class="inp" type="number" value="${esc(m?.sort_order||0)}" /></div>
             <div class="md:col-span-2"><label class="label">Short Description</label><input id="mShort" class="inp" value="${esc(m?.short_description||"")}" oninput="updateMktPreview()" /></div>
             <div class="md:col-span-2"><label class="label">Long Description</label><textarea id="mLong" class="inp" rows="4">${esc(m?.long_description||"")}</textarea></div>
             <div class="md:col-span-2"><label class="label">Features (one per line)</label><textarea id="mFeatures" class="inp" rows="5" placeholder="Holiday booking&#10;Leave approvals&#10;Calendar view">${esc(featuresVal)}</textarea></div>
-            <div class="md:col-span-2"><label class="label">Screenshots (one URL per line)</label><textarea id="mScreenshots" class="inp" rows="3" placeholder="https://...">${esc(screenshotsVal)}</textarea></div>
+            <div class="md:col-span-2">
+              <label class="label">Screenshots</label>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+                <input type="file" id="mScreenshotFile" accept="image/*" multiple style="flex:1;min-width:0" onchange="uploadScreenshots(this)" />
+                <span id="mScreenshotStatus" style="font-size:12px;color:var(--muted)"></span>
+              </div>
+              <div id="mScreenshotPreviews" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+                ${screenshotsVal.split("\n").filter(Boolean).map(u=>`<img src="${esc(u)}" style="height:60px;border-radius:6px;object-fit:cover" />`).join('')}
+              </div>
+              <textarea id="mScreenshots" class="inp" rows="2" placeholder="URLs added automatically when you upload above (or paste manually)">${esc(screenshotsVal)}</textarea>
+            </div>
             <div class="md:col-span-2"><label class="label">Videos (one URL per line — YouTube or direct)</label><textarea id="mVideos" class="inp" rows="3" placeholder="https://youtube.com/watch?v=...">${esc(videosVal)}</textarea></div>
             <div class="flex flex-col gap-2 justify-end">
               <label class="flex gap-2 items-center"><input type="checkbox" id="mFeatured" ${m?.featured?"checked":""}> Featured</label>
@@ -1829,6 +1847,70 @@
       closeMktForm();
       await loadMarketplaceModules();
       drawMarketplace();
+    };
+
+    window.uploadThumbnail = async function uploadThumbnail(input) {
+      const file = input.files[0];
+      if (!file) return;
+      const panel = document.getElementById('mktFormPanel');
+      const status = panel?.querySelector('#mThumbnailStatus');
+      if (status) status.textContent = 'Uploading…';
+      const slugEl = panel?.querySelector('#mSlug');
+      const slug = slugEl?.value.trim() || ('module-' + Date.now());
+      const ext = file.name.split('.').pop();
+      const path = `modules/${slug}/thumbnail.${ext}`;
+      const { error } = await sb.storage.from('marketplace-images').upload(path, file, { upsert: true });
+      if (error) { if (status) status.textContent = 'Upload failed: ' + error.message; return; }
+      const { data } = sb.storage.from('marketplace-images').getPublicUrl(path);
+      const hiddenInput = panel?.querySelector('#mThumbnail');
+      if (hiddenInput) hiddenInput.value = data.publicUrl;
+      if (status) status.textContent = '✓ Uploaded';
+      // Show preview
+      let preview = panel?.querySelector('#mThumbnailPreview');
+      if (!preview) {
+        preview = document.createElement('img');
+        preview.id = 'mThumbnailPreview';
+        preview.style.cssText = 'margin-top:8px;height:80px;border-radius:8px;object-fit:cover;display:block';
+        input.closest('div').appendChild(preview);
+      }
+      preview.src = data.publicUrl;
+    };
+
+    window.uploadScreenshots = async function uploadScreenshots(input) {
+      const files = [...input.files];
+      if (!files.length) return;
+      const panel = document.getElementById('mktFormPanel');
+      const status = panel?.querySelector('#mScreenshotStatus');
+      if (status) status.textContent = `Uploading ${files.length} image(s)…`;
+      const slugEl = panel?.querySelector('#mSlug');
+      const slug = slugEl?.value.trim() || ('module-' + Date.now());
+      const uploaded = [];
+      for (const file of files) {
+        const ext = file.name.split('.').pop();
+        const path = `modules/${slug}/screenshots/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error } = await sb.storage.from('marketplace-images').upload(path, file, { upsert: true });
+        if (!error) {
+          const { data } = sb.storage.from('marketplace-images').getPublicUrl(path);
+          uploaded.push(data.publicUrl);
+        }
+      }
+      if (status) status.textContent = `✓ ${uploaded.length}/${files.length} uploaded`;
+      // Append to textarea
+      const ta = panel?.querySelector('#mScreenshots');
+      if (ta) {
+        const existing = ta.value.trim();
+        ta.value = existing ? existing + '\n' + uploaded.join('\n') : uploaded.join('\n');
+      }
+      // Show previews
+      const previewsEl = panel?.querySelector('#mScreenshotPreviews');
+      if (previewsEl) {
+        uploaded.forEach(url => {
+          const img = document.createElement('img');
+          img.src = url;
+          img.style.cssText = 'height:60px;border-radius:6px;object-fit:cover';
+          previewsEl.appendChild(img);
+        });
+      }
     };
 
     window.toggleModuleStatus = async function toggleModuleStatus(id, current) {

@@ -322,24 +322,14 @@ async function submitOrder() {
       discount_amount:      totals.pkgDiscount,
       annual_discount_amount: totals.annualDiscount,
       total:                totals.total,
-      status:               'pending'
+      status:               'pending_payment'
     }).select('id');
 
     if (error) throw new Error(error.message);
 
-    // Send confirmation emails (non-blocking — don't fail order if email fails)
-    try {
-      const orderId = insertedRows?.[0]?.id;
-      if (orderId) {
-        fetch('/api/marketplace-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ order_id: orderId }),
-        }).catch(() => {});
-      }
-    } catch (_) {}
+    const orderId = insertedRows?.[0]?.id;
 
-    // Track conversion
+    // Track checkout start
     try {
       await sb.from('marketplace_analytics').insert({
         module_id: null,
@@ -349,11 +339,9 @@ async function submitOrder() {
       });
     } catch (_) {}
 
-    // Clear basket
+    // Clear basket and redirect to payment
     localStorage.removeItem('sc_basket');
-
-    // Redirect to confirmation
-    window.location.href = `/shop/order-confirmed.html?ref=${encodeURIComponent(ref)}&company=${encodeURIComponent(company)}`;
+    window.location.href = `/shop/payment.html?order_id=${encodeURIComponent(orderId)}`;
 
   } catch (err) {
     showErr('Failed to submit order: ' + err.message);

@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SmartCore — Complete Payment</title>
+  <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <script>
+    window.__SUPABASE_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+    window.__SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+  </script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#000;
+      --surface:rgba(255,255,255,.04);
+      --surface2:rgba(255,255,255,.07);
+      --border:rgba(255,255,255,.1);
+      --border2:rgba(255,255,255,.06);
+      --text:#f5f5f7;
+      --muted:#a1a1a6;
+      --muted2:rgba(255,255,255,.35);
+      --accent:#2196f3;
+      --accent-soft:rgba(33,150,243,.12);
+      --green:#30d158;
+      --green-soft:rgba(48,209,88,.12);
+      --amber:#ff9f0a;
+      --red:#ff453a;
+      --radius:16px;
+    }
+    html,body{min-height:100%;background:var(--bg)}
+    body{
+      font-family:Inter,system-ui,-apple-system,sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(33,150,243,.12), transparent),
+        #000;
+      min-height:100vh;
+    }
+
+    /* NAV */
+    nav{
+      position:sticky;top:0;z-index:50;
+      padding:0 24px;
+      background:rgba(0,0,0,.72);
+      backdrop-filter:blur(20px);
+      -webkit-backdrop-filter:blur(20px);
+      border-bottom:1px solid var(--border2);
+      height:56px;
+      display:flex;align-items:center;
+    }
+    .nav-inner{max-width:960px;width:100%;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
+    .nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)}
+    .nav-logo{width:30px;height:30px;background:#1d1d1f;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden}
+    .nav-logo img{width:22px;height:22px;object-fit:contain}
+    .nav-title{font-size:14px;font-weight:600;letter-spacing:-.01em}
+
+    /* STEPS */
+    .steps{display:flex;align-items:center;gap:6px}
+    .step{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+    .step-num{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+    .step.done .step-num{background:var(--green);color:#000}
+    .step.done .step-label{color:var(--green)}
+    .step.active .step-num{background:var(--accent);color:#fff}
+    .step.active .step-label{color:var(--text)}
+    .step.todo .step-num{background:var(--surface2);color:var(--muted)}
+    .step.todo .step-label{color:var(--muted)}
+    .step-sep{width:20px;height:1px;background:var(--border)}
+
+    /* MAIN */
+    main{max-width:960px;margin:0 auto;padding:48px 24px 80px}
+
+    /* TEST MODE BANNER */
+    .test-banner{
+      display:flex;align-items:center;gap:10px;
+      background:rgba(255,159,10,.1);border:1px solid rgba(255,159,10,.25);
+      border-radius:12px;padding:12px 16px;margin-bottom:32px;
+      font-size:13px;color:var(--amber);
+    }
+    .test-badge{background:var(--amber);color:#000;font-size:10px;font-weight:800;letter-spacing:.06em;padding:2px 7px;border-radius:5px}
+
+    /* LAYOUT */
+    .layout{display:grid;grid-template-columns:1fr 420px;gap:24px;align-items:start}
+    @media(max-width:760px){.layout{grid-template-columns:1fr}}
+
+    /* PANELS */
+    .panel{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);padding:28px}
+    .panel-title{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);margin-bottom:20px;text-transform:uppercase}
+
+    /* ORDER SUMMARY */
+    .order-ref{font-family:ui-monospace,Menlo,monospace;font-size:18px;font-weight:800;color:var(--accent);letter-spacing:.04em;margin-bottom:4px}
+    .order-company{font-size:20px;font-weight:700;letter-spacing:-.01em;margin-bottom:2px}
+    .order-sub{font-size:13px;color:var(--muted);margin-bottom:20px}
+    .mod-list{border-top:1px solid var(--border2);padding-top:16px;display:flex;flex-direction:column;gap:10px}
+    .mod-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .mod-name{font-size:14px;font-weight:500}
+    .mod-price{font-size:14px;font-weight:600;color:var(--muted)}
+    .mod-price.free{color:var(--green)}
+    .totals{border-top:1px solid var(--border2);margin-top:20px;padding-top:16px;display:flex;flex-direction:column;gap:8px}
+    .total-row{display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+    .total-row.discount{color:var(--green)}
+    .total-row.grand{font-size:18px;font-weight:800;color:var(--text);padding-top:8px;border-top:1px solid var(--border2);margin-top:4px}
+
+    /* PAYMENT PANEL */
+    .paypal-btn{
+      width:100%;display:flex;align-items:center;justify-content:center;gap:10px;
+      background:#ffc439;color:#003087;
+      border:none;border-radius:12px;padding:16px;
+      font-size:16px;font-weight:800;cursor:not-allowed;
+      opacity:.45;margin-bottom:12px;
+    }
+    .or-divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:var(--muted2);font-size:12px;font-weight:600;letter-spacing:.04em}
+    .or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:var(--border2)}
+    .test-section{background:rgba(255,159,10,.06);border:1px solid rgba(255,159,10,.2);border-radius:12px;padding:20px}
+    .test-section-label{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--amber);margin-bottom:16px;text-transform:uppercase}
+    .test-section p{font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6}
+    .btn-accept{
+      width:100%;display:flex;align-items:center;justify-content:center;gap:8px;
+      background:var(--green);color:#000;
+      border:none;border-radius:12px;padding:16px;
+      font-size:15px;font-weight:800;cursor:pointer;margin-bottom:10px;
+      transition:opacity .15s,transform .1s;
+    }
+    .btn-accept:hover{opacity:.88;transform:scale(.99)}
+    .btn-accept:active{opacity:.7}
+    .btn-decline{
+      width:100%;display:flex;align-items:center;justify-content:center;gap:8px;
+      background:rgba(255,69,58,.12);color:var(--red);
+      border:1px solid rgba(255,69,58,.25);border-radius:12px;padding:14px;
+      font-size:14px;font-weight:700;cursor:pointer;
+      transition:background .15s;
+    }
+    .btn-decline:hover{background:rgba(255,69,58,.2)}
+    .security-row{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:20px;font-size:12px;color:var(--muted2)}
+
+    /* LOADING / STATES */
+    .spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,.2);border-top-color:currentColor;border-radius:50%;animation:spin .6s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .err-box{background:rgba(255,69,58,.1);border:1px solid rgba(255,69,58,.25);border-radius:12px;padding:14px 16px;font-size:13px;color:var(--red);margin-top:16px;display:none}
+    .loading-state{min-height:60vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--muted)}
+    .loading-state .spinner{width:28px;height:28px;border-width:3px}
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="nav-brand">
+      <div class="nav-logo">
+        <img src="/SmartCore Official Logos/SC Icon - Black Background.png" alt="SC" onerror="this.style.display='none'" />
+      </div>
+      <span class="nav-title">SmartCore</span>
+    </a>
+    <div class="steps">
+      <div class="step done"><div class="step-num">✓</div><span class="step-label">Details</span></div>
+      <div class="step-sep"></div>
+      <div class="step active"><div class="step-num">2</div><span class="step-label">Payment</span></div>
+      <div class="step-sep"></div>
+      <div class="step todo"><div class="step-num">3</div><span class="step-label">Confirmed</span></div>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <div id="loadingState" class="loading-state">
+    <div class="spinner"></div>
+    <div>Loading your order…</div>
+  </div>
+
+  <div id="pageContent" style="display:none">
+    <div class="test-banner">
+      <span class="test-badge">TEST MODE</span>
+      <span>PayPal is not yet configured. Use the test buttons below to simulate payment acceptance or decline.</span>
+    </div>
+
+    <div class="layout">
+      <!-- Order Summary -->
+      <div class="panel">
+        <div class="panel-title">Order Summary</div>
+        <div class="order-ref" id="orderRef"></div>
+        <div class="order-company" id="orderCompany"></div>
+        <div class="order-sub" id="orderSub"></div>
+        <div class="mod-list" id="modList"></div>
+        <div class="totals" id="totals"></div>
+      </div>
+
+      <!-- Payment -->
+      <div>
+        <div class="panel">
+          <div class="panel-title">Payment Method</div>
+
+          <!-- PayPal placeholder -->
+          <button class="paypal-btn" disabled title="PayPal integration coming soon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#003087"><path d="M7.076 21.337H2.47a.641.641 0 01-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.047.288-.077.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19c-.524 0-.968.382-1.05.9l-1.12 7.106zm14.146-14.42a3.35 3.35 0 00-.607-.541c-.013.076-.026.175-.041.254-.93 4.778-4.005 7.201-9.138 7.201h-2.19a.563.563 0 00-.556.479l-1.187 7.527h-.506l-.24 1.516a.56.56 0 00.554.647h3.882c.46 0 .85-.334.922-.788.06-.26.76-4.852.816-5.09a.932.932 0 01.923-.788h.58c3.76 0 6.705-1.528 7.565-5.946.36-1.847.174-3.388-.777-4.471z"/></svg>
+            Pay with PayPal
+            <span style="font-size:11px;opacity:.7">(Coming soon)</span>
+          </button>
+
+          <div class="or-divider">or</div>
+
+          <!-- Test mode -->
+          <div class="test-section">
+            <div class="test-section-label">🧪 Test Mode</div>
+            <p>These buttons simulate a PayPal payment response. Use them to test the full order flow without real payment.</p>
+            <button class="btn-accept" onclick="processPayment('success')" id="acceptBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Simulate Successful Payment
+            </button>
+            <button class="btn-decline" onclick="processPayment('failed')" id="declineBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              Simulate Failed Payment
+            </button>
+          </div>
+
+          <div id="errBox" class="err-box"></div>
+
+          <div class="security-row">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="1.5"/></svg>
+            Secured · Encrypted · No card stored
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="errorState" style="display:none;text-align:center;padding:80px 24px;color:var(--muted)">
+    <div style="font-size:32px;margin-bottom:12px">⚠</div>
+    <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px">Order not found</div>
+    <div style="margin-bottom:24px">This payment link may have expired or already been used.</div>
+    <a href="/shop" style="color:var(--accent);text-decoration:none;font-weight:600">← Back to Marketplace</a>
+  </div>
+</main>
+
+<script>
+  const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
+  const params  = new URLSearchParams(location.search);
+  const orderId = params.get('order_id');
+  let order = null;
+
+  async function init() {
+    if (!orderId) { showError(); return; }
+
+    const { data, error } = await sb.from('marketplace_orders')
+      .select('*').eq('id', orderId).single();
+
+    if (error || !data) { showError(); return; }
+    if (!['pending_payment','pending'].includes(data.status)) {
+      if (data.status === 'approved') {
+        location.href = `/shop/order-confirmed.html?ref=${encodeURIComponent(data.order_reference)}&company=${encodeURIComponent(data.company_name)}`;
+      } else {
+        showError();
+      }
+      return;
+    }
+
+    order = data;
+    renderOrder(data);
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('pageContent').style.display = 'block';
+  }
+
+  function renderOrder(o) {
+    const modules = Array.isArray(o.modules) ? o.modules : JSON.parse(o.modules || '[]');
+    const regular = modules.filter(m => m.slug !== 'smartcore-core');
+
+    document.getElementById('orderRef').textContent = o.order_reference;
+    document.getElementById('orderCompany').textContent = o.company_name;
+    document.getElementById('orderSub').textContent =
+      `${o.billing_type === 'yearly' ? 'Annual' : 'Monthly'} billing · ${o.contact_name}`;
+
+    const modList = document.getElementById('modList');
+    modList.innerHTML = [
+      `<div class="mod-row"><span class="mod-name">SmartCore Core</span><span class="mod-price free">Included free</span></div>`,
+      ...regular.map(m => `<div class="mod-row"><span class="mod-name">${esc(m.name)}</span><span class="mod-price">${fmt(m.price)}/mo</span></div>`),
+    ].join('');
+
+    const totals = document.getElementById('totals');
+    const rows = [`<div class="total-row"><span>Subtotal</span><span>${fmt(o.subtotal)}/mo</span></div>`];
+    if (o.discount_amount > 0) rows.push(`<div class="total-row discount"><span>Package discount</span><span>−${fmt(o.discount_amount)}</span></div>`);
+    if (o.annual_discount_amount > 0) rows.push(`<div class="total-row discount"><span>Annual discount (8%)</span><span>−${fmt(o.annual_discount_amount)}</span></div>`);
+    rows.push(`<div class="total-row grand"><span>Total</span><span>${fmt(o.total)}/mo</span></div>`);
+    totals.innerHTML = rows.join('');
+  }
+
+  async function processPayment(result) {
+    const acceptBtn  = document.getElementById('acceptBtn');
+    const declineBtn = document.getElementById('declineBtn');
+    const errBox     = document.getElementById('errBox');
+
+    acceptBtn.disabled  = true;
+    declineBtn.disabled = true;
+    acceptBtn.innerHTML  = result === 'success'
+      ? '<div class="spinner"></div> Processing…'
+      : acceptBtn.innerHTML;
+    errBox.style.display = 'none';
+
+    try {
+      const res = await fetch('/api/payment-complete', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ order_id: orderId, result }),
+      });
+      const data = await res.json();
+
+      if (data.success && data.redirect) {
+        window.location.href = data.redirect;
+      } else if (!data.success && result === 'failed') {
+        errBox.textContent   = data.message || 'Payment was declined.';
+        errBox.style.display = 'block';
+        acceptBtn.disabled   = false;
+        declineBtn.disabled  = false;
+        acceptBtn.innerHTML  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Simulate Successful Payment';
+      } else {
+        throw new Error(data.error || 'Unknown error');
+      }
+    } catch (err) {
+      errBox.textContent   = 'Something went wrong: ' + err.message;
+      errBox.style.display = 'block';
+      acceptBtn.disabled   = false;
+      declineBtn.disabled  = false;
+    }
+  }
+
+  function showError() {
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('errorState').style.display   = 'block';
+  }
+
+  function fmt(n)  { return '£' + (+n || 0).toFixed(2); }
+  function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  init();
+</script>
+</body>
+</html>
