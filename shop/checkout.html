@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SmartCore — Checkout</title>
+  <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <script>
+    window.__SUPABASE_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+    window.__SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+  </script>
+  <style>
+    :root {
+      --bg0: #020617; --bg1: #06153a;
+      --line: rgba(255,255,255,.12); --line2: rgba(255,255,255,.08);
+      --text: #eaf0ff; --muted: rgba(234,240,255,.70); --muted2: rgba(234,240,255,.52);
+      --accent: rgba(120,170,255,.95); --accentSoft: rgba(120,170,255,.16); --accentBorder: rgba(120,170,255,.32);
+      --radius: 20px;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body{min-height:100%}
+    body{
+      font-family:Inter,system-ui,-apple-system,sans-serif;color:var(--text);
+      background:
+        linear-gradient(rgba(255,255,255,.028) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(255,255,255,.028) 1px,transparent 1px),
+        radial-gradient(900px 600px at 30% -5%,rgba(70,120,255,.18),transparent 60%),
+        linear-gradient(180deg,var(--bg0),var(--bg1));
+      background-size:54px 54px,54px 54px,auto,auto;
+      overflow-x:hidden;
+    }
+    .glass{background:linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,.045));border:1px solid var(--line);border-radius:var(--radius);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);}
+    .card{background:rgba(255,255,255,.055);border:1px solid var(--line2);border-radius:16px;}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.075);color:var(--text);border-radius:13px;padding:10px 16px;font-weight:700;font-size:13px;line-height:1;cursor:pointer;transition:background .15s;}
+    .btn:hover{background:rgba(255,255,255,.12);}
+    .btn-primary{background:linear-gradient(180deg,rgba(120,170,255,.9),rgba(80,130,230,.9));border-color:rgba(255,255,255,.2);}
+    .btn-primary:hover{background:linear-gradient(180deg,rgba(140,190,255,.95),rgba(100,150,240,.95));}
+    .btn-primary:disabled{opacity:.5;cursor:not-allowed;}
+    .inp{width:100%;border-radius:13px;border:1px solid var(--line2);background:rgba(2,6,23,.48);padding:11px 13px;outline:none;color:var(--text);font-size:14px;font-family:inherit;}
+    .inp::placeholder{color:var(--muted2);}
+    .inp:focus{border-color:var(--accentBorder);box-shadow:0 0 0 3px rgba(120,170,255,.10);}
+    textarea.inp{min-height:100px;resize:vertical;}
+    .label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px;}
+    .discount-pill{display:inline-flex;align-items:center;gap:4px;background:rgba(34,197,94,.14);color:#4ade80;border:1px solid rgba(34,197,94,.28);border-radius:999px;padding:2px 9px;font-size:10px;font-weight:700;}
+    .nav-sticky{position:sticky;top:0;z-index:40;background:rgba(2,6,23,.7);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--line2);}
+    .step-bar{display:flex;gap:0;}
+    .step-item{display:flex;align-items:center;gap:8px;flex:1;}
+    .step-circle{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;border:2px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted2);}
+    .step-item.done .step-circle{background:#22c55e;border-color:#22c55e;color:#fff;}
+    .step-item.active .step-circle{background:var(--accentSoft);border-color:var(--accentBorder);color:var(--accent);}
+    .step-line{flex:1;height:1.5px;background:var(--line2);margin:0 6px;}
+    .step-item.done .step-line{background:#22c55e;}
+    .badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:700;}
+    .badge-green{background:rgba(34,197,94,.14);color:#4ade80;border:1px solid rgba(34,197,94,.25);}
+    .badge-blue{background:rgba(120,170,255,.16);color:rgba(140,190,255,.95);border:1px solid rgba(120,170,255,.25);}
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav-sticky">
+  <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+    <a href="/shop" class="flex items-center gap-3 min-w-0" style="text-decoration:none;color:inherit">
+      <div class="w-9 h-9 rounded-xl overflow-hidden bg-black/30 border border-white/10 flex items-center justify-center shrink-0">
+        <img src="/SmartCore Official Logos/SC Icon - Black Background.png" alt="SmartCore" class="w-7 h-7 object-contain" onerror="this.style.display='none'" />
+      </div>
+      <div class="min-w-0">
+        <div class="font-bold text-sm leading-tight">SmartCore <span style="opacity:.65">Technology</span></div>
+        <div class="text-xs leading-tight" style="color:var(--muted2)">Checkout</div>
+      </div>
+    </a>
+    <a href="/shop" class="btn">← Back to Marketplace</a>
+  </div>
+</nav>
+
+<main class="max-w-5xl mx-auto px-4 py-10">
+
+  <!-- Step indicator -->
+  <div class="flex items-center mb-10 max-w-sm">
+    <div class="step-item done">
+      <div class="step-circle">✓</div>
+      <span class="text-xs font-bold" style="color:#4ade80">Basket</span>
+      <div class="step-line"></div>
+    </div>
+    <div class="step-item active">
+      <div class="step-circle">2</div>
+      <span class="text-xs font-bold" style="color:var(--accent)">Your Details</span>
+      <div class="step-line" style="background:var(--line2)"></div>
+    </div>
+    <div class="step-item">
+      <div class="step-circle">3</div>
+      <span class="text-xs font-bold" style="color:var(--muted2)">Confirmation</span>
+    </div>
+  </div>
+
+  <div class="grid lg:grid-cols-[1fr_380px] gap-6 items-start">
+
+    <!-- FORM -->
+    <div class="glass p-6 sm:p-8">
+      <h1 class="text-2xl font-extrabold tracking-tight mb-2">Your Details</h1>
+      <p class="text-sm mb-7" style="color:var(--muted)">Tell us about your company and we'll get back to you within 1 working day to confirm and activate your modules.</p>
+
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div>
+          <label class="label">Company Name <span style="color:#f87171">*</span></label>
+          <input id="fCompany" class="inp" placeholder="Acme Ltd" />
+        </div>
+        <div>
+          <label class="label">Contact Name <span style="color:#f87171">*</span></label>
+          <input id="fContact" class="inp" placeholder="Jane Smith" />
+        </div>
+        <div>
+          <label class="label">Email Address <span style="color:#f87171">*</span></label>
+          <input id="fEmail" class="inp" type="email" placeholder="jane@acmeltd.co.uk" />
+        </div>
+        <div>
+          <label class="label">Phone Number</label>
+          <input id="fPhone" class="inp" type="tel" placeholder="+44 7700 900000" />
+        </div>
+        <div>
+          <label class="label">Approx. Staff Count</label>
+          <input id="fStaff" class="inp" type="number" min="1" placeholder="e.g. 35" />
+        </div>
+        <div class="sm:col-span-2">
+          <label class="label">Additional Notes</label>
+          <textarea id="fNotes" class="inp" placeholder="Anything you'd like us to know — special requirements, questions, timelines…"></textarea>
+        </div>
+      </div>
+
+      <div id="errMsg" class="hidden mt-4 p-3 rounded-xl text-sm font-bold" style="background:rgba(248,113,113,.14);color:#f87171;border:1px solid rgba(248,113,113,.28)"></div>
+
+      <button id="submitBtn" class="btn btn-primary w-full mt-6 py-4 text-base font-extrabold" onclick="submitOrder()">
+        Submit Order →
+      </button>
+
+      <p class="mt-4 text-xs text-center" style="color:var(--muted2)">
+        By submitting you agree to our <a href="/privacy-policy.html" style="color:var(--accent);text-decoration:underline">Privacy Policy</a>.
+        No payment is taken until your order is approved by our team.
+      </p>
+    </div>
+
+    <!-- ORDER SUMMARY -->
+    <div class="card p-5 sticky top-24">
+      <div class="text-xs font-bold mb-3" style="color:var(--muted2)">ORDER SUMMARY</div>
+
+      <div id="summaryModules" class="space-y-2 mb-4"></div>
+
+      <div class="border-t pt-3 space-y-2 text-sm" style="border-color:var(--line2)">
+        <div class="flex justify-between" style="color:var(--muted)">
+          <span>Billing</span>
+          <span id="summaryBilling" class="font-bold" style="color:var(--text)">Monthly</span>
+        </div>
+        <div class="flex justify-between" style="color:var(--muted)" id="summaryPkgRow" style="display:none">
+          <span id="summaryPkgLabel">Package discount</span>
+          <span id="summaryPkgAmt" class="text-green-400 font-bold"></span>
+        </div>
+        <div class="flex justify-between" style="color:var(--muted)" id="summaryAnnualRow" style="display:none">
+          <span>Annual discount (8%)</span>
+          <span id="summaryAnnualAmt" class="text-green-400 font-bold"></span>
+        </div>
+        <div class="flex justify-between font-extrabold text-lg pt-2 border-t" style="border-color:var(--line2)">
+          <span>Total</span>
+          <span id="summaryTotal">£0.00</span>
+        </div>
+        <div class="text-xs" style="color:var(--muted2)" id="summaryPer">per month</div>
+      </div>
+
+      <div class="mt-4 p-3 rounded-xl text-xs" style="background:rgba(120,170,255,.08);color:var(--accent);border:1px solid rgba(120,170,255,.18)">
+        <strong>SmartCore Core</strong> is automatically included with your order at no extra cost. It is the central platform all modules depend on.
+      </div>
+
+      <div class="mt-4 p-3 rounded-xl text-xs" style="background:rgba(245,158,11,.08);color:#fbbf24;border:1px solid rgba(245,158,11,.18)">
+        <strong>Manual approval:</strong> No payment is taken today. Our team reviews and approves orders within 1 working day, then contacts you to complete setup.
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
+
+// ── Load basket ───────────────────────────────────────────
+function loadBasket() {
+  try { return JSON.parse(localStorage.getItem('sc_basket') || '[]'); } catch { return []; }
+}
+
+const basket = loadBasket();
+const billing = 'monthly'; // default; could be persisted too
+
+// ── Pricing ───────────────────────────────────────────────
+const ANNUAL_DISC = 0.08;
+const PACKAGE_DISCOUNTS = [
+  { min: 12, pct: 0.40, label: '40% package discount' },
+  { min:  6, pct: 0.25, label: '25% package discount' },
+  { min:  3, pct: 0.10, label: '10% package discount' },
+];
+function getPackageDiscount(count) {
+  return PACKAGE_DISCOUNTS.find(d => count >= d.min) || { pct: 0, label: '' };
+}
+
+// Read billing from localStorage (set by shop page)
+const billingType = localStorage.getItem('sc_billing') || 'monthly';
+
+function modulePrice(m) {
+  return billingType === 'yearly'
+    ? (m.yearly_price || m.monthly_price * (1 - ANNUAL_DISC))
+    : m.monthly_price;
+}
+function fmt(n) { return '£' + Number(n || 0).toFixed(2); }
+
+function calcTotals() {
+  const billable = basket.filter(m => m.slug !== 'smartcore-core');
+  const disc = getPackageDiscount(billable.length);
+  let subtotal = 0;
+  billable.forEach(m => subtotal += modulePrice(m));
+  const pkgDiscount = subtotal * disc.pct;
+  const annualDiscount = billingType === 'yearly' ? (subtotal - pkgDiscount) * ANNUAL_DISC : 0;
+  const total = subtotal - pkgDiscount;
+  return { subtotal, pkgDiscount, annualDiscount, total, discLabel: disc.label };
+}
+
+function esc(v) {
+  return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Render order summary ──────────────────────────────────
+function renderSummary() {
+  if (!basket.length) {
+    document.getElementById('summaryModules').innerHTML = '<p style="color:var(--muted2);font-size:13px">No modules selected.</p>';
+    return;
+  }
+
+  const totals = calcTotals();
+  const billable = basket.filter(m => m.slug !== 'smartcore-core');
+
+  document.getElementById('summaryModules').innerHTML = basket.map(m => {
+    const price = modulePrice(m);
+    const isFree = m.slug === 'smartcore-core';
+    return `
+      <div class="flex items-start justify-between gap-2 text-sm">
+        <div>
+          <div class="font-bold">${esc(m.name)}</div>
+          ${isFree ? '<span class="badge badge-green" style="font-size:9px">Auto-included</span>' : ''}
+        </div>
+        <div class="shrink-0 font-bold" style="color:var(--text)">${isFree ? 'Free' : fmt(price)}</div>
+      </div>
+    `;
+  }).join('<hr style="border-color:var(--line2);margin:6px 0">');
+
+  document.getElementById('summaryBilling').textContent = billingType === 'yearly' ? 'Annual' : 'Monthly';
+  document.getElementById('summaryTotal').textContent = fmt(totals.total);
+  document.getElementById('summaryPer').textContent = billingType === 'yearly' ? 'per year' : 'per month';
+
+  if (totals.pkgDiscount > 0) {
+    document.getElementById('summaryPkgRow').style.display = '';
+    document.getElementById('summaryPkgLabel').textContent = totals.discLabel;
+    document.getElementById('summaryPkgAmt').textContent = '−' + fmt(totals.pkgDiscount);
+  }
+  if (totals.annualDiscount > 0) {
+    document.getElementById('summaryAnnualRow').style.display = '';
+    document.getElementById('summaryAnnualAmt').textContent = '−' + fmt(totals.annualDiscount);
+  }
+}
+
+// ── Generate order reference ──────────────────────────────
+function genRef() {
+  const year = new Date().getFullYear();
+  const rand = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6);
+  return `SC-${year}-${rand}`;
+}
+
+// ── Submit order ──────────────────────────────────────────
+async function submitOrder() {
+  const company = document.getElementById('fCompany').value.trim();
+  const contact = document.getElementById('fContact').value.trim();
+  const email   = document.getElementById('fEmail').value.trim();
+  const phone   = document.getElementById('fPhone').value.trim();
+  const staff   = parseInt(document.getElementById('fStaff').value) || null;
+  const notes   = document.getElementById('fNotes').value.trim();
+  const errEl   = document.getElementById('errMsg');
+  const btn     = document.getElementById('submitBtn');
+
+  errEl.classList.add('hidden');
+
+  if (!company) return showErr('Please enter your company name.');
+  if (!contact) return showErr('Please enter a contact name.');
+  if (!email || !email.includes('@')) return showErr('Please enter a valid email address.');
+
+  const billable = basket.filter(m => m.slug !== 'smartcore-core');
+  if (!billable.length) return showErr('Your basket is empty. Please add at least one module.');
+
+  const totals = calcTotals();
+  const ref = genRef();
+
+  btn.disabled = true;
+  btn.textContent = 'Submitting…';
+
+  try {
+    const { data: insertedRows, error } = await sb.from('marketplace_orders').insert({
+      order_reference:      ref,
+      company_name:         company,
+      contact_name:         contact,
+      email:                email.toLowerCase(),
+      phone:                phone || null,
+      staff_count:          staff,
+      notes:                notes || null,
+      modules:              basket.map(m => ({
+        id:            m.id,
+        slug:          m.slug,
+        name:          m.name,
+        monthly_price: m.monthly_price,
+        yearly_price:  m.yearly_price,
+        price:         billingType === 'yearly' ? m.yearly_price : m.monthly_price
+      })),
+      billing_type:         billingType,
+      subtotal:             totals.subtotal,
+      discount_percent:     totals.discLabel ? parseFloat(totals.discLabel) : 0,
+      discount_amount:      totals.pkgDiscount,
+      annual_discount_amount: totals.annualDiscount,
+      total:                totals.total,
+      status:               'pending'
+    }).select('id');
+
+    if (error) throw new Error(error.message);
+
+    // Send confirmation emails (non-blocking — don't fail order if email fails)
+    try {
+      const orderId = insertedRows?.[0]?.id;
+      if (orderId) {
+        fetch('/api/marketplace-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: orderId }),
+        }).catch(() => {});
+      }
+    } catch (_) {}
+
+    // Track conversion
+    try {
+      await sb.from('marketplace_analytics').insert({
+        module_id: null,
+        event_type: 'order_submitted',
+        session_id: sessionStorage.sc_sid || '',
+        metadata: { order_reference: ref, module_count: basket.length }
+      });
+    } catch (_) {}
+
+    // Clear basket
+    localStorage.removeItem('sc_basket');
+
+    // Redirect to confirmation
+    window.location.href = `/shop/order-confirmed.html?ref=${encodeURIComponent(ref)}&company=${encodeURIComponent(company)}`;
+
+  } catch (err) {
+    showErr('Failed to submit order: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = 'Submit Order →';
+  }
+}
+
+function showErr(msg) {
+  const el = document.getElementById('errMsg');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+// ── Init ─────────────────────────────────────────────────
+renderSummary();
+</script>
+</body>
+</html>

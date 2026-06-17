@@ -197,6 +197,10 @@
     const modules = [
       ["dashboard", "Dashboard", "Your profile and overview"],
       ["customers", "Customer Portal Manager", "Companies and packages"],
+      ["marketplace", "Marketplace", "Module catalogue & orders"],
+      ["orders", "Orders", "Review and approve orders"],
+      ["core", "SmartCore Core", "Provisioned companies & employees"],
+      ["analytics", "Analytics", "Marketplace performance & revenue"],
       ["finance", "Payments & Finance", "Admin only"],
       ["vault", "Credentials Vault", "Admin only"],
       ["calendar", "Calendar", "Shared calendar"],
@@ -418,7 +422,7 @@
     function renderNav() {
       const allowed = modules.filter((module) => {
         const key = module[0];
-        if (["finance", "vault", "staff"].includes(key) && !isAdmin()) return false;
+        if (["finance", "vault", "staff", "marketplace", "orders", "core", "analytics"].includes(key) && !isAdmin()) return false;
         if (key === "audit" && !isOwner()) return false;
         return true;
       });
@@ -443,6 +447,10 @@
       const renderers = {
         dashboard: renderDashboard,
         customers: renderCustomers,
+        marketplace: renderMarketplace,
+        orders: renderOrders,
+        core: renderCore,
+        analytics: renderAnalytics,
         finance: renderFinance,
         vault: renderVault,
         calendar: renderCalendar,
@@ -1607,6 +1615,862 @@
       state.currentCode.textarea.value = JSON.stringify(state.currentCode.tree, null, 2);
       closeModal();
     };
+
+    /******************************************************************
+      MARKETPLACE MANAGEMENT
+    ******************************************************************/
+    const CATEGORIES = ["HR","Compliance","Safety","Operations","Fleet","Visitor Management","Training","Finance","Booking Systems","Reporting","Custom Solutions"];
+
+    function renderMarketplace() {
+      if (!isAdmin()) return renderDashboard();
+      shell(
+        "Marketplace",
+        "Manage the public SmartCore module catalogue.",
+        `<a href="/shop" target="_blank" class="btn">View Shop ↗</a><button class="btn primary" onclick="openModuleForm()">+ Add Module</button>`,
+        `
+          <div class="grid md:grid-cols-[1fr_auto_auto] gap-3">
+            <input id="mktSearch" class="inp" placeholder="Search modules…" />
+            <select id="mktCat" class="inp" style="width:auto">
+              <option value="">All Categories</option>
+              ${CATEGORIES.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+            </select>
+            <select id="mktStatus" class="inp" style="width:auto">
+              <option value="">All Statuses</option>
+              <option value="published">Published</option>
+              <option value="draft">Draft</option>
+              <option value="archived">Archived</option>
+            </select>
+          </div>
+          <div id="mktStats" class="grid sm:grid-cols-4 gap-3 mt-4"></div>
+          <div class="mt-5 overflow-auto">
+            <table>
+              <thead><tr><th>Name</th><th>Category</th><th>Monthly</th><th>Yearly</th><th>Status</th><th>Flags</th><th>Views</th><th>Actions</th></tr></thead>
+              <tbody id="mktRows"></tbody>
+            </table>
+          </div>
+        `
+      );
+      ["mktSearch","mktCat","mktStatus"].forEach(id => {
+        const el = $(id);
+        if (el) el.addEventListener("input", drawMarketplace);
+      });
+      loadMarketplaceModules().then(drawMarketplace);
+    }
+
+    async function loadMarketplaceModules() {
+      const { data } = await sb.from("marketplace_modules").select("*").order("sort_order",{ascending:true});
+      state.mktModules = data || [];
+    }
+
+    function drawMarketplace() {
+      const q = ($("#mktSearch")?.value || "").toLowerCase();
+      const cat = $("#mktCat")?.value || "";
+      const status = $("#mktStatus")?.value || "";
+      const rows = (state.mktModules || []).filter(m =>
+        (!q || m.name.toLowerCase().includes(q) || (m.slug||"").includes(q)) &&
+        (!cat || m.category === cat) &&
+        (!status || m.status === status)
+      );
+
+      const total = (state.mktModules||[]).length;
+      const published = (state.mktModules||[]).filter(m=>m.status==="published").length;
+      const drafts = (state.mktModules||[]).filter(m=>m.status==="draft").length;
+      const totalViews = (state.mktModules||[]).reduce((s,m)=>s+(m.view_count||0),0);
+
+      $("#mktStats").innerHTML = `
+        <div class="card p-4"><div class="text-sm muted">Total Modules</div><div class="text-3xl font-extrabold mt-1">${total}</div></div>
+        <div class="card p-4"><div class="text-sm muted">Published</div><div class="text-3xl font-extrabold mt-1" style="color:var(--green)">${published}</div></div>
+        <div class="card p-4"><div class="text-sm muted">Drafts</div><div class="text-3xl font-extrabold mt-1" style="color:var(--amber)">${drafts}</div></div>
+        <div class="card p-4"><div class="text-sm muted">Total Views</div><div class="text-3xl font-extrabold mt-1">${totalViews.toLocaleString()}</div></div>
+      `;
+
+      $("#mktRows").innerHTML = rows.map(m => {
+        const flags = [m.featured?"Featured":"",m.popular?"Popular":"",m.recommended?"Recommended":""].filter(Boolean).join(", ") || "—";
+        const statusClass = m.status==="published"?"success":m.status==="draft"?"warning":"";
+        return `<tr>
+          <td><b>${esc(m.name)}</b><br><span class="text-xs muted">${esc(m.slug)}</span></td>
+          <td>${esc(m.category)}</td>
+          <td>£${Number(m.monthly_price||0).toFixed(2)}</td>
+          <td>£${Number(m.yearly_price||0).toFixed(2)}</td>
+          <td><span class="tag ${statusClass}">${esc(m.status)}</span></td>
+          <td class="text-xs muted">${esc(flags)}</td>
+          <td>${m.view_count||0}</td>
+          <td>
+            <div class="flex gap-2 flex-wrap">
+              <button class="btn" onclick="openModuleForm('${m.id}')">Edit</button>
+              <button class="btn ${m.status==='published'?'warning':'success'}" onclick="toggleModuleStatus('${m.id}','${m.status}')">
+                ${m.status==='published'?'Unpublish':'Publish'}
+              </button>
+              <button class="btn danger" onclick="deleteModule('${m.id}')">Delete</button>
+            </div>
+          </td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="8" class="muted">No modules found.</td></tr>`;
+    }
+
+    window.openModuleForm = function openModuleForm(id) {
+      const m = id ? (state.mktModules||[]).find(x=>x.id===id) : {};
+      const featuresVal = Array.isArray(m?.features) ? m.features.join("\n") : "";
+      openModal(
+        id ? "Edit Module" : "Add Module",
+        "Marketplace module details, pricing and settings.",
+        `
+          <div class="grid md:grid-cols-2 gap-3">
+            <div><label class="label">Module Name *</label><input id="mName" class="inp" value="${esc(m?.name||"")}" /></div>
+            <div><label class="label">Slug (URL-safe, unique) *</label><input id="mSlug" class="inp" value="${esc(m?.slug||"")}" placeholder="holiday-management" /></div>
+            <div><label class="label">Category *</label>
+              <select id="mCat" class="inp">
+                ${CATEGORIES.map(c=>`<option value="${esc(c)}" ${m?.category===c?"selected":""}>${esc(c)}</option>`).join("")}
+              </select>
+            </div>
+            <div><label class="label">Status</label>
+              <select id="mStatus" class="inp">
+                <option value="draft" ${m?.status==="draft"||!m?.status?"selected":""}>Draft</option>
+                <option value="published" ${m?.status==="published"?"selected":""}>Published</option>
+                <option value="archived" ${m?.status==="archived"?"selected":""}>Archived</option>
+              </select>
+            </div>
+            <div><label class="label">Monthly Price (£)</label><input id="mMonthly" class="inp" type="number" step="0.01" min="0" value="${esc(m?.monthly_price||"0")}" /></div>
+            <div><label class="label">Yearly Price (£) <span class="muted" style="font-weight:400">(auto = monthly × 0.92)</span></label><input id="mYearly" class="inp" type="number" step="0.01" min="0" value="${esc(m?.yearly_price||"")}" /></div>
+            <div class="md:col-span-2"><label class="label">Short Description</label><input id="mShort" class="inp" value="${esc(m?.short_description||"")}" /></div>
+            <div class="md:col-span-2"><label class="label">Long Description</label><textarea id="mLong" class="inp">${esc(m?.long_description||"")}</textarea></div>
+            <div class="md:col-span-2"><label class="label">Features (one per line)</label><textarea id="mFeatures" class="inp" placeholder="Holiday booking&#10;Leave approvals&#10;Calendar view">${esc(featuresVal)}</textarea></div>
+            <div><label class="label">Sort Order (lower = first)</label><input id="mSort" class="inp" type="number" value="${esc(m?.sort_order||0)}" /></div>
+            <div class="flex flex-col gap-2 justify-end">
+              <label class="flex gap-2 items-center"><input type="checkbox" id="mFeatured" ${m?.featured?"checked":""}> Featured</label>
+              <label class="flex gap-2 items-center"><input type="checkbox" id="mPopular" ${m?.popular?"checked":""}> Popular</label>
+              <label class="flex gap-2 items-center"><input type="checkbox" id="mRecommended" ${m?.recommended?"checked":""}> Recommended</label>
+            </div>
+          </div>
+          <button class="btn primary mt-6 w-full" onclick="saveModule('${id||""}')">Save Module</button>
+        `
+      );
+    };
+
+    window.saveModule = async function saveModule(id) {
+      const monthly = parseFloat($("#mMonthly").value) || 0;
+      const yearly = parseFloat($("#mYearly").value) || parseFloat((monthly * 0.92).toFixed(2));
+      const features = ($("#mFeatures").value || "").split("\n").map(s=>s.trim()).filter(Boolean);
+      const payload = {
+        name: $("#mName").value.trim(),
+        slug: $("#mSlug").value.trim().toLowerCase().replace(/\s+/g,"-"),
+        category: $("#mCat").value,
+        status: $("#mStatus").value,
+        monthly_price: monthly,
+        yearly_price: yearly,
+        short_description: $("#mShort").value.trim() || null,
+        long_description: $("#mLong").value.trim() || null,
+        features,
+        sort_order: parseInt($("#mSort").value) || 0,
+        featured: $("#mFeatured").checked,
+        popular: $("#mPopular").checked,
+        recommended: $("#mRecommended").checked
+      };
+      if (!payload.name || !payload.slug) return alert("Name and slug are required.");
+      const result = id
+        ? await sb.from("marketplace_modules").update(payload).eq("id",id)
+        : await sb.from("marketplace_modules").insert(payload);
+      if (result.error) return alert(result.error.message);
+      await audit(id?"update_module":"add_module","marketplace_modules",id||payload.slug,{name:payload.name});
+      closeModal();
+      await loadMarketplaceModules();
+      drawMarketplace();
+    };
+
+    window.toggleModuleStatus = async function toggleModuleStatus(id, current) {
+      const next = current === "published" ? "draft" : "published";
+      const { error } = await sb.from("marketplace_modules").update({status:next}).eq("id",id);
+      if (error) return alert(error.message);
+      await audit("toggle_module_status","marketplace_modules",id,{from:current,to:next});
+      await loadMarketplaceModules();
+      drawMarketplace();
+    };
+
+    window.deleteModule = async function deleteModule(id) {
+      if (!confirm("Delete this module? This cannot be undone.")) return;
+      const { error } = await sb.from("marketplace_modules").delete().eq("id",id);
+      if (error) return alert(error.message);
+      await audit("delete_module","marketplace_modules",id,{});
+      await loadMarketplaceModules();
+      drawMarketplace();
+    };
+
+    /******************************************************************
+      ORDERS
+    ******************************************************************/
+    async function renderOrders() {
+      if (!isAdmin()) return renderDashboard();
+      shell(
+        "Orders",
+        "Review, approve and reject SmartCore Marketplace orders.",
+        `<button class="btn" onclick="exportOrdersCsv()">Export CSV</button>`,
+        `
+          <div class="grid md:grid-cols-3 gap-3">
+            <input id="ordSearch" class="inp" placeholder="Search orders…" />
+            <select id="ordStatus" class="inp">
+              <option value="">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+          <div id="ordStats" class="grid sm:grid-cols-4 gap-3 mt-4"></div>
+          <div class="mt-5 overflow-auto">
+            <table>
+              <thead><tr><th>Reference</th><th>Company</th><th>Contact</th><th>Email</th><th>Modules</th><th>Billing</th><th>Total</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+              <tbody id="ordRows"></tbody>
+            </table>
+          </div>
+        `
+      );
+      ["ordSearch","ordStatus"].forEach(id => {
+        const el = $(id);
+        if (el) el.addEventListener("input", drawOrders);
+      });
+      await loadOrders();
+      drawOrders();
+    }
+
+    async function loadOrders() {
+      const { data } = await sb.from("marketplace_orders").select("*").order("created_at",{ascending:false});
+      state.orders = data || [];
+    }
+
+    function drawOrders() {
+      const q = ($("#ordSearch")?.value || "").toLowerCase();
+      const status = $("#ordStatus")?.value || "";
+      const rows = (state.orders||[]).filter(o =>
+        (!q || o.company_name?.toLowerCase().includes(q) || o.order_reference?.toLowerCase().includes(q) || o.email?.toLowerCase().includes(q)) &&
+        (!status || o.status === status)
+      );
+
+      const pending = (state.orders||[]).filter(o=>o.status==="pending").length;
+      const approved = (state.orders||[]).filter(o=>o.status==="approved").length;
+      const revenue = (state.orders||[]).filter(o=>o.status==="approved").reduce((s,o)=>s+Number(o.total||0),0);
+
+      $("#ordStats").innerHTML = `
+        <div class="card p-4"><div class="text-sm muted">Total Orders</div><div class="text-3xl font-extrabold mt-1">${(state.orders||[]).length}</div></div>
+        <div class="card p-4"><div class="text-sm muted">Pending</div><div class="text-3xl font-extrabold mt-1" style="color:var(--amber)">${pending}</div></div>
+        <div class="card p-4"><div class="text-sm muted">Approved</div><div class="text-3xl font-extrabold mt-1" style="color:var(--green)">${approved}</div></div>
+        <div class="card p-4"><div class="text-sm muted">Approved Revenue</div><div class="text-3xl font-extrabold mt-1">£${Number(revenue).toFixed(2)}</div></div>
+      `;
+
+      $("#ordRows").innerHTML = rows.map(o => {
+        const modules = Array.isArray(o.modules) ? o.modules.filter(m=>m.slug!=="smartcore-core") : [];
+        const statusClass = o.status==="approved"?"success":o.status==="pending"?"warning":"danger";
+        return `<tr>
+          <td><b class="text-xs font-bold" style="font-family:monospace">${esc(o.order_reference)}</b></td>
+          <td><b>${esc(o.company_name)}</b><br><span class="text-xs muted">${o.staff_count ? o.staff_count+" staff" : ""}</span></td>
+          <td>${esc(o.contact_name||"")}</td>
+          <td>${esc(o.email||"")}</td>
+          <td class="text-xs">${modules.map(m=>esc(m.name)).join(", ") || "—"}</td>
+          <td class="text-xs">${esc(o.billing_type||"monthly")}</td>
+          <td><b>£${Number(o.total||0).toFixed(2)}</b><br><span class="text-xs muted">/${esc(o.billing_type==="yearly"?"yr":"mo")}</span></td>
+          <td><span class="tag ${statusClass}">${esc(o.status)}</span></td>
+          <td class="text-xs muted">${formatDate(o.created_at)}</td>
+          <td>
+            <div class="flex gap-2 flex-wrap">
+              <button class="btn" onclick="viewOrder('${o.id}')">View</button>
+              ${o.status==="pending" ? `
+                <button class="btn success" onclick="reviewOrder('${o.id}','approved')">Approve</button>
+                <button class="btn danger" onclick="reviewOrder('${o.id}','rejected')">Reject</button>
+              ` : ""}
+            </div>
+          </td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="10" class="muted">No orders found.</td></tr>`;
+    }
+
+    window.viewOrder = function viewOrder(id) {
+      const o = (state.orders||[]).find(x=>x.id===id);
+      if (!o) return;
+      const modules = Array.isArray(o.modules) ? o.modules : [];
+      openModal(
+        `Order — ${esc(o.order_reference)}`,
+        `Submitted ${formatDate(o.created_at)} · ${esc(o.status.toUpperCase())}`,
+        `
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="card p-4">
+              <div class="text-xs muted mb-2">COMPANY</div>
+              <div class="font-extrabold text-xl">${esc(o.company_name)}</div>
+              <div class="mt-2 space-y-1 text-sm">
+                <div>Contact: <b>${esc(o.contact_name||"—")}</b></div>
+                <div>Email: <b>${esc(o.email||"—")}</b></div>
+                <div>Phone: <b>${esc(o.phone||"—")}</b></div>
+                <div>Staff count: <b>${esc(o.staff_count||"—")}</b></div>
+              </div>
+            </div>
+            <div class="card p-4">
+              <div class="text-xs muted mb-2">ORDER TOTALS</div>
+              <div class="space-y-1 text-sm">
+                <div class="flex justify-between"><span class="muted">Billing</span><b>${esc(o.billing_type||"monthly")}</b></div>
+                <div class="flex justify-between"><span class="muted">Subtotal</span><span>£${Number(o.subtotal||0).toFixed(2)}</span></div>
+                ${Number(o.discount_amount||0)>0?`<div class="flex justify-between" style="color:var(--green)"><span>Package discount</span><span>−£${Number(o.discount_amount).toFixed(2)}</span></div>`:""}
+                ${Number(o.annual_discount_amount||0)>0?`<div class="flex justify-between" style="color:var(--green)"><span>Annual discount</span><span>−£${Number(o.annual_discount_amount).toFixed(2)}</span></div>`:""}
+                <div class="flex justify-between font-extrabold text-lg pt-2" style="border-top:1px solid rgba(255,255,255,.1)"><span>Total</span><span>£${Number(o.total||0).toFixed(2)}/${o.billing_type==="yearly"?"yr":"mo"}</span></div>
+              </div>
+            </div>
+          </div>
+          <h3 class="text-lg font-extrabold mt-5 mb-3">Modules Ordered</h3>
+          <div class="space-y-2">
+            ${modules.map(m=>`
+              <div class="card p-3 flex items-center justify-between">
+                <b>${esc(m.name||m.slug)}</b>
+                ${m.slug==="smartcore-core"?`<span class="tag success">Auto-included</span>`:`<span class="muted text-sm">£${Number(m.monthly_price||0).toFixed(2)}/mo</span>`}
+              </div>
+            `).join("") || "<p class='muted'>No modules recorded.</p>"}
+          </div>
+          ${o.notes?`<div class="mt-4 card p-4"><div class="text-xs muted mb-1">NOTES FROM CUSTOMER</div><p class="text-sm">${esc(o.notes)}</p></div>`:""}
+          ${o.status==="pending"?`
+            <div class="mt-5 grid sm:grid-cols-2 gap-3">
+              <div><label class="label">Review Notes (optional)</label><textarea id="reviewNotes" class="inp" placeholder="Add notes for the customer or your team…"></textarea></div>
+            </div>
+            <div class="mt-4 flex gap-3">
+              <button class="btn success flex-1 py-3" onclick="reviewOrder('${o.id}','approved')">✓ Approve Order</button>
+              <button class="btn danger flex-1 py-3" onclick="reviewOrder('${o.id}','rejected')">✗ Reject Order</button>
+            </div>
+          `:""}
+        `
+      );
+    };
+
+    window.reviewOrder = async function reviewOrder(id, decision) {
+      const label = decision === "approved" ? "approve" : "reject";
+      if (!confirm(`Are you sure you want to ${label} this order?`)) return;
+      const notes = ($("#reviewNotes")?.value || "").trim();
+      const { error } = await sb.from("marketplace_orders").update({
+        status: decision,
+        reviewed_by: state.staff?.id || null,
+        reviewed_at: new Date().toISOString(),
+        review_notes: notes || null
+      }).eq("id", id);
+      if (error) return alert(error.message);
+
+      // If approved, provision SmartCore Core automatically
+      if (decision === "approved") {
+        await provisionCore(id);
+      }
+
+      await audit(`order_${decision}`,"marketplace_orders",id,{decision,notes});
+      closeModal();
+      await loadOrders();
+      drawOrders();
+    };
+
+    async function provisionCore(orderId) {
+      const order = (state.orders||[]).find(o=>o.id===orderId);
+      if (!order) return;
+
+      // Check not already provisioned
+      const { data: existing } = await sb.from("smartcore_core_companies")
+        .select("id").eq("order_id", orderId).maybeSingle();
+      if (existing) return;
+
+      // Create SmartCore Core company record
+      const { data: coreCompany, error: ceErr } = await sb.from("smartcore_core_companies").insert({
+        order_id:     orderId,
+        company_name: order.company_name,
+        company_email: order.email,
+        company_phone: order.phone || null,
+        staff_count:  order.staff_count || null,
+        status:       "provisioned",
+        provisioned_at: new Date().toISOString()
+      }).select("id").single();
+      if (ceErr) { console.warn("Core provisioning failed", ceErr.message); return; }
+
+      // Add SmartCore Core + all purchased modules to purchased_modules
+      const modules = Array.isArray(order.modules) ? order.modules : [];
+      for (const m of modules) {
+        await sb.from("smartcore_core_purchased_modules").insert({
+          company_id:   coreCompany.id,
+          order_id:     orderId,
+          module_id:    null,
+          module_slug:  m.slug,
+          module_name:  m.name,
+          billing_type: order.billing_type || "monthly",
+          price:        order.billing_type==="yearly" ? (m.yearly_price||0) : (m.monthly_price||0),
+          status:       "active"
+        });
+      }
+
+      // Always include SmartCore Core if not already in the list
+      const hasCoreModule = modules.some(m=>m.slug==="smartcore-core");
+      if (!hasCoreModule) {
+        await sb.from("smartcore_core_purchased_modules").insert({
+          company_id:  coreCompany.id,
+          order_id:    orderId,
+          module_slug: "smartcore-core",
+          module_name: "SmartCore Core",
+          billing_type: "monthly",
+          price:       0,
+          status:      "active"
+        });
+      }
+
+      await audit("provision_core","smartcore_core_companies",coreCompany.id,{order_id:orderId,company_name:order.company_name});
+    }
+
+    window.exportOrdersCsv = function exportOrdersCsv() {
+      const rows = state.orders || [];
+      const csv = "Reference,Company,Contact,Email,Phone,Staff,Modules,Billing,Total,Status,Date\n" +
+        rows.map(o => {
+          const mods = Array.isArray(o.modules) ? o.modules.filter(m=>m.slug!=="smartcore-core").map(m=>m.name).join("; ") : "";
+          return [o.order_reference,o.company_name,o.contact_name,o.email,o.phone||"",o.staff_count||"",mods,o.billing_type,o.total,o.status,o.created_at]
+            .map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(",");
+        }).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+      a.download = "smartcore-orders.csv";
+      a.click();
+    };
+
+    /******************************************************************
+      SMARTCORE CORE
+    ******************************************************************/
+    async function renderCore() {
+      if (!isAdmin()) return renderDashboard();
+      shell(
+        "SmartCore Core",
+        "Provisioned customer companies, employees and purchased modules.",
+        ``,
+        `
+          <div class="grid md:grid-cols-[1fr_auto] gap-3">
+            <input id="coreSearch" class="inp" placeholder="Search companies…" />
+          </div>
+          <div id="coreStats" class="grid sm:grid-cols-4 gap-3 mt-4"></div>
+          <div class="mt-5 overflow-auto">
+            <table>
+              <thead><tr><th>Company</th><th>Email</th><th>Staff</th><th>Modules</th><th>Status</th><th>Provisioned</th><th>Actions</th></tr></thead>
+              <tbody id="coreRows"></tbody>
+            </table>
+          </div>
+        `
+      );
+      $("#coreSearch")?.addEventListener("input", drawCore);
+      await loadCoreCompanies();
+      drawCore();
+    }
+
+    async function loadCoreCompanies() {
+      const { data } = await sb.from("smartcore_core_companies").select("*, smartcore_core_purchased_modules(*)").order("created_at",{ascending:false});
+      state.coreCompanies = data || [];
+    }
+
+    function drawCore() {
+      const q = ($("#coreSearch")?.value || "").toLowerCase();
+      const rows = (state.coreCompanies||[]).filter(c => !q || c.company_name?.toLowerCase().includes(q) || c.company_email?.toLowerCase().includes(q));
+
+      const total = (state.coreCompanies||[]).length;
+      const active = (state.coreCompanies||[]).filter(c=>c.status==="active").length;
+      const provisioned = (state.coreCompanies||[]).filter(c=>c.status==="provisioned").length;
+
+      $("#coreStats").innerHTML = `
+        <div class="card p-4"><div class="text-sm muted">Total Companies</div><div class="text-3xl font-extrabold mt-1">${total}</div></div>
+        <div class="card p-4"><div class="text-sm muted">Active</div><div class="text-3xl font-extrabold mt-1" style="color:var(--green)">${active}</div></div>
+        <div class="card p-4"><div class="text-sm muted">Provisioned (pending)</div><div class="text-3xl font-extrabold mt-1" style="color:var(--amber)">${provisioned}</div></div>
+        <div class="card p-4"><div class="text-sm muted">Total Employees</div><div class="text-3xl font-extrabold mt-1" id="coreEmpCount">…</div></div>
+      `;
+
+      sb.from("smartcore_core_employees").select("id",{count:"exact",head:true}).then(({count})=>{
+        const el = $("#coreEmpCount");
+        if (el) el.textContent = count || 0;
+      });
+
+      $("#coreRows").innerHTML = rows.map(c => {
+        const modules = Array.isArray(c.smartcore_core_purchased_modules)
+          ? c.smartcore_core_purchased_modules.filter(m=>m.module_slug!=="smartcore-core")
+          : [];
+        const statusClass = c.status==="active"?"success":c.status==="provisioned"?"warning":"danger";
+        return `<tr>
+          <td><b>${esc(c.company_name)}</b></td>
+          <td>${esc(c.company_email||"—")}</td>
+          <td>${esc(c.staff_count||"—")}</td>
+          <td class="text-xs">${modules.map(m=>esc(m.module_name)).join(", ") || "Core only"}</td>
+          <td><span class="tag ${statusClass}">${esc(c.status)}</span></td>
+          <td class="text-xs muted">${formatDate(c.provisioned_at)}</td>
+          <td>
+            <div class="flex gap-2 flex-wrap">
+              <button class="btn" onclick="viewCoreCompany('${c.id}')">View</button>
+              <button class="btn" onclick="openCoreEmployees('${c.id}')">Employees</button>
+              ${c.status==="provisioned"?`<button class="btn success" onclick="activateCoreCompany('${c.id}')">Activate</button>`:""}
+            </div>
+          </td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="7" class="muted">No provisioned companies yet.</td></tr>`;
+    }
+
+    window.viewCoreCompany = function viewCoreCompany(id) {
+      const c = (state.coreCompanies||[]).find(x=>x.id===id);
+      if (!c) return;
+      const modules = Array.isArray(c.smartcore_core_purchased_modules) ? c.smartcore_core_purchased_modules : [];
+      openModal(
+        esc(c.company_name),
+        `SmartCore Core · ${esc(c.status)}`,
+        `
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="card p-4">
+              <div class="text-xs muted mb-2">COMPANY DETAILS</div>
+              <div class="space-y-2 text-sm">
+                <div><span class="muted">Name:</span> <b>${esc(c.company_name)}</b></div>
+                <div><span class="muted">Email:</span> <b>${esc(c.company_email||"—")}</b></div>
+                <div><span class="muted">Phone:</span> <b>${esc(c.company_phone||"—")}</b></div>
+                <div><span class="muted">Website:</span> <b>${esc(c.website||"—")}</b></div>
+                <div><span class="muted">Industry:</span> <b>${esc(c.industry||"—")}</b></div>
+                <div><span class="muted">Staff count:</span> <b>${esc(c.staff_count||"—")}</b></div>
+                <div><span class="muted">Status:</span> <b>${esc(c.status)}</b></div>
+                <div><span class="muted">Provisioned:</span> <b>${formatDate(c.provisioned_at)}</b></div>
+              </div>
+            </div>
+            <div class="card p-4">
+              <div class="text-xs muted mb-2">PURCHASED MODULES</div>
+              <div class="space-y-2">
+                ${modules.map(m=>`
+                  <div class="flex items-center justify-between text-sm">
+                    <span>${esc(m.module_name)}</span>
+                    <span class="tag success text-xs">${esc(m.status)}</span>
+                  </div>
+                `).join("") || "<p class='muted text-sm'>None</p>"}
+              </div>
+            </div>
+          </div>
+          <div class="mt-5 grid md:grid-cols-2 gap-3">
+            <div><label class="label">Company Email</label><input id="ceEmail" class="inp" value="${esc(c.company_email||"")}" /></div>
+            <div><label class="label">Company Phone</label><input id="cePhone" class="inp" value="${esc(c.company_phone||"")}" /></div>
+            <div><label class="label">Website</label><input id="ceWebsite" class="inp" value="${esc(c.website||"")}" /></div>
+            <div><label class="label">Industry</label><input id="ceIndustry" class="inp" value="${esc(c.industry||"")}" /></div>
+            <div><label class="label">Primary Colour</label><input id="cePrimary" class="inp" type="color" value="${esc(c.primary_colour||"#3b82f6")}" /></div>
+            <div><label class="label">Secondary Colour</label><input id="ceSecondary" class="inp" type="color" value="${esc(c.secondary_colour||"#1e40af")}" /></div>
+            <div><label class="label">Status</label>
+              <select id="ceStatus" class="inp">
+                <option value="provisioned" ${c.status==="provisioned"?"selected":""}>Provisioned</option>
+                <option value="active" ${c.status==="active"?"selected":""}>Active</option>
+                <option value="suspended" ${c.status==="suspended"?"selected":""}>Suspended</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn primary mt-5 w-full" onclick="saveCoreCompany('${c.id}')">Save Changes</button>
+        `
+      );
+    };
+
+    window.saveCoreCompany = async function saveCoreCompany(id) {
+      const payload = {
+        company_email:   ($("#ceEmail")?.value||"").trim() || null,
+        company_phone:   ($("#cePhone")?.value||"").trim() || null,
+        website:         ($("#ceWebsite")?.value||"").trim() || null,
+        industry:        ($("#ceIndustry")?.value||"").trim() || null,
+        primary_colour:  ($("#cePrimary")?.value||"#3b82f6"),
+        secondary_colour:($("#ceSecondary")?.value||"#1e40af"),
+        status:          ($("#ceStatus")?.value||"provisioned")
+      };
+      const { error } = await sb.from("smartcore_core_companies").update(payload).eq("id",id);
+      if (error) return alert(error.message);
+      await audit("update_core_company","smartcore_core_companies",id,{});
+      closeModal();
+      await loadCoreCompanies();
+      drawCore();
+    };
+
+    window.activateCoreCompany = async function activateCoreCompany(id) {
+      const { error } = await sb.from("smartcore_core_companies").update({status:"active"}).eq("id",id);
+      if (error) return alert(error.message);
+      await audit("activate_core_company","smartcore_core_companies",id,{});
+      await loadCoreCompanies();
+      drawCore();
+    };
+
+    window.openCoreEmployees = async function openCoreEmployees(companyId) {
+      const c = (state.coreCompanies||[]).find(x=>x.id===companyId);
+      const { data: emps } = await sb.from("smartcore_core_employees")
+        .select("*").eq("company_id",companyId).order("last_name",{ascending:true});
+      const employees = emps || [];
+
+      openModal(
+        `Employees — ${esc(c?.company_name||"Company")}`,
+        `${employees.length} employee${employees.length!==1?"s":""}`,
+        `
+          <div class="flex justify-end mb-4">
+            <button class="btn primary" onclick="openEmployeeForm('${companyId}')">+ Add Employee</button>
+          </div>
+          <div class="overflow-auto">
+            <table>
+              <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Department</th><th>Job Title</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody>
+                ${employees.map(e=>`
+                  <tr>
+                    <td class="text-xs muted font-mono">${esc(e.employee_id)}</td>
+                    <td><b>${esc(e.first_name)} ${esc(e.last_name)}</b></td>
+                    <td>${esc(e.email||"—")}</td>
+                    <td>${esc(e.department||"—")}</td>
+                    <td>${esc(e.job_title||"—")}</td>
+                    <td><span class="tag">${esc(e.role)}</span></td>
+                    <td>${e.is_active?'<span class="tag success">Active</span>':'<span class="tag danger">Inactive</span>'}</td>
+                    <td><button class="btn" onclick="openEmployeeForm('${companyId}','${e.id}')">Edit</button></td>
+                  </tr>
+                `).join("") || `<tr><td colspan="8" class="muted">No employees yet.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        `
+      );
+    };
+
+    window.openEmployeeForm = async function openEmployeeForm(companyId, empId) {
+      let emp = {};
+      if (empId) {
+        const { data } = await sb.from("smartcore_core_employees").select("*").eq("id",empId).maybeSingle();
+        emp = data || {};
+      }
+      // Generate next employee ID
+      let nextId = emp.employee_id || "";
+      if (!empId) {
+        const { count } = await sb.from("smartcore_core_employees").select("id",{count:"exact",head:true}).eq("company_id",companyId);
+        nextId = `EMP-${String((count||0)+1).padStart(4,"0")}`;
+      }
+
+      openModal(
+        empId ? "Edit Employee" : "Add Employee",
+        "Employee record — single source of truth for all SmartCore modules.",
+        `
+          <div class="grid md:grid-cols-2 gap-3">
+            <div><label class="label">Employee ID</label><input id="eEmpId" class="inp" value="${esc(nextId)}" /></div>
+            <div><label class="label">Role</label>
+              <select id="eRole" class="inp">
+                ${["employee","supervisor","manager","administrator","smartcore_administrator"].map(r=>`<option value="${r}" ${emp.role===r?"selected":""}>${r.replace("_"," ").replace(/\b\w/g,c=>c.toUpperCase())}</option>`).join("")}
+              </select>
+            </div>
+            <div><label class="label">First Name *</label><input id="eFirst" class="inp" value="${esc(emp.first_name||"")}" /></div>
+            <div><label class="label">Last Name *</label><input id="eLast" class="inp" value="${esc(emp.last_name||"")}" /></div>
+            <div><label class="label">Email</label><input id="eEmail" class="inp" type="email" value="${esc(emp.email||"")}" /></div>
+            <div><label class="label">Mobile Number</label><input id="eMobile" class="inp" value="${esc(emp.mobile_number||"")}" /></div>
+            <div><label class="label">Department</label><input id="eDept" class="inp" value="${esc(emp.department||"")}" /></div>
+            <div><label class="label">Job Title</label><input id="eJob" class="inp" value="${esc(emp.job_title||"")}" /></div>
+            <div><label class="label">Start Date</label><input id="eStart" class="inp" type="date" value="${esc(emp.start_date||"")}" /></div>
+            <div><label class="label">Employment Status</label>
+              <select id="eStatus" class="inp">
+                ${["active","inactive","on_leave","terminated"].map(s=>`<option value="${s}" ${emp.employment_status===s?"selected":""}>${s.replace("_"," ").replace(/\b\w/g,c=>c.toUpperCase())}</option>`).join("")}
+              </select>
+            </div>
+            <div><label class="label">Emergency Contact</label><input id="eEmgContact" class="inp" value="${esc(emp.emergency_contact||"")}" /></div>
+            <div><label class="label">Emergency Contact Number</label><input id="eEmgPhone" class="inp" value="${esc(emp.emergency_contact_number||"")}" /></div>
+            <div class="md:col-span-2"><label class="label">Notes</label><textarea id="eNotes" class="inp">${esc(emp.notes||"")}</textarea></div>
+            <div class="md:col-span-2"><label class="flex gap-2 items-center"><input type="checkbox" id="eActive" ${emp.is_active!==false?"checked":""}> Active</label></div>
+          </div>
+          <button class="btn primary mt-5 w-full" onclick="saveEmployee('${companyId}','${empId||""}')">Save Employee</button>
+        `
+      );
+    };
+
+    window.saveEmployee = async function saveEmployee(companyId, empId) {
+      const payload = {
+        company_id:               companyId,
+        employee_id:              ($("#eEmpId")?.value||"").trim(),
+        first_name:               ($("#eFirst")?.value||"").trim(),
+        last_name:                ($("#eLast")?.value||"").trim(),
+        email:                    ($("#eEmail")?.value||"").trim().toLowerCase() || null,
+        mobile_number:            ($("#eMobile")?.value||"").trim() || null,
+        department:               ($("#eDept")?.value||"").trim() || null,
+        job_title:                ($("#eJob")?.value||"").trim() || null,
+        start_date:               ($("#eStart")?.value||null),
+        employment_status:        ($("#eStatus")?.value||"active"),
+        role:                     ($("#eRole")?.value||"employee"),
+        emergency_contact:        ($("#eEmgContact")?.value||"").trim() || null,
+        emergency_contact_number: ($("#eEmgPhone")?.value||"").trim() || null,
+        notes:                    ($("#eNotes")?.value||"").trim() || null,
+        is_active:                ($("#eActive")?.checked ?? true)
+      };
+      if (!payload.first_name || !payload.last_name) return alert("First name and last name are required.");
+      if (!payload.employee_id) return alert("Employee ID is required.");
+
+      const result = empId
+        ? await sb.from("smartcore_core_employees").update(payload).eq("id",empId)
+        : await sb.from("smartcore_core_employees").insert(payload);
+      if (result.error) return alert(result.error.message);
+
+      await audit(empId?"update_core_employee":"add_core_employee","smartcore_core_employees",empId||payload.employee_id,{company_id:companyId});
+      closeModal();
+      await openCoreEmployees(companyId);
+    };
+
+    // ── Analytics Module ───────────────────────────────────────────────────
+    async function renderAnalytics() {
+      shell(
+        "Analytics",
+        "Marketplace performance, revenue, and engagement",
+        `<button class="btn primary" onclick="loadAnalytics()">↺ Refresh</button>`,
+        `<div id="analyticsBody"><div class="text-center py-12" style="color:var(--muted)">Loading analytics…</div></div>`
+      );
+      await loadAnalytics();
+    }
+
+    async function loadAnalytics() {
+      const body = document.getElementById('analyticsBody');
+      if (!body) return;
+      body.innerHTML = `<div class="text-center py-12" style="color:var(--muted)">Loading…</div>`;
+
+      try {
+        const [eventsRes, ordersRes, modulesRes] = await Promise.all([
+          sb.from('marketplace_analytics').select('event_type, module_id, created_at'),
+          sb.from('marketplace_orders').select('status, total, billing_type, created_at, modules'),
+          sb.from('marketplace_modules').select('id, name, slug, category, status, view_count'),
+        ]);
+
+        const events  = eventsRes.data  || [];
+        const orders  = ordersRes.data  || [];
+        const modules = modulesRes.data || [];
+
+        const approved   = orders.filter(o => o.status === 'approved');
+        const pending    = orders.filter(o => o.status === 'pending');
+        const rejected   = orders.filter(o => o.status === 'rejected');
+        const revenue    = approved.reduce((s, o) => s + (+o.total || 0), 0);
+
+        const byEvent = {};
+        events.forEach(e => { byEvent[e.event_type] = (byEvent[e.event_type] || 0) + 1; });
+
+        // Module popularity from analytics events
+        const modAdds = {};
+        events.filter(e => e.event_type === 'add_to_basket' && e.module_id).forEach(e => {
+          modAdds[e.module_id] = (modAdds[e.module_id] || 0) + 1;
+        });
+
+        // Revenue over last 30 days
+        const now = Date.now();
+        const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+        const recentRevenue = approved
+          .filter(o => new Date(o.created_at).getTime() >= thirtyDaysAgo)
+          .reduce((s, o) => s + (+o.total || 0), 0);
+
+        // Orders per day (last 14 days)
+        const dailyOrders = {};
+        for (let i = 13; i >= 0; i--) {
+          const d = new Date(now - i * 86400000).toISOString().slice(0, 10);
+          dailyOrders[d] = 0;
+        }
+        orders.forEach(o => {
+          const d = o.created_at?.slice(0, 10);
+          if (d && dailyOrders[d] !== undefined) dailyOrders[d]++;
+        });
+
+        // Top modules by add-to-basket
+        const topModules = modules
+          .map(m => ({ ...m, adds: modAdds[m.id] || 0 }))
+          .filter(m => m.slug !== 'smartcore-core')
+          .sort((a, b) => b.adds - a.adds)
+          .slice(0, 10);
+
+        // Conversion rate: orders submitted / unique checkout starts
+        const checkoutStarts  = byEvent['checkout_start'] || 0;
+        const ordersSubmitted = byEvent['order_submitted'] || 0;
+        const convRate = checkoutStarts > 0 ? ((ordersSubmitted / checkoutStarts) * 100).toFixed(1) : '—';
+
+        const fmt = n => `£${(+n || 0).toFixed(2)}`;
+
+        body.innerHTML = `
+          <!-- KPI row -->
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            ${kpiCard('Total Revenue', fmt(revenue), 'Approved orders', '#4ade80')}
+            ${kpiCard('Revenue (30d)', fmt(recentRevenue), 'Last 30 days', '#60a5fa')}
+            ${kpiCard('Orders', orders.length, `${pending.length} pending · ${approved.length} approved`, '#a78bfa')}
+            ${kpiCard('Conversion', convRate + (convRate !== '—' ? '%' : ''), 'Checkout starts → orders', '#fb923c')}
+          </div>
+
+          <!-- Event funnel -->
+          <div class="glass p-5 mb-6">
+            <div class="font-bold mb-4 text-sm" style="color:var(--muted2)">ENGAGEMENT FUNNEL</div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              ${funnelStep('Page Views',      byEvent['view']           || 0, '#60a5fa')}
+              ${funnelStep('Detail Views',    byEvent['detail_view']    || 0, '#818cf8')}
+              ${funnelStep('Added to Basket', byEvent['add_to_basket']  || 0, '#a78bfa')}
+              ${funnelStep('Basket Removes',  byEvent['remove_from_basket'] || 0, '#f87171')}
+              ${funnelStep('Checkout Starts', checkoutStarts,              '#fb923c')}
+              ${funnelStep('Orders Submitted',ordersSubmitted,             '#4ade80')}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- Orders breakdown -->
+            <div class="glass p-5">
+              <div class="font-bold mb-4 text-sm" style="color:var(--muted2)">ORDERS BY STATUS</div>
+              <div class="space-y-3">
+                ${orderBar('Pending',  pending.length,  orders.length, '#fb923c')}
+                ${orderBar('Approved', approved.length, orders.length, '#4ade80')}
+                ${orderBar('Rejected', rejected.length, orders.length, '#f87171')}
+              </div>
+              <div class="mt-4 pt-4 border-t" style="border-color:var(--line2)">
+                <div class="text-sm" style="color:var(--muted)">Billing mix</div>
+                <div class="flex gap-6 mt-2 text-sm">
+                  <span style="color:var(--text)"><strong>${orders.filter(o=>o.billing_type==='monthly').length}</strong> <span style="color:var(--muted2)">monthly</span></span>
+                  <span style="color:var(--text)"><strong>${orders.filter(o=>o.billing_type==='yearly').length}</strong> <span style="color:var(--muted2)">annual</span></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Top modules by basket adds -->
+            <div class="glass p-5">
+              <div class="font-bold mb-4 text-sm" style="color:var(--muted2)">TOP MODULES (BASKET ADDS)</div>
+              ${topModules.length === 0
+                ? `<div style="color:var(--muted2)" class="text-sm">No data yet.</div>`
+                : `<div class="space-y-2">
+                  ${topModules.slice(0, 8).map(m => `
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-sm truncate" style="max-width:200px">${esc(m.name)}</div>
+                      <div class="flex items-center gap-2 shrink-0">
+                        <div style="height:6px;width:${Math.max(4, Math.round((m.adds / (topModules[0].adds || 1)) * 80))}px;background:#3b82f6;border-radius:99px"></div>
+                        <div class="text-xs font-bold" style="color:var(--muted)">${m.adds}</div>
+                      </div>
+                    </div>`).join('')}
+                </div>`}
+            </div>
+          </div>
+
+          <!-- Orders per day (last 14 days) -->
+          <div class="glass p-5">
+            <div class="font-bold mb-4 text-sm" style="color:var(--muted2)">ORDERS — LAST 14 DAYS</div>
+            <div class="flex items-end gap-1 h-24">
+              ${Object.entries(dailyOrders).map(([d, cnt]) => {
+                const maxVal = Math.max(...Object.values(dailyOrders), 1);
+                const h = Math.max(4, Math.round((cnt / maxVal) * 88));
+                return `<div class="flex-1 flex flex-col items-center gap-1" title="${d}: ${cnt} order${cnt!==1?'s':''}">
+                  <div style="height:${h}px;background:rgba(59,130,246,${cnt>0?'.7':'.18'});border-radius:4px 4px 0 0;width:100%"></div>
+                  <div class="text-xs" style="color:var(--muted2);writing-mode:vertical-rl;transform:rotate(180deg);font-size:9px">${d.slice(5)}</div>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      } catch (err) {
+        body.innerHTML = `<div class="text-center py-12" style="color:#f87171">Failed to load analytics: ${esc(err.message)}</div>`;
+      }
+    }
+
+    function kpiCard(label, value, sub, color) {
+      return `<div class="glass p-4">
+        <div class="text-xs font-bold mb-1" style="color:var(--muted2)">${esc(label)}</div>
+        <div class="text-2xl font-extrabold" style="color:${color}">${esc(String(value))}</div>
+        <div class="text-xs mt-1" style="color:var(--muted2)">${esc(sub)}</div>
+      </div>`;
+    }
+
+    function funnelStep(label, count, color) {
+      return `<div class="text-center p-3 rounded-xl" style="background:rgba(255,255,255,.04)">
+        <div class="text-xl font-extrabold" style="color:${color}">${count}</div>
+        <div class="text-xs mt-1" style="color:var(--muted2)">${esc(label)}</div>
+      </div>`;
+    }
+
+    function orderBar(label, count, total, color) {
+      const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+      return `<div>
+        <div class="flex justify-between text-sm mb-1">
+          <span style="color:var(--muted)">${esc(label)}</span>
+          <span style="color:${color};font-weight:700">${count}</span>
+        </div>
+        <div style="height:6px;background:rgba(255,255,255,.08);border-radius:99px">
+          <div style="height:6px;width:${pct}%;background:${color};border-radius:99px;transition:width .3s"></div>
+        </div>
+      </div>`;
+    }
+    // ── End Analytics Module ───────────────────────────────────────────────
 
     document.addEventListener("mousemove", () => { if (state.vaultUnlocked) resetVaultTimer(); }, { passive: true });
     document.addEventListener("keydown", () => { if (state.vaultUnlocked) resetVaultTimer(); }, { passive: true });
