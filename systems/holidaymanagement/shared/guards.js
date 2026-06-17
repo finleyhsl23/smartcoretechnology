@@ -29,17 +29,20 @@ export function applyRoleUi(profile) {
   });
 }
 
+const MOON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"/></svg>`;
+const SUN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="12" cy="12" r="5"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`;
+
 function setupThemeToggle() {
   const saved = localStorage.getItem(THEME_KEY);
   if (saved === 'light') document.body.classList.add('light-mode');
 
   const btn = document.getElementById('themeToggleBtn');
-  const label = document.getElementById('themeToggleLabel');
 
   function updateBtn() {
+    if (!btn) return;
     const isLight = document.body.classList.contains('light-mode');
-    if (label) label.textContent = isLight ? 'Dark' : 'Light';
-    if (btn) btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+    btn.innerHTML = isLight ? MOON_SVG : SUN_SVG;
+    btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
   }
   updateBtn();
 
@@ -49,17 +52,6 @@ function setupThemeToggle() {
       localStorage.setItem(THEME_KEY, isLight ? 'light' : 'dark');
       updateBtn();
     });
-  } else {
-    // fallback for pages without sidebar button
-    const b = document.createElement('button');
-    b.className = 'btn btn-white theme-toggle-btn';
-    b.textContent = document.body.classList.contains('light-mode') ? '🌙 Dark' : '☀️ Light';
-    b.addEventListener('click', () => {
-      const isLight = document.body.classList.toggle('light-mode');
-      localStorage.setItem(THEME_KEY, isLight ? 'light' : 'dark');
-      b.textContent = isLight ? '🌙 Dark' : '☀️ Light';
-    });
-    document.body.appendChild(b);
   }
 }
 
