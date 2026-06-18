@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SmartCore — Reset Password</title>
+  <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <script>
+    window.__SUPABASE_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+    window.__SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+  </script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#080810;--surface:rgba(255,255,255,.055);--border:rgba(255,255,255,.09);
+      --text:#f5f5f7;--muted:#a1a1a6;--accent:#5b8fff;--green:#30d158;
+    }
+    html,body{min-height:100%}
+    body{
+      font-family:Inter,system-ui,-apple-system,sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(ellipse 100% 55% at 50% 0%,rgba(91,143,255,.20) 0%,transparent 55%),
+        radial-gradient(ellipse 70% 70% at -5% 55%,rgba(91,143,255,.11) 0%,transparent 60%),
+        #080810;
+      min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 20px;
+      -webkit-font-smoothing:antialiased;
+    }
+    .card{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:24px;padding:48px 40px;max-width:440px;width:100%;}
+    .logo{display:flex;align-items:center;gap:10px;margin-bottom:32px;justify-content:center}
+    .logo-mark{width:40px;height:40px;background:linear-gradient(135deg,#5b8fff,#3060d0);border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900;color:#fff}
+    .logo-name{font-size:16px;font-weight:800;letter-spacing:-.03em}
+    h1{font-size:26px;font-weight:800;letter-spacing:-.04em;margin-bottom:8px;text-align:center}
+    .sub{font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:28px;text-align:center}
+    label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px}
+    input{width:100%;border-radius:13px;border:1px solid rgba(255,255,255,.09);background:rgba(8,8,16,.6);padding:12px 14px;outline:none;color:var(--text);font-size:14px;font-family:inherit;margin-bottom:16px}
+    input:focus{border-color:rgba(91,143,255,.4);box-shadow:0 0 0 3px rgba(91,143,255,.1)}
+    .btn{display:block;width:100%;border-radius:13px;padding:14px;font-size:15px;font-weight:800;text-align:center;cursor:pointer;border:none;font-family:inherit;transition:opacity .15s}
+    .btn:hover{opacity:.85}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .btn-primary{background:var(--accent);color:#fff}
+    .err{display:none;margin-top:-8px;margin-bottom:16px;padding:12px;border-radius:12px;font-size:13px;font-weight:700;background:rgba(248,113,113,.14);color:#f87171;border:1px solid rgba(248,113,113,.28)}
+    .ok{display:none;margin-top:16px;padding:14px;border-radius:12px;font-size:14px;background:rgba(48,209,88,.1);color:var(--green);border:1px solid rgba(48,209,88,.25);text-align:center}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <div class="logo-mark">S</div>
+      <div class="logo-name">SmartCore</div>
+    </div>
+
+    <div id="loadingState" style="text-align:center;color:var(--muted);padding:20px 0">Verifying reset link…</div>
+
+    <div id="formState" style="display:none">
+      <h1>Set new password</h1>
+      <p class="sub">Choose a strong password for your SmartCore account.</p>
+      <div>
+        <label>New Password</label>
+        <input id="pw1" type="password" placeholder="At least 8 characters" autocomplete="new-password" />
+      </div>
+      <div>
+        <label>Confirm Password</label>
+        <input id="pw2" type="password" placeholder="Repeat your new password" autocomplete="new-password" />
+      </div>
+      <div id="errMsg" class="err"></div>
+      <button id="saveBtn" class="btn btn-primary" onclick="savePassword()">Save New Password</button>
+    </div>
+
+    <div id="successState" class="ok">
+      ✓ Password updated! <a href="/shop/checkout.html" style="color:var(--accent);text-decoration:none;font-weight:700">Return to checkout →</a>
+    </div>
+
+    <div id="invalidState" style="display:none;text-align:center;color:#f87171;padding:20px 0">
+      This reset link has expired or is invalid.<br>
+      <a href="/shop/checkout.html" style="color:var(--accent);text-decoration:none;font-weight:700">Return to checkout →</a>
+    </div>
+  </div>
+
+  <script>
+    const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
+
+    function show(id) {
+      ['loadingState','formState','successState','invalidState'].forEach(s => {
+        document.getElementById(s).style.display = s === id ? '' : 'none';
+      });
+    }
+
+    // Supabase sends the session via URL hash for password recovery
+    sb.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        show('formState');
+      } else if (event === 'SIGNED_IN' && window._pwSaved) {
+        // already handled
+      }
+    });
+
+    // Also check hash manually in case onAuthStateChange fires before listener attached
+    (async () => {
+      const hash = new URLSearchParams(window.location.hash.slice(1));
+      const type = hash.get('type');
+      if (type === 'recovery') {
+        // Supabase will exchange the token automatically
+        setTimeout(() => {
+          // If still loading after 2s, show invalid
+          if (document.getElementById('loadingState').style.display !== 'none') {
+            show('invalidState');
+          }
+        }, 3000);
+      } else if (!type) {
+        show('invalidState');
+      }
+    })();
+
+    window._pwSaved = false;
+    async function savePassword() {
+      const pw1 = document.getElementById('pw1').value;
+      const pw2 = document.getElementById('pw2').value;
+      const errEl = document.getElementById('errMsg');
+      errEl.style.display = 'none';
+      if (pw1.length < 8) { errEl.textContent = 'Password must be at least 8 characters.'; errEl.style.display = ''; return; }
+      if (pw1 !== pw2) { errEl.textContent = 'Passwords do not match.'; errEl.style.display = ''; return; }
+      const btn = document.getElementById('saveBtn');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      const { error } = await sb.auth.updateUser({ password: pw1 });
+      btn.disabled = false; btn.textContent = 'Save New Password';
+      if (error) { errEl.textContent = error.message; errEl.style.display = ''; return; }
+      window._pwSaved = true;
+      show('successState');
+    }
+  </script>
+</body>
+</html>

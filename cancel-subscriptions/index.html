@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SmartCore — Manage Subscriptions</title>
+  <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <script>
+    window.__SUPABASE_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+    window.__SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+  </script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#080810;--surface:rgba(255,255,255,.055);--border:rgba(255,255,255,.09);--border2:rgba(255,255,255,.06);
+      --text:#f5f5f7;--muted:#a1a1a6;--accent:#5b8fff;--green:#30d158;--red:#ff453a;
+      --green-soft:rgba(48,209,88,.12);--red-soft:rgba(255,69,58,.1);--amber:#ff9f0a;--amber-soft:rgba(255,159,10,.1);
+    }
+    html,body{min-height:100%}
+    body{
+      font-family:Inter,system-ui,-apple-system,sans-serif;color:var(--text);
+      background:
+        radial-gradient(ellipse 100% 55% at 50% 0%,rgba(91,143,255,.18) 0%,transparent 55%),
+        radial-gradient(ellipse 70% 70% at -5% 55%,rgba(91,143,255,.10) 0%,transparent 60%),
+        radial-gradient(ellipse 55% 50% at 105% 85%,rgba(48,209,88,.07) 0%,transparent 55%),
+        #080810;
+      min-height:100vh;-webkit-font-smoothing:antialiased;
+    }
+    nav{background:rgba(8,8,16,.8);backdrop-filter:blur(20px);border-bottom:1px solid var(--border2);padding:0 20px;position:sticky;top:0;z-index:50}
+    .nav-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:56px;gap:12px}
+    .logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit}
+    .logo-mark{width:34px;height:34px;background:linear-gradient(135deg,#5b8fff,#3060d0);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:900;color:#fff}
+    .logo-name{font-size:15px;font-weight:800;letter-spacing:-.03em}
+    .btn{display:inline-flex;align-items:center;gap:7px;border-radius:11px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text);text-decoration:none;font-family:inherit;transition:opacity .15s}
+    .btn:hover{opacity:.8}
+    .btn:disabled{opacity:.4;cursor:not-allowed}
+    .btn-primary{background:var(--accent);color:#fff;border-color:transparent}
+    .btn-danger{background:rgba(255,69,58,.15);color:var(--red);border-color:rgba(255,69,58,.3)}
+    .btn-green{background:var(--green-soft);color:var(--green);border-color:rgba(48,209,88,.3)}
+    main{max-width:900px;margin:0 auto;padding:40px 20px 80px}
+    h1{font-size:28px;font-weight:800;letter-spacing:-.04em;margin-bottom:6px}
+    .page-sub{font-size:15px;color:var(--muted);margin-bottom:36px}
+    .card{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:18px;padding:28px}
+    .card+.card{margin-top:16px}
+    .module-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:18px 0;border-bottom:1px solid var(--border2)}
+    .module-row:last-child{border-bottom:none;padding-bottom:0}
+    .module-row:first-child{padding-top:0}
+    .module-name{font-size:15px;font-weight:700}
+    .module-price{font-size:13px;color:var(--muted);margin-top:2px}
+    .badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700}
+    .badge-green{background:var(--green-soft);color:var(--green);border:1px solid rgba(48,209,88,.3)}
+    .badge-amber{background:var(--amber-soft);color:var(--amber);border:1px solid rgba(255,159,10,.3)}
+    .badge-red{background:var(--red-soft);color:var(--red);border:1px solid rgba(255,69,58,.3)}
+    .reminder-box{background:var(--amber-soft);border:1px solid rgba(255,159,10,.25);border-radius:13px;padding:14px 18px;margin-bottom:14px;font-size:13px;color:var(--amber);display:flex;align-items:center;gap:10px}
+    .section-label{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-bottom:16px}
+    /* Auth overlay */
+    #authOverlay{position:fixed;inset:0;background:#080810;display:flex;align-items:center;justify-content:center;padding:20px;z-index:100}
+    #authCard{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:24px;padding:44px 36px;max-width:420px;width:100%;text-align:center}
+    #authCard h2{font-size:22px;font-weight:800;letter-spacing:-.04em;margin-bottom:8px}
+    #authCard p{font-size:14px;color:var(--muted);margin-bottom:24px;line-height:1.6}
+    .inp{width:100%;border-radius:12px;border:1px solid var(--border2);background:rgba(8,8,16,.6);padding:11px 13px;outline:none;color:var(--text);font-size:14px;font-family:inherit;margin-bottom:12px}
+    .inp:focus{border-color:rgba(91,143,255,.4);box-shadow:0 0 0 3px rgba(91,143,255,.1)}
+    .auth-err{display:none;padding:10px 14px;border-radius:11px;font-size:13px;font-weight:700;background:rgba(248,113,113,.14);color:#f87171;border:1px solid rgba(248,113,113,.28);margin-bottom:12px;text-align:left}
+    .auth-link{font-size:13px;color:var(--accent);cursor:pointer;background:none;border:none;font-family:inherit;font-weight:700;text-decoration:underline}
+    /* Modal */
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;padding:20px}
+    .modal-overlay.open{display:flex}
+    .modal{background:#111120;border:1px solid var(--border);border-radius:20px;padding:32px;max-width:440px;width:100%}
+    .modal h3{font-size:19px;font-weight:800;margin-bottom:10px}
+    .modal p{font-size:14px;color:var(--muted);line-height:1.65;margin-bottom:20px}
+    .modal-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+    @media(max-width:600px){
+      .module-row{flex-direction:column;align-items:flex-start}
+      .module-row .actions{width:100%;justify-content:flex-start}
+      #authCard{padding:32px 24px}
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="logo">
+      <div class="logo-mark">S</div>
+      <div class="logo-name">SmartCore</div>
+    </a>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span id="navUser" style="font-size:13px;color:var(--muted)"></span>
+      <button class="btn" onclick="doSignout()">Sign Out</button>
+    </div>
+  </div>
+</nav>
+
+<!-- AUTH OVERLAY -->
+<div id="authOverlay">
+  <div id="authCard">
+    <div style="margin-bottom:24px">
+      <div style="width:48px;height:48px;background:linear-gradient(135deg,#5b8fff,#3060d0);border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:#fff;margin:0 auto 16px">S</div>
+      <h2>Sign in to continue</h2>
+      <p>You need to be signed in to manage your SmartCore subscriptions.</p>
+    </div>
+
+    <div id="loginForm">
+      <input id="loginEmail" class="inp" type="email" placeholder="Your email address" autocomplete="email" />
+      <input id="loginPassword" class="inp" type="password" placeholder="Password" autocomplete="current-password" />
+      <div id="loginErr" class="auth-err"></div>
+      <button class="btn btn-primary" style="width:100%;padding:13px;font-size:14px;justify-content:center" onclick="doLogin()">Sign In</button>
+      <div style="margin-top:14px;display:flex;justify-content:space-between;font-size:13px;color:var(--muted);flex-wrap:wrap;gap:6px">
+        <span>Don't have an account? <a href="/shop/checkout.html" class="auth-link" style="text-decoration:none">Go to checkout</a></span>
+        <button class="auth-link" onclick="showForgotOverlay()">Forgot password?</button>
+      </div>
+    </div>
+
+    <div id="forgotForm" style="display:none">
+      <input id="forgotEmail" class="inp" type="email" placeholder="Your email address" autocomplete="email" />
+      <div id="forgotErr" class="auth-err"></div>
+      <div id="forgotOk" style="display:none;padding:10px 14px;border-radius:11px;font-size:13px;background:rgba(48,209,88,.1);color:var(--green);border:1px solid rgba(48,209,88,.25);margin-bottom:12px">Reset link sent — check your inbox.</div>
+      <button class="btn btn-primary" style="width:100%;padding:13px;font-size:14px;justify-content:center" onclick="doForgot()">Send Reset Link</button>
+      <div style="margin-top:14px;text-align:center"><button class="auth-link" onclick="showLoginForm()">← Back to sign in</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- EMPLOYEE DENIED -->
+<div id="deniedView" style="display:none;min-height:100vh;display:none;align-items:center;justify-content:center;padding:40px 20px">
+  <div style="text-align:center;max-width:500px">
+    <div style="font-size:48px;margin-bottom:16px">🔒</div>
+    <h1 style="font-size:24px;font-weight:800;margin-bottom:10px">You don't have permission to access this</h1>
+    <p style="font-size:15px;color:var(--muted);line-height:1.7;margin-bottom:28px">Only company owners and system managers can manage subscriptions and billing. If you need to make changes, please speak to your system manager or company owner who has access to these settings.</p>
+    <a href="/" class="btn btn-primary">← Return Home</a>
+  </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<main id="mainContent" style="display:none">
+  <h1>Manage Subscriptions</h1>
+  <p class="page-sub" id="pageSubtitle">Loading your subscriptions…</p>
+
+  <!-- Reminders -->
+  <div id="remindersSection"></div>
+
+  <!-- Subscriptions list -->
+  <div id="subscriptionsSection"></div>
+
+  <!-- Employee export -->
+  <div id="exportSection" style="margin-top:32px;display:none">
+    <div class="card">
+      <div class="section-label">Employee Data</div>
+      <p style="font-size:14px;color:var(--muted);margin-bottom:16px">Export your employee data before cancellation. Your data is retained for 30 days after cancellation ends.</p>
+      <button class="btn" onclick="exportEmployees()">⬇ Export Employees as CSV</button>
+    </div>
+  </div>
+</main>
+
+<!-- CANCEL CONFIRMATION MODAL -->
+<div class="modal-overlay" id="cancelModal">
+  <div class="modal">
+    <h3>Cancel subscription?</h3>
+    <p id="cancelModalText">Your subscription will remain active until the end of your current billing period. After that, access to all modules including SmartCore Core will be revoked.</p>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeCancelModal()">Keep subscription</button>
+      <button class="btn btn-danger" id="confirmCancelBtn" onclick="confirmCancel()">Yes, cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- RENEW CONFIRMATION MODAL -->
+<div class="modal-overlay" id="renewModal">
+  <div class="modal">
+    <h3>Keep your subscription?</h3>
+    <p>Great news — your cancellation will be reversed and your subscription will continue as normal.</p>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeRenewModal()">Go back</button>
+      <button class="btn btn-green" id="confirmRenewBtn" onclick="confirmRenew()">Yes, keep it</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
+const SITE = 'https://smartcoretechnology.co.uk';
+
+let currentUser = null;
+let currentStaff = null;
+let orders = [];
+let pendingCancelOrderId = null;
+let pendingRenewOrderId  = null;
+
+// ── Auth overlay ──────────────────────────────────────────
+function showForgotOverlay() {
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('forgotForm').style.display = '';
+}
+function showLoginForm() {
+  document.getElementById('loginForm').style.display = '';
+  document.getElementById('forgotForm').style.display = 'none';
+}
+
+async function doLogin() {
+  const email    = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl    = document.getElementById('loginErr');
+  errEl.style.display = 'none';
+  if (!email || !password) { errEl.textContent = 'Please enter your email and password.'; errEl.style.display = ''; return; }
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { errEl.textContent = error.message; errEl.style.display = ''; return; }
+  await onSignedIn(data.user);
+}
+
+async function doForgot() {
+  const email = document.getElementById('forgotEmail').value.trim();
+  const errEl = document.getElementById('forgotErr');
+  const okEl  = document.getElementById('forgotOk');
+  errEl.style.display = 'none'; okEl.style.display = 'none';
+  if (!email) { errEl.textContent = 'Please enter your email.'; errEl.style.display = ''; return; }
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${SITE}/reset-password` });
+  if (error) { errEl.textContent = error.message; errEl.style.display = ''; return; }
+  okEl.style.display = '';
+}
+
+async function doSignout() {
+  await sb.auth.signOut();
+  window.location.reload();
+}
+
+// ── Init ──────────────────────────────────────────────────
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.user) {
+    await onSignedIn(session.user);
+  }
+  // else: auth overlay stays visible
+})();
+
+async function onSignedIn(user) {
+  currentUser = user;
+  document.getElementById('navUser').textContent = user.email;
+  document.getElementById('authOverlay').style.display = 'none';
+
+  // Check staff role
+  const { data: staff } = await sb.from('smartcore_staff')
+    .select('*')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  currentStaff = staff;
+
+  const isOwnerAdmin = staff && (staff.role === 'owner' || staff.role === 'admin' || staff.is_admin === true);
+
+  // If staff record exists but is employee, deny
+  if (staff && !isOwnerAdmin) {
+    document.getElementById('mainContent').style.display = 'none';
+    const denied = document.getElementById('deniedView');
+    denied.style.display = 'flex';
+    return;
+  }
+
+  // Load orders for this user
+  await loadData(user);
+}
+
+async function loadData(user) {
+  // Load orders placed with this auth user ID, or matching their email
+  const { data: orderRows, error } = await sb
+    .from('marketplace_orders')
+    .select('*, marketplace_subscriptions(*)')
+    .or(`auth_user_id.eq.${user.id},email.eq.${user.email}`)
+    .order('created_at', { ascending: false });
+
+  if (error) console.error('loadData error:', error);
+  orders = orderRows || [];
+
+  renderPage();
+  document.getElementById('mainContent').style.display = '';
+}
+
+// ── Render ────────────────────────────────────────────────
+function fmt(n) { return '£' + Number(n || 0).toFixed(2); }
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+function daysUntil(iso) {
+  if (!iso) return null;
+  const diff = new Date(iso) - new Date();
+  return Math.ceil(diff / 86400000);
+}
+function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function renderPage() {
+  const remindersEl = document.getElementById('remindersSection');
+  const subsEl      = document.getElementById('subscriptionsSection');
+
+  if (!orders.length) {
+    document.getElementById('pageSubtitle').textContent = 'No active subscriptions found for your account.';
+    subsEl.innerHTML = `<div class="card" style="text-align:center;padding:40px;color:var(--muted)">
+      <p style="margin-bottom:16px">No subscriptions found. Purchase modules from the marketplace to get started.</p>
+      <a href="/shop" class="btn btn-primary">Browse Modules →</a>
+    </div>`;
+    return;
+  }
+
+  document.getElementById('pageSubtitle').textContent = `Managing ${orders.length} subscription${orders.length !== 1 ? 's' : ''} for your account.`;
+
+  // Reminders
+  let remindersHtml = '';
+  for (const o of orders) {
+    const sub = o.marketplace_subscriptions?.[0];
+    if (!sub || sub.cancel_status !== 'cancellation_scheduled') continue;
+    const days = daysUntil(sub.cancel_effective_date);
+    if (days === null) continue;
+    const urgency = days <= 1 ? 'var(--red)' : days <= 3 ? 'var(--amber)' : 'var(--amber)';
+    remindersHtml += `<div class="reminder-box" style="border-color:${urgency}33;background:${urgency}18;color:${urgency}">
+      ⚠ <strong>${esc(o.company_name)}</strong> subscription cancels ${days <= 0 ? 'today' : `in ${days} day${days !== 1 ? 's' : ''}`} on ${fmtDate(sub.cancel_effective_date)}.
+      <button class="btn btn-green" style="margin-left:auto;padding:6px 14px;font-size:12px" onclick="openRenewModal('${o.id}')">Keep it →</button>
+    </div>`;
+  }
+  remindersEl.innerHTML = remindersHtml;
+
+  // Subscriptions
+  let allCancelled = true;
+  let html = '';
+  for (const o of orders) {
+    const sub = o.marketplace_subscriptions?.[0];
+    const status = sub?.cancel_status || 'active';
+    const isCancelled = status === 'cancellation_scheduled' || status === 'cancelled';
+    if (status === 'active') allCancelled = false;
+    const modules = Array.isArray(o.modules) ? o.modules : [];
+    const billable = modules.filter(m => m.slug !== 'smartcore-core');
+    const billing = o.billing_type === 'yearly' ? 'Annual' : 'Monthly';
+    const totalStr = o.total ? `${fmt(o.total)}/${o.billing_type === 'yearly' ? 'yr' : 'mo'}` : '—';
+
+    let statusBadge = '';
+    let cancelInfo = '';
+    let actionBtn  = '';
+
+    if (status === 'cancellation_scheduled') {
+      const days = daysUntil(sub.cancel_effective_date);
+      statusBadge = `<span class="badge badge-amber">⚠ Cancellation Scheduled</span>`;
+      cancelInfo  = `<div style="font-size:13px;color:var(--muted);margin-top:4px">Access ends ${fmtDate(sub.cancel_effective_date)}${days !== null ? ` (${days <= 0 ? 'today' : days + ' days'})` : ''}</div>`;
+      actionBtn   = `<button class="btn btn-green" onclick="openRenewModal('${o.id}')">Keep Subscription</button>`;
+    } else if (status === 'cancelled') {
+      statusBadge = `<span class="badge badge-red">Cancelled</span>`;
+    } else {
+      statusBadge = `<span class="badge badge-green">Active</span>`;
+      actionBtn   = `<button class="btn btn-danger" onclick="openCancelModal('${o.id}','${esc(o.company_name)}')">Cancel Subscription</button>`;
+    }
+
+    html += `<div class="card" style="margin-bottom:16px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+        <div>
+          <div style="font-size:17px;font-weight:800;margin-bottom:4px">${esc(o.company_name)}</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            ${statusBadge}
+            <span style="font-size:12px;color:var(--muted);font-family:monospace">${esc(o.order_reference)}</span>
+          </div>
+          ${cancelInfo}
+        </div>
+        <div style="text-align:right;shrink:0">
+          <div style="font-size:18px;font-weight:800">${totalStr}</div>
+          <div style="font-size:12px;color:var(--muted)">${billing}</div>
+        </div>
+      </div>
+
+      <div class="section-label">Modules</div>
+      ${modules.map(m => `
+        <div class="module-row">
+          <div>
+            <div class="module-name">${esc(m.name)}</div>
+            <div class="module-price">${m.slug === 'smartcore-core' ? 'Included free' : (m.monthly_price ? `${fmt(m.monthly_price)}/mo` : '')}</div>
+          </div>
+          ${m.slug === 'smartcore-core' ? '<span class="badge badge-green">Core</span>' : ''}
+        </div>
+      `).join('')}
+
+      ${actionBtn ? `<div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border2);display:flex;gap:10px;flex-wrap:wrap">${actionBtn}</div>` : ''}
+    </div>`;
+  }
+
+  subsEl.innerHTML = html;
+
+  // Show export if any cancellation scheduled
+  const hasPendingCancel = orders.some(o => o.marketplace_subscriptions?.[0]?.cancel_status === 'cancellation_scheduled');
+  document.getElementById('exportSection').style.display = hasPendingCancel ? '' : 'none';
+}
+
+// ── Cancel flow ───────────────────────────────────────────
+function openCancelModal(orderId, companyName) {
+  pendingCancelOrderId = orderId;
+  document.getElementById('cancelModalText').textContent =
+    `Your "${companyName}" subscription will remain active until the end of your current billing period. After that, access to all SmartCore modules including SmartCore Core will be revoked. You can undo this at any time before the cancellation date.`;
+  document.getElementById('cancelModal').classList.add('open');
+}
+function closeCancelModal() {
+  document.getElementById('cancelModal').classList.remove('open');
+  pendingCancelOrderId = null;
+}
+
+async function confirmCancel() {
+  const orderId = pendingCancelOrderId;
+  if (!orderId) return;
+  const btn = document.getElementById('confirmCancelBtn');
+  btn.disabled = true; btn.textContent = 'Cancelling…';
+
+  // Find billing type from order to calculate effective date
+  const order = orders.find(o => o.id === orderId);
+  const billingType = order?.billing_type || 'monthly';
+  const orderDate = new Date(order?.created_at || Date.now());
+  const now = new Date();
+
+  // Calculate next billing date (end of current period)
+  let effectiveDate;
+  if (billingType === 'yearly') {
+    // Find anniversary of order date that is in the future
+    effectiveDate = new Date(orderDate);
+    effectiveDate.setFullYear(now.getFullYear());
+    if (effectiveDate <= now) effectiveDate.setFullYear(now.getFullYear() + 1);
+  } else {
+    // Next monthly anniversary
+    effectiveDate = new Date(orderDate);
+    effectiveDate.setMonth(now.getMonth());
+    effectiveDate.setFullYear(now.getFullYear());
+    if (effectiveDate <= now) effectiveDate.setMonth(effectiveDate.getMonth() + 1);
+  }
+  const effectiveIso = effectiveDate.toISOString();
+
+  // Upsert into marketplace_subscriptions
+  const { data: existingSub } = await sb
+    .from('marketplace_subscriptions')
+    .select('id')
+    .eq('order_id', orderId)
+    .maybeSingle();
+
+  let subError;
+  if (existingSub) {
+    const { error } = await sb.from('marketplace_subscriptions').update({
+      cancel_status: 'cancellation_scheduled',
+      cancel_requested_at: new Date().toISOString(),
+      cancel_effective_date: effectiveIso,
+    }).eq('id', existingSub.id);
+    subError = error;
+  } else {
+    const { error } = await sb.from('marketplace_subscriptions').insert({
+      order_id: orderId,
+      cancel_status: 'cancellation_scheduled',
+      cancel_requested_at: new Date().toISOString(),
+      cancel_effective_date: effectiveIso,
+    });
+    subError = error;
+  }
+
+  if (subError) {
+    console.error('Cancel error:', subError);
+    btn.disabled = false; btn.textContent = 'Yes, cancel';
+    alert('Something went wrong. Please try again or contact support.');
+    return;
+  }
+
+  // Send cancellation email via API
+  try {
+    const sub = existingSub || (await sb.from('marketplace_subscriptions').select('id').eq('order_id', orderId).maybeSingle()).data;
+    if (sub?.id) {
+      await fetch('/api/send-cancellation-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription_id: sub.id }),
+      });
+    }
+  } catch (_) {}
+
+  closeCancelModal();
+  await loadData(currentUser);
+}
+
+// ── Renew flow ────────────────────────────────────────────
+function openRenewModal(orderId) {
+  pendingRenewOrderId = orderId;
+  document.getElementById('renewModal').classList.add('open');
+}
+function closeRenewModal() {
+  document.getElementById('renewModal').classList.remove('open');
+  pendingRenewOrderId = null;
+}
+
+async function confirmRenew() {
+  const orderId = pendingRenewOrderId;
+  if (!orderId) return;
+  const btn = document.getElementById('confirmRenewBtn');
+  btn.disabled = true; btn.textContent = 'Updating…';
+
+  const { data: sub } = await sb
+    .from('marketplace_subscriptions')
+    .select('id')
+    .eq('order_id', orderId)
+    .maybeSingle();
+
+  if (sub) {
+    await sb.from('marketplace_subscriptions').update({
+      cancel_status: 'active',
+      cancel_requested_at: null,
+      cancel_effective_date: null,
+    }).eq('id', sub.id);
+  }
+
+  btn.disabled = false; btn.textContent = 'Yes, keep it';
+  closeRenewModal();
+  await loadData(currentUser);
+}
+
+// ── Employee CSV export ───────────────────────────────────
+async function exportEmployees() {
+  const { data: staff, error } = await sb
+    .from('smartcore_staff')
+    .select('*')
+    .order('last_name');
+
+  if (error || !staff?.length) {
+    alert('No employee data found to export.');
+    return;
+  }
+
+  const cols = ['id','first_name','last_name','email','role','department','job_title','phone','start_date','is_admin','created_at'];
+  const header = cols.join(',');
+  const rows = staff.map(s => cols.map(c => {
+    const v = s[c] ?? '';
+    const str = String(v).replace(/"/g,'""');
+    return str.includes(',') || str.includes('"') || str.includes('\n') ? `"${str}"` : str;
+  }).join(','));
+  const csv = [header, ...rows].join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `smartcore-employees-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
