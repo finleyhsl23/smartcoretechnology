@@ -469,7 +469,14 @@
     .detail-add-btn.add:hover{background:#4a7ef5}
     .detail-add-btn.added{background:var(--green-soft);color:var(--green);border:1px solid rgba(48,209,88,.3)}
 
-    .detail-content{max-width:800px;margin:0 auto;padding:48px 24px 100px}
+    .detail-content{max-width:1200px;margin:0 auto;padding:48px 32px 100px}
+    .detail-layout{display:grid;grid-template-columns:1fr 400px;gap:48px;align-items:start}
+    .detail-left{}
+    .detail-right{position:sticky;top:72px}
+    @media(max-width:900px){
+      .detail-layout{grid-template-columns:1fr}
+      .detail-right{position:static}
+    }
 
     /* Hero image */
     .detail-hero{
@@ -621,6 +628,8 @@
       .grid-section{padding:0 20px 120px}
       .basket-bar-inner{padding:14px 20px}
       .detail-content{padding:36px 20px 100px}
+      .detail-layout{grid-template-columns:1fr!important}
+      .detail-right{position:static!important}
       .nav-title-sub,.back-btn{display:none}
       .toggle-mobile{display:flex}
       .toggle-desktop{display:none}
@@ -920,105 +929,81 @@ function openDetail(id) {
   const isFree    = !price;
   const features  = Array.isArray(m.features)    ? m.features    : [];
   const shots     = Array.isArray(m.screenshots) ? m.screenshots : [];
-  const videos    = Array.isArray(m.videos)       ? m.videos      : [];
+  const vids      = Array.isArray(m.videos)       ? m.videos      : [];
   const accent    = catColor(m.category);
 
   // Update sticky nav
   $id('detailNavTitle').textContent = m.name;
   updateDetailNavBtn(inBasket);
 
-  $id('detailBody').innerHTML = `
-    <!-- Hero image -->
-    ${m.thumbnail_url ? `
-      <div class="detail-hero">
-        <img src="${esc(m.thumbnail_url)}" alt="${esc(m.name)}" onclick="openLightbox('${esc(m.thumbnail_url)}')" />
-      </div>` : ''}
+  $id('detailBody').innerHTML = `<div class="detail-layout">
+    <div class="detail-left">
+      <!-- Hero image -->
+      ${m.thumbnail_url ? `
+        <div class="detail-hero">
+          <img src="${esc(m.thumbnail_url)}" alt="${esc(m.name)}" onclick="openLightbox('${esc(m.thumbnail_url)}')" />
+        </div>` : ''}
 
-    <!-- Badges + title -->
-    <div class="detail-badges">
-      <span class="badge ${catBadgeClass(m.category)}">${esc(m.category)}</span>
-      ${m.featured    ? '<span class="badge badge-amber">Featured</span>' : ''}
-      ${m.popular     ? '<span class="badge badge-green">Popular</span>'  : ''}
-      ${m.recommended ? '<span class="badge badge-teal">Recommended</span>' : ''}
-    </div>
-    <h2 class="detail-name">${esc(m.name)}</h2>
-    <p class="detail-tagline">${esc(m.short_description||'')}</p>
-
-    <!-- About -->
-    ${m.long_description ? `
-      <div class="detail-section">
-        <div class="detail-section-title">About this module</div>
-        <div class="detail-desc">${esc(m.long_description)}</div>
-      </div>` : ''}
-
-    <!-- Features -->
-    ${features.length ? `
-      <div class="detail-section">
-        <div class="detail-section-title">What's included</div>
-        <div class="features-grid">
-          ${features.map(f=>`
-            <div class="feature-item">
-              <div class="feature-check">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="${accent}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </div>
-              <span class="feature-text">${esc(f)}</span>
-            </div>`).join('')}
-        </div>
-      </div>` : ''}
-
-    <!-- Screenshots -->
-    ${shots.length ? `
-      <div class="detail-section">
-        <div class="detail-section-title">Screenshots</div>
-        <div class="screenshots-scroll">
-          ${shots.map(src=>`
-            <div class="screenshot-thumb" onclick="openLightbox('${esc(src)}')">
-              <img src="${esc(src)}" alt="Screenshot" loading="lazy" />
-            </div>`).join('')}
-        </div>
-      </div>` : ''}
-
-    <!-- Videos -->
-    ${videos.length ? `
-      <div class="detail-section">
-        <div class="detail-section-title">Videos</div>
-        <div class="video-grid">
-          ${videos.map(url => renderVideo(url)).join('')}
-        </div>
-      </div>` : ''}
-
-    <!-- Pricing -->
-    <div class="detail-section">
-      <div class="detail-section-title">Pricing</div>
-      <div class="pricing-card">
-        ${isFree ? `
-          <div class="pricing-amount" style="color:var(--green)">Included free</div>
-          <p class="pricing-period" style="margin-top:8px">SmartCore Core is automatically included with every order at no extra cost.</p>
-        ` : `
-          <div class="pricing-amount" id="detailPrice">${fmtMo(price)}</div>
-          <div class="pricing-period">${state.billing==='yearly'?'Annual billing (billed monthly)':'Monthly billing'}</div>
-          <div class="pricing-compare">
-            <div class="pricing-option">
-              <div class="pricing-option-label">Monthly</div>
-              <div class="pricing-option-price">${fmtMo(m.monthly_price)}</div>
-              <div class="pricing-option-sub">Billed monthly</div>
-            </div>
-            <div class="pricing-option" style="${state.billing==='yearly'?`border-color:${accent}55;background:${accent}0a`:''}">
-              <div class="pricing-option-label">Annual <span style="background:var(--green-soft);color:var(--green);padding:1px 5px;border-radius:4px;font-size:9px">Save 8%</span></div>
-              <div class="pricing-option-price">${fmtMo(m.yearly_price || +(m.monthly_price*0.92).toFixed(2))}</div>
-              <div class="pricing-option-sub">Billed annually</div>
-            </div>
+      <!-- Screenshots -->
+      ${shots.length ? `
+        <div class="detail-section">
+          <div class="detail-section-title">Screenshots</div>
+          <div class="screenshot-grid">
+            ${shots.map(s=>`<img src="${esc(s)}" class="screenshot-thumb" onclick="openLightbox('${esc(s)}')" alt="screenshot" loading="lazy" />`).join('')}
           </div>
-          <div class="pricing-note">Package discounts: 10% off for 3+ modules, 25% for 6+, 40% for 12+.</div>
-        `}
-        ${!isFree ? `
-          <button class="pricing-cta ${inBasket?'added':''}" id="detailCta" onclick="detailToggleBasket()">
-            ${inBasket ? '✓ Remove from basket' : '+ Add to basket'}
-          </button>
-        ` : ''}
+        </div>` : ''}
+
+      <!-- Videos -->
+      ${vids.length ? `
+        <div class="detail-section">
+          <div class="detail-section-title">Videos</div>
+          ${vids.map(v=>renderVideo(v)).join('')}
+        </div>` : ''}
+    </div>
+
+    <div class="detail-right">
+      <!-- Badges + title -->
+      <div class="detail-badges">
+        <span class="cat-badge" style="background:${catColor(m.category)}22;color:${catColor(m.category)};border:1px solid ${catColor(m.category)}44">${esc(m.category)}</span>
+        ${m.featured ? '<span class="flag-badge featured">Featured</span>' : ''}
+        ${m.popular  ? '<span class="flag-badge popular">Popular</span>'  : ''}
+        ${m.recommended ? '<span class="flag-badge recommended">Recommended</span>' : ''}
+      </div>
+      <div class="detail-name">${esc(m.name)}</div>
+      ${m.short_description ? `<div class="detail-tagline">${esc(m.short_description)}</div>` : ''}
+
+      <!-- Description -->
+      ${m.long_description ? `
+        <div class="detail-section">
+          <div class="detail-section-title">Overview</div>
+          <div class="detail-desc">${esc(m.long_description)}</div>
+        </div>` : ''}
+
+      <!-- Features -->
+      ${features.length ? `
+        <div class="detail-section">
+          <div class="detail-section-title">Features</div>
+          <div class="feat-grid">
+            ${features.map(f=>`<div class="feat-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:2px"><path d="M5 13l4 4L19 7" stroke="#30d158" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>${esc(f)}</span>
+            </div>`).join('')}
+          </div>
+        </div>` : ''}
+
+      <!-- Pricing card -->
+      <div class="pricing-card">
+        <div class="pricing-head">
+          <div class="pricing-price">${fmt(m.monthly_price)}<span class="pricing-period">/mo</span></div>
+          ${m.yearly_price ? `<div class="pricing-annual">or ${fmt(m.yearly_price * 12)}/year <span class="pricing-save">Save 8%</span></div>` : ''}
+        </div>
+        <button class="pricing-cta ${inBasket?'in-basket':''}" onclick="detailToggleBasket()" id="detailPricingBtn">
+          ${inBasket ? '✓ In basket — Remove' : '+ Add to basket'}
+        </button>
+        <p class="pricing-note">Cancel anytime · No setup fee · SmartCore Core included free</p>
       </div>
     </div>
-  `;
+  </div>`;
 
   $id('detail').classList.add('visible');
   document.body.style.overflow = 'hidden';
@@ -1047,10 +1032,10 @@ function detailToggleBasket() {
   const inBasket = state.basket.some(b => b.id === state.detailId);
   updateDetailNavBtn(inBasket);
   // Update pricing CTA
-  const cta = $id('detailCta');
+  const cta = $id('detailPricingBtn');
   if (cta) {
-    cta.className = `pricing-cta ${inBasket?'added':''}`;
-    cta.textContent = inBasket ? '✓ Remove from basket' : '+ Add to basket';
+    cta.className = `pricing-cta ${inBasket?'in-basket':''}`;
+    cta.textContent = inBasket ? '✓ In basket — Remove' : '+ Add to basket';
   }
 }
 

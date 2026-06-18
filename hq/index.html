@@ -1649,19 +1649,60 @@
             </table>
           </div>
           <div id="mktFormPanel" style="display:none"></div>
+          <div class="card p-6 mt-6" id="emailSettingsCard">
+            <h2 class="text-xl font-extrabold mb-1">Email Settings</h2>
+            <p class="muted mb-4">Configure the welcome email sent to customers after payment.</p>
+            <div class="grid md:grid-cols-2 gap-3">
+              <div><label class="label">System Login URL</label><input id="esLoginUrl" class="inp" placeholder="https://smartcoretechnology.co.uk/hq" /></div>
+              <div><label class="label">Support Email</label><input id="esSupportEmail" class="inp" placeholder="support@smartcoretechnology.co.uk" /></div>
+              <div><label class="label">Privacy Policy URL</label><input id="esPrivacyUrl" class="inp" placeholder="https://..." /></div>
+              <div><label class="label">Terms of Service URL</label><input id="esTermsUrl" class="inp" placeholder="https://..." /></div>
+              <div class="md:col-span-2"><label class="label">Getting Started Guide (HTML allowed)</label><textarea id="esGuide" class="inp" rows="6" placeholder="<p>Your SmartCore workspace is now active...</p>"></textarea></div>
+            </div>
+            <div class="flex gap-3 mt-4">
+              <button class="btn primary" onclick="saveEmailSettings()">Save Email Settings</button>
+            </div>
+          </div>
         `
       );
       ["mktSearch","mktCat","mktStatus"].forEach(id => {
         const el = $(id);
         if (el) el.addEventListener("input", drawMarketplace);
       });
-      loadMarketplaceModules().then(drawMarketplace);
+      loadMarketplaceModules().then(() => { drawMarketplace(); loadEmailSettings(); });
     }
 
     async function loadMarketplaceModules() {
-      const { data } = await sb.from("marketplace_modules").select("*").order("sort_order",{ascending:true});
+      const { data, error } = await sb.from("marketplace_modules").select("*").order("sort_order",{ascending:true});
+      if (error) console.error("Marketplace modules error:", error);
       state.mktModules = data || [];
     }
+
+    async function loadEmailSettings() {
+      const { data } = await sb.from("marketplace_email_settings").select("*").eq("id",1).single();
+      if (!data) return;
+      const set = (id, val) => { const el = $(id); if (el) el.value = val || ""; };
+      set("esLoginUrl", data.login_url);
+      set("esSupportEmail", data.support_email);
+      set("esPrivacyUrl", data.privacy_policy_url);
+      set("esTermsUrl", data.terms_url);
+      set("esGuide", data.guide_html);
+    }
+
+    window.saveEmailSettings = async function saveEmailSettings() {
+      const g = id => $(id)?.value?.trim() || null;
+      const payload = {
+        login_url: g("esLoginUrl"),
+        support_email: g("esSupportEmail"),
+        privacy_policy_url: g("esPrivacyUrl"),
+        terms_url: g("esTermsUrl"),
+        guide_html: g("esGuide"),
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await sb.from("marketplace_email_settings").upsert({ id: 1, ...payload });
+      if (error) return alert("Error saving: " + error.message);
+      alert("Email settings saved.");
+    };
 
     function drawMarketplace() {
       if (!$("#mktStats") || !$("#mktRows")) return;
@@ -1707,7 +1748,7 @@
             </div>
           </td>
         </tr>`;
-      }).join("") || `<tr><td colspan="8" class="muted">No modules found.</td></tr>`;
+      }).join("") || `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--muted)">${(state.mktModules||[]).length===0 ? 'No modules yet. <button class="btn primary" style="margin-left:12px" onclick="openModuleForm()">+ Add your first module</button>' : 'No modules match the current filters.'}</td></tr>`;
     }
 
     window.closeMktForm = function closeMktForm() {
