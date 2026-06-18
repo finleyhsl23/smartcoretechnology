@@ -223,7 +223,6 @@
         No payment is taken until your order is approved by our team.
       </p>
     </div>
-    </div>
 
     <!-- ORDER SUMMARY -->
     <div class="card p-5 sticky top-24">
@@ -273,11 +272,40 @@ async function initAuth() {
   const { data: { session } } = await sb.auth.getSession();
   if (session?.user) {
     authedUserId = session.user.id;
+    // Show a "signed in as X" banner on the auth panel instead of hiding it
+    const email = session.user.email || '';
+    document.getElementById('authSignup').style.display = 'none';
+    document.getElementById('authOtp').style.display = 'none';
+    document.getElementById('authSignin').style.display = 'none';
+    document.getElementById('authForgot').style.display = 'none';
+    document.getElementById('authPanel').innerHTML += `
+      <div id="alreadySignedIn" style="text-align:center;padding:32px 0">
+        <div style="font-size:32px;margin-bottom:12px">👋</div>
+        <h1 class="text-2xl font-extrabold tracking-tight mb-2">Welcome back</h1>
+        <p class="text-sm mb-6" style="color:var(--muted)">You're signed in as <strong style="color:var(--text)">${esc(email)}</strong>.</p>
+        <button class="btn btn-primary w-full py-4 text-base font-extrabold" onclick="continueAsUser()">Continue as ${esc(email)} →</button>
+        <p class="mt-4 text-sm" style="color:var(--muted)">Not you? <button style="color:var(--accent);background:none;border:none;cursor:pointer;font-weight:700;text-decoration:underline" onclick="switchAccount()">Sign in with a different account</button></p>
+      </div>`;
     markAccountDone();
-    showDetailsPanel();
   } else {
     showAuthPanel();
   }
+}
+
+function continueAsUser() {
+  markAccountDone();
+  showDetailsPanel();
+}
+
+async function switchAccount() {
+  await sb.auth.signOut();
+  authedUserId = null;
+  document.getElementById('alreadySignedIn')?.remove();
+  showSignup();
+  // Reset step bar
+  document.getElementById('stepAccount').className = 'step-item';
+  document.getElementById('stepAccountCircle').style.cssText = '';
+  document.getElementById('stepAccountLabel').style.color = 'var(--muted2)';
 }
 
 function showAuthPanel() {
