@@ -16,7 +16,7 @@
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
-      --bg:#000;
+      --bg:#080810;
       --surface:rgba(255,255,255,.04);
       --surface2:rgba(255,255,255,.07);
       --border:rgba(255,255,255,.1);
@@ -37,8 +37,10 @@
       font-family:Inter,system-ui,-apple-system,sans-serif;
       color:var(--text);
       background:
-        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(33,150,243,.12), transparent),
-        #000;
+        radial-gradient(ellipse 100% 55% at 50% 0%, rgba(91,143,255,.20) 0%, transparent 55%),
+        radial-gradient(ellipse 70% 60% at -5% 60%, rgba(91,143,255,.11) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 45% at 105% 85%, rgba(48,209,88,.07) 0%, transparent 50%),
+        #080810;
       min-height:100vh;
     }
 
@@ -307,6 +309,12 @@
       const data = await res.json();
 
       if (data.success && data.redirect) {
+        // Fire email send via Cloudflare Function (has Resend key) — don't await, just send
+        fetch('/api/send-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: orderId }),
+        }).catch(() => {}); // best-effort
         window.location.href = data.redirect;
       } else if (!data.success && result === 'failed') {
         errBox.textContent   = data.message || 'Payment was declined.';
