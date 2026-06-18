@@ -62,7 +62,7 @@ export async function onRequestPost(context) {
 
     await Promise.all([
       sendEmail(resendKey, o.email, `Welcome to SmartCore — ${o.order_reference}`, welcomeHtml(o, modules, es)),
-      sendEmail(resendKey, ADMIN_EMAIL, `New Order — ${o.order_reference} | ${o.company_name}`, receiptHtml(o, modules)),
+      sendEmail(resendKey, ADMIN_EMAIL, `New Company Onboarded — ${o.company_name} | ${o.order_reference}`, receiptHtml(o, modules)),
     ]);
 
     return json({ success: true }, 200, cors);

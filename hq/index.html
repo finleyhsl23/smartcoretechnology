@@ -1649,7 +1649,10 @@
             </table>
           </div>
           <div id="mktFormPanel" style="display:none"></div>
-          <div class="card p-6 mt-6" id="emailSettingsCard">
+          <div class="mt-6 flex justify-end">
+            <button class="btn" onclick="toggleEmailSettings()" id="emailSettingsToggleBtn">⚙ Settings</button>
+          </div>
+          <div class="card p-6 mt-3" id="emailSettingsCard" style="display:none">
             <h2 class="text-xl font-extrabold mb-1">Email Settings</h2>
             <p class="muted mb-4">Configure the welcome email sent to customers after payment.</p>
             <div class="grid md:grid-cols-2 gap-3">
@@ -1692,6 +1695,15 @@
       set("esGooglePlay", data.google_play_url);
       set("esGuide", data.guide_html);
     }
+
+    window.toggleEmailSettings = function toggleEmailSettings() {
+      const card = document.getElementById("emailSettingsCard");
+      const btn = document.getElementById("emailSettingsToggleBtn");
+      if (!card) return;
+      const open = card.style.display !== "none";
+      card.style.display = open ? "none" : "";
+      if (btn) btn.textContent = open ? "⚙ Settings" : "✕ Close Settings";
+    };
 
     window.saveEmailSettings = async function saveEmailSettings() {
       const g = id => $(id)?.value?.trim() || null;
@@ -1993,8 +2005,10 @@
             <select id="ordStatus" class="inp">
               <option value="">All Statuses</option>
               <option value="pending">Pending</option>
+              <option value="pending_payment">Pending Payment</option>
               <option value="approved">Approved</option>
               <option value="rejected">Rejected</option>
+              <option value="payment_failed">Payment Failed</option>
             </select>
           </div>
           <div id="ordStats" class="grid sm:grid-cols-4 gap-3 mt-4"></div>
@@ -2015,11 +2029,13 @@
     }
 
     async function loadOrders() {
-      const { data } = await sb.from("marketplace_orders").select("*").order("created_at",{ascending:false});
+      const { data, error } = await sb.from("marketplace_orders").select("*").order("created_at",{ascending:false});
+      if (error) console.error("loadOrders error:", error);
       state.orders = data || [];
     }
 
     function drawOrders() {
+      if (!$("#ordStats") || !$("#ordRows")) return;
       const q = ($("#ordSearch")?.value || "").toLowerCase();
       const status = $("#ordStatus")?.value || "";
       const rows = (state.orders||[]).filter(o =>
@@ -2235,11 +2251,13 @@
     }
 
     async function loadCoreCompanies() {
-      const { data } = await sb.from("smartcore_core_companies").select("*, smartcore_core_purchased_modules(*)").order("created_at",{ascending:false});
+      const { data, error } = await sb.from("smartcore_core_companies").select("*, smartcore_core_purchased_modules(*)").order("created_at",{ascending:false});
+      if (error) console.error("loadCoreCompanies error:", error);
       state.coreCompanies = data || [];
     }
 
     function drawCore() {
+      if (!$("#coreStats") || !$("#coreRows")) return;
       const q = ($("#coreSearch")?.value || "").toLowerCase();
       const rows = (state.coreCompanies||[]).filter(c => !q || c.company_name?.toLowerCase().includes(q) || c.company_email?.toLowerCase().includes(q));
 

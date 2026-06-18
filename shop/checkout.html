@@ -218,7 +218,12 @@ function calcTotals() {
   let subtotal = 0;
   billable.forEach(m => subtotal += modulePrice(m));
   const pkgDiscount = subtotal * disc.pct;
-  const annualDiscount = billingType === 'yearly' ? (subtotal - pkgDiscount) * ANNUAL_DISC : 0;
+  // annualDiscount = display-only savings vs paying monthly (discount already baked into yearly_price)
+  const annualDiscount = billingType === 'yearly'
+    ? billable.reduce((s, m) => s + (m.yearly_price
+        ? Math.max(0, m.monthly_price * 12 - +m.yearly_price)
+        : m.monthly_price * 12 * ANNUAL_DISC), 0)
+    : 0;
   const total = subtotal - pkgDiscount;
   return { subtotal, pkgDiscount, annualDiscount, total, discLabel: disc.label };
 }
@@ -246,7 +251,7 @@ function renderSummary() {
           <div class="font-bold">${esc(m.name)}</div>
           ${isFree ? '<span class="badge badge-green" style="font-size:9px">Auto-included</span>' : ''}
         </div>
-        <div class="shrink-0 font-bold" style="color:var(--text)">${isFree ? 'Free' : fmt(price)}</div>
+        <div class="shrink-0 font-bold" style="color:var(--text)">${isFree ? 'Free' : fmt(price) + (billingType === 'yearly' ? '/yr' : '/mo')}</div>
       </div>
     `;
   }).join('<hr style="border-color:var(--line2);margin:6px 0">');
@@ -261,8 +266,10 @@ function renderSummary() {
     document.getElementById('summaryPkgAmt').textContent = '−' + fmt(totals.pkgDiscount);
   }
   if (totals.annualDiscount > 0) {
-    document.getElementById('summaryAnnualRow').style.display = '';
-    document.getElementById('summaryAnnualAmt').textContent = '−' + fmt(totals.annualDiscount);
+    const annRow = document.getElementById('summaryAnnualRow');
+    const annAmt = document.getElementById('summaryAnnualAmt');
+    if (annRow) annRow.style.display = '';
+    if (annAmt) annAmt.textContent = 'Saves ' + fmt(totals.annualDiscount) + '/yr vs monthly';
   }
 }
 
