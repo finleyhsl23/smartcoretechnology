@@ -133,6 +133,29 @@
   </style>
 </head>
 <body>
+
+<!-- HQ Sign-in Overlay -->
+<div id="hqLoginOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(2,6,23,.97);backdrop-filter:blur(24px);align-items:center;justify-content:center;padding:20px">
+  <div style="background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:44px 36px;max-width:400px;width:100%;text-align:center">
+    <div style="width:52px;height:52px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:900;color:#fff;margin:0 auto 20px">S</div>
+    <h2 style="font-size:22px;font-weight:800;letter-spacing:-.04em;margin:0 0 6px">SmartCore HQ</h2>
+    <p style="font-size:14px;color:rgba(234,240,255,.6);margin:0 0 28px;line-height:1.6">Sign in with your SmartCore staff account to continue.</p>
+    <input id="hqLoginEmail" type="email" placeholder="Work email" autocomplete="email"
+      style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(2,6,23,.7);padding:12px 14px;color:#eaf0ff;font-size:14px;font-family:inherit;outline:none;margin-bottom:10px" />
+    <input id="hqLoginPassword" type="password" placeholder="Password" autocomplete="current-password"
+      style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(2,6,23,.7);padding:12px 14px;color:#eaf0ff;font-size:14px;font-family:inherit;outline:none;margin-bottom:14px" />
+    <div id="hqLoginErr" style="display:none;padding:10px 14px;border-radius:11px;font-size:13px;font-weight:700;background:rgba(239,68,68,.14);color:#f87171;border:1px solid rgba(239,68,68,.28);margin-bottom:14px;text-align:left"></div>
+    <button id="hqLoginBtn" onclick="hqDoLogin()"
+      style="width:100%;border-radius:12px;padding:13px;font-size:15px;font-weight:800;background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff;border:none;cursor:pointer;font-family:inherit;margin-bottom:16px">
+      Sign In to HQ
+    </button>
+    <div style="font-size:13px;color:rgba(234,240,255,.5)">
+      Forgot your password? <button onclick="hqDoForgot()" style="color:#78aaff;background:none;border:none;cursor:pointer;font-size:13px;font-weight:700;text-decoration:underline">Send reset link</button>
+    </div>
+    <div id="hqForgotOk" style="display:none;margin-top:12px;padding:10px 14px;border-radius:11px;font-size:13px;background:rgba(34,197,94,.1);color:#4ade80;border:1px solid rgba(34,197,94,.25)">Reset link sent — check your inbox.</div>
+  </div>
+</div>
+
   <header class="sticky top-0 z-50 border-b border-white/10 bg-black/20 backdrop-blur-xl">
     <div class="max-w-[1560px] mx-auto px-5 py-4 flex items-center justify-between gap-4">
       <div class="flex items-center gap-3 min-w-0">
@@ -367,7 +390,7 @@
 
       const { data: { session } } = await sb.auth.getSession();
       if (!session?.user) {
-        showFatal("Not signed in", "Please sign in from the main SmartCore website first.");
+        document.getElementById("hqLoginOverlay").style.display = "flex";
         return;
       }
 
@@ -2681,6 +2704,31 @@
     $("signOut").addEventListener("click", async () => { await audit("logout", "smartcore_staff", state.staff?.id, {}); await sb.auth.signOut(); location.href = "/"; });
 
     init().catch((error) => showFatal("HQ failed to load", error.message || String(error)));
+
+    window.hqDoLogin = async function hqDoLogin() {
+      const email    = document.getElementById("hqLoginEmail").value.trim();
+      const password = document.getElementById("hqLoginPassword").value;
+      const errEl    = document.getElementById("hqLoginErr");
+      errEl.style.display = "none";
+      if (!email || !password) { errEl.textContent = "Please enter your email and password."; errEl.style.display = ""; return; }
+      const btn = document.getElementById("hqLoginBtn");
+      btn.disabled = true; btn.textContent = "Signing in…";
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      btn.disabled = false; btn.textContent = "Sign In to HQ";
+      if (error) { errEl.textContent = error.message; errEl.style.display = ""; return; }
+      document.getElementById("hqLoginOverlay").style.display = "none";
+      await init();
+    };
+
+    window.hqDoForgot = async function hqDoForgot() {
+      const email = document.getElementById("hqLoginEmail").value.trim();
+      const errEl = document.getElementById("hqLoginErr");
+      errEl.style.display = "none";
+      if (!email) { errEl.textContent = "Enter your email address above first."; errEl.style.display = ""; return; }
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: "https://smartcoretechnology.co.uk/reset-password" });
+      if (error) { errEl.textContent = error.message; errEl.style.display = ""; return; }
+      document.getElementById("hqForgotOk").style.display = "";
+    };
   </script>
 </body>
 </html>
