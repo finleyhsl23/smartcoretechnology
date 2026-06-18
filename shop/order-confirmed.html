@@ -104,6 +104,22 @@
       .btn{width:100%;justify-content:center}
       .modules-card{flex-direction:column}
     }
+    /* ── Print / PDF styles ── */
+    .print-receipt{display:none}
+    @media print{
+      body{background:#fff!important;color:#000!important;padding:0;margin:0;min-height:auto}
+      .card,.bg-glow,.actions,.modules-card,.access-banner,.next-steps,.support{display:none!important}
+      .print-receipt{display:block;font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:40px 32px}
+      .pr-logo{font-size:22px;font-weight:900;letter-spacing:-.03em;margin-bottom:4px}
+      .pr-tagline{font-size:11px;color:#666;margin-bottom:32px}
+      .pr-title{font-size:20px;font-weight:700;margin-bottom:24px;border-bottom:2px solid #000;padding-bottom:12px}
+      .pr-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e5e5e5;font-size:14px}
+      .pr-row:last-child{border-bottom:none}
+      .pr-label{color:#555}
+      .pr-val{font-weight:600}
+      .pr-total{display:flex;justify-content:space-between;padding:14px 0 0;font-size:17px;font-weight:700;border-top:2px solid #000;margin-top:8px}
+      .pr-footer{margin-top:32px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:16px;text-align:center}
+    }
   </style>
 </head>
 <body>
@@ -157,18 +173,44 @@
 
     <div class="actions">
       <a href="/shop" class="btn btn-ghost">← Back to Marketplace</a>
-      <a href="https://smartcoretechnology.co.uk/modules" class="btn btn-primary">Explore All Modules</a>
+      <button class="btn btn-ghost" onclick="window.print()">⬇ Download Receipt as PDF</button>
+      <a href="https://smartcoretechnology.co.uk/shop" class="btn btn-primary">Explore All Modules</a>
     </div>
 
     <div class="support">Questions? <a href="mailto:support@smartcoretechnology.co.uk">support@smartcoretechnology.co.uk</a></div>
   </div>
 
+  <!-- Print-only receipt (hidden on screen) -->
+  <div class="print-receipt">
+    <div class="pr-logo">SmartCore</div>
+    <div class="pr-tagline">smartcoretechnology.co.uk</div>
+    <div class="pr-title">Official Receipt</div>
+    <div class="pr-row"><span class="pr-label">Order Reference</span><span class="pr-val" id="prRef">—</span></div>
+    <div class="pr-row"><span class="pr-label">Company</span><span class="pr-val" id="prCompany">—</span></div>
+    <div class="pr-row"><span class="pr-label">Date</span><span class="pr-val" id="prDate">—</span></div>
+    <div class="pr-row"><span class="pr-label">Billing</span><span class="pr-val" id="prBilling">—</span></div>
+    <div class="pr-total"><span>Total</span><span id="prTotal">—</span></div>
+    <div class="pr-footer">
+      SmartCore Technology &bull; support@smartcoretechnology.co.uk<br>
+      This is an official receipt printed from smartcoretechnology.co.uk<br>
+      Subscriptions are non-refundable. To manage your subscription visit smartcoretechnology.co.uk/cancel-subscriptions
+    </div>
+  </div>
+
   <script>
     const params = new URLSearchParams(location.search);
-    const ref = params.get('ref') || '—';
+    const ref     = params.get('ref')     || '—';
     const company = params.get('company') || 'Your company';
-    document.getElementById('orderRef').textContent = ref;
-    document.getElementById('companyName').textContent = decodeURIComponent(company);
+    const total   = params.get('total');
+    const billing = params.get('billing') || 'monthly';
+    document.getElementById('orderRef').textContent     = ref;
+    document.getElementById('companyName').textContent  = decodeURIComponent(company);
+    // Print receipt fields
+    document.getElementById('prRef').textContent     = ref;
+    document.getElementById('prCompany').textContent = decodeURIComponent(company);
+    document.getElementById('prDate').textContent    = new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
+    document.getElementById('prBilling').textContent = billing === 'yearly' ? 'Annual' : 'Monthly';
+    document.getElementById('prTotal').textContent   = total ? '£' + Number(total).toFixed(2) + (billing==='yearly'?'/yr':'/mo') : '—';
   </script>
 </body>
 </html>
