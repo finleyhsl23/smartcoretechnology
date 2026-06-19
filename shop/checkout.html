@@ -397,18 +397,30 @@ async function doSignup() {
   if (!email || !email.includes('@')) return showAuthErr(errEl, 'Please enter a valid email address.');
   if (password.length < 8) return showAuthErr(errEl, 'Password must be at least 8 characters.');
   const btn = document.getElementById('authSignupBtn');
-  btn.disabled = true; btn.textContent = 'Creating account…';
-  const { error } = await sb.auth.signUp({ email, password });
-  btn.disabled = false; btn.textContent = 'Create Account →';
-  if (error) {
-    if (error.message && (error.message.toLowerCase().includes('already registered') || error.message.toLowerCase().includes('already exists'))) {
-      showSignin();
-      document.getElementById('signinEmail').value = email;
-      showAuthErr(document.getElementById('signinErr'), 'It looks like you\'ve already got an account with us — sign in to continue.');
-    } else {
-      showAuthErr(errEl, error.message);
+  btn.disabled = true; btn.textContent = 'Sending code…';
+  try {
+    const res = await fetch('/api/send-verify-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = data.error || 'Something went wrong.';
+      if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('exists')) {
+        showSignin();
+        document.getElementById('signinEmail').value = email;
+        showAuthErr(document.getElementById('signinErr'), 'It looks like you\'ve already got an account with us — sign in to continue.');
+      } else {
+        showAuthErr(errEl, msg);
+      }
+      return;
     }
+  } catch (e) {
+    showAuthErr(errEl, 'Network error — please try again.');
     return;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Create Account →';
   }
   document.getElementById('otpEmailDisplay').textContent = email;
   document.getElementById('authSignup').style.display = 'none';
@@ -417,25 +429,46 @@ async function doSignup() {
 }
 
 async function doVerifyOtp() {
-  const email = document.getElementById('authEmail').value.trim();
-  const token = document.getElementById('otpCode').value.trim().replace(/\D/g,'');
-  const errEl = document.getElementById('otpErr');
+  const email    = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const token    = document.getElementById('otpCode').value.trim().replace(/\D/g,'');
+  const errEl    = document.getElementById('otpErr');
   errEl.classList.add('hidden');
   if (token.length !== 6) return showAuthErr(errEl, 'Please enter the full 6-digit code.');
   const btn = document.getElementById('otpVerifyBtn');
   btn.disabled = true; btn.textContent = 'Verifying…';
-  const { data, error } = await sb.auth.verifyOtp({ email, token, type: 'signup' });
-  btn.disabled = false; btn.textContent = 'Verify Code →';
-  if (error) { showAuthErr(errEl, error.message || 'Invalid or expired code. Please try again.'); return; }
-  authedUserId = data.user?.id || null;
+  try {
+    const res = await fetch('/api/verify-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code: token, password }),
+    });
+    const data = await res.json();
+    btn.disabled = false; btn.textContent = 'Verify Code →';
+    if (!res.ok) { showAuthErr(errEl, data.error || 'Invalid or expired code. Please try again.'); return; }
+    // Set the Supabase session from the returned tokens
+    if (data.session?.access_token) {
+      await sb.auth.setSession({ access_token: data.session.access_token, refresh_token: data.session.refresh_token });
+    }
+    authedUserId = data.user_id || data.session?.user?.id || null;
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Verify Code →';
+    showAuthErr(errEl, 'Network error — please try again.');
+    return;
+  }
   clearInterval(countdownInterval);
   markAccountDone();
   showDetailsPanel();
 }
 
 async function doResend() {
-  const email = document.getElementById('authEmail').value.trim();
-  await sb.auth.resend({ email, type: 'signup' });
+  const email    = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  await fetch('/api/send-verify-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
   startCountdown();
 }
 
