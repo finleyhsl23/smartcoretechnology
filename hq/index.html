@@ -424,7 +424,10 @@
         requests.push(
           sb.from("payments_transactions").select("*").order("transaction_date", { ascending: false }),
           sb.from("smartcore_invoices").select("*").order("created_at", { ascending: false }),
-          sb.from("smartcore_code_storage").select("*").order("updated_at", { ascending: false })
+          sb.from("smartcore_code_storage").select("*").order("updated_at", { ascending: false }),
+          sb.from("marketplace_modules").select("*").order("sort_order", { ascending: true }),
+          sb.from("marketplace_orders").select("*").order("created_at", { ascending: false }),
+          sb.from("smartcore_core_companies").select("*, smartcore_core_purchased_modules(*)").order("created_at", { ascending: false })
         );
       }
 
@@ -436,10 +439,15 @@
       state.companies = results[0]?.status === "fulfilled" ? (results[0].value.data || []) : [];
       state.staffList = results[1]?.status === "fulfilled" ? (results[1].value.data || []) : [];
       state.events = results[2]?.status === "fulfilled" ? (results[2].value.data || []) : [];
-      state.transactions = isAdmin() && results[3]?.status === "fulfilled" ? (results[3].value.data || []) : [];
-      state.invoices = isAdmin() && results[4]?.status === "fulfilled" ? (results[4].value.data || []) : [];
-      state.codeRows = isAdmin() && results[5]?.status === "fulfilled" ? (results[5].value.data || []) : [];
-      state.auditRows = isOwner() ? (results[6]?.value?.data || []) : [];
+      if (isAdmin()) {
+        state.transactions = results[3]?.status === "fulfilled" ? (results[3].value.data || []) : [];
+        state.invoices = results[4]?.status === "fulfilled" ? (results[4].value.data || []) : [];
+        state.codeRows = results[5]?.status === "fulfilled" ? (results[5].value.data || []) : [];
+        state.mktModules = results[6]?.status === "fulfilled" ? (results[6].value.data || []) : [];
+        state.orders = results[7]?.status === "fulfilled" ? (results[7].value.data || []) : [];
+        state.coreCompanies = results[8]?.status === "fulfilled" ? (results[8].value.data || []) : [];
+      }
+      state.auditRows = isOwner() ? (results[isAdmin() ? 9 : 3]?.value?.data || []) : [];
     }
 
     function renderNav() {
@@ -1697,7 +1705,12 @@
         const el = $(id);
         if (el) el.addEventListener("input", drawMarketplace);
       });
-      loadMarketplaceModules().then(() => { drawMarketplace(); loadEmailSettings(); });
+      if (state.mktModules?.length > 0) {
+        drawMarketplace();
+        loadEmailSettings();
+      } else {
+        loadMarketplaceModules().then(() => { drawMarketplace(); loadEmailSettings(); });
+      }
     }
 
     async function loadMarketplaceModules() {
@@ -2047,7 +2060,7 @@
         const el = $(id);
         if (el) el.addEventListener("input", drawOrders);
       });
-      await loadOrders();
+      if (!state.orders?.length) await loadOrders();
       drawOrders();
     }
 
@@ -2269,7 +2282,7 @@
         `
       );
       $("#coreSearch")?.addEventListener("input", drawCore);
-      await loadCoreCompanies();
+      if (!state.coreCompanies?.length) await loadCoreCompanies();
       drawCore();
     }
 
