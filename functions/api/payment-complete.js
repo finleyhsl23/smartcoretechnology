@@ -194,7 +194,7 @@ p{font-size:14px;line-height:1.7;color:#334155;margin:0 0 14px}
 <div style="display:none;max-height:0;overflow:hidden">${esc(preheader)}</div>
 <div class="wrap">
 <div class="hdr"><table cellpadding="0" cellspacing="0"><tr>
-  <td style="background:#3b82f6;border-radius:8px;width:34px;height:34px;text-align:center;vertical-align:middle"><span style="color:#fff;font-size:16px;font-weight:900">S</span></td>
+  <td style="width:42px;height:42px;border-radius:12px;overflow:hidden;vertical-align:middle"><img src="https://smartcoretechnology.co.uk/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png" alt="SmartCore" width="42" height="42" style="display:block;border-radius:12px" /></td>
   <td style="padding-left:12px;color:#fff;font-size:15px;font-weight:700">SmartCore Technology</td>
 </tr></table></div>
 <div class="body">${body}</div>

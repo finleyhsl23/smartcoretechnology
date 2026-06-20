@@ -277,7 +277,13 @@
     const modList = document.getElementById('modList');
     modList.innerHTML = [
       `<div class="mod-row"><span class="mod-name">SmartCore Core</span><span class="mod-price free">Included free</span></div>`,
-      ...regular.map(m => `<div class="mod-row"><span class="mod-name">${esc(m.name)}</span><span class="mod-price">${fmt(m.price)}${o.billing_type==='yearly'?'/yr':'/mo'}</span></div>`),
+      ...regular.map(m => {
+        const multiplier = o.size_multiplier || 1;
+        const basePrice = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+        const actualPrice = basePrice * multiplier;
+        const tierLabel = o.size_tier ? o.size_tier.charAt(0).toUpperCase() + o.size_tier.slice(1) : '';
+        return `<div class="mod-row"><span class="mod-name">${esc(m.name)}${tierLabel ? `<span style="font-size:11px;font-weight:600;color:rgba(255,255,255,.4);margin-left:8px">${tierLabel}</span>` : ''}</span><span class="mod-price">${fmt(actualPrice)}${o.billing_type==='yearly'?'/yr':'/mo'}</span></div>`;
+      }),
     ].join('');
 
     const period = o.billing_type === 'yearly' ? '/yr' : '/mo';
@@ -345,7 +351,7 @@
     document.getElementById('errorState').style.display   = 'block';
   }
 
-  function fmt(n)  { return '£' + (+n || 0).toFixed(2); }
+  function fmt(n)  { return '£' + Number(n || 0).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2}); }
   function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   init();

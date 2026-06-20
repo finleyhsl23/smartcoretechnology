@@ -294,7 +294,7 @@ async function loadData(user) {
 }
 
 // ── Helpers ───────────────────────────────────────────────
-function fmt(n) { return '£' + Number(n || 0).toFixed(2); }
+function fmt(n) { return '£' + Number(n || 0).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2}); }
 function fmtDate(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -445,7 +445,12 @@ function renderDetailView() {
     modsEl.innerHTML = modules.map(m => {
       const isCancelled = cancelledMods.some(cm => cm.slug === m.slug);
       const isCore = m.slug === 'smartcore-core';
-      const priceStr = isCore ? 'Included free' : (m.monthly_price ? `${fmt(m.monthly_price)}/mo` : '');
+      const multiplier = order.size_multiplier || 1;
+      const isYearly = order.billing_type === 'yearly';
+      const basePrice = isYearly ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+      const actualPrice = basePrice ? basePrice * multiplier : null;
+      const period = isYearly ? 'yr' : 'mo';
+      const priceStr = isCore ? 'Included free' : (actualPrice ? `${fmt(actualPrice)}/${period}` : '');
 
       let badge, action;
       if (isCancelled) {

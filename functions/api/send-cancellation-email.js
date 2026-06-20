@@ -117,7 +117,7 @@ body{background:#06060e;font-family:-apple-system,BlinkMacSystemFont,'Inter',Hel
 .wrap{max-width:600px;margin:32px auto;border-radius:24px;overflow:hidden;border:1px solid rgba(255,255,255,.08);box-shadow:0 32px 80px rgba(0,0,0,.7)}
 .hdr{background:linear-gradient(135deg,#0b0b18 0%,#0f1529 60%,#0c1220 100%);padding:32px 40px;border-bottom:1px solid rgba(255,255,255,.07)}
 .logo{display:inline-flex;align-items:center;gap:12px;text-decoration:none}
-.logo-mark{width:42px;height:42px;background:linear-gradient(135deg,#5b8fff 0%,#3060d0 100%);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:900;color:#fff;letter-spacing:-.05em}
+.logo-mark{width:42px;height:42px;border-radius:12px;overflow:hidden;display:block}
 .logo-name{font-size:17px;font-weight:800;color:#f5f5f7;letter-spacing:-.03em}
 .logo-tag{font-size:10px;color:rgba(255,255,255,.35);letter-spacing:.08em;text-transform:uppercase;margin-top:1px}
 .body{background:#0e0e18;padding:40px}
@@ -146,7 +146,7 @@ h1{font-size:27px;font-weight:800;color:#f5f5f7;letter-spacing:-.04em;line-heigh
 <div class="wrap">
   <div class="hdr">
     <div class="logo">
-      <div class="logo-mark">S</div>
+      <img src="https://smartcoretechnology.co.uk/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png" alt="SmartCore" class="logo-mark" width="42" height="42" style="border-radius:12px;display:block" />
       <div><div class="logo-name">SmartCore</div><div class="logo-tag">Technology</div></div>
     </div>
   </div>
