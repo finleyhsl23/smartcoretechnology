@@ -238,6 +238,11 @@
 
       <div id="errMsg" class="hidden mt-4 p-3 rounded-xl text-sm font-bold" style="background:rgba(248,113,113,.14);color:#f87171;border:1px solid rgba(248,113,113,.28)"></div>
 
+      <div id="quoteNote" style="display:none;margin-top:16px;padding:16px 20px;border-radius:14px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.25);font-size:13px;line-height:1.6;color:rgba(234,240,255,.7)">
+        <strong style="color:#a78bfa;display:block;margin-bottom:4px">✦ Custom Enterprise Pricing</strong>
+        We'll review your details and email you a tailored quote within 1 working day. No payment is taken at this stage.
+      </div>
+
       <button id="submitBtn" class="btn btn-primary w-full mt-6 py-4 text-base font-extrabold" onclick="submitOrder()">
         Submit Order →
       </button>
@@ -294,16 +299,17 @@ const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE
 
 // ── Size Tiers ────────────────────────────────────────────
 const SIZE_TIERS = [
-  { id: 'micro',      label: 'Micro',      range: '1–10',    multiplier: 1.00,  icon: '👤' },
-  { id: 'small',      label: 'Small',      range: '11–25',   multiplier: 1.00,  icon: '👥' },
-  { id: 'growing',    label: 'Growing',    range: '26–50',   multiplier: 1.43,  icon: '📈' },
-  { id: 'medium',     label: 'Medium',     range: '51–100',  multiplier: 2.86,  icon: '🏢' },
-  { id: 'large',      label: 'Large',      range: '101–250', multiplier: 6.72,  icon: '🏗️' },
-  { id: 'corporate',  label: 'Corporate',  range: '251–500', multiplier: 14.44, icon: '🏙️' },
-  { id: 'enterprise', label: 'Enterprise', range: '501–999', multiplier: 28.92, icon: '🌐' },
-  { id: 'global',     label: 'Global',     range: '1000+',   multiplier: 38.57, icon: '🌍' },
+  { id: 'micro',      label: 'Micro',      range: '1–10',        multiplier: 1.00,  icon: '👤' },
+  { id: 'small',      label: 'Small',      range: '11–15',       multiplier: 0.71,  icon: '👥' },
+  { id: 'growing',    label: 'Growing',    range: '16–50',       multiplier: 1.43,  icon: '📈' },
+  { id: 'medium',     label: 'Medium',     range: '51–100',      multiplier: 2.86,  icon: '🏢' },
+  { id: 'large',      label: 'Large',      range: '101–250',     multiplier: 6.72,  icon: '🏗️' },
+  { id: 'corporate',  label: 'Corporate',  range: '251–500',     multiplier: 14.44, icon: '🏙️' },
+  { id: 'enterprise', label: 'Enterprise', range: '501–999',     multiplier: 28.92, icon: '🌐' },
+  { id: 'global',     label: 'Global',     range: '1,000–1,500', multiplier: 38.57, icon: '🌍' },
+  { id: 'custom',     label: 'Custom',     range: '1,500+',      multiplier: null,  icon: '✦'  },
 ];
-const TIER_MIDPOINTS = { micro:5, small:18, growing:38, medium:75, large:175, corporate:375, enterprise:750, global:1500 };
+const TIER_MIDPOINTS = { micro:5, small:13, growing:33, medium:75, large:175, corporate:375, enterprise:750, global:1250, custom:2000 };
 const _savedShopTier = localStorage.getItem('sc_size_tier');
 let selectedSizeTier = (_savedShopTier && SIZE_TIERS.find(t => t.id === _savedShopTier)) || SIZE_TIERS[0];
 
@@ -311,13 +317,14 @@ function renderSizeTierGrid() {
   const grid = document.getElementById('sizeTierGrid');
   if (!grid) return;
   grid.innerHTML = SIZE_TIERS.map(t => {
-    const badgeText = t.multiplier === 1.00 ? 'base' : '×' + t.multiplier;
+    const isCustom = t.id === 'custom';
+    const badgeText = isCustom ? 'Quote' : (t.multiplier === 1.00 ? 'base' : '×' + t.multiplier);
     const isSelected = t.id === selectedSizeTier.id;
-    return `<div class="tier-card${isSelected ? ' selected' : ''}" onclick="selectSizeTier('${t.id}')">
+    return `<div class="tier-card${isSelected ? ' selected' : ''}${isCustom ? ' custom-tier' : ''}" onclick="selectSizeTier('${t.id}')" style="${isCustom && isSelected ? 'border-color:#a78bfa;background:rgba(167,139,250,.12)' : ''}">
       <div class="tier-icon">${t.icon}</div>
-      <div class="tier-label">${t.label}</div>
+      <div class="tier-label" style="${isCustom && isSelected ? 'color:#a78bfa' : ''}">${t.label}</div>
       <div class="tier-range">${t.range} employees</div>
-      <div class="tier-badge">${badgeText}</div>
+      <div class="tier-badge" style="${isCustom ? 'background:rgba(167,139,250,.15);color:#a78bfa' : ''}">${badgeText}</div>
     </div>`;
   }).join('');
 }
@@ -328,14 +335,23 @@ window.selectSizeTier = function selectSizeTier(tierId) {
   selectedSizeTier = tier;
   localStorage.setItem('sc_size_tier', tier.id);
   document.getElementById('fSizeTier').value = tier.id;
-  document.getElementById('fSizeMultiplier').value = tier.multiplier.toFixed(2);
-  // Auto-fill staff count if empty
+  document.getElementById('fSizeMultiplier').value = tier.multiplier !== null ? tier.multiplier.toFixed(2) : 'custom';
   const staffInput = document.getElementById('fStaff');
   if (staffInput && !staffInput.value) {
     staffInput.value = TIER_MIDPOINTS[tier.id] || '';
   }
   renderSizeTierGrid();
   renderSummary();
+  // Toggle quote vs order flow
+  const submitBtn = document.getElementById('submitBtn');
+  const quoteNote = document.getElementById('quoteNote');
+  if (tier.id === 'custom') {
+    if (submitBtn) { submitBtn.textContent = 'Request a Quote →'; submitBtn.onclick = submitQuoteRequest; }
+    if (quoteNote) quoteNote.style.display = '';
+  } else {
+    if (submitBtn) { submitBtn.textContent = 'Submit Order →'; submitBtn.onclick = submitOrder; }
+    if (quoteNote) quoteNote.style.display = 'none';
+  }
 };
 
 // ── Auth flow ─────────────────────────────────────────────
@@ -609,15 +625,14 @@ function modulePrice(m) {
 function fmt(n) { return '£' + Number(n || 0).toFixed(2); }
 
 function calcTotals() {
+  if (selectedSizeTier.multiplier === null) return { subtotal: null, pkgDiscount: 0, annualDiscount: 0, total: null, discLabel: '' };
   const billable = basket.filter(m => m.slug !== 'smartcore-core');
   const disc = getPackageDiscount(billable.length);
   let subtotal = 0;
   billable.forEach(m => {
-    const effectivePrice = modulePrice(m) * selectedSizeTier.multiplier;
-    subtotal += effectivePrice;
+    subtotal += modulePrice(m) * selectedSizeTier.multiplier;
   });
   const pkgDiscount = subtotal * disc.pct;
-  // annualDiscount = display-only savings vs paying monthly
   const annualDiscount = billingType === 'yearly'
     ? billable.reduce((s, m) => s + (m.yearly_price
         ? Math.max(0, m.monthly_price * 12 * selectedSizeTier.multiplier - +m.yearly_price * selectedSizeTier.multiplier)
@@ -641,26 +656,28 @@ function renderSummary() {
   const totals = calcTotals();
   const billable = basket.filter(m => m.slug !== 'smartcore-core');
 
+  const isCustomTier = selectedSizeTier.multiplier === null;
   document.getElementById('summaryModules').innerHTML = basket.map(m => {
     const price = modulePrice(m);
     const isFree = m.slug === 'smartcore-core';
+    const priceStr = isFree ? 'Free' : (isCustomTier ? '<span style="color:#a78bfa">Custom</span>' : fmt(price * selectedSizeTier.multiplier) + (billingType === 'yearly' ? '/yr' : '/mo'));
     return `
       <div class="flex items-start justify-between gap-2 text-sm">
         <div>
           <div class="font-bold">${esc(m.name)}</div>
           ${isFree ? '<span class="badge badge-green" style="font-size:9px">Auto-included</span>' : ''}
         </div>
-        <div class="shrink-0 font-bold" style="color:var(--text)">${isFree ? 'Free' : fmt(price) + (billingType === 'yearly' ? '/yr' : '/mo')}</div>
+        <div class="shrink-0 font-bold" style="color:var(--text)">${priceStr}</div>
       </div>
     `;
   }).join('<hr style="border-color:var(--line2);margin:6px 0">');
 
   document.getElementById('summaryBilling').textContent = billingType === 'yearly' ? 'Annual' : 'Monthly';
-  const tierBadge = selectedSizeTier.multiplier === 1.00 ? 'base' : '×' + selectedSizeTier.multiplier;
+  const tierBadge = isCustomTier ? 'Quote' : (selectedSizeTier.multiplier === 1.00 ? 'base' : '×' + selectedSizeTier.multiplier);
   const sizeTierEl = document.getElementById('summarySizeTier');
   if (sizeTierEl) sizeTierEl.textContent = selectedSizeTier.label + ' (' + tierBadge + ')';
-  document.getElementById('summaryTotal').textContent = fmt(totals.total);
-  document.getElementById('summaryPer').textContent = billingType === 'yearly' ? 'per year' : 'per month';
+  document.getElementById('summaryTotal').textContent = isCustomTier ? 'Custom' : fmt(totals.total);
+  document.getElementById('summaryPer').textContent = isCustomTier ? 'quoted price' : (billingType === 'yearly' ? 'per year' : 'per month');
 
   if (totals.pkgDiscount > 0) {
     document.getElementById('summaryPkgRow').style.display = '';
@@ -759,6 +776,49 @@ async function submitOrder() {
     showErr('Failed to submit order: ' + err.message);
     btn.disabled = false;
     btn.textContent = 'Submit Order →';
+  }
+}
+
+async function submitQuoteRequest() {
+  const company = document.getElementById('fCompany').value.trim();
+  const contact = document.getElementById('fContact').value.trim();
+  const email   = document.getElementById('fEmail').value.trim();
+  const phone   = document.getElementById('fPhone').value.trim();
+  const staff   = document.getElementById('fStaff').value.trim();
+  const notes   = document.getElementById('fNotes').value.trim();
+  const btn     = document.getElementById('submitBtn');
+
+  if (!company) return showErr('Please enter your company name.');
+  if (!contact) return showErr('Please enter a contact name.');
+  if (!email || !email.includes('@')) return showErr('Please enter a valid email address.');
+
+  const moduleList = basket.map(m => m.name).join(', ') || 'None selected';
+
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+
+  try {
+    const res = await fetch('/api/send-quote-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ company, contact, email, phone, staff, notes, modules: moduleList }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'Failed');
+
+    // Show success
+    document.getElementById('detailsPanel').innerHTML = `
+      <div style="text-align:center;padding:48px 24px">
+        <div style="width:72px;height:72px;border-radius:50%;background:rgba(167,139,250,.15);border:2px solid rgba(167,139,250,.4);display:flex;align-items:center;justify-content:center;margin:0 auto 24px;font-size:28px">✦</div>
+        <h2 style="font-size:24px;font-weight:800;letter-spacing:-.03em;margin-bottom:10px;color:#eaf0ff">Quote Request Sent</h2>
+        <p style="color:rgba(234,240,255,.6);font-size:14px;line-height:1.6;max-width:360px;margin:0 auto 28px">
+          Thanks ${esc(contact)} — we've received your request for <strong style="color:#eaf0ff">${esc(company)}</strong> and will be in touch within 1 working day with a tailored quote.
+        </p>
+        <a href="/shop" style="display:inline-flex;align-items:center;gap:8px;background:#5b8fff;color:#fff;border-radius:12px;padding:12px 24px;font-size:14px;font-weight:700;text-decoration:none">← Back to Marketplace</a>
+      </div>`;
+  } catch (err) {
+    showErr('Failed to send request: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = 'Request a Quote →';
   }
 }
 

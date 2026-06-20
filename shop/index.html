@@ -780,14 +780,15 @@ const SESSION_ID = (sessionStorage.sc_sid ||= Math.random().toString(36).slice(2
 // £2.25/person/month model. Micro has a minimum fee (base price).
 // All other tiers: representative_employees × £2.25 / £35_base = multiplier
 const SIZE_TIERS = [
-  { id: 'micro',      label: 'Micro',      range: '1–10',    multiplier: 1.00  },
-  { id: 'small',      label: 'Small',      range: '11–25',   multiplier: 1.00  },
-  { id: 'growing',    label: 'Growing',    range: '26–50',   multiplier: 1.43  },
-  { id: 'medium',     label: 'Medium',     range: '51–100',  multiplier: 2.86  },
-  { id: 'large',      label: 'Large',      range: '101–250', multiplier: 6.72  },
-  { id: 'corporate',  label: 'Corporate',  range: '251–500', multiplier: 14.44 },
-  { id: 'enterprise', label: 'Enterprise', range: '501–999', multiplier: 28.92 },
-  { id: 'global',     label: 'Global',     range: '1000+',   multiplier: 38.57 },
+  { id: 'micro',      label: 'Micro',      range: '1–10',        multiplier: 1.00  },
+  { id: 'small',      label: 'Small',      range: '11–15',       multiplier: 0.71  },
+  { id: 'growing',    label: 'Growing',    range: '16–50',       multiplier: 1.43  },
+  { id: 'medium',     label: 'Medium',     range: '51–100',      multiplier: 2.86  },
+  { id: 'large',      label: 'Large',      range: '101–250',     multiplier: 6.72  },
+  { id: 'corporate',  label: 'Corporate',  range: '251–500',     multiplier: 14.44 },
+  { id: 'enterprise', label: 'Enterprise', range: '501–999',     multiplier: 28.92 },
+  { id: 'global',     label: 'Global',     range: '1,000–1,500', multiplier: 38.57 },
+  { id: 'custom',     label: 'Custom',     range: '1,500+',      multiplier: null  },
 ];
 const savedTierId = localStorage.getItem('sc_size_tier');
 let shopSizeTier = savedTierId ? (SIZE_TIERS.find(t => t.id === savedTierId) || null) : null;
@@ -809,10 +810,11 @@ function fmtMo(n, forceYr) { return fmt(n) + (forceYr || (typeof forceYr === 'un
 function $id(id)  { return document.getElementById(id); }
 
 function modulePrice(m) {
+  if (!shopSizeTier || shopSizeTier.multiplier === null) return null;
   const base = state.billing === 'yearly'
     ? (m.yearly_price || +(m.monthly_price * 0.92).toFixed(2))
     : m.monthly_price;
-  return shopSizeTier ? +(base * shopSizeTier.multiplier).toFixed(2) : base;
+  return +(base * shopSizeTier.multiplier).toFixed(2);
 }
 
 function renderSizePills() {
@@ -821,14 +823,19 @@ function renderSizePills() {
   if (!container) return;
   container.innerHTML = SIZE_TIERS.map(t => {
     const active = shopSizeTier?.id === t.id;
+    const isCustom = t.id === 'custom';
     return `<button class="size-pill" data-tier="${t.id}" onclick="selectShopSizeTier('${t.id}')"
-      style="border:1px solid ${active ? '#5b8fff' : 'rgba(255,255,255,.12)'};background:${active ? 'rgba(91,143,255,.2)' : 'rgba(255,255,255,.06)'};color:${active ? '#5b8fff' : 'rgba(255,255,255,.7)'};border-radius:999px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap">
+      style="border:1px solid ${active ? (isCustom ? '#a78bfa' : '#5b8fff') : 'rgba(255,255,255,.12)'};background:${active ? (isCustom ? 'rgba(167,139,250,.2)' : 'rgba(91,143,255,.2)') : 'rgba(255,255,255,.06)'};color:${active ? (isCustom ? '#a78bfa' : '#5b8fff') : 'rgba(255,255,255,.7)'};border-radius:999px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap">
       ${t.label} <span style="opacity:.65;font-weight:500">${t.range}</span>
     </button>`;
   }).join('');
-  if (hint) hint.textContent = shopSizeTier
-    ? ''
-    : 'Prices shown as "from" — select your company size for exact pricing.';
+  if (hint) {
+    if (shopSizeTier?.id === 'custom') {
+      hint.innerHTML = 'Pricing for 1,500+ employees is tailored to your organisation. <strong style="color:#a78bfa">Browse modules below then request a quote at checkout.</strong>';
+    } else {
+      hint.textContent = shopSizeTier ? '' : 'Prices shown as "from" — select your company size for exact pricing.';
+    }
+  }
 }
 
 function selectShopSizeTier(id) {
@@ -844,7 +851,7 @@ function pkgDiscount(n) { return PACKAGE_TIERS.find(t => n >= t.min) || {pct:0};
 
 function calcTotals() {
   const billable = state.basket.filter(m => m.slug !== 'smartcore-core');
-  const subtotal  = +billable.reduce((s,m) => s + modulePrice(m), 0).toFixed(2);
+  const subtotal  = shopSizeTier?.multiplier === null ? null : +billable.reduce((s,m) => s + modulePrice(m), 0).toFixed(2);
   const tier      = pkgDiscount(billable.length);
   const pkgDis    = +(subtotal * tier.pct).toFixed(2);
   const afterPkg  = subtotal - pkgDis;
@@ -967,9 +974,12 @@ function renderGrid() {
 
         <div class="card-footer">
           <div>
-            <div class="card-price">${shopSizeTier ? '' : '<span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.02em">from </span>'}${fmtMo(price)}</div>
+            ${price === null
+              ? `<div class="card-price" style="color:#a78bfa;font-size:13px">Custom pricing</div>`
+              : `<div class="card-price">${shopSizeTier ? '' : '<span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.02em">from </span>'}${fmtMo(price)}</div>
             ${state.billing==='yearly'&&m.monthly_price!==price
-              ? `<div class="card-price-was">${fmtMo(m.monthly_price * (shopSizeTier?.multiplier||1))}</div>` : ''}
+              ? `<div class="card-price-was">${fmtMo(m.monthly_price * (shopSizeTier?.multiplier||1))}</div>` : ''}`
+            }
           </div>
           <button class="card-add ${inBasket?'added':'add'}"
             onclick="event.stopPropagation();toggleBasket('${m.id}')">
@@ -1172,7 +1182,7 @@ function updateBasketBar() {
   if (count > 0) {
     btn.classList.add('visible');
     $id('basketCount').textContent = count;
-    $id('basketTotal').textContent = fmt(t.total);
+    $id('basketTotal').textContent = t.total === null ? 'Custom' : fmt(t.total);
   } else {
     btn.classList.remove('visible');
   }
@@ -1182,10 +1192,10 @@ function updateBasketBar() {
   if (count > 0) {
     bar.classList.add('visible');
     $id('barCount').textContent  = `${count} module${count!==1?'s':''} selected`;
-    $id('barTotal').textContent  = fmt(t.total);
-    $id('barPeriod').textContent = state.billing==='yearly' ? '/ year' : '/ month';
+    $id('barTotal').textContent  = t.total === null ? 'Custom pricing' : fmt(t.total);
+    $id('barPeriod').textContent = t.total === null ? '' : (state.billing==='yearly' ? '/ year' : '/ month');
     const saveEl = $id('barSave');
-    const saving = t.pkgDis + t.annDis;
+    const saving = t.total === null ? 0 : (t.pkgDis + t.annDis);
     if (saving > 0) {
       saveEl.textContent     = `Saving ${fmt(saving)}`;
       saveEl.style.display   = 'block';
