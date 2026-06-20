@@ -310,17 +310,29 @@ function cancelledModulesFor(order) {
 
 function calcEffectiveDate(order) {
   const billingType = order.billing_type || 'monthly';
+  const isYearly = billingType === 'yearly' || billingType === 'annual';
   const orderDate = new Date(order.created_at || Date.now());
   const now = new Date();
-  let d = new Date(orderDate);
-  if (billingType === 'yearly') {
-    d.setFullYear(now.getFullYear());
-    if (d <= now) d.setFullYear(now.getFullYear() + 1);
+  const dayOfMonth = orderDate.getDate();
+
+  if (isYearly) {
+    // Next anniversary of the order date
+    let year = now.getFullYear();
+    let candidate = new Date(year, orderDate.getMonth(), dayOfMonth);
+    if (candidate <= now) candidate = new Date(year + 1, orderDate.getMonth(), dayOfMonth);
+    return candidate.toISOString();
   } else {
-    d.setMonth(now.getMonth()); d.setFullYear(now.getFullYear());
-    if (d <= now) d.setMonth(d.getMonth() + 1);
+    // Next monthly anniversary — use year/month arithmetic to avoid day-overflow
+    let year = now.getFullYear();
+    let month = now.getMonth();
+    let candidate = new Date(year, month, dayOfMonth);
+    if (candidate <= now) {
+      month += 1;
+      if (month > 11) { month = 0; year += 1; }
+      candidate = new Date(year, month, dayOfMonth);
+    }
+    return candidate.toISOString();
   }
-  return d.toISOString();
 }
 
 // ── Company list view ─────────────────────────────────────
