@@ -316,10 +316,13 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ order_id: orderId }),
         }).catch(() => {}); // best-effort
-        // Append total + billing to redirect so order-confirmed can show receipt
-        const redirect = data.redirect +
-          (order ? `&total=${encodeURIComponent(order.total)}&billing=${encodeURIComponent(order.billing_type||'monthly')}` : '');
-        window.location.href = redirect;
+        // Extract ref and company from data.redirect, then go to onboarding
+        const redirectUrl = new URL(data.redirect, location.origin);
+        const ref = redirectUrl.searchParams.get('ref') || '';
+        const company = redirectUrl.searchParams.get('company') || (order ? order.company_name : '');
+        const total = order ? order.total : '';
+        const billing = order ? (order.billing_type || 'monthly') : 'monthly';
+        window.location.href = `/shop/onboarding.html?order_id=${encodeURIComponent(orderId)}&ref=${encodeURIComponent(ref)}&company=${encodeURIComponent(company)}&total=${encodeURIComponent(total)}&billing=${encodeURIComponent(billing)}`;
       } else if (!data.success && result === 'failed') {
         errBox.textContent   = data.message || 'Payment was declined.';
         errBox.style.display = 'block';
