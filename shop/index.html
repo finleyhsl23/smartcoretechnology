@@ -701,22 +701,11 @@
     <div class="chips" id="categoryChips"></div>
   </div>
 
-  <!-- Company size selector -->
-  <div style="margin-top:20px;padding:16px 20px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:16px;max-width:780px;margin-left:auto;margin-right:auto">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-      <span style="font-size:12px;font-weight:700;color:rgba(255,255,255,.45);letter-spacing:.07em;text-transform:uppercase">Company Size</span>
-      <span style="font-size:12px;color:rgba(255,255,255,.4)">— select yours to see accurate pricing</span>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      ${SIZE_TIERS.map(t => {
-        const active = shopSizeTier?.id === t.id;
-        return `<button class="size-pill" data-tier="${t.id}" onclick="selectShopSizeTier('${t.id}')"
-          style="border:1px solid ${active ? '#5b8fff' : 'rgba(255,255,255,.12)'};background:${active ? 'rgba(91,143,255,.2)' : 'rgba(255,255,255,.06)'};color:${active ? '#5b8fff' : 'rgba(255,255,255,.7)'};border-radius:999px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap">
-          ${t.label} <span style="opacity:.65">${t.range}</span>
-        </button>`;
-      }).join('')}
-    </div>
-    ${!shopSizeTier ? `<div style="margin-top:10px;font-size:12px;color:rgba(255,255,255,.35)">Prices shown as <em>from</em> — select your company size for exact pricing.</div>` : ''}
+  <!-- Company size selector — rendered by renderSizePills() in JS -->
+  <div id="sizeSelectorWrap" style="margin-top:20px;padding:16px 20px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:16px;max-width:780px;margin-left:auto;margin-right:auto">
+    <div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.45);letter-spacing:.07em;text-transform:uppercase;margin-bottom:12px">Company Size</div>
+    <div id="sizePills" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    <div id="sizeHint" style="margin-top:10px;font-size:12px;color:rgba(255,255,255,.35)"></div>
   </div>
 </section>
 
@@ -788,14 +777,18 @@ const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE
 // ── State ─────────────────────────────────────────────────
 const SESSION_ID = (sessionStorage.sc_sid ||= Math.random().toString(36).slice(2));
 
+// Multipliers derived from market rate £1–3/user/mo:
+// Base (Micro, ~5 users) = £35/mo → £7/user (small biz premium/min fee)
+// Scales to ~£1.20/user at 1000 people giving £1,200–£1,750/mo (£14k–£21k/yr)
 const SIZE_TIERS = [
-  { id: 'micro',      label: 'Micro',      range: '1–10',    multiplier: 1.00 },
-  { id: 'small',      label: 'Small',      range: '11–25',   multiplier: 1.20 },
-  { id: 'growing',    label: 'Growing',    range: '26–50',   multiplier: 1.45 },
-  { id: 'medium',     label: 'Medium',     range: '51–100',  multiplier: 1.75 },
-  { id: 'large',      label: 'Large',      range: '101–250', multiplier: 2.10 },
-  { id: 'corporate',  label: 'Corporate',  range: '251–500', multiplier: 2.60 },
-  { id: 'enterprise', label: 'Enterprise', range: '501–999', multiplier: 3.10 },
+  { id: 'micro',      label: 'Micro',      range: '1–10',    multiplier: 1.00  },
+  { id: 'small',      label: 'Small',      range: '11–25',   multiplier: 1.75  },
+  { id: 'growing',    label: 'Growing',    range: '26–50',   multiplier: 3.00  },
+  { id: 'medium',     label: 'Medium',     range: '51–100',  multiplier: 5.50  },
+  { id: 'large',      label: 'Large',      range: '101–250', multiplier: 11.00 },
+  { id: 'corporate',  label: 'Corporate',  range: '251–500', multiplier: 20.00 },
+  { id: 'enterprise', label: 'Enterprise', range: '501–999', multiplier: 35.00 },
+  { id: 'global',     label: 'Global',     range: '1000+',   multiplier: 50.00 },
 ];
 const savedTierId = localStorage.getItem('sc_size_tier');
 let shopSizeTier = savedTierId ? (SIZE_TIERS.find(t => t.id === savedTierId) || null) : null;
@@ -823,15 +816,26 @@ function modulePrice(m) {
   return shopSizeTier ? +(base * shopSizeTier.multiplier).toFixed(2) : base;
 }
 
+function renderSizePills() {
+  const container = document.getElementById('sizePills');
+  const hint = document.getElementById('sizeHint');
+  if (!container) return;
+  container.innerHTML = SIZE_TIERS.map(t => {
+    const active = shopSizeTier?.id === t.id;
+    return `<button class="size-pill" data-tier="${t.id}" onclick="selectShopSizeTier('${t.id}')"
+      style="border:1px solid ${active ? '#5b8fff' : 'rgba(255,255,255,.12)'};background:${active ? 'rgba(91,143,255,.2)' : 'rgba(255,255,255,.06)'};color:${active ? '#5b8fff' : 'rgba(255,255,255,.7)'};border-radius:999px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap">
+      ${t.label} <span style="opacity:.65;font-weight:500">${t.range}</span>
+    </button>`;
+  }).join('');
+  if (hint) hint.textContent = shopSizeTier
+    ? ''
+    : 'Prices shown as "from" — select your company size for exact pricing.';
+}
+
 function selectShopSizeTier(id) {
   shopSizeTier = SIZE_TIERS.find(t => t.id === id) || null;
   localStorage.setItem('sc_size_tier', id);
-  document.querySelectorAll('.size-pill').forEach(el => {
-    const active = el.dataset.tier === id;
-    el.style.background = active ? 'rgba(91,143,255,.2)' : 'rgba(255,255,255,.06)';
-    el.style.borderColor = active ? '#5b8fff' : 'rgba(255,255,255,.12)';
-    el.style.color = active ? '#5b8fff' : 'rgba(255,255,255,.7)';
-  });
+  renderSizePills();
   renderGrid();
   updateBasketBar();
 }
@@ -1287,6 +1291,7 @@ $id('searchInput').addEventListener('input', e => {
 });
 
 // ── Boot ──────────────────────────────────────────────────
+renderSizePills();
 loadModules().catch(console.error);
 </script>
 </body>
