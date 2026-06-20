@@ -58,6 +58,15 @@
     .badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:700;}
     .badge-green{background:rgba(34,197,94,.14);color:#4ade80;border:1px solid rgba(34,197,94,.25);}
     .badge-blue{background:rgba(120,170,255,.16);color:rgba(140,190,255,.95);border:1px solid rgba(120,170,255,.25);}
+    .size-tier-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:0}
+    @media(max-width:500px){.size-tier-grid{grid-template-columns:repeat(2,1fr)}}
+    .tier-card{background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.10);border-radius:14px;padding:12px 10px;cursor:pointer;text-align:center;transition:all .15s;user-select:none}
+    .tier-card:hover{border-color:rgba(91,143,255,.4);background:rgba(91,143,255,.08)}
+    .tier-card.selected{border:2px solid #5b8fff;background:rgba(91,143,255,.12)}
+    .tier-icon{font-size:22px;margin-bottom:4px}
+    .tier-label{font-size:13px;font-weight:800;color:#eaf0ff}
+    .tier-range{font-size:10px;color:rgba(234,240,255,.6);margin-top:2px}
+    .tier-badge{display:inline-block;margin-top:5px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;background:rgba(91,143,255,.18);color:#78aaff;border:1px solid rgba(91,143,255,.3)}
   </style>
 </head>
 <body>
@@ -183,6 +192,20 @@
 
     <!-- FORM -->
     <div id="detailsPanel" class="glass p-6 sm:p-8" style="display:none">
+      <!-- Step 1: Company Size -->
+      <div class="mb-8">
+        <div class="text-xs font-bold uppercase tracking-widest mb-3" style="color:rgba(234,240,255,.52)">Step 1 — Company Size</div>
+        <h2 class="text-lg font-extrabold tracking-tight mb-1" style="color:#eaf0ff">How many employees does your company have?</h2>
+        <p class="text-xs mb-4" style="color:rgba(234,240,255,.60)">This helps us tailor your pricing to the right scale for your team.</p>
+        <div class="size-tier-grid" id="sizeTierGrid">
+          <!-- filled by JS -->
+        </div>
+        <input type="hidden" id="fSizeTier" value="micro" />
+        <input type="hidden" id="fSizeMultiplier" value="1.00" />
+      </div>
+
+      <div class="border-t mb-7" style="border-color:rgba(255,255,255,.08)"></div>
+      <div class="text-xs font-bold uppercase tracking-widest mb-4" style="color:rgba(234,240,255,.52)">Step 2 — Your Details</div>
       <h1 class="text-2xl font-extrabold tracking-tight mb-2">Your Details</h1>
       <p class="text-sm mb-7" style="color:var(--muted)">Tell us about your company and we'll get back to you within 1 working day to confirm and activate your modules.</p>
 
@@ -236,6 +259,10 @@
           <span>Billing</span>
           <span id="summaryBilling" class="font-bold" style="color:var(--text)">Monthly</span>
         </div>
+        <div class="flex justify-between" style="color:var(--muted)">
+          <span>Company size</span>
+          <span id="summarySizeTier" class="font-bold" style="color:var(--text)">Micro (base)</span>
+        </div>
         <div class="flex justify-between" style="color:var(--muted)" id="summaryPkgRow" style="display:none">
           <span id="summaryPkgLabel">Package discount</span>
           <span id="summaryPkgAmt" class="text-green-400 font-bold"></span>
@@ -264,6 +291,48 @@
 
 <script>
 const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
+
+// ── Size Tiers ────────────────────────────────────────────
+const SIZE_TIERS = [
+  { id: 'micro',      label: 'Micro',      range: '1–10',    multiplier: 1.00, icon: '👤' },
+  { id: 'small',      label: 'Small',      range: '11–25',   multiplier: 1.20, icon: '👥' },
+  { id: 'growing',    label: 'Growing',    range: '26–50',   multiplier: 1.45, icon: '📈' },
+  { id: 'medium',     label: 'Medium',     range: '51–100',  multiplier: 1.75, icon: '🏢' },
+  { id: 'large',      label: 'Large',      range: '101–250', multiplier: 2.10, icon: '🏗️' },
+  { id: 'enterprise', label: 'Enterprise', range: '251+',    multiplier: 2.60, icon: '🌐' },
+];
+const TIER_MIDPOINTS = { micro:5, small:18, growing:38, medium:75, large:175, enterprise:300 };
+let selectedSizeTier = SIZE_TIERS[0];
+
+function renderSizeTierGrid() {
+  const grid = document.getElementById('sizeTierGrid');
+  if (!grid) return;
+  grid.innerHTML = SIZE_TIERS.map(t => {
+    const badgeText = t.multiplier === 1.00 ? 'base' : '+' + Math.round((t.multiplier - 1) * 100) + '%';
+    const isSelected = t.id === selectedSizeTier.id;
+    return `<div class="tier-card${isSelected ? ' selected' : ''}" onclick="selectSizeTier('${t.id}')">
+      <div class="tier-icon">${t.icon}</div>
+      <div class="tier-label">${t.label}</div>
+      <div class="tier-range">${t.range} employees</div>
+      <div class="tier-badge">${badgeText}</div>
+    </div>`;
+  }).join('');
+}
+
+window.selectSizeTier = function selectSizeTier(tierId) {
+  const tier = SIZE_TIERS.find(t => t.id === tierId);
+  if (!tier) return;
+  selectedSizeTier = tier;
+  document.getElementById('fSizeTier').value = tier.id;
+  document.getElementById('fSizeMultiplier').value = tier.multiplier.toFixed(2);
+  // Auto-fill staff count if empty
+  const staffInput = document.getElementById('fStaff');
+  if (staffInput && !staffInput.value) {
+    staffInput.value = TIER_MIDPOINTS[tier.id] || '';
+  }
+  renderSizeTierGrid();
+  renderSummary();
+};
 
 // ── Auth flow ─────────────────────────────────────────────
 let authedUserId = null;
@@ -539,13 +608,16 @@ function calcTotals() {
   const billable = basket.filter(m => m.slug !== 'smartcore-core');
   const disc = getPackageDiscount(billable.length);
   let subtotal = 0;
-  billable.forEach(m => subtotal += modulePrice(m));
+  billable.forEach(m => {
+    const effectivePrice = modulePrice(m) * selectedSizeTier.multiplier;
+    subtotal += effectivePrice;
+  });
   const pkgDiscount = subtotal * disc.pct;
-  // annualDiscount = display-only savings vs paying monthly (discount already baked into yearly_price)
+  // annualDiscount = display-only savings vs paying monthly
   const annualDiscount = billingType === 'yearly'
     ? billable.reduce((s, m) => s + (m.yearly_price
-        ? Math.max(0, m.monthly_price * 12 - +m.yearly_price)
-        : m.monthly_price * 12 * ANNUAL_DISC), 0)
+        ? Math.max(0, m.monthly_price * 12 * selectedSizeTier.multiplier - +m.yearly_price * selectedSizeTier.multiplier)
+        : m.monthly_price * 12 * selectedSizeTier.multiplier * ANNUAL_DISC), 0)
     : 0;
   const total = subtotal - pkgDiscount;
   return { subtotal, pkgDiscount, annualDiscount, total, discLabel: disc.label };
@@ -580,6 +652,9 @@ function renderSummary() {
   }).join('<hr style="border-color:var(--line2);margin:6px 0">');
 
   document.getElementById('summaryBilling').textContent = billingType === 'yearly' ? 'Annual' : 'Monthly';
+  const tierBadge = selectedSizeTier.multiplier === 1.00 ? 'base' : '+' + Math.round((selectedSizeTier.multiplier - 1) * 100) + '%';
+  const sizeTierEl = document.getElementById('summarySizeTier');
+  if (sizeTierEl) sizeTierEl.textContent = selectedSizeTier.label + ' (' + tierBadge + ')';
   document.getElementById('summaryTotal').textContent = fmt(totals.total);
   document.getElementById('summaryPer').textContent = billingType === 'yearly' ? 'per year' : 'per month';
 
@@ -648,6 +723,8 @@ async function submitOrder() {
         price:         billingType === 'yearly' ? m.yearly_price : m.monthly_price
       })),
       billing_type:         billingType,
+      size_tier:            selectedSizeTier.id,
+      size_multiplier:      selectedSizeTier.multiplier,
       subtotal:             totals.subtotal,
       discount_percent:     totals.discLabel ? parseFloat(totals.discLabel) : 0,
       discount_amount:      totals.pkgDiscount,
@@ -688,6 +765,7 @@ function showErr(msg) {
 }
 
 // ── Init ─────────────────────────────────────────────────
+renderSizeTierGrid();
 renderSummary();
 initAuth();
 </script>
