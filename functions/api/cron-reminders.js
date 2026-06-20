@@ -61,7 +61,21 @@ h1{font-size:27px;font-weight:800;color:#f5f5f7;letter-spacing:-.04em;line-heigh
 </div></body></html>`;
 }
 
-export async function onRequest({ env }) {
+function cronAuth(request, env) {
+  const url = new URL(request.url);
+  const token = url.searchParams.get('token') || request.headers.get('x-cron-token');
+  return !env.CRON_SECRET || token === env.CRON_SECRET;
+}
+
+export async function onRequest(context) {
+  const { request, env } = context;
+  if (!cronAuth(request, env)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+  }
+  return onRequestInner(env);
+}
+
+async function onRequestInner(env) {
   const supabaseHeaders = {
     apikey: env.SUPABASE_SERVICE_KEY,
     Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY,

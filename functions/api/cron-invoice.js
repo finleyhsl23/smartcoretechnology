@@ -306,9 +306,14 @@ export async function onScheduled(event, env) {
   }
 }
 
-// Allow manual trigger via GET (for testing from HQ)
+// Allow manual/worker trigger via GET
 export async function onRequestGet(context) {
-  const { env } = context;
+  const { request, env } = context;
+  const url = new URL(request.url);
+  const token = url.searchParams.get('token') || request.headers.get('x-cron-token');
+  if (env.CRON_SECRET && token !== env.CRON_SECRET) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+  }
   await onScheduled({}, env);
   return new Response(JSON.stringify({ ok: true, message: 'Invoice cron completed' }), {
     headers: { 'Content-Type': 'application/json' },
