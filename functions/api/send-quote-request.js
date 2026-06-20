@@ -5,7 +5,7 @@
  */
 
 const FROM = 'SmartCore Shop <noreply@smartcoretechnology.co.uk>';
-const TO   = 'finleyh123456@gmail.com';
+const TO   = 'support@smartcoretechnology.co.uk';
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',

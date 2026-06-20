@@ -220,9 +220,14 @@
     <div class="section-title">Address</div>
     <div class="section-sub">Your company's registered or main business address.</div>
 
+    <div class="field" style="position:relative">
+      <label class="label">Search Address</label>
+      <input id="fAddressSearch" class="inp" placeholder="Start typing your address…" autocomplete="off" />
+      <div id="addressSuggestions" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:50;background:#13131f;border:1px solid rgba(255,255,255,.12);border-radius:12px;overflow:hidden;margin-top:4px;box-shadow:0 8px 32px rgba(0,0,0,.5)"></div>
+    </div>
     <div class="field">
-      <label class="label">Full Address</label>
-      <textarea id="fAddress" class="inp" rows="4" placeholder="123 High Street&#10;London&#10;EC1A 1AA"></textarea>
+      <label class="label">Full Address <span class="label-hint">confirmed / manual entry</span></label>
+      <textarea id="fAddress" class="inp" rows="3" placeholder="123 High Street&#10;London&#10;EC1A 1AA"></textarea>
     </div>
   </div>
 
@@ -230,24 +235,9 @@
   <div class="card">
     <div class="section-label">Section 5</div>
     <div class="section-title">Working Hours</div>
-    <div class="section-sub">Let us know when your team is typically available.</div>
+    <div class="section-sub">Set start and end times for each working day.</div>
 
-    <div class="day-toggles" id="dayToggles">
-      <button class="day-toggle on" data-day="mon">Mon</button>
-      <button class="day-toggle on" data-day="tue">Tue</button>
-      <button class="day-toggle on" data-day="wed">Wed</button>
-      <button class="day-toggle on" data-day="thu">Thu</button>
-      <button class="day-toggle on" data-day="fri">Fri</button>
-      <button class="day-toggle" data-day="sat">Sat</button>
-      <button class="day-toggle" data-day="sun">Sun</button>
-    </div>
-
-    <div class="time-row">
-      <label>Start time</label>
-      <select id="fStartTime" class="inp" style="max-width:130px"></select>
-      <label>End time</label>
-      <select id="fEndTime" class="inp" style="max-width:130px"></select>
-    </div>
+    <div id="hoursTable" style="display:flex;flex-direction:column;gap:10px;margin-top:4px"></div>
   </div>
 
   <div id="errBox" class="err-box"></div>
@@ -278,29 +268,130 @@
   let orderData = null;
   let userId = null;
 
-  // Build time options (30-min intervals 06:00–22:00)
-  function buildTimeOptions(selectEl, defaultVal) {
-    const options = [];
+  // ── Working hours per day ────────────────────────────────
+  const DAYS = [
+    { id: 'mon', label: 'Monday',    active: true  },
+    { id: 'tue', label: 'Tuesday',   active: true  },
+    { id: 'wed', label: 'Wednesday', active: true  },
+    { id: 'thu', label: 'Thursday',  active: true  },
+    { id: 'fri', label: 'Friday',    active: true  },
+    { id: 'sat', label: 'Saturday',  active: false },
+    { id: 'sun', label: 'Sunday',    active: false },
+  ];
+
+  function timeOptions(selected) {
+    let out = '';
     for (let h = 6; h <= 22; h++) {
-      ['00','30'].forEach(m => {
-        if (h === 22 && m === '30') return;
-        const val = `${String(h).padStart(2,'0')}:${m}`;
-        options.push(`<option value="${val}"${val === defaultVal ? ' selected' : ''}>${val}</option>`);
-      });
+      for (const m of ['00','30']) {
+        if (h === 22 && m === '30') continue;
+        const v = `${String(h).padStart(2,'0')}:${m}`;
+        out += `<option value="${v}"${v === selected ? ' selected' : ''}>${v}</option>`;
+      }
     }
-    selectEl.innerHTML = options.join('');
+    return out;
   }
 
-  buildTimeOptions(document.getElementById('fStartTime'), '09:00');
-  buildTimeOptions(document.getElementById('fEndTime'), '17:30');
+  function renderHoursTable() {
+    const tbl = document.getElementById('hoursTable');
+    tbl.innerHTML = DAYS.map(d => `
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07)" id="dayrow-${d.id}">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;min-width:110px">
+          <input type="checkbox" id="chk-${d.id}" ${d.active ? 'checked' : ''} onchange="toggleDay('${d.id}')" style="width:16px;height:16px;accent-color:#5b8fff" />
+          <span style="font-size:13px;font-weight:600;color:${d.active ? '#f5f5f7' : 'rgba(255,255,255,.4)'}" id="daylabel-${d.id}">${d.label}</span>
+        </label>
+        <div id="daytimes-${d.id}" style="display:${d.active ? 'flex' : 'none'};align-items:center;gap:8px;flex:1">
+          <select id="start-${d.id}" class="inp" style="max-width:110px;padding:6px 10px;font-size:13px">${timeOptions('09:00')}</select>
+          <span style="color:rgba(255,255,255,.4);font-size:12px">to</span>
+          <select id="end-${d.id}" class="inp" style="max-width:110px;padding:6px 10px;font-size:13px">${timeOptions('17:30')}</select>
+        </div>
+        <div id="dayoff-${d.id}" style="display:${d.active ? 'none' : 'block'};font-size:12px;color:rgba(255,255,255,.3)">Day off</div>
+      </div>`).join('');
+  }
 
-  // Day toggle behaviour
-  document.querySelectorAll('.day-toggle').forEach(btn => {
-    btn.addEventListener('click', () => btn.classList.toggle('on'));
-  });
+  function toggleDay(id) {
+    const d = DAYS.find(x => x.id === id);
+    d.active = !d.active;
+    document.getElementById('daytimes-' + id).style.display = d.active ? 'flex' : 'none';
+    document.getElementById('dayoff-' + id).style.display   = d.active ? 'none' : 'block';
+    document.getElementById('daylabel-' + id).style.color   = d.active ? '#f5f5f7' : 'rgba(255,255,255,.4)';
+  }
 
-  function getActiveDays() {
-    return Array.from(document.querySelectorAll('.day-toggle.on')).map(b => b.dataset.day);
+  function getWorkingHours() {
+    const result = {};
+    DAYS.forEach(d => {
+      result[d.id] = {
+        active: d.active,
+        start:  d.active ? document.getElementById('start-' + d.id)?.value : null,
+        end:    d.active ? document.getElementById('end-' + d.id)?.value : null,
+      };
+    });
+    return result;
+  }
+
+  renderHoursTable();
+
+  // ── Address autocomplete (Google Places) ─────────────────
+  // Replace GOOGLE_MAPS_KEY with your Google Maps API key restricted to this domain
+  const GOOGLE_MAPS_KEY = 'REPLACE_WITH_YOUR_GOOGLE_MAPS_API_KEY';
+
+  function initAddressAutocomplete() {
+    const searchEl   = document.getElementById('fAddressSearch');
+    const suggestEl  = document.getElementById('addressSuggestions');
+    const addressEl  = document.getElementById('fAddress');
+    if (!searchEl || !window.google?.maps?.places) return;
+
+    const svc = new google.maps.places.AutocompleteService();
+    const geo = new google.maps.Geocoder();
+    let debounce;
+
+    searchEl.addEventListener('input', () => {
+      clearTimeout(debounce);
+      const q = searchEl.value.trim();
+      if (q.length < 3) { suggestEl.style.display = 'none'; return; }
+      debounce = setTimeout(() => {
+        svc.getPlacePredictions(
+          { input: q, componentRestrictions: { country: 'gb' }, types: ['address'] },
+          (predictions, status) => {
+            if (status !== 'OK' || !predictions?.length) { suggestEl.style.display = 'none'; return; }
+            suggestEl.style.display = 'block';
+            suggestEl.innerHTML = predictions.map(p => `
+              <div data-place="${p.place_id}" style="padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid rgba(255,255,255,.06);color:#f5f5f7"
+                onmouseover="this.style.background='rgba(91,143,255,.15)'" onmouseout="this.style.background=''"
+                onclick="selectPlace('${p.place_id}','${p.description.replace(/'/g,"\\'")}')">
+                ${p.description}
+              </div>`).join('');
+          }
+        );
+      }, 250);
+    });
+
+    window.selectPlace = function(placeId, description) {
+      suggestEl.style.display = 'none';
+      searchEl.value = '';
+      geo.geocode({ placeId }, (results, status) => {
+        if (status !== 'OK' || !results?.[0]) { addressEl.value = description; return; }
+        const comps = results[0].address_components;
+        const get = (type) => comps.find(c => c.types.includes(type))?.long_name || '';
+        const getShort = (type) => comps.find(c => c.types.includes(type))?.short_name || '';
+        const street = [get('street_number'), get('route')].filter(Boolean).join(' ');
+        const city = get('postal_town') || get('locality');
+        const county = get('administrative_area_level_2');
+        const postcode = getShort('postal_code');
+        addressEl.value = [street, city, county, postcode].filter(Boolean).join('\n');
+      });
+    };
+
+    searchEl.addEventListener('blur', () => setTimeout(() => suggestEl.style.display = 'none', 200));
+  }
+
+  // Load Google Maps JS API (will call initAddressAutocomplete via callback)
+  if (GOOGLE_MAPS_KEY && GOOGLE_MAPS_KEY !== 'REPLACE_WITH_YOUR_GOOGLE_MAPS_API_KEY') {
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&libraries=places&callback=initAddressAutocomplete`;
+    script.async = true;
+    script.defer = true;
+    window.initAddressAutocomplete = initAddressAutocomplete;
+    document.head.appendChild(script);
   }
 
   function setTierDisplay(tier) {
@@ -366,8 +457,6 @@
     const supportEmail  = document.getElementById('fSupportEmail').value.trim();
     const staffCount    = parseInt(document.getElementById('fStaffCount').value) || null;
     const address       = document.getElementById('fAddress').value.trim();
-    const startTime     = document.getElementById('fStartTime').value;
-    const endTime       = document.getElementById('fEndTime').value;
     const errBox        = document.getElementById('errBox');
     const btn           = document.getElementById('submitBtn');
 
@@ -384,8 +473,7 @@
       return;
     }
 
-    const activeDays = getActiveDays();
-    const workingHours = { days: activeDays, start: startTime, end: endTime };
+    const workingHours = getWorkingHours();
 
     // Build packages from order modules
     let packages = [];

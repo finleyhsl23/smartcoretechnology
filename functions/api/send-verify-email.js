@@ -25,6 +25,22 @@ export async function onRequestPost(context) {
     if (!email || !password) return json({ error: 'email and password required' }, 400);
     if (password.length < 8) return json({ error: 'Password must be at least 8 characters' }, 400);
 
+    // Check if email already has an account
+    const existsRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/rpc/check_email_registered`,
+      {
+        method: 'POST',
+        headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ check_email: email }),
+      }
+    );
+    if (existsRes.ok) {
+      const alreadyExists = await existsRes.json();
+      if (alreadyExists === true) {
+        return json({ error: 'An account with this email already exists. Please sign in instead.' }, 409);
+      }
+    }
+
     // Hash the password with SHA-256 so we don't store plaintext
     const pwHash = await sha256(password);
 

@@ -202,7 +202,7 @@ function welcomeHtml(o, modules, es) {
 
   const modList = [
     `<div class="mod-row"><div class="mod-left"><div class="mod-dot green"></div><span class="mod-name">SmartCore Core</span></div><span class="mod-price free">Included free</span></div>`,
-    ...regular.map(m => `<div class="mod-row"><div class="mod-left"><div class="mod-dot"></div><span class="mod-name">${esc(m.name)}</span></div><span class="mod-price">${fmt(m.price)}${period}</span></div>`),
+    ...regular.map(m => { const multiplier = o.size_multiplier || 1; const base = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price; const price = base * multiplier; return `<div class="mod-row"><div class="mod-left"><div class="mod-dot"></div><span class="mod-name">${esc(m.name)}</span></div><span class="mod-price">${fmt(price)}${period}</span></div>`; }),
   ].join('');
 
   const appSection = (appStoreUrl || playUrl) ? `
@@ -282,7 +282,7 @@ function customerReceiptHtml(o, modules, es) {
 
   const modList = [
     `<div class="mod-row"><div class="mod-left"><div class="mod-dot green"></div><span class="mod-name">SmartCore Core</span></div><span class="mod-price free">Included free</span></div>`,
-    ...regular.map(m => `<div class="mod-row"><div class="mod-left"><div class="mod-dot"></div><span class="mod-name">${esc(m.name)}</span></div><span class="mod-price">${fmt(m.price)}${period}</span></div>`),
+    ...regular.map(m => { const multiplier = o.size_multiplier || 1; const base = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price; const price = base * multiplier; return `<div class="mod-row"><div class="mod-left"><div class="mod-dot"></div><span class="mod-name">${esc(m.name)}</span></div><span class="mod-price">${fmt(price)}${period}</span></div>`; }),
   ].join('');
 
   return emailShell(
