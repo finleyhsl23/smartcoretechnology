@@ -700,6 +700,24 @@
   <div class="chips-scroll" style="margin-top:20px">
     <div class="chips" id="categoryChips"></div>
   </div>
+
+  <!-- Company size selector -->
+  <div style="margin-top:20px;padding:16px 20px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:16px;max-width:780px;margin-left:auto;margin-right:auto">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <span style="font-size:12px;font-weight:700;color:rgba(255,255,255,.45);letter-spacing:.07em;text-transform:uppercase">Company Size</span>
+      <span style="font-size:12px;color:rgba(255,255,255,.4)">— select yours to see accurate pricing</span>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${SIZE_TIERS.map(t => {
+        const active = shopSizeTier?.id === t.id;
+        return `<button class="size-pill" data-tier="${t.id}" onclick="selectShopSizeTier('${t.id}')"
+          style="border:1px solid ${active ? '#5b8fff' : 'rgba(255,255,255,.12)'};background:${active ? 'rgba(91,143,255,.2)' : 'rgba(255,255,255,.06)'};color:${active ? '#5b8fff' : 'rgba(255,255,255,.7)'};border-radius:999px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap">
+          ${t.label} <span style="opacity:.65">${t.range}</span>
+        </button>`;
+      }).join('')}
+    </div>
+    ${!shopSizeTier ? `<div style="margin-top:10px;font-size:12px;color:rgba(255,255,255,.35)">Prices shown as <em>from</em> — select your company size for exact pricing.</div>` : ''}
+  </div>
 </section>
 
 <!-- GRID -->
@@ -769,6 +787,19 @@ const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE
 
 // ── State ─────────────────────────────────────────────────
 const SESSION_ID = (sessionStorage.sc_sid ||= Math.random().toString(36).slice(2));
+
+const SIZE_TIERS = [
+  { id: 'micro',      label: 'Micro',      range: '1–10',    multiplier: 1.00 },
+  { id: 'small',      label: 'Small',      range: '11–25',   multiplier: 1.20 },
+  { id: 'growing',    label: 'Growing',    range: '26–50',   multiplier: 1.45 },
+  { id: 'medium',     label: 'Medium',     range: '51–100',  multiplier: 1.75 },
+  { id: 'large',      label: 'Large',      range: '101–250', multiplier: 2.10 },
+  { id: 'corporate',  label: 'Corporate',  range: '251–500', multiplier: 2.60 },
+  { id: 'enterprise', label: 'Enterprise', range: '501–999', multiplier: 3.10 },
+];
+const savedTierId = localStorage.getItem('sc_size_tier');
+let shopSizeTier = savedTierId ? (SIZE_TIERS.find(t => t.id === savedTierId) || null) : null;
+
 const state = {
   modules:  [],
   filtered: [],
@@ -786,9 +817,23 @@ function fmtMo(n, forceYr) { return fmt(n) + (forceYr || (typeof forceYr === 'un
 function $id(id)  { return document.getElementById(id); }
 
 function modulePrice(m) {
-  return state.billing === 'yearly'
+  const base = state.billing === 'yearly'
     ? (m.yearly_price || +(m.monthly_price * 0.92).toFixed(2))
     : m.monthly_price;
+  return shopSizeTier ? +(base * shopSizeTier.multiplier).toFixed(2) : base;
+}
+
+function selectShopSizeTier(id) {
+  shopSizeTier = SIZE_TIERS.find(t => t.id === id) || null;
+  localStorage.setItem('sc_size_tier', id);
+  document.querySelectorAll('.size-pill').forEach(el => {
+    const active = el.dataset.tier === id;
+    el.style.background = active ? 'rgba(91,143,255,.2)' : 'rgba(255,255,255,.06)';
+    el.style.borderColor = active ? '#5b8fff' : 'rgba(255,255,255,.12)';
+    el.style.color = active ? '#5b8fff' : 'rgba(255,255,255,.7)';
+  });
+  renderGrid();
+  updateBasketBar();
 }
 
 const PACKAGE_TIERS = [{min:12,pct:.40},{min:6,pct:.25},{min:3,pct:.10}];
@@ -796,7 +841,7 @@ function pkgDiscount(n) { return PACKAGE_TIERS.find(t => n >= t.min) || {pct:0};
 
 function calcTotals() {
   const billable = state.basket.filter(m => m.slug !== 'smartcore-core');
-  const subtotal  = billable.reduce((s,m) => s + modulePrice(m), 0);
+  const subtotal  = +billable.reduce((s,m) => s + modulePrice(m), 0).toFixed(2);
   const tier      = pkgDiscount(billable.length);
   const pkgDis    = +(subtotal * tier.pct).toFixed(2);
   const afterPkg  = subtotal - pkgDis;
@@ -919,9 +964,9 @@ function renderGrid() {
 
         <div class="card-footer">
           <div>
-            <div class="card-price">${fmtMo(price)}</div>
+            <div class="card-price">${shopSizeTier ? '' : '<span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.02em">from </span>'}${fmtMo(price)}</div>
             ${state.billing==='yearly'&&m.monthly_price!==price
-              ? `<div class="card-price-was">${fmtMo(m.monthly_price)}</div>` : ''}
+              ? `<div class="card-price-was">${fmtMo(m.monthly_price * (shopSizeTier?.multiplier||1))}</div>` : ''}
           </div>
           <button class="card-add ${inBasket?'added':'add'}"
             onclick="event.stopPropagation();toggleBasket('${m.id}')">
