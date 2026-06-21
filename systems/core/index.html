@@ -934,9 +934,27 @@
         <div class="fg2">
           <div class="fm"><label>Department</label>
             <input type="hidden" id="ee_dept"/>
-            <div class="dept-picker" id="eeDeptPicker" style="position:relative;display:block;box-shadow:none;border:1px solid rgba(255,255,255,.09);border-radius:12px;margin-top:0;">
-              <div style="padding:8px 10px 4px;"><input class="inp" id="eeDeptSearch" placeholder="Search departments…" style="border-radius:8px;padding:8px 12px;font-size:13px;" autocomplete="off"/></div>
-              <div id="eeDeptList" style="max-height:160px;overflow-y:auto;padding:4px 6px 6px;"></div>
+            <div style="position:relative;">
+              <button type="button" class="inp" id="eeDeptBtn" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;text-align:left;" onclick="toggleEeDeptPopup()">
+                <span id="eeDeptBtnLabel" style="color:var(--muted2);">No department</span>
+                <span style="opacity:.5;font-size:11px;">▾</span>
+              </button>
+              <div id="eeDeptPopup" style="display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:300;background:#111;border:1px solid rgba(255,255,255,.12);border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.7);">
+                <div style="padding:10px 10px 6px;border-bottom:1px solid rgba(255,255,255,.06);">
+                  <input class="inp" id="eeDeptSearch" placeholder="Search departments…" autocomplete="off" style="font-size:13px;padding:8px 12px;border-radius:8px;" oninput="renderEeDeptList(this.value.trim())"/>
+                </div>
+                <div id="eeDeptList" style="max-height:200px;overflow-y:auto;"></div>
+                <div style="padding:8px 10px;border-top:1px solid rgba(255,255,255,.06);" id="eeDeptNewForm">
+                  <div style="display:flex;gap:6px;align-items:center;" id="eeDeptAddRow">
+                    <button type="button" class="btn-ghost btn-sm" style="width:100%;justify-content:center;" onclick="showEeDeptCreate()">+ New Department</button>
+                  </div>
+                  <div style="display:none;gap:6px;align-items:center;" id="eeDeptCreateRow">
+                    <input class="inp" id="eeDeptNewName" placeholder="Department name…" style="flex:1;font-size:12px;padding:8px 12px;border-radius:8px;"/>
+                    <button type="button" class="btn-accent btn-sm" onclick="createEeDept()">Create</button>
+                    <button type="button" class="btn-ghost btn-sm" onclick="hideEeDeptCreate()">Cancel</button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="fm"><label>Start Date</label><input class="inp" type="date" id="ee_start"/></div>
@@ -1770,48 +1788,97 @@ function openEdit(emp) {
   setCsel('ee_role', emp.role||'employee', roleLabels);
   setCsel('ee_emptype', emp.employment_type||'full_time', empTypeLabels);
 
-  // Department inline picker — ensure visible (selectEeDept hides it after selection)
-  const eePicker = document.getElementById('eeDeptPicker');
-  if(eePicker) eePicker.style.display = 'block';
+  // Department popup — reset state
+  document.getElementById('eeDeptPopup').style.display = 'none';
   const ds = document.getElementById('eeDeptSearch');
   if(ds) ds.value='';
-  renderEeDeptList('');
+  setEeDept(emp.department_id||'', emp.department?.name||'');
+  hideEeDeptCreate();
 
   renderEePills();
   document.getElementById('empEditOverlay').classList.add('open');
   document.getElementById('empEditWrap').classList.add('open');
 }
 
+function setEeDept(id, name) {
+  document.getElementById('ee_dept').value = id;
+  const lbl = document.getElementById('eeDeptBtnLabel');
+  if(id && name) { lbl.textContent = name; lbl.style.color = ''; }
+  else { lbl.textContent = 'No department'; lbl.style.color = 'var(--muted2)'; }
+}
+
+function toggleEeDeptPopup() {
+  const p = document.getElementById('eeDeptPopup');
+  const open = p.style.display !== 'none';
+  p.style.display = open ? 'none' : 'block';
+  if(!open) { renderEeDeptList(''); document.getElementById('eeDeptSearch').value=''; document.getElementById('eeDeptSearch').focus(); }
+}
+
 function renderEeDeptList(q) {
   const list = document.getElementById('eeDeptList');
   if(!list) return;
-  const filtered = departments.filter(d=>!q||d.name.toLowerCase().includes(q.toLowerCase()));
   const cur = document.getElementById('ee_dept').value;
+  const filtered = departments.filter(d=>!q||d.name.toLowerCase().includes(q.toLowerCase()));
+  if(!filtered.length) {
+    list.innerHTML = `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">${q?'No departments match.':'No departments yet.'}</div>`;
+    return;
+  }
   list.innerHTML = filtered.map(d=>`
-    <div class="dept-item${d.id===cur?' selected':''}" data-did="${d.id}" data-dname="${esc(d.name)}">
-      <span class="dept-item-dot">${(d.name[0]||'?').toUpperCase()}</span>
-      <span style="flex:1">${esc(d.name)}</span>
-      ${d.id===cur?'<span style="color:var(--accent);font-size:11px;font-weight:600;">✓</span>':''}
-    </div>`).join('') || `<div style="padding:10px 12px;color:var(--muted);font-size:13px;">No departments found</div>`;
-  list.querySelectorAll('.dept-item').forEach(el=>{
-    el.onclick = ()=>{
-      document.getElementById('ee_dept').value = el.dataset.did;
-      renderEeDeptList(document.getElementById('eeDeptSearch')?.value||'');
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.04);transition:background .1s;${d.id===cur?'background:rgba(91,143,255,.08);':''}"
+         data-did="${d.id}" data-dname="${esc(d.name)}" class="eedl-item">
+      <div style="width:30px;height:30px;border-radius:8px;background:${d.id===cur?'rgba(91,143,255,.18)':'rgba(255,255,255,.05)'};border:1px solid ${d.id===cur?'rgba(91,143,255,.3)':'rgba(255,255,255,.08)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:${d.id===cur?'var(--accent)':'var(--muted)'};flex-shrink:0;">${(d.name[0]||'?').toUpperCase()}</div>
+      <span style="flex:1;font-size:13px;font-weight:${d.id===cur?'600':'400'};color:${d.id===cur?'var(--text)':'var(--muted)'};">${esc(d.name)}</span>
+      ${d.id===cur?`<svg width="14" height="14" fill="none" stroke="var(--accent)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>`:''}
+      <button type="button" title="Delete" style="background:none;border:none;color:var(--muted2);font-size:16px;cursor:pointer;padding:0 4px;line-height:1;flex-shrink:0;" data-del-id="${d.id}" data-del-name="${esc(d.name)}">×</button>
+    </div>`).join('');
+  list.querySelectorAll('.eedl-item').forEach(el=>{
+    el.onclick = e=>{
+      if(e.target.dataset.delId) return;
+      setEeDept(el.dataset.did, el.dataset.dname);
+      document.getElementById('eeDeptPopup').style.display = 'none';
+    };
+  });
+  list.querySelectorAll('[data-del-id]').forEach(btn=>{
+    btn.onclick = async e=>{
+      e.stopPropagation();
+      if(!confirm(`Delete department "${btn.dataset.delName}"?`)) return;
+      try {
+        await api('DELETE',`departments?id=${btn.dataset.delId}`);
+        if(document.getElementById('ee_dept').value===btn.dataset.delId) setEeDept('','');
+        await loadAll();
+        renderEeDeptList(document.getElementById('eeDeptSearch')?.value||'');
+        if(window._deptPickerRefresh) window._deptPickerRefresh();
+        toast('ok','Deleted',btn.dataset.delName+' removed');
+      } catch(e){ toast('err','Error',e.message); }
     };
   });
 }
 
-function openEeDeptPicker() {
-  const picker = document.getElementById('eeDeptPicker');
-  picker.style.display = picker.style.display==='none'?'block':'none';
+function showEeDeptCreate() {
+  document.getElementById('eeDeptAddRow').style.display = 'none';
+  document.getElementById('eeDeptCreateRow').style.display = 'flex';
+  document.getElementById('eeDeptNewName').focus();
 }
-
-function selectEeDept(id, name) {
-  document.getElementById('ee_dept').value = id;
-  const btn = document.getElementById('eeDeptBtn');
-  btn.innerHTML = `<span class="dept-sel-icon">${(name[0]||'?').toUpperCase()}</span><span class="dept-sel-name">${esc(name)}</span><span class="dept-sel-arr" style="margin-left:auto;">▾</span>`;
-  document.getElementById('eeDeptPicker').style.display = 'none';
-  renderEeDeptList(document.getElementById('eeDeptSearch')?.value||'');
+function hideEeDeptCreate() {
+  document.getElementById('eeDeptAddRow').style.display = '';
+  document.getElementById('eeDeptCreateRow').style.display = 'none';
+  const n = document.getElementById('eeDeptNewName');
+  if(n) n.value='';
+}
+async function createEeDept() {
+  const n = document.getElementById('eeDeptNewName').value.trim();
+  if(!n) return;
+  try {
+    const created = await api('POST','departments',{name:n});
+    await loadAll();
+    hideEeDeptCreate();
+    const match = departments.find(d=>d.name===n);
+    setEeDept(created?.id||match?.id||'', n);
+    renderEeDeptList('');
+    if(window._deptPickerRefresh) window._deptPickerRefresh();
+    document.getElementById('eeDeptPopup').style.display = 'none';
+    toast('ok','Created',n+' department added');
+  } catch(e){ toast('err','Error',e.message); }
 }
 
 function closeEdit() {
@@ -1917,9 +1984,14 @@ function setupEditModal() {
     document.getElementById('ee_custom_wrap').style.display = this.value==='other'?'':'none';
   });
 
-  // Dept search
-  const ds = document.getElementById('eeDeptSearch');
-  if(ds) ds.oninput = function(){ renderEeDeptList(this.value.trim()); };
+  // Close dept popup on outside click
+  document.addEventListener('click', e=>{
+    const popup = document.getElementById('eeDeptPopup');
+    const btn = document.getElementById('eeDeptBtn');
+    if(popup && popup.style.display!=='none' && !popup.contains(e.target) && !btn?.contains(e.target)) {
+      popup.style.display='none';
+    }
+  }, true);
 
   document.getElementById('ee_auth_search').oninput = function(){
     clearTimeout(eeDeb);
