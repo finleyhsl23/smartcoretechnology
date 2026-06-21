@@ -1713,12 +1713,7 @@ function openEdit(emp) {
   document.getElementById('ee_dietary').value = emp.dietary_requirements||'';
   document.getElementById('ee_accessibility').value = emp.accessibility_needs||'';
 
-  // Custom selects — use makeCsel with base IDs
-  makeCsel('ee_gender');
-  makeCsel('ee_role');
-  makeCsel('ee_emptype');
-
-  // Set values
+  // Set csel display values
   const genderLabels = {prefer_not_to_say:'Prefer not to say',male:'Male',female:'Female',non_binary:'Non-binary',other:'Other'};
   const empTypeLabels = {full_time:'Full Time',part_time:'Part Time',contractor:'Contractor',intern:'Intern',other:'Other…'};
   const roleLabels = {employee:'Employee',supervisor:'Supervisor',admin:'Admin',owner:'Owner'};
@@ -1736,15 +1731,10 @@ function openEdit(emp) {
   setCsel('ee_role', emp.role||'employee', roleLabels);
   setCsel('ee_emptype', emp.employment_type||'full_time', empTypeLabels);
 
-  // Wire emptype change
-  document.getElementById('ee_emptype').onchange = function(){
-    document.getElementById('ee_custom_wrap').style.display = this.value==='other'?'':'none';
-  };
-
   // Department inline picker
-  renderEeDeptList('');
   const ds = document.getElementById('eeDeptSearch');
-  if(ds) { ds.value=''; ds.oninput = function(){ renderEeDeptList(this.value.trim()); }; }
+  if(ds) ds.value='';
+  renderEeDeptList('');
 
   renderEePills();
   document.getElementById('empEditOverlay').classList.add('open');
@@ -1878,6 +1868,18 @@ function setupEditModal() {
   document.getElementById('empEditOverlay').onclick = closeEdit;
   document.getElementById('empEditSaveBtn').onclick = saveEditEmployee;
   document.getElementById('evEditBtn').onclick = ()=>{ if(editingEmp) openEdit(editingEmp); };
+
+  // Init csels once
+  makeCsel('ee_gender');
+  makeCsel('ee_role');
+  makeCsel('ee_emptype');
+  document.getElementById('ee_emptype').addEventListener('change', function(){
+    document.getElementById('ee_custom_wrap').style.display = this.value==='other'?'':'none';
+  });
+
+  // Dept search
+  const ds = document.getElementById('eeDeptSearch');
+  if(ds) ds.oninput = function(){ renderEeDeptList(this.value.trim()); };
 
   document.getElementById('ee_auth_search').oninput = function(){
     clearTimeout(eeDeb);
