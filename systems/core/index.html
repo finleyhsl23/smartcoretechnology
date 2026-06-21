@@ -328,6 +328,43 @@
     .dept-del{background:none;border:none;cursor:pointer;color:rgba(255,255,255,.18);font-size:18px;padding:2px 6px;border-radius:6px;transition:color .15s,background .15s;line-height:1;}
     .dept-del:hover{color:var(--red);background:rgba(255,69,58,.1);}
     .dept-empty{padding:22px 14px;font-size:13px;color:var(--muted);text-align:center;}
+
+    /* ── SHIFT PICKER ────────────────────────────────────────────── */
+    .shift-picker{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.09);border-radius:12px;overflow:hidden;}
+    .shift-selected{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06);min-height:44px;display:flex;align-items:center;}
+    .shift-sel-none{font-size:13px;color:var(--muted);}
+    .shift-sel-chip{display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px;background:var(--accent-soft);border:1px solid var(--accent-border);border-radius:8px;padding:6px 10px;}
+    .shift-sel-name{font-size:13px;color:var(--accent);font-weight:600;}
+    .shift-sel-sub{font-size:11px;color:rgba(91,143,255,.7);margin-top:1px;}
+    .shift-sel-chip button{background:none;border:none;cursor:pointer;color:rgba(91,143,255,.5);font-size:18px;line-height:1;padding:0 2px;flex-shrink:0;transition:color .1s;}
+    .shift-sel-chip button:hover{color:var(--red);}
+    .shift-list{max-height:220px;overflow-y:auto;}
+    .shift-list::-webkit-scrollbar{width:4px;}
+    .shift-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:999px;}
+    .shift-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.04);transition:background .1s;gap:10px;}
+    .shift-item:last-child{border-bottom:none;}
+    .shift-item:hover{background:rgba(255,255,255,.04);}
+    .shift-item.sp-selected{background:rgba(91,143,255,.08);}
+    .shift-item-info{flex:1;min-width:0;}
+    .shift-item-name{font-size:13px;color:var(--text);font-weight:500;}
+    .shift-item-sub{font-size:11px;color:var(--muted);margin-top:2px;}
+    .shift-item-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+    .shift-check{width:18px;height:18px;border-radius:50%;border:1.5px solid rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:.15s;}
+    .shift-item.sp-selected .shift-check{background:var(--accent);border-color:var(--accent);}
+    .shift-del{background:none;border:none;cursor:pointer;color:rgba(255,255,255,.18);font-size:18px;padding:2px 6px;border-radius:6px;transition:color .15s,background .15s;line-height:1;}
+    .shift-del:hover{color:var(--red);background:rgba(255,69,58,.1);}
+    .shift-empty{padding:22px 14px;font-size:13px;color:var(--muted);text-align:center;}
+    .shift-footer-bar{padding:10px 12px;border-top:1px solid rgba(255,255,255,.06);}
+    .shift-create-form{border-top:1px solid rgba(255,255,255,.06);}
+    .shift-create-inner{padding:14px 14px 10px;}
+    .shift-day-grid{margin-bottom:4px;}
+    .shift-day-row{display:grid;grid-template-columns:22px 82px 1fr 1fr;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);}
+    .shift-day-row:last-child{border-bottom:none;}
+    .shift-day-row input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;}
+    .shift-day-label{font-size:12px;color:var(--text);font-weight:500;}
+    .shift-time-inp{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:7px;padding:6px 8px;color:var(--text);font-size:12px;outline:none;font-family:inherit;width:100%;transition:border-color .15s;}
+    .shift-time-inp:focus{border-color:var(--accent-border);}
+    .shift-time-inp:disabled{opacity:.35;}
   </style>
 </head>
 <body>
@@ -642,21 +679,48 @@
               <div class="toggle" id="af_override_t"></div>
             </label>
           </div>
-          <div class="fcard">
+          <div class="fcard" style="padding-bottom:4px;">
             <div class="fcard-title">Work Schedule</div>
-            <div class="fg2">
-              <div class="fm">
-                <label>Shift Pattern</label>
-                <select id="af_shift" style="display:none"><option value="">— None —</option></select>
-                <div class="csel-wrap">
-                  <div class="csel" id="af_shift_csel" tabindex="0"><span class="csel-val muted-opt" id="af_shift_cval">— None —</span><svg class="csel-arrow" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
-                  <div class="csel-panel" id="af_shift_panel">
-                    <div class="csel-opt muted-opt selected" data-val="">— None —</div>
+            <input type="hidden" id="af_shift" value=""/>
+            <div class="fm" style="margin-bottom:6px;">
+              <label>Shift Pattern <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+              <div class="shift-picker" id="shiftPickerWrap">
+                <!-- selected -->
+                <div class="shift-selected">
+                  <span class="shift-sel-none" id="shiftSelNone">No shift pattern assigned</span>
+                  <div class="shift-sel-chip" id="shiftSelChip" style="display:none">
+                    <div>
+                      <div class="shift-sel-name" id="shiftSelName"></div>
+                      <div class="shift-sel-sub" id="shiftSelSub"></div>
+                    </div>
+                    <button type="button" id="shiftSelClear" title="Remove">×</button>
                   </div>
                 </div>
-              </div>
-              <div style="display:flex;align-items:flex-end;padding-bottom:0;">
-                <button class="btn-ghost btn-sm" id="manageShiftsBtn" style="width:100%;margin-bottom:0;">Manage Patterns</button>
+                <!-- pattern list -->
+                <div class="shift-list" id="shiftListEl"></div>
+                <!-- footer: create toggle -->
+                <div class="shift-footer-bar">
+                  <button type="button" class="btn-ghost btn-sm" id="shiftCreateToggle">+ Create New Pattern</button>
+                </div>
+                <!-- create form -->
+                <div class="shift-create-form" id="shiftCreateForm" style="display:none">
+                  <div class="shift-create-inner">
+                    <div class="fg2" style="margin-bottom:12px;">
+                      <div class="fm"><label>Pattern Name <span style="color:var(--red)">*</span></label>
+                        <input class="inp" id="snf_name" placeholder="e.g. Monday to Friday 9-5" style="font-size:12px;padding:8px 12px;"/></div>
+                      <div class="fm"><label>Weekly Hours (auto-calculated)</label>
+                        <input class="inp" id="snf_hours" type="number" step="0.5" min="0" placeholder="0" readonly style="font-size:12px;padding:8px 12px;background:rgba(255,255,255,.03);color:var(--muted);"/></div>
+                    </div>
+                    <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.3);margin-bottom:10px;">Working Days &amp; Times</div>
+                    <div class="shift-day-grid" id="snfDayGrid">
+                      <!-- Mon–Sun rows injected by JS -->
+                    </div>
+                    <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:10px;border-top:1px solid rgba(255,255,255,.06);margin-top:4px;">
+                      <button type="button" class="btn-ghost btn-sm" id="snf_cancel">Cancel</button>
+                      <button type="button" class="btn-accent btn-sm" id="snf_save">Save &amp; Select</button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -898,6 +962,7 @@ async function loadAll() {
     api('GET','shift-patterns').catch(()=>[]),
   ]);
   if(window._deptPickerRefresh) window._deptPickerRefresh();
+  if(window._shiftPickerRefresh) window._shiftPickerRefresh();
 }
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
@@ -1029,26 +1094,8 @@ function openAdd() {
     if(panel)panel.querySelectorAll('.csel-opt').forEach(o=>{o.classList.toggle('selected',o.dataset.val===val);});
   });
 
-  // Rebuild shift pattern csel
-  const shiftPanel=document.getElementById('af_shift_panel');
-  if(shiftPanel){
-    shiftPanel.innerHTML='<div class="csel-opt muted-opt selected" data-val="">— None —</div>'+
-      shiftPatterns.map(s=>`<div class="csel-opt" data-val="${s.id}">${esc(s.name)}</div>`).join('');
-    shiftPanel.querySelectorAll('.csel-opt').forEach(opt=>{
-      opt.addEventListener('click',e=>{
-        e.stopPropagation();
-        document.getElementById('af_shift').value=opt.dataset.val;
-        const cv=document.getElementById('af_shift_cval');
-        cv.textContent=opt.textContent;
-        cv.className='csel-val'+(opt.dataset.val?'':' muted-opt');
-        shiftPanel.querySelectorAll('.csel-opt').forEach(o=>o.classList.toggle('selected',o===opt));
-        document.getElementById('af_shift_csel').classList.remove('open');
-        shiftPanel.classList.remove('open');
-      });
-    });
-    document.getElementById('af_shift_cval').textContent='— None —';
-    document.getElementById('af_shift').value='';
-  }
+  // Reset shift picker
+  if(window._shiftPickerReset) window._shiftPickerReset();
 
   // Reset dept picker
   if(window._deptPickerReset) window._deptPickerReset();
@@ -1121,10 +1168,9 @@ function setupDrawers() {
   makeCsel('af_gender');
   makeCsel('af_role');
   makeCsel('af_emptype');
-  // af_shift is rebuilt in openAdd() each time
 
-  // Close all csel panels on outside click (merge with existing doc listener)
   setupDeptPicker();
+  setupShiftPicker();
 }
 
 function updateProrata(){
@@ -1534,6 +1580,159 @@ function setupDeptPicker() {
 
   renderDeptList();
 }
+
+// ── Shift picker portal ────────────────────────────────────────────────────
+function setupShiftPicker() {
+  const DAYS=[['mon','Monday'],['tue','Tuesday'],['wed','Wednesday'],['thu','Thursday'],['fri','Friday'],['sat','Saturday'],['sun','Sunday']];
+  let selId='', selName='', selSub='';
+
+  // Build the day grid HTML once
+  document.getElementById('snfDayGrid').innerHTML=DAYS.map(([k,label])=>`
+    <div class="shift-day-row">
+      <input type="checkbox" id="snf_${k}_a" ${['mon','tue','wed','thu','fri'].includes(k)?'checked':''} onchange="snfCalcHours()"/>
+      <label class="shift-day-label" for="snf_${k}_a" style="cursor:pointer;">${label}</label>
+      <input class="shift-time-inp" type="time" id="snf_${k}_s" value="09:00" oninput="snfCalcHours()" ${['mon','tue','wed','thu','fri'].includes(k)?'':'disabled'}/>
+      <input class="shift-time-inp" type="time" id="snf_${k}_e" value="17:00" oninput="snfCalcHours()" ${['mon','tue','wed','thu','fri'].includes(k)?'':'disabled'}/>
+    </div>`).join('');
+
+  // Enable/disable time inputs when checkbox changes
+  DAYS.forEach(([k])=>{
+    document.getElementById(`snf_${k}_a`).addEventListener('change',function(){
+      document.getElementById(`snf_${k}_s`).disabled=!this.checked;
+      document.getElementById(`snf_${k}_e`).disabled=!this.checked;
+    });
+  });
+
+  function setShift(id, name, sub) {
+    selId=id||''; selName=name||''; selSub=sub||'';
+    document.getElementById('af_shift').value=selId;
+    if(selId){
+      document.getElementById('shiftSelNone').style.display='none';
+      document.getElementById('shiftSelChip').style.display='flex';
+      document.getElementById('shiftSelName').textContent=selName;
+      document.getElementById('shiftSelSub').textContent=selSub;
+    } else {
+      document.getElementById('shiftSelNone').style.display='';
+      document.getElementById('shiftSelChip').style.display='none';
+    }
+    renderShiftList();
+  }
+
+  function shiftSub(s) {
+    if(!s||!s.schedule) return '';
+    const active=DAYS.filter(([k])=>s.schedule[k]?.a);
+    if(!active.length) return 'No active days';
+    const dayStr=active.map(([,l])=>l.slice(0,3)).join(', ');
+    const hrs=active.reduce((sum,[k])=>{
+      const sc=s.schedule[k];
+      if(!sc||!sc.s||!sc.e) return sum;
+      const [sh,sm]=sc.s.split(':').map(Number);
+      const [eh,em]=sc.e.split(':').map(Number);
+      return sum+(eh+em/60)-(sh+sm/60);
+    },0);
+    return `${dayStr} · ${Math.round(hrs*10)/10} hrs/week`;
+  }
+
+  function renderShiftList() {
+    const list=document.getElementById('shiftListEl');
+    if(!shiftPatterns.length){list.innerHTML='<div class="shift-empty">No shift patterns yet. Create one below.</div>';return;}
+    list.innerHTML=shiftPatterns.map(s=>`
+      <div class="shift-item${selId===s.id?' sp-selected':''}" data-id="${s.id}" data-name="${esc(s.name)}">
+        <div class="shift-item-info">
+          <div class="shift-item-name">${esc(s.name)}</div>
+          <div class="shift-item-sub">${esc(shiftSub(s))}</div>
+        </div>
+        <div class="shift-item-actions">
+          <div class="shift-check">${selId===s.id?'<svg width="10" height="10" fill="none" stroke="#fff" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>':''}</div>
+          <button class="shift-del" data-did="${s.id}" data-dname="${esc(s.name)}" title="Delete">×</button>
+        </div>
+      </div>`).join('');
+
+    list.querySelectorAll('.shift-item').forEach(el=>{
+      el.onclick=e=>{
+        if(e.target.closest('.shift-del')) return;
+        const sp=shiftPatterns.find(s=>s.id===el.dataset.id);
+        if(!sp) return;
+        if(selId===sp.id) setShift('','','');
+        else setShift(sp.id, sp.name, shiftSub(sp));
+      };
+    });
+    list.querySelectorAll('.shift-del').forEach(btn=>{
+      btn.onclick=async e=>{
+        e.stopPropagation();
+        if(!confirm(`Delete shift pattern "${btn.dataset.dname}"?`)) return;
+        try{
+          await api('DELETE',`shift-patterns?id=${btn.dataset.did}`);
+          if(selId===btn.dataset.did) setShift('','','');
+          await loadAll();
+          toast('ok','Deleted',btn.dataset.dname);
+        }catch(e){toast('bad','Error',e.message);}
+      };
+    });
+  }
+
+  document.getElementById('shiftSelClear').onclick=()=>setShift('','','');
+
+  document.getElementById('shiftCreateToggle').onclick=()=>{
+    document.getElementById('shiftCreateForm').style.display='block';
+    document.getElementById('shiftCreateToggle').style.display='none';
+    document.getElementById('snf_name').focus();
+  };
+  document.getElementById('snf_cancel').onclick=()=>{
+    document.getElementById('shiftCreateForm').style.display='none';
+    document.getElementById('shiftCreateToggle').style.display='';
+    document.getElementById('snf_name').value='';
+  };
+  document.getElementById('snf_save').onclick=async()=>{
+    const n=document.getElementById('snf_name').value.trim();
+    if(!n){toast('warn','Required','Enter a pattern name');return;}
+    const sc={};
+    DAYS.forEach(([k])=>{
+      sc[k]={a:!!document.getElementById(`snf_${k}_a`).checked,s:document.getElementById(`snf_${k}_s`).value||'09:00',e:document.getElementById(`snf_${k}_e`).value||'17:00'};
+    });
+    try{
+      const btn=document.getElementById('snf_save');
+      btn.disabled=true;btn.textContent='Saving…';
+      await api('POST','shift-patterns',{name:n,schedule:sc});
+      await loadAll();
+      document.getElementById('snf_name').value='';
+      document.getElementById('shiftCreateForm').style.display='none';
+      document.getElementById('shiftCreateToggle').style.display='';
+      const created=shiftPatterns.find(s=>s.name===n);
+      if(created) setShift(created.id, created.name, shiftSub(created));
+      toast('ok','Created',n);
+    }catch(e){toast('bad','Error',e.message);}
+    finally{const btn=document.getElementById('snf_save');if(btn){btn.disabled=false;btn.textContent='Save & Select';}}
+  };
+
+  window._shiftPickerReset=()=>{
+    setShift('','','');
+    document.getElementById('shiftCreateForm').style.display='none';
+    document.getElementById('shiftCreateToggle').style.display='';
+    document.getElementById('snf_name').value='';
+    snfCalcHours();
+  };
+  window._shiftPickerRefresh=()=>renderShiftList();
+
+  renderShiftList();
+}
+
+window.snfCalcHours=function(){
+  const DAYS=['mon','tue','wed','thu','fri','sat','sun'];
+  let total=0;
+  DAYS.forEach(k=>{
+    const cb=document.getElementById(`snf_${k}_a`);
+    const s=document.getElementById(`snf_${k}_s`);
+    const e=document.getElementById(`snf_${k}_e`);
+    if(!cb||!cb.checked||!s||!e) return;
+    const [sh,sm]=s.value.split(':').map(Number);
+    const [eh,em]=e.value.split(':').map(Number);
+    const diff=(eh+em/60)-(sh+sm/60);
+    if(diff>0) total+=diff;
+  });
+  const h=document.getElementById('snf_hours');
+  if(h) h.value=Math.round(total*10)/10||'';
+};
 
 // ── Add employee step navigation ───────────────────────────────────────────
 const ADD_STEP_META = [
