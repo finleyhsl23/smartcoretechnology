@@ -155,6 +155,7 @@ let currentStep = 1;
 let userId = null;
 let coreCompanyId = null;
 let orderData = null;
+let savedFields = {};
 
 const STEPS = [
   { title: 'Personal details',       sub: 'Tell us a bit about yourself.' },
@@ -435,7 +436,23 @@ function renderStep() {
   }
 }
 
-function val(id) { return document.getElementById(id)?.value?.trim() || ''; }
+function val(id) { return document.getElementById(id)?.value?.trim() || savedFields[id] || ''; }
+
+function saveCurrentFields() {
+  const ids = [
+    'fTitle','fFullName','fFirstName','fLastName','fPreferred','fEmail','fDob',
+    'fGender','fPronouns','fJobTitle','fStartDate',
+    'fCountryCode','fPhone','fAddr1','fAddr2','fCity','fCounty','fPostcode','fCountry',
+    'fEc1Name','fEc1Rel','fEc1Phone','fEc1Email',
+    'fEc2Name','fEc2Rel','fEc2Phone','fEc2Email',
+    'fNino','fTaxCode','fStudentLoan','fBankName','fSortCode','fAccountNum',
+    'fDietary','fAccessibility',
+  ];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) savedFields[id] = el.value?.trim() || '';
+  }
+}
 
 function validate() {
   const err = (msg) => { showErr(msg); return false; };
@@ -467,12 +484,13 @@ function showErr(msg) {
 }
 
 function goBack() {
-  if (currentStep > 1) { currentStep--; renderStep(); }
+  if (currentStep > 1) { saveCurrentFields(); currentStep--; renderStep(); }
 }
 
 function goNext() {
   if (!validate()) return;
   if (currentStep === STEPS.length) { submitOwner(); return; }
+  saveCurrentFields();
   currentStep++;
   renderStep();
 }
