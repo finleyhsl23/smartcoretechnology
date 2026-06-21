@@ -246,52 +246,6 @@
 
   <button id="submitBtn" class="btn-primary" onclick="submitOnboarding()">Complete Setup →</button>
 
-  <!-- Step 4: Personal profile (shown after company saved) -->
-  <div id="personalSection" style="display:none">
-    <div class="page-header" style="margin-top:40px">
-      <div class="page-badge">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Company saved
-      </div>
-      <h1 class="page-title">Let's get you set up</h1>
-      <p class="page-sub">We've set up your company. Now tell us a bit about you — we'll create your owner profile so you can access employee management and your dashboard.</p>
-    </div>
-
-    <div class="card">
-      <div class="section-label">Your Details</div>
-      <div class="section-title">About you</div>
-      <div class="section-sub">This creates your employee profile as the account owner.</div>
-
-      <div class="field">
-        <label class="label">Full Name <span style="color:#ff453a">*</span></label>
-        <input id="pFullName" class="inp" placeholder="Jane Smith" autocomplete="name"/>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-        <div class="field">
-          <label class="label">Job Title</label>
-          <input id="pJobTitle" class="inp" placeholder="CEO"/>
-        </div>
-        <div class="field">
-          <label class="label">Work Email</label>
-          <input id="pWorkEmail" class="inp" type="email" placeholder="jane@company.com"/>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-        <div class="field">
-          <label class="label">Mobile</label>
-          <input id="pPhone" class="inp" type="tel" placeholder="+44 7700 900000"/>
-        </div>
-        <div class="field">
-          <label class="label">Start Date</label>
-          <input id="pStartDate" class="inp" type="date"/>
-        </div>
-      </div>
-    </div>
-
-    <div id="errBox2" class="err-box" style="margin-top:16px"></div>
-    <button id="submitPersonalBtn" class="btn-primary" style="margin-top:16px" onclick="submitPersonal()">Finish Setup →</button>
-  </div>
-
   <a class="skip-link" onclick="skipOnboarding()">Skip for now →</a>
 </main>
 
@@ -580,87 +534,12 @@
       }
     }
 
-    // Company saved — show personal profile step
-    savedCompanyId = null;
-    // Try to get the new company id
-    const { data: newCo } = await sb.from('companies').select('id').eq('owner_user_id', userId).order('created_at', { ascending: false }).limit(1).maybeSingle();
-    savedCompanyId = newCo?.id || null;
-
     btn.disabled = false;
     btn.textContent = 'Complete Setup →';
 
-    // Transition to personal step
-    document.getElementById('stepCompany').className = 'step-item step-done';
-    document.getElementById('stepCompanyDot').textContent = '✓';
-    document.getElementById('stepYou').className = 'step-item step-active';
-    document.getElementById('personalSection').style.display = '';
-    document.getElementById('personalSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    document.getElementById('submitBtn').style.display = 'none';
-    document.querySelector('.skip-link').style.display = 'none';
-
-    // Pre-fill name from order
-    if (orderData?.contact_name) document.getElementById('pFullName').value = orderData.contact_name;
-    if (orderData?.email) document.getElementById('pWorkEmail').value = orderData.email;
-    if (orderData?.phone) document.getElementById('pPhone').value = orderData.phone;
+    // Redirect to owner onboarding
+    window.location.href = `/shop/owner-onboarding.html?order_id=${encodeURIComponent(orderId || '')}&ref=${encodeURIComponent(ref)}&company=${encodeURIComponent(company)}&total=${encodeURIComponent(total)}&billing=${encodeURIComponent(billing)}`;
   }
-
-  async function submitPersonal() {
-    const btn = document.getElementById('submitPersonalBtn');
-    const errBox = document.getElementById('errBox2');
-    const fullName = document.getElementById('pFullName').value.trim();
-    errBox.style.display = 'none';
-
-    if (!fullName) {
-      errBox.textContent = 'Please enter your full name.';
-      errBox.style.display = 'block';
-      return;
-    }
-
-    btn.disabled = true; btn.textContent = 'Saving…';
-
-    try {
-      // Generate employee ID: first 3 letters of company + 9 digits
-      const co = savedCompanyId ? (await sb.from('companies').select('company_name').eq('id', savedCompanyId).maybeSingle()).data : null;
-      const prefix = (co?.company_name || company || 'SCO').replace(/[^A-Za-z]/g,'').toUpperCase().slice(0,3).padEnd(3,'X');
-      const empId = prefix + String(Math.floor(Math.random() * 1e9)).padStart(9,'0');
-
-      const empPayload = {
-        company_id:      savedCompanyId,
-        user_id:         userId,
-        employee_id:     empId,
-        first_name:      fullName.split(' ')[0] || fullName,
-        last_name:       fullName.split(' ').slice(1).join(' ') || '',
-        full_name:       fullName,
-        job_title:       document.getElementById('pJobTitle').value.trim() || null,
-        email:           document.getElementById('pWorkEmail').value.trim() || null,
-        work_email:      document.getElementById('pWorkEmail').value.trim() || null,
-        mobile_number:   document.getElementById('pPhone').value.trim() || null,
-        start_date:      document.getElementById('pStartDate').value || null,
-        role:            'owner',
-        employment_status: 'active',
-        is_active:       true,
-        onboarding_completed: true,
-      };
-
-      const { error } = await sb.from('smartcore_core_employees').insert(empPayload);
-      if (error) {
-        // Try minimal payload if schema differs
-        const { error: e2 } = await sb.from('smartcore_core_employees').insert({
-          company_id: savedCompanyId, user_id: userId,
-          employee_id: empId, first_name: empPayload.first_name, last_name: empPayload.last_name,
-          email: empPayload.email, role: 'owner', is_active: true,
-        });
-        if (e2) throw e2;
-      }
-    } catch(e) {
-      console.warn('Employee insert error:', e.message);
-      // Non-fatal — still proceed to confirmed
-    }
-
-    window.location.href = buildConfirmedUrl();
-  }
-
-  let savedCompanyId = null;
 
   init();
 </script>
