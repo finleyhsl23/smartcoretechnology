@@ -43,7 +43,7 @@ export async function onRequestPost(context) {
       email,
     });
 
-    const link = `${SITE}/app/modules/core/employee-onboarding.html?token=${token}`;
+    const link = `${SITE}/systems/core/employee-onboarding.html?token=${token}`;
     const firstName = emp.full_name.split(' ')[0];
 
     const html = inviteHtml(firstName, companyName, link, email);
