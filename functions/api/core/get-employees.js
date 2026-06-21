@@ -1,74 +1,37 @@
-/**
- * GET /api/core/get-employees
- * Returns all employees for the caller's company with related data.
- */
+import { json, options, getCallerProfile, sbGet } from './_auth.js';
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-};
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...CORS, 'Content-Type': 'application/json' },
-  });
-}
-
-async function sbFetch(env, method, path) {
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
-    method,
-    headers: {
-      apikey: env.SUPABASE_SERVICE_KEY,
-      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-      'Content-Type': 'application/json',
-    },
-  });
-  if (res.status === 204) return null;
-  const text = await res.text();
-  if (!res.ok) throw new Error(text);
-  return JSON.parse(text);
-}
-
-async function getCaller(request, env) {
-  const token = (request.headers.get('Authorization') || '').replace('Bearer ', '').trim();
-  if (!token) return null;
-  const res = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
-    headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_SERVICE_KEY },
-  });
-  if (!res.ok) return null;
-  const user = await res.json();
-  const profiles = await sbFetch(env, 'GET', `/user_profiles?user_id=eq.${user.id}&select=*&limit=1`);
-  return profiles?.[0] || null;
-}
-
-export async function onRequestOptions() {
-  return new Response(null, { status: 204, headers: CORS });
-}
+export const onRequestOptions = () => options();
 
 export async function onRequestGet(context) {
   const { request, env } = context;
   try {
-    const caller = await getCaller(request, env);
-    if (!caller) return json({ error: 'Unauthorised' }, 401);
+    const profile = await getCallerProfile(request, env);
+    if (!profile) return json({ error: 'Unauthorised' }, 401);
 
-    const select = [
-      '*',
-      'department:core_departments(id,name)',
-      'shift_pattern:core_shift_patterns(id,name)',
-      'authorizers:core_employee_authorizers(authorizer_employee_id,authorizer:core_employees!core_employee_authorizers_authorizer_employee_id_fkey(id,full_name,role))',
-    ].join(',');
+    const [employees, departments, shiftPatterns, authorizers] = await Promise.all([
+      sbGet(env, `/core_employees?company_id=eq.${profile.company_id}&order=full_name.asc`),
+      sbGet(env, `/core_departments?company_id=eq.${profile.company_id}&order=name.asc`),
+      sbGet(env, `/core_shift_patterns?company_id=eq.${profile.company_id}&order=name.asc`),
+      sbGet(env, `/core_employee_authorizers?select=*,authorizer:authorizer_employee_id(id,full_name,role)`),
+    ]);
 
-    const employees = await sbFetch(
-      env,
-      'GET',
-      `/core_employees?company_id=eq.${caller.company_id}&select=${encodeURIComponent(select)}&order=created_at.asc`
-    );
+    const deptMap = Object.fromEntries((departments || []).map(d => [d.id, d]));
+    const shiftMap = Object.fromEntries((shiftPatterns || []).map(s => [s.id, s]));
+    const authMap = {};
+    for (const a of (authorizers || [])) {
+      if (!authMap[a.employee_id]) authMap[a.employee_id] = [];
+      authMap[a.employee_id].push(a.authorizer);
+    }
 
-    return json({ employees: employees || [] });
-  } catch (err) {
-    console.error('get-employees error:', err);
-    return json({ error: err.message || 'Internal server error' }, 500);
+    const enriched = (employees || []).map(e => ({
+      ...e,
+      department: e.department_id ? deptMap[e.department_id] : null,
+      shift_pattern: e.shift_pattern_id ? shiftMap[e.shift_pattern_id] : null,
+      authorizers: authMap[e.id] || [],
+    }));
+
+    return json({ employees: enriched, departments: departments || [], shift_patterns: shiftPatterns || [] });
+  } catch (e) {
+    return json({ error: e.message }, 500);
   }
 }
