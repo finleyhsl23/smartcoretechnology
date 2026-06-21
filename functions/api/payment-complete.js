@@ -12,8 +12,8 @@
  * Requires env: SUPABASE_URL, SUPABASE_SERVICE_KEY, RESEND_API_KEY
  */
 
-const ADMIN_EMAIL    = 'orders@smartcoretechnology.co.uk';
-const BILLING_EMAIL  = 'billing@smartcoretechnology.co.uk';
+const ADMIN_EMAIL    = 'support@smartcoretechnology.co.uk';
+const BILLING_EMAIL  = 'support@smartcoretechnology.co.uk';
 const FROM           = 'SmartCore <noreply@smartcoretechnology.co.uk>';
 const FROM_BILLING   = 'SmartCore Billing <noreply@smartcoretechnology.co.uk>';
 const SITE           = 'https://smartcoretechnology.co.uk';
@@ -405,7 +405,7 @@ function invoiceHtml(inv, o, modules) {
         <td style="vertical-align:top;text-align:right">
           <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6b7280;margin-bottom:8px">From</div>
           <div style="font-size:15px;font-weight:700;color:#111827">SmartCore Technology</div>
-          <div style="font-size:13px;color:#4b5563">billing@smartcoretechnology.co.uk</div>
+          <div style="font-size:13px;color:#4b5563">support@smartcoretechnology.co.uk</div>
           <div style="font-size:13px;color:#4b5563">smartcoretechnology.co.uk</div>
         </td>
       </tr></table>
@@ -440,13 +440,13 @@ function invoiceHtml(inv, o, modules) {
     <td style="padding:0 36px 28px">
       <div style="background:#eff6ff;border-radius:12px;padding:18px 20px;border-left:4px solid #3b82f6">
         <div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:6px">Payment Instructions</div>
-        <div style="font-size:13px;color:#1e40af;line-height:1.6">Please pay by the due date shown above. Contact <a href="mailto:billing@smartcoretechnology.co.uk" style="color:#1e40af">billing@smartcoretechnology.co.uk</a> with any questions.</div>
+        <div style="font-size:13px;color:#1e40af;line-height:1.6">Please pay by the due date shown above. Contact <a href="mailto:support@smartcoretechnology.co.uk" style="color:#1e40af">support@smartcoretechnology.co.uk</a> with any questions.</div>
       </div>
     </td>
   </tr>
   <tr>
     <td style="background:#f9fafb;padding:20px 36px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center">
-      SmartCore Technology &bull; smartcoretechnology.co.uk &bull; billing@smartcoretechnology.co.uk<br>
+      SmartCore Technology &bull; smartcoretechnology.co.uk &bull; support@smartcoretechnology.co.uk<br>
       Order Reference: ${esc(o.order_reference)} &bull; Invoice: ${inv.invoice_number}
     </td>
   </tr>
