@@ -32,7 +32,7 @@ export async function getCallerProfile(request, env) {
   if (!profiles?.length) return null;
   const profile = profiles[0];
   if (profile.is_active === false) return null;
-  return { ...profile, auth_id: user.id };
+  return { ...profile, auth_id: user.id, auth_email: user.email };
 }
 
 export function sb(env, path, method = 'GET', body = null) {

@@ -1,4 +1,4 @@
-import { json, options, getCallerProfile, sbGet, sbPost } from './_auth.js';
+import { json, options, getCallerProfile, sbGet, sbPost, sbPatch } from './_auth.js';
 
 export const onRequestOptions = () => options();
 
@@ -11,8 +11,8 @@ export async function onRequestGet(context) {
     // Ensure the caller has a core_employees record (owners who signed up may not have one)
     if (profile.auth_id) {
       const existing = await sbGet(env, `/core_employees?auth_user_id=eq.${profile.auth_id}&company_id=eq.${profile.company_id}&limit=1`);
+      const derivedName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.auth_email || 'Owner';
       if (!existing?.length) {
-        const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.email || 'Owner';
         const companyRes = await sbGet(env, `/smartcore_core_companies?id=eq.${profile.company_id}&select=company_name&limit=1`);
         const companyName = companyRes?.[0]?.company_name || 'EMP';
         const prefix = companyName.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase().padEnd(3, 'X');
@@ -22,9 +22,16 @@ export async function onRequestGet(context) {
           company_id: profile.company_id,
           auth_user_id: profile.auth_id,
           employee_id,
-          full_name: fullName,
+          full_name: derivedName,
+          work_email: profile.auth_email || null,
           role: profile.role || 'owner',
           onboarding_completed: true,
+        });
+      } else if (existing[0].full_name === 'Owner' && derivedName !== 'Owner') {
+        // Fix placeholder name from a previous bad creation
+        await sbPatch(env, `/core_employees?auth_user_id=eq.${profile.auth_id}&company_id=eq.${profile.company_id}`, {
+          full_name: derivedName,
+          work_email: existing[0].work_email || profile.auth_email || null,
         });
       }
     }
