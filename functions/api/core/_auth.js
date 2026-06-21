@@ -27,11 +27,11 @@ export async function getCallerProfile(request, env) {
   if (!userRes.ok) return null;
   const user = await userRes.json();
 
-  const profileRes = await sb(env, `/user_profiles?user_id=eq.${user.id}&select=*&limit=1`);
+  const profileRes = await sb(env, `/smartcore_core_employees?user_id=eq.${user.id}&select=*&limit=1`);
   const profiles = await profileRes.json();
   if (!profiles?.length) return null;
   const profile = profiles[0];
-  if (!profile.active) return null;
+  if (profile.is_active === false) return null;
   return { ...profile, auth_id: user.id };
 }
 
