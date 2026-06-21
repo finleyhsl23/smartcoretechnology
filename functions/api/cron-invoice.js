@@ -278,7 +278,7 @@ export async function onScheduled(event, env) {
 
   // 2. Find orders due for billing
   const orders = await sbFetch(
-    `/rest/v1/marketplace_orders?status=eq.confirmed&next_billing_date=lte.${today}&select=*`,
+    `/rest/v1/marketplace_orders?status=in.(confirmed,approved)&next_billing_date=lte.${today}&select=*`,
     'GET', null, serviceKey
   ).catch(() => []);
 

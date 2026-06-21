@@ -526,58 +526,58 @@ async function submitOwner() {
     const prefix = (company || 'SCO').replace(/[^A-Za-z]/g,'').toUpperCase().slice(0,3).padEnd(3,'X');
     const empId  = prefix + String(Math.floor(Math.random() * 1e9)).padStart(9,'0');
 
-    const phone = val('fCountryCode') + ' ' + val('fPhone');
-    const addr  = [val('fAddr1'), val('fAddr2'), val('fCity'), val('fCounty'), val('fPostcode'), val('fCountry')].filter(Boolean).join(', ');
+    const phone = (val('fCountryCode') || '+44') + ' ' + val('fPhone');
 
     const payload = {
-      company_id:         coreCompanyId,
-      user_id:            userId,
-      employee_id:        empId,
-      first_name:         firstName,
-      last_name:          lastName,
-      email:              val('fEmail') || null,
-      mobile_number:      phone || null,
-      job_title:          val('fJobTitle') || null,
-      start_date:         val('fStartDate') || null,
-      role:               'owner',
-      employment_status:  'active',
-      is_active:          true,
-      emergency_contact:  val('fEc1Name') ? `${val('fEc1Name')} (${val('fEc1Rel')})` : null,
-      emergency_contact_number: val('fEc1Phone') || null,
-      notes: JSON.stringify({
-        title:           val('fTitle'),
-        preferred_name:  val('fPreferred'),
-        date_of_birth:   val('fDob'),
-        gender:          val('fGender'),
-        pronouns:        val('fPronouns'),
-        address:         addr,
-        ec1_email:       val('fEc1Email'),
-        ec2_name:        val('fEc2Name'),
-        ec2_relationship:val('fEc2Rel'),
-        ec2_phone:       val('fEc2Phone'),
-        ec2_email:       val('fEc2Email'),
-        national_insurance: val('fNino'),
-        tax_code:        val('fTaxCode'),
-        student_loan:    val('fStudentLoan'),
-        bank_name:       val('fBankName'),
-        sort_code:       val('fSortCode'),
-        dietary:         val('fDietary'),
-        accessibility:   val('fAccessibility'),
-      }),
+      company_id:                    coreCompanyId,
+      user_id:                       userId,
+      employee_id:                   empId,
+      first_name:                    firstName,
+      last_name:                     lastName,
+      email:                         val('fEmail') || null,
+      personal_email:                val('fEmail') || null,
+      mobile_number:                 phone || null,
+      job_title:                     val('fJobTitle') || null,
+      start_date:                    val('fStartDate') || null,
+      role:                          'owner',
+      employment_status:             'active',
+      is_active:                     true,
+      title:                         val('fTitle') || null,
+      preferred_name:                val('fPreferred') || null,
+      date_of_birth:                 val('fDob') || null,
+      gender:                        val('fGender') || null,
+      pronouns:                      val('fPronouns') || null,
+      address_line_1:                val('fAddr1') || null,
+      address_line_2:                val('fAddr2') || null,
+      city:                          val('fCity') || null,
+      county:                        val('fCounty') || null,
+      postcode:                      val('fPostcode') ? val('fPostcode').toUpperCase() : null,
+      country:                       val('fCountry') || null,
+      emergency_contact:             val('fEc1Name') ? `${val('fEc1Name')} (${val('fEc1Rel')})` : null,
+      emergency_contact_number:      val('fEc1Phone') || null,
+      emergency_contact_relationship:val('fEc1Rel') || null,
+      emergency_contact_email:       val('fEc1Email') || null,
+      emergency_contact_2_name:      val('fEc2Name') || null,
+      emergency_contact_2_relationship: val('fEc2Rel') || null,
+      emergency_contact_2_phone:     val('fEc2Phone') || null,
+      emergency_contact_2_email:     val('fEc2Email') || null,
+      national_insurance:            val('fNino') || null,
+      tax_code:                      val('fTaxCode') || null,
+      student_loan_status:           val('fStudentLoan') || null,
+      bank_account_name:             val('fBankName') || null,
+      bank_sort_code:                val('fSortCode') || null,
+      bank_account_number:           val('fAccountNum') || null,
+      dietary_requirements:          val('fDietary') || null,
+      accessibility_needs:           val('fAccessibility') || null,
     };
 
     const { error } = await sb.from('smartcore_core_employees').insert(payload);
-    if (error) {
-      // Minimal fallback
-      const { error: e2 } = await sb.from('smartcore_core_employees').insert({
-        company_id: coreCompanyId, user_id: userId, employee_id: empId,
-        first_name: firstName, last_name: lastName,
-        email: val('fEmail') || null, role: 'owner', is_active: true,
-      });
-      if (e2) throw e2;
-    }
+    if (error) throw new Error(error.message);
   } catch(e) {
-    console.warn('Owner profile insert:', e.message);
+    console.error('Owner profile insert:', e.message);
+    showErr('Could not save your profile: ' + e.message);
+    btn.disabled = false; btn.textContent = 'Submit →';
+    return;
   }
 
   window.location.href = `/shop/order-confirmed.html?ref=${encodeURIComponent(ref)}&company=${encodeURIComponent(company)}&total=${encodeURIComponent(total)}&billing=${encodeURIComponent(billing)}`;

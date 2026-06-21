@@ -36,7 +36,7 @@ export async function onRequestPost(context) {
     if (!order?.[0]) return json({ error: 'Order not found' }, 404, cors);
     const o = order[0];
 
-    if (!['pending_payment', 'pending'].includes(o.status)) {
+    if (!['pending_payment', 'pending', 'approved'].includes(o.status)) {
       return json({ error: 'Order already processed', status: o.status }, 400, cors);
     }
 
