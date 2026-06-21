@@ -1,1109 +1,820 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>People • SmartCore</title>
-<link rel="stylesheet" href="/app/styles/app.css">
-<style>
-:root{--blue:#3b82f6;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;--purple:#a78bfa;--panel:rgba(255,255,255,.065);--line:rgba(255,255,255,.12);--line2:rgba(255,255,255,.06);--text:#eaf0ff;--muted:rgba(234,240,255,.65);--muted2:rgba(234,240,255,.4)}
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>People • SmartCore</title>
+  <link rel="stylesheet" href="/app/styles/app.css"/>
+  <style>
+    body { align-items: stretch; justify-content: stretch; padding: 0; min-height: 100vh; }
+    .shell { width: 100%; max-width: 100%; border-radius: 0; min-height: 100vh; display: flex; flex-direction: column; }
+    .content { flex: 1; padding: 16px; overflow: auto; }
 
-/* PAGE SHELL */
-body{background:radial-gradient(900px 600px at 45% -10%,rgba(59,130,246,.18),transparent 62%),radial-gradient(900px 700px at 100% 10%,rgba(14,165,233,.1),transparent 60%),linear-gradient(180deg,#020617,#06153a);min-height:100vh;margin:0;font-family:Inter,system-ui,sans-serif;color:var(--text)}
-#toastwrap{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
-.toast{display:flex;align-items:flex-start;gap:10px;background:rgba(15,20,40,.95);border:1px solid var(--line);border-radius:14px;padding:14px 16px;min-width:260px;max-width:360px;transition:opacity .4s,transform .4s;pointer-events:auto}
-.tDot{width:8px;height:8px;border-radius:50%;margin-top:4px;flex-shrink:0;background:#64748b}
-.tDot.success{background:var(--green)}.tDot.error{background:var(--red)}.tDot.info{background:var(--blue)}
-.toast b{display:block;font-size:13px;font-weight:700;color:var(--text)}.toast p{font-size:12px;color:var(--muted);margin:2px 0 0}
+    .emp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .emp-table th { text-align:left; padding:8px 12px; font-size:10px; letter-spacing:.5px; text-transform:uppercase; color:var(--muted2); border-bottom:1px solid var(--line2); white-space:nowrap; }
+    .emp-table td { padding:10px 12px; border-bottom:1px solid var(--line2); vertical-align:middle; }
+    .emp-table tr:last-child td { border-bottom:none; }
+    .emp-table tr:hover td { background:rgba(255,255,255,.025); }
+    .emp-table tr[data-id] { cursor:pointer; }
 
-/* TOP BAR */
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 28px;border-bottom:1px solid var(--line2);background:rgba(0,0,0,.25);backdrop-filter:blur(12px);position:sticky;top:0;z-index:100}
-.topbar-left{display:flex;align-items:center;gap:16px}
-.back-btn{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;text-decoration:none;padding:7px 12px;border-radius:10px;border:1px solid var(--line2);background:rgba(255,255,255,.04);transition:.15s}
-.back-btn:hover{background:rgba(255,255,255,.08);color:var(--text)}
-.page-title{font-size:20px;font-weight:800;letter-spacing:-.03em;color:var(--text)}
-.page-sub{font-size:12px;color:var(--muted2);margin-top:2px}
-.topbar-right{display:flex;align-items:center;gap:10px}
-.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:12px;font-size:13px;font-weight:700;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.07);color:var(--text);cursor:pointer;transition:.15s;font-family:inherit}
-.btn:hover{background:rgba(255,255,255,.12)}
-.btn.primary{background:linear-gradient(180deg,#3b82f6,#2563eb);border-color:#3b82f6;color:#fff}
-.btn.primary:hover{filter:brightness(1.1)}
-.btn.sm{padding:6px 12px;font-size:12px;border-radius:9px}
-.btn.danger{background:linear-gradient(180deg,#ef4444,#dc2626);border-color:#ef4444;color:#fff}
-.btn:disabled{opacity:.4;cursor:not-allowed}
+    .avatar { width:28px; height:28px; border-radius:50%; background:linear-gradient(135deg,rgba(30,92,255,.45),rgba(14,165,255,.25)); border:1px solid rgba(30,92,255,.35); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:var(--text); flex-shrink:0; }
+    .emp-name { display:flex; align-items:center; gap:10px; }
+    .emp-name b { font-size:12px; }
+    .emp-name span { font-size:11px; color:var(--muted2); }
 
-/* CONTENT */
-.content{padding:28px;max-width:1400px;margin:0 auto}
-.search-bar{display:flex;align-items:center;gap:12px;margin-bottom:20px}
-.search-bar input{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;color:var(--text);padding:10px 14px 10px 40px;font-size:14px;font-family:inherit;width:300px;outline:none}
-.search-bar input:focus{border-color:var(--blue)}
-.search-wrap{position:relative}.search-wrap svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.4}
-.stats-row{display:flex;gap:12px;margin-bottom:24px}
-.stat-card{background:rgba(255,255,255,.05);border:1px solid var(--line2);border-radius:16px;padding:16px 20px;min-width:130px}
-.stat-card .val{font-size:26px;font-weight:800;letter-spacing:-.04em;color:var(--text)}
-.stat-card .lbl{font-size:11px;color:var(--muted2);margin-top:3px;text-transform:uppercase;letter-spacing:.05em}
+    .role-badge { font-size:10px; padding:3px 8px; border-radius:999px; border:1px solid; white-space:nowrap; }
+    .role-owner  { color:#a78bfa; border-color:rgba(167,139,250,.35); background:rgba(167,139,250,.08); }
+    .role-admin  { color:var(--warn); border-color:rgba(255,176,32,.35); background:rgba(255,176,32,.08); }
+    .role-employee { color:var(--muted); border-color:var(--line2); background:rgba(255,255,255,.03); }
 
-/* TABLE */
-.emp-table{width:100%;border-collapse:separate;border-spacing:0}
-.emp-table th{font-size:11px;font-weight:700;color:var(--muted2);letter-spacing:.06em;text-transform:uppercase;padding:10px 14px;text-align:left;border-bottom:1px solid var(--line2)}
-.emp-table td{padding:14px;border-bottom:1px solid var(--line2);font-size:13px;vertical-align:middle}
-.emp-table tr:last-child td{border-bottom:none}
-.emp-table tbody tr{transition:.15s;cursor:pointer}
-.emp-table tbody tr:hover td{background:rgba(255,255,255,.04)}
-.emp-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#7c3aed);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;color:#fff;flex-shrink:0}
-.emp-info{display:flex;align-items:center;gap:10px}
-.emp-name{font-weight:700;color:var(--text);font-size:14px}
-.emp-id{font-size:11px;color:var(--muted2);font-family:monospace;margin-top:2px}
-.badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.03em}
-.badge.owner{background:rgba(167,139,250,.2);color:#a78bfa;border:1px solid rgba(167,139,250,.3)}
-.badge.admin{background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid rgba(59,130,246,.3)}
-.badge.employee{background:rgba(255,255,255,.08);color:var(--muted);border:1px solid var(--line2)}
-.badge.complete{background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.25)}
-.badge.pending{background:rgba(245,158,11,.15);color:#fbbf24;border:1px solid rgba(245,158,11,.25)}
-.empty-state{text-align:center;padding:80px 20px;color:var(--muted2)}
-.empty-state .icon{font-size:48px;margin-bottom:16px}
-.empty-state h3{font-size:18px;font-weight:700;color:var(--muted);margin:0 0 8px}
-.empty-state p{font-size:14px}
+    .drawer-backdrop { position:fixed; inset:0; z-index:100; background:rgba(0,0,0,.5); backdrop-filter:blur(6px); display:none; }
+    .drawer-backdrop.open { display:block; }
+    .drawer { position:fixed; top:0; right:0; bottom:0; z-index:101; width:min(540px,100vw); background:linear-gradient(180deg,rgba(10,15,34,.98),rgba(8,16,34,.98)); border-left:1px solid var(--line); box-shadow:-24px 0 70px rgba(0,0,0,.65); transform:translateX(100%); transition:transform .22s ease; display:flex; flex-direction:column; overflow:hidden; }
+    .drawer.open { transform:translateX(0); }
+    .drawer-head { padding:14px 16px; border-bottom:1px solid var(--line2); background:rgba(0,0,0,.18); display:flex; align-items:center; justify-content:space-between; gap:10px; flex-shrink:0; }
+    .drawer-head b { font-size:14px; }
+    .drawer-body { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:14px; }
+    .drawer-foot { padding:12px 16px; border-top:1px solid var(--line2); background:rgba(0,0,0,.12); display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; }
 
-/* SLIDE-OUT PANEL */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:200;opacity:0;pointer-events:none;transition:opacity .3s}
-.overlay.open{opacity:1;pointer-events:auto}
-.panel{position:fixed;top:0;right:0;width:520px;max-width:100vw;height:100vh;background:#0a0f22;border-left:1px solid var(--line);z-index:201;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);overflow-y:auto;display:flex;flex-direction:column}
-.panel.open{transform:translateX(0)}
-.panel-head{padding:20px 24px;border-bottom:1px solid var(--line2);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#0a0f22;z-index:1}
-.panel-head h2{font-size:17px;font-weight:800;margin:0;letter-spacing:-.02em}
-.panel-close{background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:8px;color:var(--text);width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px}
-.panel-body{padding:24px;flex:1}
-.panel-foot{padding:20px 24px;border-top:1px solid var(--line2);position:sticky;bottom:0;background:#0a0f22}
+    .fsec { display:flex; flex-direction:column; gap:10px; }
+    .fsec-title { font-size:10px; letter-spacing:.5px; text-transform:uppercase; color:var(--muted2); margin-bottom:2px; }
+    .fgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .field { display:flex; flex-direction:column; gap:4px; }
+    .field .label { font-size:11px; color:var(--muted); }
+    .field .input, .field select { background:rgba(255,255,255,.03); border:1px solid var(--line2); color:var(--text); padding:9px 12px; border-radius:10px; font-size:12px; outline:none; font-family:var(--font); width:100%; }
+    .field .input:focus, .field select:focus { border-color:rgba(30,92,255,.65); box-shadow:0 0 0 3px rgba(30,92,255,.10); }
+    .field select option { background:#07163b; }
 
-/* FORM */
-.section-label{font-size:11px;font-weight:700;color:var(--muted2);letter-spacing:.08em;text-transform:uppercase;margin:24px 0 14px;display:flex;align-items:center;gap:8px}
-.section-label:first-child{margin-top:0}
-.field{margin-bottom:16px}
-.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px}
-.field input,.field select,.field textarea{width:100%;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;color:var(--text);padding:10px 14px;font-size:14px;font-family:inherit;box-sizing:border-box;outline:none;transition:.15s}
-.field input:focus,.field select,.field textarea:focus{border-color:var(--blue)}
-.field select{cursor:pointer;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(234,240,255,.4)' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px}
-.field select option{background:#0e1a3a;color:var(--text)}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.hint{font-size:11px;color:var(--muted2);margin-top:5px}
-.hint.info{color:#60a5fa}
-.req{color:var(--red);margin-left:2px}
+    .toggle-row { display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none; }
+    .toggle-row .label { font-size:12px; color:var(--muted); flex:1; }
+    .toggle { width:36px; height:20px; border-radius:999px; background:rgba(255,255,255,.08); border:1px solid var(--line2); position:relative; transition:.15s; flex-shrink:0; }
+    .toggle::after { content:''; position:absolute; top:3px; left:3px; width:12px; height:12px; border-radius:50%; background:var(--muted2); transition:.15s; }
+    .toggle.on { background:rgba(30,92,255,.35); border-color:rgba(30,92,255,.55); }
+    .toggle.on::after { left:19px; background:var(--blue2); }
 
-/* CUSTOM DROPDOWN */
-.custom-select{position:relative}
-.custom-select-trigger{width:100%;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;color:var(--text);padding:10px 36px 10px 14px;font-size:14px;font-family:inherit;cursor:pointer;text-align:left;display:flex;align-items:center;justify-content:space-between;transition:.15s}
-.custom-select-trigger:hover,.custom-select-trigger.open{border-color:var(--blue);background:rgba(255,255,255,.09)}
-.custom-select-menu{position:absolute;top:calc(100% + 6px);left:0;right:0;background:#0e1a3a;border:1px solid var(--line);border-radius:12px;z-index:50;overflow:hidden;box-shadow:0 16px 40px rgba(0,0,0,.5)}
-.custom-select-option{padding:10px 14px;font-size:14px;cursor:pointer;transition:.1s;display:flex;align-items:center;gap:8px}
-.custom-select-option:hover{background:rgba(255,255,255,.07)}
-.custom-select-option.selected{color:var(--blue)}
-.custom-select-option.create{color:#60a5fa;border-top:1px solid var(--line2)}
-.custom-select-option.manage{color:var(--muted2);font-size:12px}
+    .info-box { padding:10px 12px; border-radius:10px; background:rgba(30,92,255,.07); border:1px solid rgba(30,92,255,.18); font-size:11px; color:var(--muted); line-height:1.5; }
+    .info-box b { color:var(--text); }
 
-/* PRO-RATA */
-.prorata-box{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:10px 14px;margin-top:8px;font-size:12px;color:#93c5fd}
-.override-toggle{display:flex;align-items:center;gap:10px;margin-top:10px;cursor:pointer}
-.toggle-track{width:40px;height:22px;border-radius:11px;background:rgba(255,255,255,.1);border:1px solid var(--line);position:relative;transition:.2s;flex-shrink:0}
-.toggle-track.on{background:var(--blue);border-color:var(--blue)}
-.toggle-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s}
-.toggle-track.on .toggle-knob{left:20px}
-.override-label{font-size:12px;color:var(--muted)}
+    .pill-wrap { display:flex; flex-wrap:wrap; gap:6px; min-height:34px; padding:6px 10px; border:1px solid var(--line2); border-radius:10px; background:rgba(255,255,255,.02); }
+    .auth-pill { display:flex; align-items:center; gap:5px; padding:3px 8px 3px 10px; border-radius:999px; background:rgba(30,92,255,.12); border:1px solid rgba(30,92,255,.25); font-size:11px; color:var(--text); }
+    .auth-pill button { background:none; border:none; cursor:pointer; color:var(--muted2); font-size:14px; line-height:1; padding:0 0 0 2px; }
+    .auth-pill button:hover { color:var(--bad); }
+    .search-dropdown { position:relative; }
+    .search-results { position:absolute; top:100%; left:0; right:0; z-index:50; background:rgba(8,16,34,.98); border:1px solid var(--line2); border-radius:10px; margin-top:4px; max-height:180px; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,.55); }
+    .search-result-item { padding:9px 12px; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:8px; }
+    .search-result-item:hover { background:rgba(30,92,255,.12); }
+    .search-result-item span { font-size:11px; color:var(--muted2); }
 
-/* AUTHORIZER */
-.auth-search-wrap{position:relative}
-.auth-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#0e1a3a;border:1px solid var(--line);border-radius:12px;z-index:50;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,.5);display:none}
-.auth-dropdown.open{display:block}
-.auth-option{padding:10px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:space-between;transition:.1s}
-.auth-option:hover{background:rgba(255,255,255,.07)}
-.auth-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.auth-pill{display:inline-flex;align-items:center;gap:6px;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600;color:#93c5fd}
-.auth-pill button{background:none;border:none;color:rgba(147,197,253,.6);cursor:pointer;font-size:14px;line-height:1;padding:0;margin:0}
-.add-another{font-size:12px;color:#60a5fa;cursor:pointer;margin-top:8px;display:inline-block}
-.add-another:hover{text-decoration:underline}
+    .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:14px; }
+    @media(max-width:700px){ .stats{grid-template-columns:1fr 1fr} }
+    .stat-card { padding:12px 14px; border-radius:12px; background:rgba(0,0,0,.18); border:1px solid var(--line2); }
+    .stat-card .label { font-size:10px; letter-spacing:.4px; text-transform:uppercase; color:var(--muted2); }
+    .stat-card .val { font-size:22px; font-weight:700; margin-top:4px; color:var(--text); }
 
-/* MODAL */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);z-index:300;display:none;align-items:center;justify-content:center;padding:20px}
-.modal-overlay.open{display:flex}
-.modal{background:#0a0f22;border:1px solid var(--line);border-radius:20px;width:100%;max-width:560px;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 32px 80px rgba(0,0,0,.7)}
-.modal-head{padding:20px 24px;border-bottom:1px solid var(--line2);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.modal-head h3{margin:0;font-size:16px;font-weight:800;letter-spacing:-.02em}
-.modal-body{padding:24px;overflow-y:auto;flex:1}
-.modal-foot{padding:16px 24px;border-top:1px solid var(--line2);display:flex;justify-content:flex-end;gap:10px;flex-shrink:0}
+    .toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+    .toolbar .input { flex:1; min-width:180px; border-radius:999px; padding:9px 14px; }
 
-/* DEPT LIST */
-.dept-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-radius:10px;border:1px solid var(--line2);margin-bottom:8px;background:rgba(255,255,255,.03)}
-.dept-name{font-size:14px;font-weight:600}
-.dept-count{font-size:12px;color:var(--muted2)}
-.dept-actions{display:flex;gap:6px}
+    .no-access { flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:12px; padding:40px; text-align:center; color:var(--muted2); }
+    .no-access h2 { margin:0; font-size:18px; color:var(--text); }
+    .empty { padding:40px; text-align:center; color:var(--muted2); font-size:13px; }
 
-/* SHIFT PATTERN */
-.shift-item{border:1px solid var(--line2);border-radius:12px;padding:14px 16px;margin-bottom:10px;background:rgba(255,255,255,.03);display:flex;align-items:center;justify-content:space-between}
-.shift-name{font-size:14px;font-weight:700}
-.shift-days{font-size:11px;color:var(--muted2);margin-top:3px}
-.shift-selected{border-color:var(--blue);background:rgba(59,130,246,.08)}
-.shift-selected .shift-name{color:#60a5fa}
-.shift-day-row{display:grid;grid-template-columns:auto 1fr 1fr 1fr;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line2)}
-.shift-day-row:last-child{border-bottom:none}
-.shift-day-label{font-size:13px;font-weight:600;width:90px}
-.shift-day-row input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:var(--blue)}
-.shift-day-row input[type=time]{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:6px 10px;font-size:13px;font-family:inherit;width:100%;outline:none}
-.shift-day-row input[type=time]:disabled{opacity:.3}
+    .detail-row { display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid var(--line2); font-size:12px; }
+    .detail-row:last-child { border-bottom:none; }
+    .detail-row .dk { color:var(--muted2); white-space:nowrap; }
+    .detail-row .dv { color:var(--text); text-align:right; word-break:break-all; }
 
-/* ONBOARDING CONFIG */
-.ob-field-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-radius:10px;border:1px solid var(--line2);margin-bottom:8px;background:rgba(255,255,255,.03)}
-.ob-field-name{font-size:13px;font-weight:600}
-.ob-field-desc{font-size:11px;color:var(--muted2);margin-top:2px}
-
-/* INVITE MODAL */
-.invite-option{border:1px solid var(--line2);border-radius:14px;padding:16px 18px;cursor:pointer;margin-bottom:10px;transition:.15s;display:flex;align-items:center;justify-content:space-between}
-.invite-option:hover,.invite-option.selected{border-color:var(--blue);background:rgba(59,130,246,.08)}
-.invite-option-label{font-size:14px;font-weight:700}
-.invite-option-email{font-size:12px;color:var(--muted2);margin-top:3px}
-
-/* CONFIRM MODAL */
-.confirm-reassign{border:1px solid var(--line2);border-radius:10px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
-.confirm-reassign select{flex:1;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:7px 10px;font-size:13px;font-family:inherit;outline:none}
-</style>
+    ::-webkit-scrollbar { width:6px; height:6px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.12); border-radius:999px; }
+  </style>
 </head>
 <body>
-<div id="toastwrap"></div>
-
-<!-- TOP BAR -->
-<div class="topbar">
-  <div class="topbar-left">
-    <a href="/app/dashboard.html" class="back-btn">
-      <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M19 12H5M5 12l7-7M5 12l7 7"/></svg>
-      Dashboard
-    </a>
-    <div>
-      <div class="page-title">People</div>
-      <div class="page-sub" id="companyName">Loading…</div>
+<div class="shell">
+  <div class="head">
+    <div class="brand">
+      <div class="dot" aria-hidden="true"></div>
+      <div>
+        <h1>PEOPLE</h1>
+        <p>Employee management — SmartCore Core</p>
+      </div>
     </div>
-  </div>
-  <div class="topbar-right">
-    <button class="btn sm admin-only" id="btnOnboardingConfig" style="display:none">⚙ Onboarding Questions</button>
-    <button class="btn primary admin-only" id="btnAddEmployee" style="display:none">+ Add Employee</button>
-    <button class="btn sm" id="btnLogout">Log out</button>
-  </div>
-</div>
-
-<!-- CONTENT -->
-<div class="content">
-  <div class="stats-row" id="statsRow" style="display:none">
-    <div class="stat-card"><div class="val" id="statTotal">—</div><div class="lbl">Total Employees</div></div>
-    <div class="stat-card"><div class="val" id="statOnboarded">—</div><div class="lbl">Onboarded</div></div>
-    <div class="stat-card"><div class="val" id="statPending">—</div><div class="lbl">Pending Invite</div></div>
-    <div class="stat-card"><div class="val" id="statAdmins">—</div><div class="lbl">Admins / Owners</div></div>
-  </div>
-
-  <div class="search-bar">
-    <div class="search-wrap">
-      <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      <input type="text" id="searchInput" placeholder="Search employees…">
+    <div class="meta">
+      <div class="pill">
+        <span>Company:</span>
+        <b id="companyName" style="font-family:var(--mono);font-size:12px;">—</b>
+        <span style="opacity:.35">|</span>
+        <span>User:</span>
+        <b id="userEmail" style="font-family:var(--mono);font-size:12px;">—</b>
+        <span style="opacity:.35">|</span>
+        <span>Role:</span>
+        <b id="userRole" style="font-family:var(--mono);font-size:12px;">—</b>
+        <button class="btn" id="logoutBtn" style="padding:7px 12px;">Log out</button>
+      </div>
     </div>
   </div>
 
-  <div id="loadingState" style="text-align:center;padding:60px;color:var(--muted2)">Loading employees…</div>
+  <div class="tabs">
+    <div class="tab active" data-tab="employees">Employees</div>
+    <div class="tab" data-tab="settings">Settings</div>
+  </div>
 
-  <table class="emp-table" id="empTable" style="display:none">
-    <thead>
-      <tr>
-        <th>Employee</th>
-        <th>Department</th>
-        <th>Role</th>
-        <th>Type</th>
-        <th>Start Date</th>
-        <th>Onboarding</th>
-        <th class="admin-only" style="display:none">Actions</th>
-      </tr>
-    </thead>
-    <tbody id="empBody"></tbody>
-  </table>
-  <div class="empty-state" id="emptyState" style="display:none">
-    <div class="icon">👥</div>
-    <h3>No employees yet</h3>
-    <p>Add your first employee to get started.</p>
+  <div class="content" id="mainContent">
+    <div class="empty">Loading…</div>
   </div>
 </div>
 
-<!-- ADD EMPLOYEE PANEL -->
-<div class="overlay" id="panelOverlay"></div>
-<div class="panel" id="addPanel">
-  <div class="panel-head">
-    <h2>Add Employee</h2>
-    <button class="panel-close" id="panelClose">✕</button>
+<!-- Add Employee Drawer -->
+<div class="drawer-backdrop" id="addBackdrop"></div>
+<div class="drawer" id="addDrawer">
+  <div class="drawer-head">
+    <b>Add Employee</b>
+    <button class="btn" id="addCloseBtn" style="padding:6px 12px;">✕</button>
   </div>
-  <div class="panel-body">
-    <!-- Personal Info -->
-    <div class="section-label">👤 Personal Info</div>
-    <div class="field">
-      <label>Full Name<span class="req">*</span></label>
-      <input type="text" id="fName" placeholder="Jane Smith">
-    </div>
-    <div class="row2">
-      <div class="field">
-        <label>Job Title</label>
-        <input type="text" id="fTitle" placeholder="Senior Designer">
+  <div class="drawer-body">
+    <div class="fsec">
+      <div class="fsec-title">Personal</div>
+      <div class="fgrid">
+        <div class="field"><div class="label">Title</div>
+          <select id="af_title"><option value="">—</option><option>Mr</option><option>Mrs</option><option>Miss</option><option>Ms</option><option>Dr</option><option>Prof</option></select></div>
+        <div class="field"><div class="label">Full Name *</div><input class="input" id="af_full_name" placeholder="Jane Smith"/></div>
       </div>
-      <div class="field">
-        <label>Department</label>
-        <div class="custom-select" id="deptSelect">
-          <button type="button" class="custom-select-trigger" id="deptTrigger">
-            <span id="deptLabel">Select or create…</span>
-            <svg width="12" height="8" fill="none" viewBox="0 0 12 8"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          </button>
-          <div class="custom-select-menu" id="deptMenu" style="display:none"></div>
-        </div>
+      <div class="fgrid">
+        <div class="field"><div class="label">Preferred Name</div><input class="input" id="af_preferred_name" placeholder="Jane"/></div>
+        <div class="field"><div class="label">Pronouns</div><input class="input" id="af_pronouns" placeholder="she/her"/></div>
+      </div>
+      <div class="fgrid">
+        <div class="field"><div class="label">Date of Birth</div><input class="input" id="af_dob" type="date"/></div>
+        <div class="field"><div class="label">Gender</div>
+          <select id="af_gender"><option value="">Prefer not to say</option><option>Male</option><option>Female</option><option>Non-binary</option><option>Other</option></select></div>
       </div>
     </div>
-
-    <!-- Contact -->
-    <div class="section-label">📧 Contact</div>
-    <div class="field">
-      <label>Work Email</label>
-      <input type="email" id="fWorkEmail" placeholder="jane@company.com">
-    </div>
-    <div class="field">
-      <label>Personal Email</label>
-      <input type="email" id="fPersonalEmail" placeholder="jane@gmail.com">
-    </div>
-    <div class="field">
-      <label>Personal Phone</label>
-      <input type="tel" id="fPhone" placeholder="07700 900000">
-    </div>
-
-    <!-- Employment -->
-    <div class="section-label">💼 Employment</div>
-    <div class="row2">
-      <div class="field">
-        <label>Employment Type</label>
-        <div class="custom-select" id="empTypeSelect">
-          <button type="button" class="custom-select-trigger" id="empTypeTrigger">
-            <span id="empTypeLabel">Full Time</span>
-            <svg width="12" height="8" fill="none" viewBox="0 0 12 8"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          </button>
-          <div class="custom-select-menu" id="empTypeMenu" style="display:none">
-            <div class="custom-select-option selected" data-val="full_time">Full Time</div>
-            <div class="custom-select-option" data-val="part_time">Part Time</div>
-            <div class="custom-select-option" data-val="other">Other</div>
-          </div>
-        </div>
+    <div class="hr"></div>
+    <div class="fsec">
+      <div class="fsec-title">Employment</div>
+      <div class="fgrid">
+        <div class="field"><div class="label">Job Title</div><input class="input" id="af_job_title" placeholder="Software Engineer"/></div>
+        <div class="field"><div class="label">Department</div><select id="af_department"><option value="">— Select —</option></select></div>
       </div>
-      <div class="field">
-        <label>Notice Period</label>
-        <input type="text" id="fNotice" placeholder="e.g. 1 month">
+      <div class="fgrid">
+        <div class="field"><div class="label">Employment Type</div>
+          <select id="af_employment_type"><option value="full_time">Full Time</option><option value="part_time">Part Time</option><option value="other">Other</option></select></div>
+        <div class="field" id="af_custom_type_wrap" style="display:none"><div class="label">Specify Type</div><input class="input" id="af_employment_type_custom" placeholder="e.g. Zero Hours"/></div>
+        <div class="field" id="af_notice_wrap"><div class="label">Notice Period</div><input class="input" id="af_notice_period" placeholder="e.g. 1 month"/></div>
+      </div>
+      <div class="fgrid">
+        <div class="field"><div class="label">Role</div>
+          <select id="af_role"><option value="employee">Employee</option><option value="admin">Admin</option><option value="owner" id="ownerOption" style="display:none">Owner</option></select></div>
+        <div class="field"><div class="label">Start Date</div><input class="input" id="af_start_date" type="date"/></div>
       </div>
     </div>
-    <div class="field" id="empTypeCustomField" style="display:none">
-      <label>Specify Employment Type</label>
-      <input type="text" id="fEmpTypeCustom" placeholder="e.g. Zero Hours Contract">
-    </div>
-
-    <div class="row2">
-      <div class="field">
-        <label>Role</label>
-        <div class="custom-select" id="roleSelect">
-          <button type="button" class="custom-select-trigger" id="roleTrigger">
-            <span id="roleLabel">Employee</span>
-            <svg width="12" height="8" fill="none" viewBox="0 0 12 8"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          </button>
-          <div class="custom-select-menu" id="roleMenu" style="display:none">
-            <div class="custom-select-option selected" data-val="employee">Employee</div>
-            <div class="custom-select-option" data-val="admin">Admin</div>
-            <div class="custom-select-option owner-only" data-val="owner" style="display:none">Owner</div>
-          </div>
-        </div>
-        <div class="hint" id="roleHint" style="display:none">Only owners can assign the Owner role</div>
+    <div class="hr"></div>
+    <div class="fsec">
+      <div class="fsec-title">Annual Leave</div>
+      <div class="fgrid">
+        <div class="field"><div class="label">Allowance (days)</div><input class="input" id="af_leave" type="number" value="28" min="0" max="366"/></div>
+        <div class="field" id="af_override_field" style="display:none"><div class="label">Executive Override (days)</div><input class="input" id="af_override" type="number" step="0.5" min="0"/></div>
       </div>
-      <div class="field">
-        <label>Annual Leave Allowance</label>
-        <input type="number" id="fLeave" value="28" min="0" max="365" placeholder="28">
-        <div class="hint">days per year</div>
+      <div id="af_prorata_box" class="info-box" style="display:none"></div>
+      <label class="toggle-row" id="af_override_toggle_row">
+        <span class="label">Executive allowance override (current year only)</span>
+        <span class="toggle" id="af_override_toggle"></span>
+      </label>
+    </div>
+    <div class="hr"></div>
+    <div class="fsec">
+      <div class="fsec-title">Contact</div>
+      <div class="fgrid">
+        <div class="field"><div class="label">Work Email</div><input class="input" id="af_work_email" type="email" placeholder="jane@company.com"/></div>
+        <div class="field"><div class="label">Personal Email</div><input class="input" id="af_personal_email" type="email" placeholder="jane@gmail.com"/></div>
+      </div>
+      <div class="fgrid">
+        <div class="field"><div class="label">Phone</div><input class="input" id="af_phone" placeholder="+44 7700 900000"/></div>
       </div>
     </div>
-
-    <div class="field">
-      <label>Start Date</label>
-      <input type="date" id="fStartDate">
-      <div id="prorataBox" class="prorata-box" style="display:none"></div>
-      <div class="override-toggle" id="overrideToggle" style="display:none">
-        <div class="toggle-track" id="overrideTrack"><div class="toggle-knob"></div></div>
-        <span class="override-label">Executive Allowance Override for this year</span>
-      </div>
-      <div id="overrideField" style="display:none;margin-top:8px">
-        <div class="field" style="margin:0">
-          <label>Override days for this year (supports half days)</label>
-          <input type="number" id="fOverride" min="0" max="365" step="0.5" placeholder="e.g. 14.5">
-          <div class="hint info">This overrides the pro-rata calculation for the current year only.</div>
-        </div>
+    <div class="hr"></div>
+    <div class="fsec">
+      <div class="fsec-title">Authorising Manager(s)</div>
+      <div class="pill-wrap" id="af_auth_pills"></div>
+      <div class="search-dropdown">
+        <input class="input" id="af_auth_search" placeholder="Search admins / owners…" autocomplete="off" style="border-radius:10px;"/>
+        <div class="search-results" id="af_auth_results" style="display:none"></div>
       </div>
     </div>
-
-    <!-- Authorisers -->
-    <div class="section-label">✅ Authorising Users</div>
-    <div class="hint" style="margin-bottom:12px;color:var(--muted2);font-size:12px">These users will receive and action leave requests from this employee.</div>
-    <div class="auth-search-wrap" id="authSearchWrap">
-      <input type="text" id="authSearchInput" placeholder="Search admins and owners…" autocomplete="off"
-        style="background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;color:var(--text);padding:10px 14px;font-size:14px;font-family:inherit;width:100%;box-sizing:border-box;outline:none">
-      <div class="auth-dropdown" id="authDropdown"></div>
+    <div class="hr"></div>
+    <div class="fsec">
+      <div class="fsec-title">Shift Pattern</div>
+      <div class="fgrid">
+        <div class="field"><div class="label">Pattern</div><select id="af_shift"><option value="">— None —</option></select></div>
+        <div style="display:flex;align-items:flex-end;"><button class="btn" id="manageShiftsBtn" style="width:100%">Manage Patterns</button></div>
+      </div>
     </div>
-    <div class="auth-pills" id="authPills"></div>
-    <span class="add-another" id="addAnotherAuth" style="display:none">+ Add Another Authoriser?</span>
-
-    <!-- Shift Pattern -->
-    <div class="section-label">🕐 Shift Pattern</div>
-    <button type="button" class="btn" id="btnShiftPattern" style="width:100%">Configure Shift Pattern</button>
-    <div class="hint" id="shiftPatternHint" style="margin-top:8px">No shift pattern selected</div>
   </div>
-  <div class="panel-foot">
-    <button class="btn" id="panelCancel">Cancel</button>
-    <button class="btn primary" id="btnSubmitEmployee">Add Employee →</button>
+  <div class="drawer-foot">
+    <button class="btn" id="addCancelBtn">Cancel</button>
+    <button class="btn primary" id="addSaveBtn">Add Employee</button>
   </div>
 </div>
 
-<!-- DEPARTMENT MANAGER MODAL -->
-<div class="modal-overlay" id="deptModal">
+<!-- View Employee Drawer -->
+<div class="drawer-backdrop" id="viewBackdrop"></div>
+<div class="drawer" id="viewDrawer">
+  <div class="drawer-head">
+    <b id="viewDrawerTitle">Employee</b>
+    <button class="btn" id="viewCloseBtn" style="padding:6px 12px;">✕</button>
+  </div>
+  <div class="drawer-body" id="viewDrawerBody"></div>
+  <div class="drawer-foot" id="viewDrawerFoot"></div>
+</div>
+
+<!-- Department Modal -->
+<div class="modal-backdrop hide" id="deptModal">
   <div class="modal">
-    <div class="modal-head">
-      <h3>Manage Departments</h3>
-      <button class="panel-close" onclick="closeDeptModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="field" style="display:flex;gap:8px;margin-bottom:20px">
-        <input type="text" id="newDeptInput" placeholder="New department name…" style="flex:1">
-        <button class="btn primary sm" id="btnCreateDept">Create</button>
-      </div>
-      <div id="deptList"></div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" onclick="closeDeptModal()">Done</button>
+    <div class="mhead"><b>Manage Departments</b><button class="btn" id="deptModalClose" style="padding:5px 10px;">✕</button></div>
+    <div class="mbody" id="deptModalBody"></div>
+    <div class="mfoot">
+      <input class="input" id="newDeptName" placeholder="New department name…" style="flex:1;border-radius:999px;"/>
+      <button class="btn primary" id="createDeptBtn">Create</button>
     </div>
   </div>
 </div>
 
-<!-- DELETE DEPT CONFIRM MODAL -->
-<div class="modal-overlay" id="deleteDeptModal">
-  <div class="modal" style="max-width:460px">
-    <div class="modal-head">
-      <h3>⚠️ Delete Department</h3>
-      <button class="panel-close" onclick="document.getElementById('deleteDeptModal').classList.remove('open')">✕</button>
-    </div>
-    <div class="modal-body">
-      <p id="deleteDeptMsg" style="font-size:14px;color:var(--muted);margin:0 0 16px"></p>
-      <div id="reassignList"></div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" onclick="document.getElementById('deleteDeptModal').classList.remove('open')">Cancel</button>
-      <button class="btn danger" id="btnConfirmDeleteDept">Delete Anyway</button>
+<!-- Shift Pattern Modal -->
+<div class="modal-backdrop hide" id="shiftModal">
+  <div class="modal" style="width:min(680px,100%)">
+    <div class="mhead"><b>Shift Patterns</b><button class="btn" id="shiftModalClose" style="padding:5px 10px;">✕</button></div>
+    <div class="mbody" id="shiftModalBody"></div>
+    <div class="mfoot">
+      <input class="input" id="newShiftName" placeholder="New pattern name…" style="flex:1;border-radius:999px;"/>
+      <button class="btn primary" id="createShiftBtn">Create</button>
     </div>
   </div>
 </div>
 
-<!-- SHIFT PATTERN MODAL -->
-<div class="modal-overlay" id="shiftModal">
-  <div class="modal" style="max-width:600px">
-    <div class="modal-head">
-      <h3 id="shiftModalTitle">Configure Shift Pattern</h3>
-      <button class="panel-close" onclick="closeShiftModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div id="shiftPatternList"></div>
-      <div style="margin-top:20px;border-top:1px solid var(--line2);padding-top:20px">
-        <div style="font-size:13px;font-weight:700;margin-bottom:14px;color:var(--muted)">+ Create New Shift Pattern</div>
-        <div class="field" style="margin-bottom:12px">
-          <label>Pattern Name</label>
-          <input type="text" id="newShiftName" placeholder="e.g. Standard 9–5, Night Shift…">
-        </div>
-        <div id="shiftDayTable"></div>
-        <button class="btn primary sm" id="btnSaveShift" style="margin-top:12px">Save Pattern</button>
-      </div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" onclick="closeShiftModal()">Done</button>
-    </div>
-  </div>
-</div>
-
-<!-- ONBOARDING CONFIG MODAL -->
-<div class="modal-overlay" id="obConfigModal">
+<!-- Onboarding Config Modal -->
+<div class="modal-backdrop hide" id="onboardingModal">
   <div class="modal">
-    <div class="modal-head">
-      <h3>Adjust Onboarding Questions</h3>
-      <button class="panel-close" onclick="document.getElementById('obConfigModal').classList.remove('open')">✕</button>
-    </div>
-    <div class="modal-body">
-      <p style="font-size:13px;color:var(--muted2);margin:0 0 16px">Required fields are always mandatory. Toggle optional fields to make them required for your company.</p>
-      <div id="obFieldList"></div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" onclick="document.getElementById('obConfigModal').classList.remove('open')">Cancel</button>
-      <button class="btn primary" id="btnSaveObConfig">Save Changes</button>
+    <div class="mhead"><b>Onboarding Questions</b><button class="btn" id="onboardingModalClose" style="padding:5px 10px;">✕</button></div>
+    <div class="mbody" id="onboardingModalBody"></div>
+    <div class="mfoot">
+      <button class="btn" id="onboardingModalCancel">Cancel</button>
+      <button class="btn primary" id="saveOnboardingBtn">Save</button>
     </div>
   </div>
 </div>
 
-<!-- INVITE MODAL -->
-<div class="modal-overlay" id="inviteModal">
-  <div class="modal" style="max-width:440px">
-    <div class="modal-head">
-      <h3>📧 Send Onboarding Invite</h3>
-      <button class="panel-close" onclick="document.getElementById('inviteModal').classList.remove('open')">✕</button>
-    </div>
-    <div class="modal-body">
-      <p style="font-size:14px;color:var(--muted);margin:0 0 20px">Where would you like to send <strong id="inviteEmpName"></strong>'s onboarding link?</p>
-      <div id="inviteOptions"></div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" onclick="document.getElementById('inviteModal').classList.remove('open')">Cancel</button>
-      <button class="btn primary" id="btnSendInvite">Send Invite →</button>
-    </div>
+<!-- Invite Modal -->
+<div class="modal-backdrop hide" id="inviteModal">
+  <div class="modal" style="width:min(420px,100%)">
+    <div class="mhead"><b>Send Onboarding Invite</b><button class="btn" id="inviteModalClose" style="padding:5px 10px;">✕</button></div>
+    <div class="mbody" id="inviteModalBody"></div>
+    <div class="mfoot" id="inviteModalFoot"></div>
   </div>
 </div>
+
+<div class="toastwrap" id="toastwrap"></div>
 
 <script type="module">
+import { supabaseClient } from '/app/shared/supabase.js';
 import { requireAuth, getMyProfile, logout } from '/app/shared/auth.js';
-import { toast } from '/app/shared/ui.js';
+import { toast, $ } from '/app/shared/ui.js';
 
-const SUPABASE_URL = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts';
-
+const sb = supabaseClient();
 let profile, token, employees = [], departments = [], shiftPatterns = [];
-let selectedDeptId = null, selectedDeptLabel = 'Select or create…';
-let selectedEmpType = 'full_time', selectedRole = 'employee';
-let selectedShiftId = null, selectedShiftName = null;
-let authorizers = []; // [{id, full_name, role}]
+let addAuthorizers = [];
 let overrideOn = false;
-let pendingInviteEmpId = null, selectedInviteTo = null;
-let deleteDeptTarget = null;
-let obConfig = {};
-
-const DAYS = ['mon','tue','wed','thu','fri','sat','sun'];
-const DAY_LABELS = {mon:'Monday',tue:'Tuesday',wed:'Wednesday',thu:'Thursday',fri:'Friday',sat:'Saturday',sun:'Sunday'};
-const shiftDefaults = {mon:{a:true,s:'09:00',e:'17:00'},tue:{a:true,s:'09:00',e:'17:00'},wed:{a:true,s:'09:00',e:'17:00'},thu:{a:true,s:'09:00',e:'17:00'},fri:{a:true,s:'09:00',e:'17:00'},sat:{a:false,s:'09:00',e:'17:00'},sun:{a:false,s:'09:00',e:'17:00'}};
-let newShiftSchedule = JSON.parse(JSON.stringify(shiftDefaults));
-
-const OB_FIELDS = [
-  {key:'title',label:'Title',required:true},
-  {key:'full_name',label:'Full Name',required:true},
-  {key:'preferred_name',label:'Preferred Name',required:false},
-  {key:'personal_email',label:'Personal Email',required:true},
-  {key:'personal_phone',label:'Personal Phone',required:true},
-  {key:'pronouns',label:'Pronouns',required:false},
-  {key:'date_of_birth',label:'Date of Birth',required:true},
-  {key:'address',label:'Address',required:true},
-  {key:'emergency_contact_1',label:'Emergency Contact 1',required:true},
-  {key:'emergency_contact_2',label:'Emergency Contact 2',required:false},
-  {key:'national_insurance',label:'National Insurance Number',required:false},
-  {key:'bank_details',label:'Bank Account Details',required:false},
-  {key:'student_loan_status',label:'Student Loan Status',required:false},
-  {key:'tax_code',label:'Tax Code',required:false},
-  {key:'gender',label:'Gender',required:false},
-  {key:'dietary_requirements',label:'Dietary Requirements',required:false},
-  {key:'accessibility_needs',label:'Accessibility Needs',required:false},
-];
-
-async function api(path, opts = {}) {
-  const r = await fetch(`/api/core/${path}`, {
-    ...opts,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) },
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || r.statusText);
-  return data;
-}
+let currentOnboardingConfig = {};
 
 async function init() {
   try {
-    const session = await requireAuth();
+    const session = await requireAuth({ redirectTo: '/app/index.html' });
     token = session.access_token;
     profile = await getMyProfile();
-    document.getElementById('companyName').textContent = profile.full_name + ' · ' + profile.role;
 
-    const isAdmin = ['admin','owner'].includes(profile.role);
-    if (isAdmin) {
-      document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
-      if (profile.role === 'owner') {
-        document.querySelectorAll('.owner-only').forEach(el => el.style.display = '');
-      } else {
-        document.getElementById('roleHint').style.display = 'block';
-      }
+    const { data: u } = await sb.auth.getUser();
+    $('userEmail').textContent = u?.user?.email || '—';
+    $('userRole').textContent = profile.role;
+    $('logoutBtn').onclick = () => logout({ redirectTo: '/app/index.html' });
+
+    const { data: co } = await sb.from('smartcore_core_companies').select('company_name').eq('id', profile.company_id).maybeSingle();
+    $('companyName').textContent = co?.company_name || '—';
+
+    if (!['admin','owner'].includes(profile.role)) {
+      $('mainContent').innerHTML = `<div class="no-access"><h2>Access Restricted</h2><p>Only admins and owners can manage employees.</p></div>`;
+      return;
     }
 
+    if (profile.role === 'owner') $('ownerOption').style.display = '';
+
+    setupTabs();
     await loadAll();
-    renderShiftDayTable();
-
-    // Auth search
-    const authInput = document.getElementById('authSearchInput');
-    authInput.addEventListener('input', debounce(searchAuthorizers, 300));
-    authInput.addEventListener('focus', () => { if (authInput.value) searchAuthorizers(); });
-    document.addEventListener('click', e => {
-      if (!document.getElementById('authSearchWrap').contains(e.target)) {
-        document.getElementById('authDropdown').classList.remove('open');
-      }
-    });
-
-    document.getElementById('fStartDate').addEventListener('input', updateProrata);
-    document.getElementById('fLeave').addEventListener('input', updateProrata);
-    document.getElementById('overrideTrack').addEventListener('click', toggleOverride);
-    document.getElementById('btnLogout').addEventListener('click', () => logout());
-    document.getElementById('btnAddEmployee').addEventListener('click', openPanel);
-    document.getElementById('panelClose').addEventListener('click', closePanel);
-    document.getElementById('panelCancel').addEventListener('click', closePanel);
-    document.getElementById('panelOverlay').addEventListener('click', closePanel);
-    document.getElementById('btnSubmitEmployee').addEventListener('click', submitEmployee);
-    document.getElementById('btnShiftPattern').addEventListener('click', openShiftModal);
-    document.getElementById('btnOnboardingConfig').addEventListener('click', openObConfig);
-    document.getElementById('btnSaveObConfig').addEventListener('click', saveObConfig);
-    document.getElementById('btnSendInvite').addEventListener('click', sendInvite);
-    document.getElementById('searchInput').addEventListener('input', renderTable);
-    document.getElementById('btnCreateDept').addEventListener('click', createDept);
-    document.getElementById('btnSaveShift').addEventListener('click', saveNewShift);
-    document.getElementById('btnConfirmDeleteDept').addEventListener('click', confirmDeleteDept);
-    setupCustomSelect('empType', ['full_time','part_time','other'], ['Full Time','Part Time','Other'], v => {
-      selectedEmpType = v;
-      document.getElementById('empTypeCustomField').style.display = v === 'other' ? 'block' : 'none';
-    });
-    setupCustomSelect('role', ['employee','admin'], ['Employee','Admin'], v => { selectedRole = v; });
-
-  } catch (e) {
-    console.error(e);
-    toast('error','Error', e.message);
+    renderEmployeesTab();
+    setupDrawers();
+    setupModals();
+  } catch(e) {
+    toast('bad', 'Error', e.message);
   }
+}
+
+async function api(method, path, body) {
+  const res = await fetch('/api/core/' + path, {
+    method,
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
 }
 
 async function loadAll() {
-  document.getElementById('loadingState').style.display = 'block';
-  document.getElementById('empTable').style.display = 'none';
-  document.getElementById('emptyState').style.display = 'none';
-  try {
-    const data = await api('get-employees');
-    employees = data.employees || [];
-    departments = data.departments || [];
-    shiftPatterns = data.shift_patterns || [];
-    renderTable();
-    renderStats();
-    renderDeptMenu();
-  } catch(e) {
-    toast('error','Failed to load', e.message);
-  }
-  document.getElementById('loadingState').style.display = 'none';
+  [employees, departments, shiftPatterns] = await Promise.all([
+    api('GET', 'get-employees'),
+    api('GET', 'departments'),
+    api('GET', 'shift-patterns'),
+  ]);
 }
 
-function renderStats() {
-  document.getElementById('statsRow').style.display = 'flex';
-  document.getElementById('statTotal').textContent = employees.length;
-  document.getElementById('statOnboarded').textContent = employees.filter(e => e.onboarding_completed).length;
-  document.getElementById('statPending').textContent = employees.filter(e => !e.onboarding_completed).length;
-  document.getElementById('statAdmins').textContent = employees.filter(e => ['admin','owner'].includes(e.role)).length;
+function setupTabs() {
+  document.querySelectorAll('.tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      if (t.dataset.tab === 'employees') renderEmployeesTab();
+      else renderSettingsTab();
+    });
+  });
 }
 
-function renderTable() {
-  const q = document.getElementById('searchInput').value.toLowerCase();
-  const filtered = employees.filter(e =>
-    e.full_name.toLowerCase().includes(q) ||
-    (e.employee_id || '').toLowerCase().includes(q) ||
-    (e.job_title || '').toLowerCase().includes(q)
-  );
-  const isAdmin = ['admin','owner'].includes(profile.role);
-  const tbody = document.getElementById('empBody');
-  document.querySelectorAll('.admin-only').forEach(el => el.style.display = isAdmin ? '' : 'none');
+function renderEmployeesTab() {
+  const total   = employees.length;
+  const active  = employees.filter(e => e.onboarding_completed).length;
+  const pending = employees.filter(e => !e.onboarding_completed).length;
+  const admins  = employees.filter(e => ['admin','owner'].includes(e.role)).length;
 
-  if (!filtered.length) {
-    document.getElementById('empTable').style.display = 'none';
-    document.getElementById('emptyState').style.display = 'block';
+  $('mainContent').innerHTML = `
+    <div class="stats">
+      <div class="stat-card"><div class="label">Total</div><div class="val">${total}</div></div>
+      <div class="stat-card"><div class="label">Onboarded</div><div class="val">${active}</div></div>
+      <div class="stat-card"><div class="label">Pending</div><div class="val">${pending}</div></div>
+      <div class="stat-card"><div class="label">Admins / Owners</div><div class="val">${admins}</div></div>
+    </div>
+    <div class="toolbar">
+      <input class="input" id="searchInput" placeholder="Search employees…" autocomplete="off"/>
+      <button class="btn primary" id="addEmpBtn">+ Add Employee</button>
+      <button class="btn" id="manageDeptBtn">Departments</button>
+      <button class="btn" id="onboardingConfigBtn">Onboarding Questions</button>
+    </div>
+    <div class="panel" style="padding:0;overflow:hidden">
+      <div id="tableWrap"></div>
+    </div>
+  `;
+
+  renderTable(employees);
+
+  $('searchInput').oninput = e => {
+    const q = e.target.value.toLowerCase();
+    renderTable(employees.filter(emp =>
+      (emp.full_name||'').toLowerCase().includes(q) ||
+      (emp.job_title||'').toLowerCase().includes(q) ||
+      (emp.employee_id||'').toLowerCase().includes(q) ||
+      (emp.work_email||'').toLowerCase().includes(q)
+    ));
+  };
+
+  $('addEmpBtn').onclick = openAddDrawer;
+  $('manageDeptBtn').onclick = openDeptModal;
+  $('onboardingConfigBtn').onclick = openOnboardingModal;
+}
+
+function renderTable(rows) {
+  if (!rows.length) {
+    $('tableWrap').innerHTML = `<div class="empty">No employees found.</div>`;
     return;
   }
-  document.getElementById('empTable').style.display = 'table';
-  document.getElementById('emptyState').style.display = 'none';
-
-  tbody.innerHTML = filtered.map(e => {
-    const initials = e.full_name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
-    const dept = e.department?.name || '—';
-    const type = e.employment_type === 'full_time' ? 'Full Time' : e.employment_type === 'part_time' ? 'Part Time' : (e.employment_type_custom || 'Other');
-    const sd = e.start_date ? new Date(e.start_date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—';
-    const roleBadge = `<span class="badge ${e.role}">${e.role.charAt(0).toUpperCase()+e.role.slice(1)}</span>`;
-    const obBadge = e.onboarding_completed
-      ? '<span class="badge complete">✓ Complete</span>'
-      : '<span class="badge pending">⏳ Pending</span>';
-    const actionCell = isAdmin ? `<td><div style="display:flex;gap:6px">
-      ${!e.onboarding_completed ? `<button class="btn sm" onclick="openInviteModal('${e.id}','${e.full_name.replace(/'/g,"\\'")}','${e.personal_email||''}','${e.work_email||'')'}')">Send Invite</button>` : ''}
-    </div></td>` : '';
-
-    return `<tr>
-      <td><div class="emp-info"><div class="emp-avatar">${initials}</div><div><div class="emp-name">${esc(e.full_name)}</div><div class="emp-id">${esc(e.employee_id)}</div></div></div></td>
-      <td>${esc(dept)}</td>
-      <td>${roleBadge}</td>
-      <td>${esc(type)}</td>
-      <td>${sd}</td>
-      <td>${obBadge}</td>
-      ${actionCell}
-    </tr>`;
-  }).join('');
+  $('tableWrap').innerHTML = `
+    <table class="emp-table">
+      <thead><tr>
+        <th>Employee</th><th>ID</th><th>Department</th><th>Role</th><th>Status</th><th>Start Date</th>
+      </tr></thead>
+      <tbody>${rows.map(e => `
+        <tr data-id="${e.id}">
+          <td><div class="emp-name">
+            <div class="avatar">${initials(e.full_name)}</div>
+            <div><b>${esc(e.full_name)}</b><span>${esc(e.job_title||'')}</span></div>
+          </div></td>
+          <td style="font-family:var(--mono);font-size:11px;color:var(--muted2)">${esc(e.employee_id)}</td>
+          <td style="font-size:11px;color:var(--muted)">${esc(e.department_name||'—')}</td>
+          <td><span class="role-badge role-${e.role}">${e.role}</span></td>
+          <td><span class="badge ${e.onboarding_completed?'ok':'warn'}">${e.onboarding_completed?'ONBOARDED':'PENDING'}</span></td>
+          <td style="font-size:11px;color:var(--muted2)">${e.start_date?fmtDate(e.start_date):'—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  $('tableWrap').querySelectorAll('tr[data-id]').forEach(tr => {
+    tr.onclick = () => openViewDrawer(employees.find(e => e.id === tr.dataset.id));
+  });
 }
 
-// ---- DEPT MENU ----
-function renderDeptMenu() {
-  const menu = document.getElementById('deptMenu');
-  menu.innerHTML = `
-    ${departments.map(d => `<div class="custom-select-option${d.id===selectedDeptId?' selected':''}" data-id="${d.id}" data-name="${esc(d.name)}">${esc(d.name)}</div>`).join('')}
-    <div class="custom-select-option create" id="deptCreateOpt">+ Create new department</div>
-    <div class="custom-select-option manage" id="deptManageOpt">⚙ Manage departments</div>
-  `;
-  menu.querySelectorAll('[data-id]').forEach(opt => {
-    opt.addEventListener('click', () => {
-      selectedDeptId = opt.dataset.id;
-      selectedDeptLabel = opt.dataset.name;
-      document.getElementById('deptLabel').textContent = selectedDeptLabel;
-      document.getElementById('deptMenu').style.display = 'none';
-      document.getElementById('deptTrigger').classList.remove('open');
-    });
+function openViewDrawer(emp) {
+  $('viewDrawerTitle').textContent = emp.full_name;
+  const dept  = departments.find(d => d.id === emp.department_id);
+  const shift = shiftPatterns.find(s => s.id === emp.shift_pattern_id);
+  const rows = [
+    ['Employee ID', emp.employee_id],
+    ['Job Title', emp.job_title||'—'],
+    ['Department', dept?.name||'—'],
+    ['Role', emp.role],
+    ['Employment Type', fmtEmpType(emp.employment_type, emp.employment_type_custom)],
+    ['Start Date', emp.start_date?fmtDate(emp.start_date):'—'],
+    ['Notice Period', emp.notice_period||'—'],
+    ['Work Email', emp.work_email||'—'],
+    ['Personal Email', emp.personal_email||'—'],
+    ['Phone', emp.personal_phone||'—'],
+    ['Annual Leave', `${emp.executive_allowance_override??emp.annual_leave_allowance??28} days`],
+    ['Shift Pattern', shift?.name||'—'],
+    ['Onboarding', emp.onboarding_completed?'Completed':'Pending'],
+  ];
+  $('viewDrawerBody').innerHTML = `
+    <div class="fsec">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:8px">
+        <div class="avatar" style="width:44px;height:44px;font-size:16px">${initials(emp.full_name)}</div>
+        <div><b style="font-size:16px">${esc(emp.full_name)}</b><br><span style="font-size:12px;color:var(--muted2)">${esc(emp.job_title||'')}</span></div>
+      </div>
+      ${rows.map(([k,v])=>`<div class="detail-row"><span class="dk">${k}</span><span class="dv">${esc(String(v))}</span></div>`).join('')}
+    </div>`;
+  $('viewDrawerFoot').innerHTML = '';
+  if (!emp.onboarding_completed) {
+    const btn = document.createElement('button');
+    btn.className='btn primary'; btn.textContent='Send Onboarding Invite';
+    btn.onclick = () => { closeDrawer('view'); openInviteModal(emp); };
+    $('viewDrawerFoot').appendChild(btn);
+  }
+  openDrawer('view');
+}
+
+function openAddDrawer() {
+  document.querySelectorAll('#addDrawer input, #addDrawer select').forEach(el => {
+    if (el.id==='af_leave') el.value='28';
+    else if (el.type!=='checkbox') el.value='';
   });
-  document.getElementById('deptCreateOpt').onclick = () => {
-    const name = prompt('New department name:');
-    if (name?.trim()) createDeptInline(name.trim());
+  addAuthorizers=[];
+  $('af_auth_pills').innerHTML='';
+  overrideOn=false;
+  $('af_override_toggle').classList.remove('on');
+  $('af_override_field').style.display='none';
+  $('af_prorata_box').style.display='none';
+  $('af_custom_type_wrap').style.display='none';
+  $('af_notice_wrap').style.display='';
+
+  const dsel=$('af_department');
+  dsel.innerHTML='<option value="">— Select —</option>';
+  departments.forEach(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=d.name;dsel.appendChild(o);});
+  const mo=document.createElement('option');mo.value='__manage';mo.textContent='+ Manage departments';dsel.appendChild(mo);
+
+  const ssel=$('af_shift');
+  ssel.innerHTML='<option value="">— None —</option>';
+  shiftPatterns.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=s.name;ssel.appendChild(o);});
+
+  openDrawer('add');
+}
+
+function setupDrawers() {
+  $('addCloseBtn').onclick=$('addCancelBtn').onclick=()=>closeDrawer('add');
+  $('addBackdrop').onclick=()=>closeDrawer('add');
+  $('viewCloseBtn').onclick=()=>closeDrawer('view');
+  $('viewBackdrop').onclick=()=>closeDrawer('view');
+
+  $('af_employment_type').onchange=function(){
+    const isOther=this.value==='other';
+    $('af_custom_type_wrap').style.display=isOther?'':'none';
+    $('af_notice_wrap').style.display=isOther?'none':'';
   };
-  document.getElementById('deptManageOpt').onclick = openDeptModal;
+
+  $('af_department').onchange=function(){
+    if(this.value==='__manage'){this.value='';openDeptModal();}
+  };
+
+  $('af_start_date').oninput=updateProrata;
+  $('af_leave').oninput=updateProrata;
+
+  $('af_override_toggle_row').onclick=()=>{
+    overrideOn=!overrideOn;
+    $('af_override_toggle').classList.toggle('on',overrideOn);
+    $('af_override_field').style.display=overrideOn?'':'none';
+  };
+
+  $('manageShiftsBtn').onclick=openShiftModal;
+
+  let authDebounce;
+  $('af_auth_search').oninput=function(){
+    clearTimeout(authDebounce);
+    const q=this.value.trim();
+    if(!q){$('af_auth_results').style.display='none';return;}
+    authDebounce=setTimeout(()=>searchAuthorizers(q),250);
+  };
+  document.addEventListener('click',e=>{
+    if(!$('af_auth_results')?.contains(e.target)&&e.target!==$('af_auth_search'))
+      $('af_auth_results').style.display='none';
+  });
+
+  $('addSaveBtn').onclick=saveEmployee;
 }
 
-async function createDeptInline(name) {
-  try {
-    const dept = await api('departments', { method:'POST', body: JSON.stringify({name}) });
-    departments.push(dept);
-    selectedDeptId = dept.id; selectedDeptLabel = dept.name;
-    document.getElementById('deptLabel').textContent = dept.name;
-    document.getElementById('deptMenu').style.display = 'none';
-    renderDeptMenu();
-    toast('success','Department created', dept.name);
-  } catch(e) { toast('error','Error', e.message); }
+function updateProrata(){
+  const start=$('af_start_date').value;
+  const allowance=parseInt($('af_leave').value)||28;
+  if(!start){$('af_prorata_box').style.display='none';return;}
+  const today=new Date();
+  const startDate=new Date(start);
+  if(startDate.getFullYear()<today.getFullYear()){$('af_prorata_box').style.display='none';return;}
+  const yearEnd=new Date(today.getFullYear(),11,31);
+  const daysLeft=Math.max(0,Math.round((yearEnd-startDate)/86400000));
+  const prorata=Math.round((daysLeft/365)*allowance*10)/10;
+  $('af_prorata_box').style.display='';
+  $('af_prorata_box').innerHTML=`Pro-rata for ${today.getFullYear()}: <b>${prorata} days</b> (${daysLeft} days remaining in year × ${allowance} day allowance ÷ 365)`;
 }
 
-document.getElementById('deptTrigger').addEventListener('click', () => {
-  const menu = document.getElementById('deptMenu');
-  const isOpen = menu.style.display !== 'none';
-  menu.style.display = isOpen ? 'none' : 'block';
-  document.getElementById('deptTrigger').classList.toggle('open', !isOpen);
-});
-
-// ---- DEPT MODAL ----
-function openDeptModal() {
-  document.getElementById('deptMenu').style.display = 'none';
-  document.getElementById('deptModal').classList.add('open');
-  renderDeptList();
-}
-window.closeDeptModal = () => { document.getElementById('deptModal').classList.remove('open'); loadAll(); };
-
-function renderDeptList() {
-  const list = document.getElementById('deptList');
-  if (!departments.length) { list.innerHTML = '<p style="color:var(--muted2);font-size:13px">No departments yet.</p>'; return; }
-  list.innerHTML = departments.map(d => `
-    <div class="dept-item">
-      <div><div class="dept-name">${esc(d.name)}</div><div class="dept-count">${d.employee_count||0} employee${d.employee_count!==1?'s':''}</div></div>
-      <div class="dept-actions">
-        <button class="btn sm danger" onclick="deleteDept('${d.id}','${esc(d.name)}',${d.employee_count||0})">Delete</button>
-      </div>
-    </div>`).join('');
-}
-
-async function createDept() {
-  const name = document.getElementById('newDeptInput').value.trim();
-  if (!name) return;
-  try {
-    const dept = await api('departments', { method:'POST', body: JSON.stringify({name}) });
-    departments.push({...dept, employee_count:0});
-    document.getElementById('newDeptInput').value = '';
-    renderDeptList();
-    renderDeptMenu();
-    toast('success','Created', name);
-  } catch(e) { toast('error','Error', e.message); }
-}
-
-window.deleteDept = async (id, name, count) => {
-  deleteDeptTarget = { id, name };
-  if (count > 0) {
-    const empsInDept = employees.filter(e => e.department?.name === name || (e.department_id === id));
-    document.getElementById('deleteDeptMsg').textContent = `Are you sure? ${count} employee${count!==1?'s are':' is'} still assigned to "${name}".`;
-    const rl = document.getElementById('reassignList');
-    rl.innerHTML = empsInDept.map(e => `
-      <div class="confirm-reassign">
-        <div style="flex:0 0 auto;font-size:13px;font-weight:600;min-width:120px">${esc(e.full_name)}</div>
-        <select data-emp="${e.id}" onchange="void 0">
-          <option value="">— No department —</option>
-          ${departments.filter(d=>d.id!==id).map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join('')}
-        </select>
+async function searchAuthorizers(q){
+  try{
+    const data=await api('GET',`search-employees?q=${encodeURIComponent(q)}&roles=admin,owner`);
+    const res=$('af_auth_results');
+    const filtered=data.filter(e=>!addAuthorizers.find(a=>a.id===e.id));
+    if(!filtered.length){res.style.display='none';return;}
+    res.innerHTML=filtered.map(e=>`
+      <div class="search-result-item" data-id="${e.id}" data-name="${esc(e.full_name)}">
+        <div class="avatar" style="width:22px;height:22px;font-size:9px">${initials(e.full_name)}</div>
+        ${esc(e.full_name)}<span>${e.role}</span>
       </div>`).join('');
-    document.getElementById('deleteDeptModal').classList.add('open');
-  } else {
-    if (!confirm(`Delete department "${name}"?`)) return;
-    await doDeleteDept(id);
-  }
-};
-
-async function confirmDeleteDept() {
-  const selects = document.querySelectorAll('#reassignList select');
-  for (const sel of selects) {
-    const empId = sel.dataset.emp;
-    await api(`departments?action=reassign`, { method:'POST', body: JSON.stringify({ employee_id: empId, new_department_id: sel.value || null }) });
-  }
-  await doDeleteDept(deleteDeptTarget.id);
-  document.getElementById('deleteDeptModal').classList.remove('open');
-}
-
-async function doDeleteDept(id) {
-  try {
-    await api(`departments?id=${id}`, { method:'DELETE' });
-    departments = departments.filter(d => d.id !== id);
-    if (selectedDeptId === id) { selectedDeptId = null; selectedDeptLabel = 'Select or create…'; document.getElementById('deptLabel').textContent = selectedDeptLabel; }
-    renderDeptList(); renderDeptMenu();
-    toast('success','Deleted', 'Department removed');
-    await loadAll();
-  } catch(e) { toast('error','Error', e.message); }
-}
-
-// ---- SHIFT MODAL ----
-function openShiftModal() {
-  const name = document.getElementById('fName').value.trim().split(' ')[0];
-  const apos = name.endsWith('s') ? "'" : "'s";
-  document.getElementById('shiftModalTitle').textContent = `Configure ${name || 'Employee'}${name ? apos : ''} Shift Pattern`;
-  renderShiftPatternList();
-  document.getElementById('shiftModal').classList.add('open');
-}
-window.closeShiftModal = () => document.getElementById('shiftModal').classList.remove('open');
-
-function renderShiftPatternList() {
-  const list = document.getElementById('shiftPatternList');
-  if (!shiftPatterns.length) { list.innerHTML = '<p style="color:var(--muted2);font-size:13px">No shift patterns yet. Create one below.</p>'; return; }
-  list.innerHTML = shiftPatterns.map(p => {
-    const activeDays = Object.entries(p.schedule||{}).filter(([,v])=>v.a).map(([k])=>DAY_LABELS[k]?.slice(0,3)||k).join(', ') || 'No days set';
-    const isSelected = p.id === selectedShiftId;
-    return `<div class="shift-item${isSelected?' shift-selected':''}">
-      <div>
-        <div class="shift-name">${esc(p.name)}</div>
-        <div class="shift-days">${activeDays}</div>
-      </div>
-      <div style="display:flex;gap:6px;align-items:center">
-        ${isSelected ? '<span style="color:var(--blue);font-size:12px;font-weight:700">✓ Selected</span>' : `<button class="btn sm" onclick="selectShift('${p.id}','${esc(p.name)}')">Select</button>`}
-        <button class="btn sm danger" onclick="deleteShiftPattern('${p.id}')">Delete</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-window.selectShift = (id, name) => {
-  selectedShiftId = id; selectedShiftName = name;
-  document.getElementById('shiftPatternHint').textContent = `Selected: ${name}`;
-  document.getElementById('btnShiftPattern').textContent = `✓ ${name}`;
-  renderShiftPatternList();
-};
-
-window.deleteShiftPattern = async (id) => {
-  if (!confirm('Delete this shift pattern?')) return;
-  try {
-    await api(`shift-patterns?id=${id}`, { method:'DELETE' });
-    shiftPatterns = shiftPatterns.filter(p => p.id !== id);
-    if (selectedShiftId === id) { selectedShiftId = null; selectedShiftName = null; document.getElementById('shiftPatternHint').textContent = 'No shift pattern selected'; document.getElementById('btnShiftPattern').textContent = 'Configure Shift Pattern'; }
-    renderShiftPatternList();
-    toast('success','Deleted','Shift pattern removed');
-  } catch(e) { toast('error','Error', e.message); }
-};
-
-function renderShiftDayTable() {
-  document.getElementById('shiftDayTable').innerHTML = DAYS.map(d => `
-    <div class="shift-day-row">
-      <div><input type="checkbox" id="sh_${d}" ${newShiftSchedule[d].a?'checked':''} onchange="newShiftSchedule['${d}'].a=this.checked;toggleShiftDayInputs('${d}')"> <label for="sh_${d}" class="shift-day-label">${DAY_LABELS[d]}</label></div>
-      <input type="time" id="sh_${d}_s" value="${newShiftSchedule[d].s}" ${newShiftSchedule[d].a?'':'disabled'} onchange="newShiftSchedule['${d}'].s=this.value">
-      <input type="time" id="sh_${d}_e" value="${newShiftSchedule[d].e}" ${newShiftSchedule[d].a?'':'disabled'} onchange="newShiftSchedule['${d}'].e=this.value">
-      <span style="font-size:11px;color:var(--muted2)">${newShiftSchedule[d].a?'Active':'Off'}</span>
-    </div>`).join('');
-}
-
-window.toggleShiftDayInputs = (d) => {
-  document.getElementById(`sh_${d}_s`).disabled = !newShiftSchedule[d].a;
-  document.getElementById(`sh_${d}_e`).disabled = !newShiftSchedule[d].a;
-};
-
-async function saveNewShift() {
-  const name = document.getElementById('newShiftName').value.trim();
-  if (!name) { toast('error','Name required','Enter a shift pattern name'); return; }
-  try {
-    const schedule = {};
-    DAYS.forEach(d => { schedule[d] = { a: newShiftSchedule[d].a, s: newShiftSchedule[d].s, e: newShiftSchedule[d].e }; });
-    const pattern = await api('shift-patterns', { method:'POST', body: JSON.stringify({ name, schedule }) });
-    shiftPatterns.push(pattern);
-    document.getElementById('newShiftName').value = '';
-    newShiftSchedule = JSON.parse(JSON.stringify(shiftDefaults));
-    renderShiftDayTable();
-    renderShiftPatternList();
-    toast('success','Created', name);
-  } catch(e) { toast('error','Error', e.message); }
-}
-
-// ---- AUTHORIZERS ----
-let authSearchTimeout = null;
-async function searchAuthorizers() {
-  const q = document.getElementById('authSearchInput').value.trim();
-  if (!q) { document.getElementById('authDropdown').classList.remove('open'); return; }
-  try {
-    const results = await api(`search-employees?q=${encodeURIComponent(q)}&roles=admin,owner`);
-    const dropdown = document.getElementById('authDropdown');
-    const alreadyAdded = authorizers.map(a => a.id);
-    const filtered = results.filter(r => !alreadyAdded.includes(r.id));
-    if (!filtered.length) { dropdown.innerHTML = '<div class="auth-option" style="color:var(--muted2)">No results</div>'; dropdown.classList.add('open'); return; }
-    dropdown.innerHTML = filtered.map(r => `
-      <div class="auth-option" data-id="${r.id}" data-name="${esc(r.full_name)}" data-role="${r.role}">
-        <span>${esc(r.full_name)}</span>
-        <span class="badge ${r.role}" style="font-size:10px">${r.role}</span>
-      </div>`).join('');
-    dropdown.querySelectorAll('.auth-option[data-id]').forEach(opt => {
-      opt.addEventListener('click', () => addAuthorizer({ id: opt.dataset.id, full_name: opt.dataset.name, role: opt.dataset.role }));
+    res.style.display='block';
+    res.querySelectorAll('.search-result-item').forEach(el=>{
+      el.onclick=()=>addAuthPill(el.dataset.id,el.dataset.name);
     });
-    dropdown.classList.add('open');
-  } catch(e) {}
+  }catch{}
 }
 
-function addAuthorizer(a) {
-  authorizers.push(a);
-  document.getElementById('authSearchInput').value = '';
-  document.getElementById('authDropdown').classList.remove('open');
+function addAuthPill(id,name){
+  if(addAuthorizers.find(a=>a.id===id))return;
+  addAuthorizers.push({id,name});
+  $('af_auth_results').style.display='none';
+  $('af_auth_search').value='';
   renderAuthPills();
 }
 
-function renderAuthPills() {
-  document.getElementById('authPills').innerHTML = authorizers.map(a => `
-    <div class="auth-pill">
-      ${esc(a.full_name)}
-      <span class="badge ${a.role}" style="font-size:10px;padding:1px 6px">${a.role}</span>
-      <button onclick="removeAuthorizer('${a.id}')" title="Remove">✕</button>
-    </div>`).join('');
-  document.getElementById('addAnotherAuth').style.display = authorizers.length > 0 ? 'inline-block' : 'none';
-  document.getElementById('authSearchInput').style.display = authorizers.length > 0 ? 'none' : '';
+function renderAuthPills(){
+  $('af_auth_pills').innerHTML=addAuthorizers.map(a=>`
+    <div class="auth-pill">${esc(a.name)}<button onclick="window.__removeAuth('${a.id}')">×</button></div>`).join('');
 }
+window.__removeAuth=id=>{addAuthorizers=addAuthorizers.filter(a=>a.id!==id);renderAuthPills();};
 
-window.removeAuthorizer = (id) => {
-  authorizers = authorizers.filter(a => a.id !== id);
-  renderAuthPills();
-  if (!authorizers.length) document.getElementById('authSearchInput').style.display = '';
-};
-
-document.getElementById('addAnotherAuth').addEventListener('click', () => {
-  document.getElementById('authSearchInput').style.display = '';
-  document.getElementById('authSearchInput').focus();
-});
-
-// ---- PRO-RATA ----
-function updateProrata() {
-  const sd = document.getElementById('fStartDate').value;
-  const allowance = parseFloat(document.getElementById('fLeave').value) || 28;
-  const box = document.getElementById('prorataBox');
-  const toggleRow = document.getElementById('overrideToggle');
-  if (!sd) { box.style.display = 'none'; toggleRow.style.display = 'none'; return; }
-
-  const startDate = new Date(sd);
-  const thisYear = new Date().getFullYear();
-  if (startDate.getFullYear() === thisYear) {
-    const yearEnd = new Date(thisYear, 11, 31);
-    const daysLeft = Math.ceil((yearEnd - startDate) / 86400000) + 1;
-    const prorata = Math.round((daysLeft / 365) * allowance * 10) / 10;
-    box.textContent = `Pro-rata for ${thisYear}: ${prorata} days (${daysLeft} days remaining ÷ 365 × ${allowance} allowance)`;
-    box.style.display = 'block';
-    toggleRow.style.display = 'flex';
-  } else {
-    box.style.display = 'none';
-    toggleRow.style.display = 'none';
-    overrideOn = false;
-    document.getElementById('overrideTrack').classList.remove('on');
-    document.getElementById('overrideField').style.display = 'none';
-  }
-}
-
-function toggleOverride() {
-  overrideOn = !overrideOn;
-  document.getElementById('overrideTrack').classList.toggle('on', overrideOn);
-  document.getElementById('overrideField').style.display = overrideOn ? 'block' : 'none';
-}
-
-// ---- CUSTOM SELECT HELPER ----
-function setupCustomSelect(id, vals, labels, onChange) {
-  const trigger = document.getElementById(`${id}Trigger`);
-  const menu = document.getElementById(`${id}Menu`);
-  const label = document.getElementById(`${id}Label`);
-  trigger.addEventListener('click', () => {
-    const isOpen = menu.style.display !== 'none';
-    menu.style.display = isOpen ? 'none' : 'block';
-    trigger.classList.toggle('open', !isOpen);
-  });
-  menu.querySelectorAll('.custom-select-option').forEach(opt => {
-    opt.addEventListener('click', () => {
-      menu.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
-      opt.classList.add('selected');
-      label.textContent = opt.textContent.trim();
-      menu.style.display = 'none';
-      trigger.classList.remove('open');
-      onChange(opt.dataset.val);
-    });
-  });
-  document.addEventListener('click', e => {
-    if (!trigger.closest('.custom-select').contains(e.target)) {
-      menu.style.display = 'none';
-      trigger.classList.remove('open');
-    }
-  });
-}
-
-// ---- PANEL ----
-function openPanel() {
-  document.getElementById('addPanel').classList.add('open');
-  document.getElementById('panelOverlay').classList.add('open');
-  resetPanel();
-}
-function closePanel() {
-  document.getElementById('addPanel').classList.remove('open');
-  document.getElementById('panelOverlay').classList.remove('open');
-}
-function resetPanel() {
-  ['fName','fTitle','fWorkEmail','fPersonalEmail','fPhone','fNotice','fEmpTypeCustom','fOverride'].forEach(id => { document.getElementById(id).value = ''; });
-  document.getElementById('fLeave').value = '28';
-  document.getElementById('fStartDate').value = '';
-  selectedDeptId = null; selectedDeptLabel = 'Select or create…'; document.getElementById('deptLabel').textContent = selectedDeptLabel;
-  selectedEmpType = 'full_time'; document.getElementById('empTypeLabel').textContent = 'Full Time';
-  selectedRole = 'employee'; document.getElementById('roleLabel').textContent = 'Employee';
-  selectedShiftId = null; selectedShiftName = null;
-  document.getElementById('shiftPatternHint').textContent = 'No shift pattern selected';
-  document.getElementById('btnShiftPattern').textContent = 'Configure Shift Pattern';
-  authorizers = []; renderAuthPills();
-  document.getElementById('authSearchInput').style.display = '';
-  overrideOn = false; document.getElementById('overrideTrack').classList.remove('on');
-  document.getElementById('overrideField').style.display = 'none';
-  document.getElementById('prorataBox').style.display = 'none';
-  document.getElementById('overrideToggle').style.display = 'none';
-  document.getElementById('empTypeCustomField').style.display = 'none';
-}
-
-// ---- SUBMIT EMPLOYEE ----
-async function submitEmployee() {
-  const btn = document.getElementById('btnSubmitEmployee');
-  const full_name = document.getElementById('fName').value.trim();
-  if (!full_name) { toast('error','Required','Full name is required'); return; }
-
-  btn.disabled = true; btn.textContent = 'Adding…';
-  try {
-    const body = {
+async function saveEmployee(){
+  const btn=$('addSaveBtn');
+  try{
+    const full_name=$('af_full_name').value.trim();
+    if(!full_name){toast('warn','Required','Full name is required');return;}
+    btn.disabled=true;btn.textContent='Saving…';
+    const payload={
       full_name,
-      job_title: document.getElementById('fTitle').value.trim() || null,
-      department_id: selectedDeptId || null,
-      work_email: document.getElementById('fWorkEmail').value.trim() || null,
-      personal_email: document.getElementById('fPersonalEmail').value.trim() || null,
-      personal_phone: document.getElementById('fPhone').value.trim() || null,
-      employment_type: selectedEmpType,
-      employment_type_custom: selectedEmpType === 'other' ? document.getElementById('fEmpTypeCustom').value.trim() : null,
-      notice_period: document.getElementById('fNotice').value.trim() || null,
-      role: selectedRole,
-      annual_leave_allowance: parseInt(document.getElementById('fLeave').value) || 28,
-      executive_allowance_override: overrideOn ? (parseFloat(document.getElementById('fOverride').value) || null) : null,
-      start_date: document.getElementById('fStartDate').value || null,
-      shift_pattern_id: selectedShiftId || null,
-      authorizer_ids: authorizers.map(a => a.id),
+      title:$('af_title').value||null,
+      preferred_name:$('af_preferred_name').value.trim()||null,
+      pronouns:$('af_pronouns').value.trim()||null,
+      date_of_birth:$('af_dob').value||null,
+      gender:$('af_gender').value||null,
+      job_title:$('af_job_title').value.trim()||null,
+      department_id:$('af_department').value||null,
+      employment_type:$('af_employment_type').value,
+      employment_type_custom:$('af_employment_type_custom').value.trim()||null,
+      notice_period:$('af_notice_period').value.trim()||null,
+      role:$('af_role').value,
+      start_date:$('af_start_date').value||null,
+      annual_leave_allowance:parseInt($('af_leave').value)||28,
+      executive_allowance_override:overrideOn?(parseFloat($('af_override').value)||null):null,
+      work_email:$('af_work_email').value.trim()||null,
+      personal_email:$('af_personal_email').value.trim()||null,
+      personal_phone:$('af_phone').value.trim()||null,
+      shift_pattern_id:$('af_shift').value||null,
+      authorizer_ids:addAuthorizers.map(a=>a.id),
     };
-
-    const emp = await api('add-employee', { method:'POST', body: JSON.stringify(body) });
-    employees.push(emp);
-    renderTable(); renderStats();
-    closePanel();
-    toast('success','Employee added', `${full_name} — ${emp.employee_id}`);
-    pendingInviteEmpId = emp.id;
-    setTimeout(() => openInviteModal(emp.id, emp.full_name, emp.personal_email, emp.work_email), 400);
-  } catch(e) {
-    toast('error','Error', e.message);
+    const result=await api('POST','add-employee',payload);
+    toast('ok','Employee Added',`${full_name} added (${result.employee_id})`);
+    closeDrawer('add');
+    await loadAll();
+    renderEmployeesTab();
+    const newEmp=employees.find(e=>e.id===result.id)||{...payload,id:result.id,employee_id:result.employee_id};
+    if(payload.work_email||payload.personal_email)openInviteModal(newEmp);
+  }catch(e){
+    toast('bad','Error',e.message);
+  }finally{
+    btn.disabled=false;btn.textContent='Add Employee';
   }
-  btn.disabled = false; btn.textContent = 'Add Employee →';
 }
 
-// ---- INVITE MODAL ----
-window.openInviteModal = (id, name, personalEmail, workEmail) => {
-  pendingInviteEmpId = id; selectedInviteTo = null;
-  document.getElementById('inviteEmpName').textContent = name;
-  const opts = document.getElementById('inviteOptions');
-  opts.innerHTML = '';
-  if (personalEmail) {
-    opts.innerHTML += `<div class="invite-option" data-to="personal" onclick="selectInviteTo(this,'personal')">
-      <div><div class="invite-option-label">Personal Email</div><div class="invite-option-email">${esc(personalEmail)}</div></div>
-      <div id="invPersCheck" style="display:none">✓</div>
+function openInviteModal(emp){
+  const hasWork=!!emp.work_email, hasPersonal=!!emp.personal_email;
+  $('inviteModalBody').innerHTML=`
+    <p style="font-size:13px;color:var(--muted);margin:0 0 14px">Send an onboarding invite to <b style="color:var(--text)">${esc(emp.full_name)}</b>.</p>
+    ${hasWork?`<label class="check" style="margin-bottom:10px;cursor:pointer;gap:8px"><input type="radio" name="invite_to" value="work" ${!hasPersonal?'checked':''}/> Work — <span style="font-family:var(--mono);font-size:11px">${esc(emp.work_email)}</span></label><br/>`:''}
+    ${hasPersonal?`<label class="check" style="cursor:pointer;gap:8px"><input type="radio" name="invite_to" value="personal" checked/> Personal — <span style="font-family:var(--mono);font-size:11px">${esc(emp.personal_email)}</span></label>`:''}
+    ${!hasWork&&!hasPersonal?`<p style="color:var(--bad);font-size:12px">No email on file.</p>`:''}`;
+  $('inviteModalFoot').innerHTML='';
+  const cancel=document.createElement('button');cancel.className='btn';cancel.textContent='Later';
+  cancel.onclick=()=>$('inviteModal').classList.add('hide');
+  $('inviteModalFoot').appendChild(cancel);
+  if(hasWork||hasPersonal){
+    const send=document.createElement('button');send.className='btn primary';send.textContent='Send Invite';
+    send.onclick=async()=>{
+      send.disabled=true;send.textContent='Sending…';
+      try{
+        const send_to=document.querySelector('input[name="invite_to"]:checked')?.value||'personal';
+        await api('POST','send-employee-invite',{employee_id:emp.id,send_to});
+        toast('ok','Invite Sent',`Onboarding link sent to ${emp.full_name}`);
+        $('inviteModal').classList.add('hide');
+      }catch(e){toast('bad','Error',e.message);send.disabled=false;send.textContent='Send Invite';}
+    };
+    $('inviteModalFoot').appendChild(send);
+  }
+  $('inviteModal').classList.remove('hide');
+  $('inviteModalClose').onclick=()=>$('inviteModal').classList.add('hide');
+}
+
+function openDeptModal(){renderDeptModal();$('deptModal').classList.remove('hide');}
+
+function renderDeptModal(){
+  $('deptModalBody').innerHTML=!departments.length?`<div class="empty">No departments yet.</div>`:`
+    <div class="list">${departments.map(d=>`
+      <div class="item">
+        <div class="left"><b>${esc(d.name)}</b><span>${d.employee_count||0} employee(s)</span></div>
+        <div class="row"><span class="badge">${d.employee_count||0}</span>
+          <button class="btn bad" id="delDept_${d.id}">Delete</button>
+        </div>
+      </div>`).join('')}
     </div>`;
-  }
-  if (workEmail) {
-    opts.innerHTML += `<div class="invite-option" data-to="work" onclick="selectInviteTo(this,'work')">
-      <div><div class="invite-option-label">Work Email</div><div class="invite-option-email">${esc(workEmail)}</div></div>
-      <div id="invWorkCheck" style="display:none">✓</div>
-    </div>`;
-  }
-  if (!personalEmail && !workEmail) {
-    opts.innerHTML = '<p style="color:var(--amber);font-size:13px">⚠ No email address set for this employee. Edit their record to add one first.</p>';
-  }
-  document.getElementById('inviteModal').classList.add('open');
-};
-
-window.selectInviteTo = (el, to) => {
-  selectedInviteTo = to;
-  document.querySelectorAll('.invite-option').forEach(o => o.classList.remove('selected'));
-  el.classList.add('selected');
-};
-
-async function sendInvite() {
-  if (!pendingInviteEmpId || !selectedInviteTo) { toast('error','Select email','Choose where to send the invite'); return; }
-  const btn = document.getElementById('btnSendInvite');
-  btn.disabled = true; btn.textContent = 'Sending…';
-  try {
-    await api('send-employee-invite', { method:'POST', body: JSON.stringify({ employee_id: pendingInviteEmpId, send_to: selectedInviteTo }) });
-    document.getElementById('inviteModal').classList.remove('open');
-    toast('success','Invite sent','Onboarding email has been sent');
-  } catch(e) { toast('error','Error', e.message); }
-  btn.disabled = false; btn.textContent = 'Send Invite →';
+  departments.forEach(d=>{
+    $(`delDept_${d.id}`)?.addEventListener('click',()=>deleteDept(d));
+  });
+  $('newDeptName').value='';
 }
 
-// ---- ONBOARDING CONFIG ----
-async function openObConfig() {
-  try {
-    const cfg = await api('onboarding-config');
-    obConfig = cfg.required_fields || {};
-  } catch(e) { obConfig = {}; }
-  renderObFields();
-  document.getElementById('obConfigModal').classList.add('open');
+async function deleteDept(dept){
+  if((dept.employee_count||0)>0){
+    const empsInDept=employees.filter(e=>e.department_id===dept.id);
+    $('deptModalBody').innerHTML=`
+      <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Reassign ${empsInDept.length} employee(s) before deleting <b>${esc(dept.name)}</b>:</p>
+      ${empsInDept.map(e=>`
+        <div class="item" style="margin-bottom:8px">
+          <div class="left"><b>${esc(e.full_name)}</b></div>
+          <select id="reassign_${e.id}" style="background:rgba(255,255,255,.03);border:1px solid var(--line2);color:var(--text);padding:7px 10px;border-radius:10px;font-size:11px">
+            <option value="">— Remove dept —</option>
+            ${departments.filter(d2=>d2.id!==dept.id).map(d2=>`<option value="${d2.id}">${esc(d2.name)}</option>`).join('')}
+          </select>
+        </div>`).join('')}
+      <div style="display:flex;gap:10px;margin-top:12px;justify-content:flex-end">
+        <button class="btn" id="reassignCancel">Cancel</button>
+        <button class="btn bad" id="reassignConfirm">Reassign &amp; Delete</button>
+      </div>`;
+    $('reassignCancel').onclick=renderDeptModal;
+    $('reassignConfirm').onclick=async()=>{
+      try{
+        const reassignments=empsInDept.map(e=>({employee_id:e.id,department_id:$(`reassign_${e.id}`).value||null}));
+        await api('POST','departments?action=reassign',{reassignments,delete_department_id:dept.id});
+        toast('ok','Done',`${dept.name} deleted`);
+        await loadAll();openDeptModal();
+      }catch(e){toast('bad','Error',e.message);}
+    };
+    return;
+  }
+  try{
+    await api('DELETE',`departments?id=${dept.id}`);
+    toast('ok','Deleted',dept.name+' removed');
+    await loadAll();renderDeptModal();
+  }catch(e){toast('bad','Error',e.message);}
 }
 
-function renderObFields() {
-  document.getElementById('obFieldList').innerHTML = OB_FIELDS.map(f => `
-    <div class="ob-field-item">
-      <div>
-        <div class="ob-field-name">${f.label}</div>
-        <div class="ob-field-desc">${f.required ? 'Always required for all companies' : 'Optional by default'}</div>
+function openShiftModal(){renderShiftModal();$('shiftModal').classList.remove('hide');}
+
+function renderShiftModal(){
+  const days=['mon','tue','wed','thu','fri','sat','sun'];
+  const dayLabels=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  $('shiftModalBody').innerHTML=`
+    ${shiftPatterns.length?`<div class="list" style="margin-bottom:14px">${shiftPatterns.map(s=>`
+      <div class="item">
+        <div class="left"><b>${esc(s.name)}</b><span>${fmtSchedule(s.schedule)}</span></div>
+        <button class="btn bad" id="delShift_${s.id}">Delete</button>
+      </div>`).join('')}</div>`:`<div class="empty" style="padding:12px">No patterns yet.</div>`}
+    <div class="hr"></div>
+    <div class="fsec-title" style="margin-bottom:8px">New pattern schedule</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr>
+        <th style="text-align:left;padding:6px;color:var(--muted2);font-size:10px;text-transform:uppercase">Day</th>
+        <th style="padding:6px;color:var(--muted2);font-size:10px;text-transform:uppercase">Active</th>
+        <th style="padding:6px;color:var(--muted2);font-size:10px;text-transform:uppercase">Start</th>
+        <th style="padding:6px;color:var(--muted2);font-size:10px;text-transform:uppercase">End</th>
+      </tr>
+      ${days.map((d,i)=>`<tr>
+        <td style="padding:6px;color:var(--muted)">${dayLabels[i]}</td>
+        <td style="padding:6px;text-align:center"><input type="checkbox" id="sh_${d}_a" ${'mon,tue,wed,thu,fri'.includes(d)?'checked':''}></td>
+        <td style="padding:6px"><input class="input" id="sh_${d}_s" type="time" value="09:00" style="border-radius:8px;padding:6px 8px"></td>
+        <td style="padding:6px"><input class="input" id="sh_${d}_e" type="time" value="17:00" style="border-radius:8px;padding:6px 8px"></td>
+      </tr>`).join('')}
+    </table>`;
+  shiftPatterns.forEach(s=>{
+    $(`delShift_${s.id}`)?.addEventListener('click',async()=>{
+      try{await api('DELETE',`shift-patterns?id=${s.id}`);toast('ok','Deleted',s.name);await loadAll();renderShiftModal();}
+      catch(e){toast('bad','Error',e.message);}
+    });
+  });
+}
+
+function fmtSchedule(schedule){
+  if(!schedule)return'No schedule';
+  const active=Object.entries(schedule).filter(([,v])=>v.a).map(([k])=>k.charAt(0).toUpperCase()+k.slice(1));
+  return active.length?active.join(', '):'No active days';
+}
+
+const ONBOARDING_FIELDS=[
+  {key:'pronouns',label:'Pronouns'},{key:'date_of_birth',label:'Date of Birth'},
+  {key:'gender',label:'Gender'},{key:'address',label:'Home Address'},
+  {key:'emergency_contacts',label:'Emergency Contacts'},{key:'bank_details',label:'Bank Details'},
+  {key:'national_insurance',label:'National Insurance Number'},{key:'student_loan',label:'Student Loan Status'},
+  {key:'tax_code',label:'Tax Code'},{key:'dietary_requirements',label:'Dietary Requirements'},
+  {key:'accessibility_needs',label:'Accessibility Needs'},
+];
+
+async function openOnboardingModal(){
+  try{
+    const cfg=await api('GET','onboarding-config');
+    currentOnboardingConfig=cfg.required_fields||{};
+    $('onboardingModalBody').innerHTML=`
+      <div class="subtle" style="margin-bottom:12px">Choose which fields employees must complete during onboarding.</div>
+      <div class="list">${ONBOARDING_FIELDS.map(f=>`
+        <div class="item">
+          <div class="left"><b>${f.label}</b></div>
+          <label class="toggle-row" style="gap:8px;cursor:pointer">
+            <span class="toggle ${currentOnboardingConfig[f.key]?'on':''}" id="ot_${f.key}"></span>
+          </label>
+        </div>`).join('')}
+      </div>`;
+    ONBOARDING_FIELDS.forEach(f=>{
+      $(`ot_${f.key}`).closest('.toggle-row').onclick=()=>{
+        currentOnboardingConfig[f.key]=!currentOnboardingConfig[f.key];
+        $(`ot_${f.key}`).classList.toggle('on',!!currentOnboardingConfig[f.key]);
+      };
+    });
+    $('onboardingModal').classList.remove('hide');
+  }catch(e){toast('bad','Error',e.message);}
+}
+
+function setupModals(){
+  $('deptModalClose').onclick=()=>$('deptModal').classList.add('hide');
+  $('createDeptBtn').onclick=async()=>{
+    const name=$('newDeptName').value.trim();if(!name)return;
+    try{await api('POST','departments',{name});toast('ok','Created',name);await loadAll();renderDeptModal();}
+    catch(e){toast('bad','Error',e.message);}
+  };
+  $('shiftModalClose').onclick=()=>$('shiftModal').classList.add('hide');
+  $('createShiftBtn').onclick=async()=>{
+    const name=$('newShiftName').value.trim();if(!name)return;
+    const schedule=buildScheduleFromModal();
+    try{await api('POST','shift-patterns',{name,schedule});toast('ok','Created',name);await loadAll();openShiftModal();}
+    catch(e){toast('bad','Error',e.message);}
+  };
+  $('onboardingModalClose').onclick=$('onboardingModalCancel').onclick=()=>$('onboardingModal').classList.add('hide');
+  $('saveOnboardingBtn').onclick=async()=>{
+    try{await api('POST','onboarding-config',{required_fields:currentOnboardingConfig});toast('ok','Saved','Onboarding questions updated');$('onboardingModal').classList.add('hide');}
+    catch(e){toast('bad','Error',e.message);}
+  };
+}
+
+function buildScheduleFromModal(){
+  const days=['mon','tue','wed','thu','fri','sat','sun'];
+  const schedule={};
+  days.forEach(d=>{schedule[d]={a:!!$(`sh_${d}_a`)?.checked,s:$(`sh_${d}_s`)?.value||'09:00',e:$(`sh_${d}_e`)?.value||'17:00'};});
+  return schedule;
+}
+
+function renderSettingsTab(){
+  $('mainContent').innerHTML=`
+    <div class="panel" style="max-width:540px">
+      <h2>Core Settings</h2>
+      <div class="subtle">Configuration for the SmartCore People module.</div>
+      <div class="hr"></div>
+      <div class="list">
+        <div class="item"><div class="left"><b>Departments</b><span>Manage company departments</span></div><button class="btn primary" id="settingsDeptBtn">Manage</button></div>
+        <div class="item"><div class="left"><b>Shift Patterns</b><span>Configure work schedules</span></div><button class="btn primary" id="settingsShiftBtn">Manage</button></div>
+        <div class="item"><div class="left"><b>Onboarding Questions</b><span>Customise what employees complete</span></div><button class="btn primary" id="settingsOnboardingBtn">Manage</button></div>
       </div>
-      ${f.required
-        ? '<span class="badge employee">Required</span>'
-        : `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px">
-            <div class="toggle-track${obConfig[f.key]?' on':''}" id="obToggle_${f.key}" onclick="toggleObField('${f.key}')"><div class="toggle-knob"></div></div>
-            <span id="obLabel_${f.key}" style="color:var(--muted2)">${obConfig[f.key]?'Required for your company':'Optional'}</span>
-          </label>`
-      }
-    </div>`).join('');
+    </div>`;
+  $('settingsDeptBtn').onclick=openDeptModal;
+  $('settingsShiftBtn').onclick=openShiftModal;
+  $('settingsOnboardingBtn').onclick=openOnboardingModal;
 }
 
-window.toggleObField = (key) => {
-  obConfig[key] = !obConfig[key];
-  const track = document.getElementById(`obToggle_${key}`);
-  track.classList.toggle('on', obConfig[key]);
-  document.getElementById(`obLabel_${key}`).textContent = obConfig[key] ? 'Required for your company' : 'Optional';
-};
+function openDrawer(name){$(`${name}Drawer`).classList.add('open');$(`${name}Backdrop`).classList.add('open');document.body.style.overflow='hidden';}
+function closeDrawer(name){$(`${name}Drawer`).classList.remove('open');$(`${name}Backdrop`).classList.remove('open');document.body.style.overflow='';}
 
-async function saveObConfig() {
-  try {
-    await api('onboarding-config', { method:'POST', body: JSON.stringify({ required_fields: obConfig }) });
-    document.getElementById('obConfigModal').classList.remove('open');
-    toast('success','Saved','Onboarding questions updated');
-  } catch(e) { toast('error','Error', e.message); }
-}
-
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function debounce(fn, ms) { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); }; }
+function initials(name){return(name||'').split(' ').filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase()||'?';}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fmtDate(d){try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch{return d;}}
+function fmtEmpType(type,custom){if(type==='full_time')return'Full Time';if(type==='part_time')return'Part Time';return custom||'Other';}
 
 init();
 </script>
