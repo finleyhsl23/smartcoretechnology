@@ -30,7 +30,7 @@ export async function onRequestGet(context) {
       authorizers: authMap[e.id] || [],
     }));
 
-    return json({ employees: enriched, departments: departments || [], shift_patterns: shiftPatterns || [] });
+    return json(enriched);
   } catch (e) {
     return json({ error: e.message }, 500);
   }
