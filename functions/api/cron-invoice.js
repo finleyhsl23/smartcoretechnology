@@ -263,6 +263,41 @@ function invoiceHtml(inv, o, modules) {
 </html>`;
 }
 
+// --- Suspension email -------------------------------------------------------
+
+function suspensionEmailHtml(o) {
+  const SITE = 'https://smartcoretechnology.co.uk';
+  function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif}
+.wrap{max-width:560px;margin:32px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 32px rgba(0,0,0,.08)}
+.hdr{background:#020617;padding:24px 32px}.body{padding:32px}
+h1{font-size:22px;font-weight:800;margin:0 0 8px;color:#0f172a}
+p{font-size:14px;line-height:1.7;color:#334155;margin:0 0 14px}
+.btn{display:inline-block;background:#dc2626;color:#fff!important;text-decoration:none;font-weight:700;font-size:14px;padding:13px 28px;border-radius:10px;margin:8px 0 20px}
+.ref{background:#eff6ff;border-radius:10px;padding:16px 20px;margin:16px 0;font-family:ui-monospace,monospace;font-size:22px;font-weight:800;color:#2563eb;letter-spacing:.06em}
+.tag{display:inline-block;background:#dc2626;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-bottom:12px}
+.ftr{padding:20px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;text-align:center}</style>
+</head><body>
+<div class="wrap">
+<div class="hdr"><table cellpadding="0" cellspacing="0"><tr>
+  <td style="width:42px;height:42px;border-radius:12px;overflow:hidden;vertical-align:middle"><img src="https://smartcoretechnology.co.uk/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png" alt="SmartCore" width="42" height="42" style="display:block;border-radius:12px" /></td>
+  <td style="padding-left:12px;color:#fff;font-size:15px;font-weight:700">SmartCore Technology</td>
+</tr></table></div>
+<div class="body">
+<span class="tag">✕ Service Suspended</span>
+<h1>Your SmartCore Service Has Been Suspended</h1>
+<p>Hi ${esc(o.contact_name)},</p>
+<p>Your SmartCore service has been suspended due to non-payment. Access to your workspace and all modules is currently unavailable.</p>
+<div class="ref">${esc(o.order_reference)}</div>
+<p>To restore your service, please contact our support team as soon as possible so we can arrange payment and reactivate your account.</p>
+<a href="mailto:support@smartcoretechnology.co.uk?subject=Service%20Restoration%20Request%20%E2%80%94%20${encodeURIComponent(o.order_reference)}" class="btn">Contact Support to Restore →</a>
+<p>Email: <a href="mailto:support@smartcoretechnology.co.uk" style="color:#3b82f6">support@smartcoretechnology.co.uk</a></p>
+</div>
+<div class="ftr">SmartCore Technology &bull; <a href="${SITE}" style="color:#3b82f6">${SITE.replace('https://','')}</a></div>
+</div></body></html>`;
+}
+
 // --- Main scheduled handler -------------------------------------------------
 
 export async function onScheduled(event, env) {
@@ -275,6 +310,42 @@ export async function onScheduled(event, env) {
     `/rest/v1/marketplace_invoices?status=eq.sent&due_date=lt.${today}`,
     'PATCH', { status: 'overdue' }, serviceKey
   ).catch(e => console.error('Overdue update failed:', e));
+
+  // 1b. Suspend orders that have been payment_overdue for 3+ days
+  const suspendCutoff = addDays(today, -3);
+  const overdueOrders = await sbFetch(
+    `/rest/v1/marketplace_orders?status=eq.payment_overdue&payment_failed_at=lte.${suspendCutoff}&select=*`,
+    'GET', null, serviceKey
+  ).catch(() => []);
+
+  if (overdueOrders?.length) {
+    for (const o of overdueOrders) {
+      try {
+        await sbFetch(
+          `/rest/v1/marketplace_orders?id=eq.${o.id}`,
+          'PATCH', { status: 'suspended', suspended_at: new Date().toISOString() }, serviceKey
+        );
+
+        // Try to mark smartcore_core_companies as suspended (best-effort)
+        try {
+          await sbFetch(
+            `/rest/v1/smartcore_core_companies?order_id=eq.${o.id}`,
+            'PATCH', { status: 'suspended' }, serviceKey
+          );
+        } catch (_) {}
+
+        // Send suspension email
+        if (resendKey) {
+          const suspendHtml = suspensionEmailHtml(o);
+          await sendEmail(resendKey, o.email, 'Service Suspended — SmartCore', suspendHtml);
+        }
+
+        console.log(`Suspended order ${o.order_reference} (overdue since ${o.payment_failed_at})`);
+      } catch (err) {
+        console.error(`Failed to suspend order ${o.id}:`, err.message);
+      }
+    }
+  }
 
   // 2. Find orders due for billing
   const orders = await sbFetch(
