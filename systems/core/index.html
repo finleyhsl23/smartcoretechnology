@@ -1214,12 +1214,18 @@ async function afterLogin(session) {
     .maybeSingle();
 
   if (error || !emp) {
-    // fallback: check smartcore_staff
-    const { data: staff } = await sb.from('smartcore_staff').select('*').eq('user_id', session.user.id).maybeSingle();
-    if (staff) {
-      profile = { ...staff, company_id: null };
+    // Fallback: employees added by admin only have a core_employees HR record
+    const { data: hrEmp } = await sb.from('core_employees').select('*').eq('auth_user_id', session.user.id).maybeSingle();
+    if (hrEmp) {
+      profile = { ...hrEmp, user_id: session.user.id };
     } else {
-      showView('viewDenied'); return;
+      // fallback: check smartcore_staff
+      const { data: staff } = await sb.from('smartcore_staff').select('*').eq('user_id', session.user.id).maybeSingle();
+      if (staff) {
+        profile = { ...staff, company_id: null };
+      } else {
+        showView('viewDenied'); return;
+      }
     }
   } else {
     profile = emp;
@@ -1485,7 +1491,7 @@ function renderTable(rows) {
             <div><div class="emp-name">${esc(e.full_name)}</div><div class="emp-title">${esc(e.job_title||'')}</div></div>
           </div></td>
           <td><span class="mono">${esc(e.employee_id||'')}</span></td>
-          <td style="font-size:12px;color:var(--muted)">${esc(e.department_name||'—')}</td>
+          <td style="font-size:12px;color:var(--muted)">${esc(e.department?.name||'—')}</td>
           <td><span class="nav-badge badge-${e.role}">${e.role}</span></td>
           <td><span class="status-pill ${e.onboarding_completed?'status-done':'status-pending'}">${e.onboarding_completed?'Onboarded':'Pending'}</span></td>
           <td style="font-size:12px;color:var(--muted)">${e.start_date?fmtDate(e.start_date):'—'}</td>
@@ -1545,8 +1551,7 @@ function openView(emp) {
       row('Pronouns', emp.pronouns),
       row('Date of Birth', emp.date_of_birth?fmtDate(emp.date_of_birth):null),
       row('Gender', emp.gender),
-      row('Nationality', emp.nationality),
-      row('Address', emp.address),
+      row('Address', fmtAddr(emp)!=='—'?fmtAddr(emp):null),
     ].join('')),
     sec('Employment', [
       row('Employee ID', emp.employee_id),
@@ -1562,8 +1567,8 @@ function openView(emp) {
       row('Phone', emp.personal_phone),
     ].join('')),
     sec('Emergency Contacts',
-      ecBlock(1, emp.emergency_contact_1_name, emp.emergency_contact_1_phone, emp.emergency_contact_1_relation) +
-      ecBlock(2, emp.emergency_contact_2_name, emp.emergency_contact_2_phone, emp.emergency_contact_2_relation)
+      ecBlock(1, emp.emergency_contact_1_name, emp.emergency_contact_1_phone, emp.emergency_contact_1_relationship) +
+      ecBlock(2, emp.emergency_contact_2_name, emp.emergency_contact_2_phone, emp.emergency_contact_2_relationship)
     ),
     sec('Leave & Schedule', [
       row('Annual Leave', `${leaveAllowance} days`),
@@ -1573,8 +1578,8 @@ function openView(emp) {
     sec('Financial & Payroll', [
       row('National Insurance', emp.national_insurance),
       row('Tax Code', emp.tax_code),
-      row('Student Loan', emp.student_loan_plan),
-      row('Bank Name', emp.bank_name),
+      row('Student Loan', emp.student_loan_status),
+      row('Bank Name', emp.bank_account_name),
       row('Account Number', emp.bank_account_number),
       row('Sort Code', emp.bank_sort_code),
     ].join('')),

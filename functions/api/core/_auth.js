@@ -29,10 +29,20 @@ export async function getCallerProfile(request, env) {
 
   const profileRes = await sb(env, `/smartcore_core_employees?user_id=eq.${user.id}&select=*&limit=1`);
   const profiles = await profileRes.json();
-  if (!profiles?.length) return null;
-  const profile = profiles[0];
-  if (profile.is_active === false) return null;
-  return { ...profile, auth_id: user.id, auth_email: user.email };
+  if (profiles?.length) {
+    const profile = profiles[0];
+    if (profile.is_active === false) return null;
+    return { ...profile, auth_id: user.id, auth_email: user.email };
+  }
+
+  // Fallback: employees added by admin only have a core_employees HR record
+  const hrRes = await sb(env, `/core_employees?auth_user_id=eq.${user.id}&select=*&limit=1`);
+  const hrProfiles = await hrRes.json();
+  if (hrProfiles?.length) {
+    return { ...hrProfiles[0], auth_id: user.id, auth_email: user.email };
+  }
+
+  return null;
 }
 
 export function sb(env, path, method = 'GET', body = null) {
