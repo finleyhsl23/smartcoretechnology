@@ -1,0 +1,1748 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>People • SmartCore</title>
+  <link rel="stylesheet" href="/app/styles/app.css"/>
+  <style>
+    :root {
+      --bg0: #020617;
+      --bg1: #06153a;
+      --panel: rgba(255,255,255,.065);
+      --panel2: rgba(255,255,255,.04);
+      --line: rgba(255,255,255,.12);
+      --line2: rgba(255,255,255,.08);
+      --text: #eaf0ff;
+      --muted: rgba(234,240,255,.70);
+      --muted2: rgba(234,240,255,.52);
+      --blue: #3b82f6;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --purple: #a78bfa;
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+
+    /* Override shell width for this module */
+    .shell { width: min(1200px, 100%); }
+
+    /* Page layout */
+    .page-content {
+      padding: 24px;
+      min-height: calc(100vh - 80px);
+    }
+
+    /* Top bar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .topbar-left h2 {
+      margin: 0 0 4px;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .topbar-left p {
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted2);
+    }
+    .topbar-right {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    /* Search */
+    .search-bar {
+      position: relative;
+      margin-bottom: 20px;
+    }
+    .search-bar input {
+      background: rgba(255,255,255,.06);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--text);
+      padding: 10px 14px 10px 40px;
+      font-size: 14px;
+      width: 100%;
+      max-width: 360px;
+      font-family: inherit;
+      transition: border-color .2s;
+    }
+    .search-bar input:focus { outline: none; border-color: var(--blue); }
+    .search-bar .icon {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted2);
+      font-size: 14px;
+      pointer-events: none;
+    }
+
+    /* Employee table */
+    .emp-table { width: 100%; border-collapse: collapse; }
+    .emp-table th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      color: var(--muted2);
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line2);
+    }
+    .emp-table td {
+      padding: 12px 14px;
+      font-size: 14px;
+      color: var(--text);
+      border-bottom: 1px solid var(--line2);
+      vertical-align: middle;
+    }
+    .emp-table tbody tr {
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .emp-table tbody tr:hover { background: rgba(255,255,255,.04); }
+    .emp-table tbody tr:last-child td { border-bottom: none; }
+
+    /* Avatar */
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .emp-row-name {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .emp-row-name-text { line-height: 1.3; }
+    .emp-row-name-text strong { display: block; font-size: 14px; }
+    .emp-row-name-text span { font-size: 12px; color: var(--muted2); }
+
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .3px;
+    }
+    .badge-owner { background: rgba(167,139,250,.18); color: var(--purple); border: 1px solid rgba(167,139,250,.3); }
+    .badge-admin { background: rgba(59,130,246,.18); color: var(--blue); border: 1px solid rgba(59,130,246,.3); }
+    .badge-employee { background: rgba(255,255,255,.1); color: var(--muted); border: 1px solid var(--line2); }
+    .badge-complete { background: rgba(34,197,94,.18); color: var(--green); border: 1px solid rgba(34,197,94,.3); }
+    .badge-pending { background: rgba(245,158,11,.18); color: var(--amber); border: 1px solid rgba(245,158,11,.3); }
+
+    /* Empty / Loading state */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted2);
+    }
+    .empty-state svg { margin-bottom: 16px; opacity: .4; }
+    .empty-state h3 { margin: 0 0 8px; font-size: 18px; color: var(--muted); }
+    .empty-state p { margin: 0; font-size: 14px; }
+
+    /* Slide-out panel */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(2,6,23,.7);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .25s;
+    }
+    .overlay.active { opacity: 1; pointer-events: all; }
+
+    .slide-panel {
+      position: fixed;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 520px;
+      max-width: 100vw;
+      background: linear-gradient(180deg, #07163b, #020617);
+      border-left: 1px solid var(--line);
+      z-index: 101;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform .3s cubic-bezier(.4,0,.2,1);
+      overflow: hidden;
+    }
+    .slide-panel.active { transform: translateX(0); }
+
+    .panel-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .panel-header h3 { margin: 0; font-size: 17px; font-weight: 700; }
+    .panel-close {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(255,255,255,.07);
+      border: 1px solid var(--line2);
+      color: var(--muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: background .15s;
+    }
+    .panel-close:hover { background: rgba(255,255,255,.12); }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+    .panel-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    /* Form fields inside panels */
+    .field-group { margin-bottom: 20px; }
+    .field-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .4px;
+      color: var(--muted2);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .field-hint { font-size: 12px; color: var(--muted2); margin-top: 4px; }
+
+    input[type="text"], input[type="email"], input[type="tel"],
+    input[type="date"], input[type="number"], select, textarea {
+      background: rgba(255,255,255,.06);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--text);
+      padding: 10px 14px;
+      font-size: 14px;
+      width: 100%;
+      font-family: inherit;
+      transition: border-color .2s;
+    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); }
+    select option { background: #07163b; color: var(--text); }
+
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+    /* Phone row */
+    .phone-row { display: flex; gap: 8px; }
+    .phone-row select { width: 110px; flex-shrink: 0; }
+    .phone-row input { flex: 1; }
+
+    /* Custom dropdown */
+    .custom-select-wrap { position: relative; }
+    .custom-select-btn {
+      background: rgba(255,255,255,.06);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--text);
+      padding: 10px 14px;
+      font-size: 14px;
+      width: 100%;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: left;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: border-color .2s;
+    }
+    .custom-select-btn:focus, .custom-select-btn.open { outline: none; border-color: var(--blue); }
+    .custom-select-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: #07163b;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      z-index: 200;
+      overflow: hidden;
+      display: none;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    .custom-select-dropdown.open { display: block; }
+    .custom-select-option {
+      padding: 10px 14px;
+      font-size: 14px;
+      cursor: pointer;
+      color: var(--text);
+      transition: background .15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .custom-select-option:hover { background: rgba(255,255,255,.06); }
+    .custom-select-option.selected { color: var(--blue); }
+    .custom-select-option.add-new { color: var(--blue); font-weight: 600; }
+    .custom-select-option.manage { color: var(--muted2); font-size: 13px; }
+
+    /* Dept inline create */
+    .dept-inline-create {
+      padding: 10px 14px;
+      border-top: 1px solid var(--line2);
+      display: none;
+      gap: 8px;
+    }
+    .dept-inline-create.show { display: flex; }
+    .dept-inline-create input { flex: 1; }
+
+    /* Section divider */
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      text-transform: uppercase;
+      color: var(--muted2);
+      margin: 24px 0 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--line2);
+    }
+
+    /* Pro-rata info box */
+    .info-box {
+      background: rgba(59,130,246,.12);
+      border: 1px solid rgba(59,130,246,.25);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    /* Toggle */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .toggle-row label { font-size: 14px; color: var(--text); cursor: pointer; }
+    .toggle {
+      position: relative;
+      width: 42px;
+      height: 24px;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: rgba(255,255,255,.12);
+      border-radius: 999px;
+      transition: background .2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      left: 3px;
+      top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform .2s;
+    }
+    .toggle input:checked + .toggle-slider { background: var(--blue); }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(18px); }
+
+    /* Authorizers pills */
+    .auth-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .auth-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(59,130,246,.15);
+      border: 1px solid rgba(59,130,246,.3);
+      font-size: 13px;
+      color: var(--text);
+    }
+    .auth-pill button {
+      background: none;
+      border: none;
+      color: var(--muted2);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 0;
+      line-height: 1;
+    }
+
+    /* Search dropdown */
+    .search-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: #07163b;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      z-index: 200;
+      overflow: hidden;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    /* Buttons */
+    .btn {
+      border-radius: 14px;
+      padding: 10px 18px;
+      font-weight: 700;
+      font-size: 13px;
+      border: 1px solid rgba(255,255,255,.13);
+      background: rgba(255,255,255,.075);
+      color: var(--text);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .15s;
+    }
+    .btn:hover { background: rgba(255,255,255,.11); }
+    .btn.primary {
+      background: linear-gradient(180deg,#3b82f6,#2563eb);
+      border-color: #3b82f6;
+    }
+    .btn.primary:hover { background: linear-gradient(180deg,#60a5fa,#3b82f6); }
+    .btn.danger {
+      background: linear-gradient(180deg,#ef4444,#dc2626);
+      border-color: #ef4444;
+    }
+    .btn.sm { padding: 6px 14px; font-size: 12px; border-radius: 10px; }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(2,6,23,.8);
+      backdrop-filter: blur(6px);
+      z-index: 300;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s;
+    }
+    .modal-overlay.active { opacity: 1; pointer-events: all; }
+    .modal {
+      background: linear-gradient(180deg,#07163b,#020617);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      width: 100%;
+      max-width: 540px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      transform: scale(.96) translateY(10px);
+      transition: transform .25s;
+    }
+    .modal-overlay.active .modal { transform: scale(1) translateY(0); }
+    .modal-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-header h3 { margin: 0; font-size: 17px; font-weight: 700; }
+    .modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    /* Dept list */
+    .dept-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line2);
+      margin-bottom: 8px;
+      background: rgba(255,255,255,.03);
+    }
+    .dept-item-name { font-size: 14px; font-weight: 600; }
+    .dept-item-count { font-size: 12px; color: var(--muted2); margin-top: 2px; }
+
+    /* Shift pattern table */
+    .shift-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .shift-table th {
+      text-align: left;
+      padding: 8px 10px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      color: var(--muted2);
+      border-bottom: 1px solid var(--line2);
+    }
+    .shift-table td { padding: 10px; border-bottom: 1px solid var(--line2); vertical-align: middle; }
+    .shift-table input[type="checkbox"] { width: auto; }
+    .shift-table input[type="time"] { padding: 6px 8px; font-size: 12px; border-radius: 8px; }
+
+    /* Onboarding config */
+    .config-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line2);
+    }
+    .config-item:last-child { border-bottom: none; }
+    .config-label { font-size: 14px; }
+    .config-sub { font-size: 12px; color: var(--muted2); margin-top: 2px; }
+
+    /* View panel details */
+    .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .detail-item .dl { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted2); margin-bottom: 4px; font-weight: 600; }
+    .detail-item .dv { font-size: 14px; color: var(--text); }
+
+    /* Loading spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid rgba(255,255,255,.2);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      display: inline-block;
+    }
+
+    /* Toast */
+    .toastwrap {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .toast {
+      background: linear-gradient(180deg,rgba(10,15,34,.98),rgba(8,16,34,.98));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 18px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      min-width: 260px;
+      max-width: 360px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.5);
+      transition: opacity .3s, transform .3s;
+    }
+    .tDot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 4px;
+      background: var(--muted2);
+    }
+    .tDot.success { background: var(--green); }
+    .tDot.error { background: var(--red); }
+    .tDot.info { background: var(--blue); }
+    .toast b { display: block; font-size: 14px; margin-bottom: 2px; }
+    .toast p { margin: 0; font-size: 13px; color: var(--muted); }
+
+    @media (max-width: 600px) {
+      .slide-panel { width: 100vw; }
+      .row2 { grid-template-columns: 1fr; }
+      .detail-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="shell" role="application" aria-label="People">
+  <div class="head">
+    <div class="brand">
+      <div class="dot" aria-hidden="true"></div>
+      <div>
+        <h1>PEOPLE</h1>
+        <p>Employee Management — SmartCore Technology</p>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="pill">
+        <span>Company:</span>
+        <b id="companyName" style="font-family:var(--mono);font-size:12px;">—</b>
+        <span style="opacity:.35">|</span>
+        <span>User:</span>
+        <b id="userEmail" style="font-family:var(--mono);font-size:12px;">—</b>
+        <span style="opacity:.35">|</span>
+        <span>Role:</span>
+        <b id="userRole" style="font-family:var(--mono);font-size:12px;">—</b>
+        <button class="btn" id="logoutBtn" style="padding:7px 12px;">Log out</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="page-content">
+      <div class="topbar">
+        <div class="topbar-left">
+          <h2>People</h2>
+          <p>Manage your organisation's employees</p>
+        </div>
+        <div class="topbar-right">
+          <button class="btn admin-only" id="onboardingConfigBtn" style="display:none;">Adjust Onboarding Questions</button>
+          <button class="btn primary admin-only" id="addEmployeeBtn" style="display:none;">+ Add Employee</button>
+        </div>
+      </div>
+
+      <div class="panel glass" style="padding:0;overflow:hidden;">
+        <div style="padding:16px 20px;border-bottom:1px solid var(--line2);">
+          <div class="search-bar" style="margin-bottom:0;">
+            <span class="icon">⌕</span>
+            <input type="text" id="searchInput" placeholder="Search employees…" autocomplete="off"/>
+          </div>
+        </div>
+
+        <div id="tableWrap">
+          <div class="empty-state" id="loadingState">
+            <div class="spinner"></div>
+            <p style="margin-top:14px;">Loading employees…</p>
+          </div>
+          <div id="emptyState" class="empty-state" style="display:none;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <h3>No employees yet</h3>
+            <p>Add your first employee to get started.</p>
+          </div>
+          <table class="emp-table" id="empTable" style="display:none;">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Department</th>
+                <th>Role</th>
+                <th>Type</th>
+                <th>Start Date</th>
+                <th>Onboarding</th>
+              </tr>
+            </thead>
+            <tbody id="empTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Overlay -->
+<div class="overlay" id="overlay"></div>
+
+<!-- Add Employee Slide Panel -->
+<div class="slide-panel" id="addPanel">
+  <div class="panel-header">
+    <h3 id="addPanelTitle">Add Employee</h3>
+    <button class="panel-close" id="closeAddPanel">✕</button>
+  </div>
+  <div class="panel-body" id="addPanelBody">
+    <div class="field-group">
+      <label class="field-label">Full Name *</label>
+      <input type="text" id="f_full_name" placeholder="Jane Smith"/>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Job Title</label>
+      <input type="text" id="f_job_title" placeholder="Software Engineer"/>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">Department</label>
+      <div class="custom-select-wrap" id="deptSelectWrap">
+        <button type="button" class="custom-select-btn" id="deptSelectBtn">
+          <span id="deptSelectLabel">Select department…</span>
+          <span>▾</span>
+        </button>
+        <div class="custom-select-dropdown" id="deptDropdown">
+          <div id="deptOptionsList"></div>
+          <div class="custom-select-option add-new" id="deptAddNewBtn">+ Create new department</div>
+          <div class="custom-select-option manage" id="deptManageBtn">⚙ Manage departments</div>
+          <div class="dept-inline-create" id="deptInlineCreate">
+            <input type="text" id="deptNewName" placeholder="Department name…" style="border-radius:8px;padding:6px 10px;font-size:13px;"/>
+            <button class="btn sm primary" id="deptNewSaveBtn">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row2">
+      <div class="field-group">
+        <label class="field-label">Work Email</label>
+        <input type="email" id="f_work_email" placeholder="jane@company.com"/>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Personal Email</label>
+        <input type="email" id="f_personal_email" placeholder="jane@personal.com"/>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">Personal Phone</label>
+      <div class="phone-row">
+        <select id="f_country_code">
+          <option value="+44">🇬🇧 +44</option>
+          <option value="+1">🇺🇸 +1</option>
+          <option value="+353">🇮🇪 +353</option>
+          <option value="+33">🇫🇷 +33</option>
+          <option value="+49">🇩🇪 +49</option>
+          <option value="+34">🇪🇸 +34</option>
+          <option value="+39">🇮🇹 +39</option>
+          <option value="+31">🇳🇱 +31</option>
+          <option value="+61">🇦🇺 +61</option>
+          <option value="+64">🇳🇿 +64</option>
+          <option value="+91">🇮🇳 +91</option>
+          <option value="+86">🇨🇳 +86</option>
+        </select>
+        <input type="tel" id="f_personal_phone" placeholder="07700 900000"/>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">Employment Type</label>
+      <div class="custom-select-wrap">
+        <button type="button" class="custom-select-btn" id="empTypeBtn">
+          <span id="empTypeLabel">Full Time</span>
+          <span>▾</span>
+        </button>
+        <div class="custom-select-dropdown" id="empTypeDropdown">
+          <div class="custom-select-option selected" data-val="full_time" onclick="selectEmpType(this)">Full Time</div>
+          <div class="custom-select-option" data-val="part_time" onclick="selectEmpType(this)">Part Time</div>
+          <div class="custom-select-option" data-val="other" onclick="selectEmpType(this)">Other</div>
+        </div>
+      </div>
+    </div>
+    <div class="field-group" id="empTypeCustomWrap" style="display:none;margin-top:-10px;">
+      <input type="text" id="f_employment_type_custom" placeholder="Specify employment type…"/>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">Notice Period</label>
+      <input type="text" id="f_notice_period" placeholder="e.g. 1 month"/>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">Role</label>
+      <div class="custom-select-wrap">
+        <button type="button" class="custom-select-btn" id="roleBtn">
+          <span id="roleLabel">Employee</span>
+          <span>▾</span>
+        </button>
+        <div class="custom-select-dropdown" id="roleDropdown">
+          <div class="custom-select-option selected" data-val="employee" onclick="selectRole(this)">Employee</div>
+          <div class="custom-select-option" data-val="admin" onclick="selectRole(this)">Admin</div>
+          <div class="custom-select-option" id="ownerRoleOpt" data-val="owner" onclick="selectRole(this)">Owner</div>
+        </div>
+      </div>
+      <p class="field-hint" id="roleHint" style="display:none;color:var(--amber);">Only owners can assign the owner role.</p>
+    </div>
+
+    <div class="row2">
+      <div class="field-group">
+        <label class="field-label">Annual Leave Allowance</label>
+        <input type="number" id="f_annual_leave" value="28" min="0" max="365"/>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Start Date</label>
+        <input type="date" id="f_start_date"/>
+        <div id="prorataBox" style="display:none;" class="info-box"></div>
+      </div>
+    </div>
+
+    <div class="field-group" id="execOverrideWrap">
+      <div class="toggle-row">
+        <label for="execOverrideToggle">Executive Allowance Override</label>
+        <label class="toggle">
+          <input type="checkbox" id="execOverrideToggle"/>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div id="execOverrideField" style="display:none;">
+        <input type="number" id="f_exec_override" min="0" max="365" step="0.5" placeholder="Days override"/>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">Authorising Users</label>
+      <div id="authPills" class="auth-pills"></div>
+      <div style="position:relative;">
+        <input type="text" id="authSearch" placeholder="Search admins/owners…" autocomplete="off"/>
+        <div class="search-dropdown" id="authDropdown" style="display:none;"></div>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">Shift Pattern</label>
+      <button type="button" class="btn" id="shiftPatternBtn" style="width:100%;">Configure Shift Pattern</button>
+    </div>
+  </div>
+  <div class="panel-footer">
+    <button class="btn" id="cancelAddBtn">Cancel</button>
+    <button class="btn primary" id="submitAddBtn">Add Employee</button>
+  </div>
+</div>
+
+<!-- View Employee Slide Panel -->
+<div class="slide-panel" id="viewPanel">
+  <div class="panel-header">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="avatar" id="viewAvatar" style="width:40px;height:40px;font-size:16px;"></div>
+      <div>
+        <h3 id="viewName" style="margin:0;font-size:16px;"></h3>
+        <div id="viewTitle" style="font-size:12px;color:var(--muted2);margin-top:2px;"></div>
+      </div>
+    </div>
+    <button class="panel-close" id="closeViewPanel">✕</button>
+  </div>
+  <div class="panel-body">
+    <div id="viewContent"></div>
+  </div>
+  <div class="panel-footer" id="viewFooter">
+    <button class="btn admin-only" id="sendInviteBtn" style="display:none;">Send Onboarding Invite</button>
+    <div style="flex:1;"></div>
+    <button class="btn" id="closeViewBtn">Close</button>
+  </div>
+</div>
+
+<!-- Department Manager Modal -->
+<div class="modal-overlay" id="deptModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Manage Departments</h3>
+      <button class="panel-close" id="closeDeptModal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="deptList"></div>
+      <div class="field-group" style="margin-top:20px;">
+        <label class="field-label">Add New Department</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="newDeptInput" placeholder="Department name…"/>
+          <button class="btn primary" id="saveDeptBtn">Add</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="closeDeptModalBtn">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reassign Department Modal -->
+<div class="modal-overlay" id="reassignModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Reassign Employees</h3>
+      <button class="panel-close" id="closeReassignModal">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:14px;margin-top:0;">This department has employees. Please reassign them before deleting, or select "No Department".</p>
+      <div class="field-group">
+        <label class="field-label">Move employees to</label>
+        <select id="reassignSelect">
+          <option value="">No Department</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="cancelReassign">Cancel</button>
+      <button class="btn danger" id="confirmReassign">Reassign &amp; Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Shift Pattern Modal -->
+<div class="modal-overlay" id="shiftModal">
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-header">
+      <h3 id="shiftModalTitle">Shift Pattern</h3>
+      <button class="panel-close" id="closeShiftModal">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- Existing patterns -->
+      <div class="section-title">Existing Patterns</div>
+      <div id="shiftPatternList"></div>
+
+      <!-- Create new -->
+      <div class="section-title" style="margin-top:24px;">Create New Shift Pattern</div>
+      <div class="field-group">
+        <label class="field-label">Pattern Name</label>
+        <input type="text" id="newShiftName" placeholder="e.g. Standard 9-5"/>
+      </div>
+      <table class="shift-table">
+        <thead>
+          <tr>
+            <th>Day</th>
+            <th>Working</th>
+            <th>Start</th>
+            <th>End</th>
+          </tr>
+        </thead>
+        <tbody id="shiftDaysBody"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="closeShiftModalBtn">Cancel</button>
+      <button class="btn primary" id="saveShiftPattern">Save Pattern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Onboarding Config Modal -->
+<div class="modal-overlay" id="configModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Adjust Onboarding Questions</h3>
+      <button class="panel-close" id="closeConfigModal">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--muted2);margin-top:0;">Toggle which fields are required during employee self-onboarding.</p>
+      <div id="configList"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="closeConfigModalBtn">Cancel</button>
+      <button class="btn primary" id="saveConfigBtn">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Send Invite Modal -->
+<div class="modal-overlay" id="inviteModal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <h3>Send Onboarding Invite</h3>
+      <button class="panel-close" id="closeInviteModal">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:14px;color:var(--muted);margin-top:0;" id="inviteNote"></p>
+      <div class="field-group">
+        <label class="field-label">Send invite to</label>
+        <div class="custom-select-wrap">
+          <button type="button" class="custom-select-btn" id="inviteTypeBtn">
+            <span id="inviteTypeLabel">Personal Email</span>
+            <span>▾</span>
+          </button>
+          <div class="custom-select-dropdown" id="inviteTypeDropdown">
+            <div class="custom-select-option selected" data-val="personal" onclick="selectInviteType(this)">Personal Email</div>
+            <div class="custom-select-option" data-val="work" onclick="selectInviteType(this)">Work Email</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="cancelInvite">Cancel</button>
+      <button class="btn primary" id="confirmInvite">Send Invite</button>
+    </div>
+  </div>
+</div>
+
+<div class="toastwrap" id="toastwrap"></div>
+
+<script type="module">
+import { supabaseClient } from '/app/shared/supabase.js';
+import { getMyProfile, logout, requireAuth } from '/app/shared/auth.js';
+import { toast, $ } from '/app/shared/ui.js';
+
+const sb = supabaseClient();
+
+let profile = null;
+let session = null;
+let employees = [];
+let departments = [];
+let shiftPatterns = [];
+let onboardingConfig = {};
+let selectedDeptId = null;
+let selectedEmpType = 'full_time';
+let selectedRole = 'employee';
+let selectedInviteType = 'personal';
+let selectedShiftPatternId = null;
+let authorizerIds = [];
+let currentViewEmployee = null;
+let deletingDeptId = null;
+
+const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const AVATAR_COLORS = ['#3b82f6','#8b5cf6','#06b6d4','#10b981','#f59e0b','#ef4444','#ec4899','#14b8a6'];
+
+function avatarColor(name) {
+  let h = 0;
+  for (let c of (name||'')) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff;
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+}
+
+function initials(name) {
+  return (name||'').split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join('');
+}
+
+function formatDate(d) {
+  if (!d) return '—';
+  try { return new Date(d).toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'}); } catch { return d; }
+}
+
+function roleBadge(role) {
+  if (role === 'owner') return `<span class="badge badge-owner">Owner</span>`;
+  if (role === 'admin') return `<span class="badge badge-admin">Admin</span>`;
+  return `<span class="badge badge-employee">Employee</span>`;
+}
+
+function showToast(type, title, msg) { toast(type, title, msg); }
+
+// Auth
+async function init() {
+  try {
+    session = await requireAuth();
+    profile = await getMyProfile();
+
+    const { data: u } = await sb.auth.getUser();
+    $('userEmail').textContent = u?.user?.email || '—';
+    $('userRole').textContent = profile.role;
+
+    const { data: company } = await sb.from('companies').select('id,name').eq('id', profile.company_id).single();
+    $('companyName').textContent = company?.name || '—';
+    $('logoutBtn').onclick = () => logout();
+
+    const isAdmin = ['admin','owner'].includes(profile.role);
+    if (isAdmin) {
+      document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
+    }
+
+    // Hide owner role option if not owner
+    if (profile.role !== 'owner') {
+      $('ownerRoleOpt').style.display = 'none';
+      $('roleHint').style.display = '';
+    }
+
+    await Promise.all([loadEmployees(), loadDepartments(), loadShiftPatterns(), loadOnboardingConfig()]);
+  } catch (err) {
+    console.error(err);
+    showToast('error', 'Error', err.message);
+  }
+}
+
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+      ...(opts.headers || {}),
+    },
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+async function loadEmployees() {
+  try {
+    const data = await apiFetch('/api/core/get-employees');
+    employees = data.employees || [];
+    renderEmployees();
+  } catch (err) {
+    showToast('error', 'Error', err.message);
+  }
+}
+
+async function loadDepartments() {
+  try {
+    const data = await apiFetch('/api/core/departments');
+    departments = data.departments || [];
+    renderDeptOptions();
+  } catch {}
+}
+
+async function loadShiftPatterns() {
+  try {
+    const data = await apiFetch('/api/core/shift-patterns');
+    shiftPatterns = data.patterns || [];
+  } catch {}
+}
+
+async function loadOnboardingConfig() {
+  try {
+    const data = await apiFetch('/api/core/onboarding-config');
+    onboardingConfig = data.required_fields || {};
+  } catch {}
+}
+
+function renderEmployees() {
+  const q = $('searchInput').value.toLowerCase();
+  const filtered = employees.filter(e =>
+    e.full_name.toLowerCase().includes(q) ||
+    (e.employee_id||'').toLowerCase().includes(q) ||
+    (e.job_title||'').toLowerCase().includes(q) ||
+    (e.department?.name||'').toLowerCase().includes(q)
+  );
+
+  $('loadingState').style.display = 'none';
+  if (!filtered.length) {
+    $('emptyState').style.display = '';
+    $('empTable').style.display = 'none';
+    return;
+  }
+  $('emptyState').style.display = 'none';
+  $('empTable').style.display = '';
+
+  $('empTbody').innerHTML = filtered.map(e => {
+    const empType = e.employment_type === 'full_time' ? 'Full Time'
+      : e.employment_type === 'part_time' ? 'Part Time'
+      : (e.employment_type_custom || 'Other');
+    return `<tr data-id="${e.id}" onclick="openViewPanel('${e.id}')">
+      <td>
+        <div class="emp-row-name">
+          <div class="avatar" style="background:${avatarColor(e.full_name)}">${initials(e.full_name)}</div>
+          <div class="emp-row-name-text">
+            <strong>${e.full_name}</strong>
+            <span>${e.employee_id || ''}</span>
+          </div>
+        </div>
+      </td>
+      <td>${e.department?.name || '<span style="color:var(--muted2)">—</span>'}</td>
+      <td>${roleBadge(e.role)}</td>
+      <td style="font-size:13px;color:var(--muted)">${empType}</td>
+      <td style="font-size:13px;color:var(--muted)">${formatDate(e.start_date)}</td>
+      <td>${e.onboarding_completed
+        ? '<span class="badge badge-complete">Complete</span>'
+        : '<span class="badge badge-pending">Pending</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+$('searchInput').addEventListener('input', renderEmployees);
+
+// Department options
+function renderDeptOptions() {
+  const list = $('deptOptionsList');
+  list.innerHTML = '';
+  if (!departments.length) {
+    list.innerHTML = '<div class="custom-select-option" style="color:var(--muted2);cursor:default;">No departments yet</div>';
+    return;
+  }
+  departments.forEach(d => {
+    const opt = document.createElement('div');
+    opt.className = 'custom-select-option' + (d.id === selectedDeptId ? ' selected' : '');
+    opt.textContent = d.name;
+    opt.dataset.id = d.id;
+    opt.addEventListener('click', () => {
+      selectedDeptId = d.id;
+      $('deptSelectLabel').textContent = d.name;
+      $('deptDropdown').classList.remove('open');
+      $('deptSelectBtn').classList.remove('open');
+    });
+    list.appendChild(opt);
+  });
+}
+
+// Custom dropdowns toggle
+function setupDropdown(btnId, dropdownId) {
+  const btn = $(btnId), dd = $(dropdownId);
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = dd.classList.contains('open');
+    document.querySelectorAll('.custom-select-dropdown').forEach(d => d.classList.remove('open'));
+    document.querySelectorAll('.custom-select-btn').forEach(b => b.classList.remove('open'));
+    if (!isOpen) { dd.classList.add('open'); btn.classList.add('open'); }
+  });
+}
+
+setupDropdown('deptSelectBtn', 'deptDropdown');
+setupDropdown('empTypeBtn', 'empTypeDropdown');
+setupDropdown('roleBtn', 'roleDropdown');
+setupDropdown('inviteTypeBtn', 'inviteTypeDropdown');
+
+document.addEventListener('click', () => {
+  document.querySelectorAll('.custom-select-dropdown').forEach(d => d.classList.remove('open'));
+  document.querySelectorAll('.custom-select-btn').forEach(b => b.classList.remove('open'));
+  $('authDropdown').style.display = 'none';
+});
+
+// Expose to global for inline onclick
+window.selectEmpType = function(el) {
+  selectedEmpType = el.dataset.val;
+  $('empTypeLabel').textContent = el.textContent;
+  document.querySelectorAll('#empTypeDropdown .custom-select-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  $('empTypeDropdown').classList.remove('open');
+  $('empTypeBtn').classList.remove('open');
+  $('empTypeCustomWrap').style.display = selectedEmpType === 'other' ? '' : 'none';
+};
+
+window.selectRole = function(el) {
+  if (el.dataset.val === 'owner' && profile.role !== 'owner') return;
+  selectedRole = el.dataset.val;
+  $('roleLabel').textContent = el.textContent;
+  document.querySelectorAll('#roleDropdown .custom-select-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  $('roleDropdown').classList.remove('open');
+  $('roleBtn').classList.remove('open');
+};
+
+window.selectInviteType = function(el) {
+  selectedInviteType = el.dataset.val;
+  $('inviteTypeLabel').textContent = el.textContent;
+  document.querySelectorAll('#inviteTypeDropdown .custom-select-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  $('inviteTypeDropdown').classList.remove('open');
+  $('inviteTypeBtn').classList.remove('open');
+};
+
+// Pro-rata calculation
+$('f_start_date').addEventListener('change', () => {
+  const val = $('f_start_date').value;
+  const leave = parseInt($('f_annual_leave').value) || 28;
+  if (!val) { $('prorataBox').style.display = 'none'; return; }
+  const start = new Date(val);
+  const year = start.getFullYear();
+  const now = new Date();
+  if (start.getFullYear() !== now.getFullYear()) { $('prorataBox').style.display = 'none'; return; }
+  const endOfYear = new Date(year, 11, 31);
+  const totalDays = (new Date(year, 11, 31) - new Date(year, 0, 1)) / 86400000 + 1;
+  const remainingDays = (endOfYear - start) / 86400000 + 1;
+  const proRata = Math.ceil((leave * remainingDays) / totalDays * 2) / 2;
+  $('prorataBox').textContent = `Pro-rata allowance for ${year}: ${proRata} days`;
+  $('prorataBox').style.display = '';
+});
+
+$('execOverrideToggle').addEventListener('change', () => {
+  $('execOverrideField').style.display = $('execOverrideToggle').checked ? '' : 'none';
+});
+
+// Authorizer search
+let authSearchTimeout;
+$('authSearch').addEventListener('input', () => {
+  clearTimeout(authSearchTimeout);
+  authSearchTimeout = setTimeout(async () => {
+    const q = $('authSearch').value.trim();
+    if (!q) { $('authDropdown').style.display = 'none'; return; }
+    try {
+      const data = await apiFetch(`/api/core/search-employees?q=${encodeURIComponent(q)}&role_filter=admin,owner`);
+      const results = (data.employees || []).filter(e => !authorizerIds.includes(e.id));
+      if (!results.length) { $('authDropdown').style.display = 'none'; return; }
+      $('authDropdown').innerHTML = results.map(e =>
+        `<div class="custom-select-option" data-id="${e.id}" data-name="${e.full_name}" onclick="addAuthorizer('${e.id}','${e.full_name.replace(/'/g,"\\'")}')">
+          ${e.full_name} <span style="color:var(--muted2);font-size:12px;">${e.role}</span>
+        </div>`
+      ).join('');
+      $('authDropdown').style.display = '';
+    } catch {}
+  }, 300);
+});
+
+window.addAuthorizer = function(id, name) {
+  if (authorizerIds.includes(id)) return;
+  authorizerIds.push(id);
+  const pill = document.createElement('div');
+  pill.className = 'auth-pill';
+  pill.dataset.id = id;
+  pill.innerHTML = `${name} <button onclick="removeAuthorizer('${id}',this.parentElement)">✕</button>`;
+  $('authPills').appendChild(pill);
+  $('authSearch').value = '';
+  $('authDropdown').style.display = 'none';
+};
+
+window.removeAuthorizer = function(id, el) {
+  authorizerIds = authorizerIds.filter(a => a !== id);
+  el.remove();
+};
+
+// Dept inline create
+$('deptAddNewBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('deptInlineCreate').classList.add('show');
+  $('deptNewName').focus();
+});
+
+$('deptNewSaveBtn').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  const name = $('deptNewName').value.trim();
+  if (!name) return;
+  try {
+    const data = await apiFetch('/api/core/departments', { method:'POST', body: JSON.stringify({name}) });
+    departments.push(data.department);
+    selectedDeptId = data.department.id;
+    $('deptSelectLabel').textContent = name;
+    $('deptInlineCreate').classList.remove('show');
+    $('deptNewName').value = '';
+    $('deptDropdown').classList.remove('open');
+    $('deptSelectBtn').classList.remove('open');
+    renderDeptOptions();
+    showToast('success', 'Department created', name);
+  } catch (err) {
+    showToast('error', 'Error', err.message);
+  }
+});
+
+$('deptManageBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('deptDropdown').classList.remove('open');
+  $('deptSelectBtn').classList.remove('open');
+  openDeptModal();
+});
+
+// Open Add Panel
+$('addEmployeeBtn').addEventListener('click', () => {
+  // Reset form
+  selectedDeptId = null;
+  selectedEmpType = 'full_time';
+  selectedRole = 'employee';
+  authorizerIds = [];
+  selectedShiftPatternId = null;
+  $('addPanelTitle').textContent = 'Add Employee';
+  ['f_full_name','f_job_title','f_work_email','f_personal_email','f_personal_phone',
+   'f_employment_type_custom','f_notice_period','f_start_date','f_exec_override']
+    .forEach(id => $(id) && ($(id).value = ''));
+  $('f_annual_leave').value = '28';
+  $('deptSelectLabel').textContent = 'Select department…';
+  $('empTypeLabel').textContent = 'Full Time';
+  $('roleLabel').textContent = 'Employee';
+  $('authPills').innerHTML = '';
+  $('prorataBox').style.display = 'none';
+  $('execOverrideField').style.display = 'none';
+  $('execOverrideToggle').checked = false;
+  $('empTypeCustomWrap').style.display = 'none';
+  openPanel('addPanel');
+});
+
+$('cancelAddBtn').addEventListener('click', closeAllPanels);
+$('closeAddPanel').addEventListener('click', closeAllPanels);
+
+$('submitAddBtn').addEventListener('click', async () => {
+  const full_name = $('f_full_name').value.trim();
+  if (!full_name) { showToast('error', 'Validation', 'Full name is required'); return; }
+
+  $('submitAddBtn').textContent = 'Adding…';
+  $('submitAddBtn').disabled = true;
+  try {
+    const payload = {
+      full_name,
+      job_title: $('f_job_title').value.trim() || null,
+      department_id: selectedDeptId || null,
+      work_email: $('f_work_email').value.trim() || null,
+      personal_email: $('f_personal_email').value.trim() || null,
+      personal_phone: $('f_personal_phone').value.trim() || null,
+      country_code: $('f_country_code').value,
+      employment_type: selectedEmpType,
+      employment_type_custom: selectedEmpType === 'other' ? $('f_employment_type_custom').value.trim() || null : null,
+      notice_period: $('f_notice_period').value.trim() || null,
+      role: selectedRole,
+      annual_leave_allowance: parseInt($('f_annual_leave').value) || 28,
+      executive_allowance_override: $('execOverrideToggle').checked ? parseFloat($('f_exec_override').value) || null : null,
+      start_date: $('f_start_date').value || null,
+      authorizer_ids: [...authorizerIds],
+      shift_pattern_id: selectedShiftPatternId || null,
+    };
+
+    await apiFetch('/api/core/add-employee', { method:'POST', body: JSON.stringify(payload) });
+    showToast('success', 'Employee added', `${full_name} has been added.`);
+    closeAllPanels();
+    await loadEmployees();
+  } catch (err) {
+    showToast('error', 'Error', err.message);
+  } finally {
+    $('submitAddBtn').textContent = 'Add Employee';
+    $('submitAddBtn').disabled = false;
+  }
+});
+
+// View employee panel
+window.openViewPanel = function(empId) {
+  currentViewEmployee = employees.find(e => e.id === empId);
+  if (!currentViewEmployee) return;
+  const e = currentViewEmployee;
+
+  $('viewAvatar').textContent = initials(e.full_name);
+  $('viewAvatar').style.background = avatarColor(e.full_name);
+  $('viewName').textContent = e.full_name;
+  $('viewTitle').textContent = [e.job_title, e.department?.name].filter(Boolean).join(' · ') || e.employee_id || '';
+
+  const empTypeLbl = e.employment_type === 'full_time' ? 'Full Time'
+    : e.employment_type === 'part_time' ? 'Part Time'
+    : (e.employment_type_custom || 'Other');
+
+  $('viewContent').innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+      ${roleBadge(e.role)}
+      ${e.onboarding_completed ? '<span class="badge badge-complete">Onboarding Complete</span>' : '<span class="badge badge-pending">Onboarding Pending</span>'}
+    </div>
+    <div class="detail-grid">
+      <div class="detail-item"><div class="dl">Employee ID</div><div class="dv">${e.employee_id || '—'}</div></div>
+      <div class="detail-item"><div class="dl">Start Date</div><div class="dv">${formatDate(e.start_date)}</div></div>
+      <div class="detail-item"><div class="dl">Work Email</div><div class="dv" style="word-break:break-all;">${e.work_email || '—'}</div></div>
+      <div class="detail-item"><div class="dl">Personal Email</div><div class="dv" style="word-break:break-all;">${e.personal_email || '—'}</div></div>
+      <div class="detail-item"><div class="dl">Phone</div><div class="dv">${e.personal_phone ? (e.country_code||'') + ' ' + e.personal_phone : '—'}</div></div>
+      <div class="detail-item"><div class="dl">Employment Type</div><div class="dv">${empTypeLbl}</div></div>
+      <div class="detail-item"><div class="dl">Notice Period</div><div class="dv">${e.notice_period || '—'}</div></div>
+      <div class="detail-item"><div class="dl">Annual Leave</div><div class="dv">${e.annual_leave_allowance || 28} days</div></div>
+      ${e.executive_allowance_override != null ? `<div class="detail-item"><div class="dl">Exec Override</div><div class="dv">${e.executive_allowance_override} days</div></div>` : ''}
+      <div class="detail-item"><div class="dl">Department</div><div class="dv">${e.department?.name || '—'}</div></div>
+      <div class="detail-item"><div class="dl">Shift Pattern</div><div class="dv">${e.shift_pattern?.name || '—'}</div></div>
+    </div>
+    ${e.authorizers?.length ? `
+      <div class="section-title" style="margin-top:20px;">Authorising Users</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        ${e.authorizers.map(a => `<span class="badge badge-employee">${a.authorizer?.full_name || a.authorizer_employee_id}</span>`).join('')}
+      </div>` : ''}
+    ${e.onboarding_completed ? `
+      <div class="section-title" style="margin-top:20px;">Personal Details</div>
+      <div class="detail-grid">
+        <div class="detail-item"><div class="dl">Preferred Name</div><div class="dv">${e.preferred_name||'—'}</div></div>
+        <div class="detail-item"><div class="dl">Pronouns</div><div class="dv">${e.pronouns||'—'}</div></div>
+        <div class="detail-item"><div class="dl">Date of Birth</div><div class="dv">${formatDate(e.date_of_birth)}</div></div>
+        <div class="detail-item"><div class="dl">Gender</div><div class="dv">${e.gender||'—'}</div></div>
+      </div>
+      ${e.address_line_1 ? `
+        <div class="section-title" style="margin-top:16px;">Address</div>
+        <div class="dv" style="font-size:14px;line-height:1.7;">${[e.address_line_1,e.address_line_2,e.city,e.county,e.postcode,e.country].filter(Boolean).join(', ')}</div>
+      ` : ''}
+      ${e.emergency_contact_1_name ? `
+        <div class="section-title" style="margin-top:16px;">Emergency Contact 1</div>
+        <div class="detail-grid">
+          <div class="detail-item"><div class="dl">Name</div><div class="dv">${e.emergency_contact_1_name}</div></div>
+          <div class="detail-item"><div class="dl">Relationship</div><div class="dv">${e.emergency_contact_1_relationship||'—'}</div></div>
+          <div class="detail-item"><div class="dl">Phone</div><div class="dv">${e.emergency_contact_1_phone||'—'}</div></div>
+          <div class="detail-item"><div class="dl">Email</div><div class="dv" style="word-break:break-all;">${e.emergency_contact_1_email||'—'}</div></div>
+        </div>
+      ` : ''}
+    ` : ''}
+  `;
+
+  const isAdmin = ['admin','owner'].includes(profile.role);
+  $('sendInviteBtn').style.display = (isAdmin && !e.onboarding_completed) ? '' : 'none';
+
+  openPanel('viewPanel');
+};
+
+$('closeViewPanel').addEventListener('click', closeAllPanels);
+$('closeViewBtn').addEventListener('click', closeAllPanels);
+
+$('sendInviteBtn').addEventListener('click', () => {
+  if (!currentViewEmployee) return;
+  const e = currentViewEmployee;
+  $('inviteNote').textContent = `Send onboarding invite to ${e.full_name}.`;
+  selectedInviteType = 'personal';
+  $('inviteTypeLabel').textContent = 'Personal Email';
+  document.querySelectorAll('#inviteTypeDropdown .custom-select-option').forEach((o,i) => {
+    o.classList.toggle('selected', i === 0);
+  });
+  $('inviteModal').classList.add('active');
+});
+
+$('closeInviteModal').addEventListener('click', () => $('inviteModal').classList.remove('active'));
+$('cancelInvite').addEventListener('click', () => $('inviteModal').classList.remove('active'));
+
+$('confirmInvite').addEventListener('click', async () => {
+  if (!currentViewEmployee) return;
+  $('confirmInvite').textContent = 'Sending…';
+  $('confirmInvite').disabled = true;
+  try {
+    await apiFetch('/api/core/send-employee-invite', {
+      method: 'POST',
+      body: JSON.stringify({ employee_id: currentViewEmployee.id, send_to: selectedInviteType }),
+    });
+    showToast('success', 'Invite sent', `Onboarding email sent to ${currentViewEmployee.full_name}.`);
+    $('inviteModal').classList.remove('active');
+  } catch (err) {
+    showToast('error', 'Error', err.message);
+  } finally {
+    $('confirmInvite').textContent = 'Send Invite';
+    $('confirmInvite').disabled = false;
+  }
+});
+
+// Panel helpers
+function openPanel(id) {
+  $('overlay').classList.add('active');
+  $(id).classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeAllPanels() {
+  $('overlay').classList.remove('active');
+  document.querySelectorAll('.slide-panel').forEach(p => p.classList.remove('active'));
+  document.body.style.overflow = '';
+}
+
+$('overlay').addEventListener('click', closeAllPanels);
+
+// Department modal
+function openDeptModal() {
+  renderDeptModal();
+  $('deptModal').classList.add('active');
+}
+
+function renderDeptModal() {
+  const list = $('deptList');
+  if (!departments.length) {
+    list.innerHTML = '<p style="color:var(--muted2);font-size:14px;">No departments yet.</p>';
+    return;
+  }
+  list.innerHTML = departments.map(d => {
+    const count = d.employee_count?.[0]?.count || 0;
+    return `<div class="dept-item">
+      <div>
+        <div class="dept-item-name">${d.name}</div>
+        <div class="dept-item-count">${count} employee${count !== 1 ? 's' : ''}</div>
+      </div>
+      <button class="btn sm danger" onclick="deleteDept('${d.id}',${count})">Delete</button>
+    </div>`;
+  }).join('');
+}
+
+window.deleteDept = function(id, count) {
+  deletingDeptId = id;
+  if (count > 0) {
+    // Show reassign modal
+    const opts = departments.filter(d => d.id !== id);
+    $('reassignSelect').innerHTML = '<option value="">No Department</option>' +
+      opts.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+    $('reassignModal').classList.add('active');
+  } else {
+    if (!confirm('Delete this department?')) return;
+    doDeleteDept(id, null);
+  }
+};
+
+$('closeReassignModal').addEventListener('click', () => { $('reassignModal').classList.remove('active'); deletingDeptId = null; });
+$('cancelReassign').addEventListener('click', () => { $('reassignModal').classList.remove('active'); deletingDeptId = null; });
+
+$('confirmReassign').addEventListener('click', async () => {
+  const to = $('reassignSelect').value || null;
+  $('confirmReassign').disabled = true;
+  try {
+    if (to !== null) {
+      await apiFetch(`/api/core/departments?action=reassign`, {
+        method: 'POST',
+        body: JSON.stringify({ from_department_id: deletingDeptId, to_department_id: to }),
+      });
+    } else {
+      await apiFetch(`/api/core/departments?action=reassign`, {
+        method: 'POST',
+        body: JSON.stringify({ from_department_id: deletingDeptId, to_department_id: null }),
+      });
+    }
+    await doDeleteDept(deletingDeptId);
+    $('reassignModal').classList.remove('active');
+  } catch (err) {
+    showToast('error', 'Error', err.message);
+  } finally {
+    $('confirmReassign').disabled = false;
+    deletingDeptId = null;
+  }
+});
+
+async function doDeleteDept(id) {
+  try {
+    await apiFetch(`/api/core/departments?id=${id}`, { method: 'DELETE' });
+    departments = departments.filter(d => d.id !== id);
+    renderDeptOptions();
+    renderDeptModal();
+    if (selectedDeptId === id) { selectedDeptId = null; $('deptSelectLabel').textContent = 'Select department…'; }
+    showToast('success', 'Deleted', 'Department removed.');
+    await loadEmployees();
+  } catch (err) {
+    showToast('error', 'Error', err.message);
+  }
+}
+
+$('closeDeptModal').addEventListener('click', () => $('deptModal').classList.remove('active'));
+$('closeDeptModalBtn').addEventListener('click', () => $('deptModal').classList.remove('active'));
+
+$('saveDeptBtn').addEventListener('click', async () => {
+  const name = $('newDeptInput').value.trim();
+  if (!name) return;
+  try {
+    const data = await apiFetch('/api/core/departments', { method:'POST', body: JSON.stringify({name}) });
+    departments.push(data.department);
+    $('newDeptInput').value = '';
+    renderDeptOptions();
+    renderDeptModal();
+    showToast('success', 'Created', name);
+  } catch (err) {
+    showToast('error', 'Error', err.message);
+  }
+});
+
+// Shift Pattern Modal
+$('shiftPatternBtn').addEventListener('click', () => {
+  renderShiftModal();
+  $('shiftModal').classList.add('active');
+});
+
+$('closeShiftModal').addEventListener('click', () => $('shiftModal').classList.remove('active'));
+$('closeShiftModalBtn').addEventListener('click', () => $('shiftModal').classList.remove('active'));
+
+function renderShiftModal() {
+  $('shiftModalTitle').textContent = 'Configure Shift Pattern';
+  // Existing patterns
+  $('shiftPatternList').innerHTML = shiftPatterns.length
+    ? shiftPatterns.map(p => `
+      <div class="dept-item">
+        <div class="dept-item-name">${p.name}</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn sm${selectedShiftPatternId === p.id ? ' primary' : ''}" onclick="selectShiftPattern('${p.id}','${p.name.replace(/'/g,"\\'")}')">
+            ${selectedShiftPatternId === p.id ? '✓ Selected' : 'Select'}
+          </button>
+          <button class="btn sm danger" onclick="deleteShiftPattern('${p.id}')">Delete</button>
+        </div>
+      </div>`).join('')
+    : '<p style="color:var(--muted2);font-size:14px;">No patterns yet.</p>';
+
+  // Shift days table
+  $('shiftDaysBody').innerHTML = DAYS.map((day, i) => `
+    <tr>
+      <td>${day}</td>
+      <td><input type="checkbox" id="shift_active_${i}" ${i < 5 ? 'checked' : ''}/></td>
+      <td><input type="time" id="shift_start_${i}" value="${i < 5 ? '09:00' : ''}" style="width:110px;"/></td>
+      <td><input type="time" id="shift_end_${i}" value="${i < 5 ? '17:00' : ''}" style="width:110px;"/></td>
+    </tr>`).join('');
+}
+
+window.selectShiftPattern = function(id, name) {
+  selectedShiftPatternId = id;
+  $('shiftPatternBtn').textContent = `Configure ${name}`;
+  $('shiftModal').classList.remove('active');
+  renderShiftModal();
+};
+
+window.deleteShiftPattern = async function(id) {
+  if (!confirm('Delete this shift pattern?')) return;
+  try {
+    await apiFetch(`/api/core/shift-patterns?id=${id}`, { method:'DELETE' });
+    shiftPatterns = shiftPatterns.filter(p => p.id !== id);
+    if (selectedShiftPatternId === id) { selectedShiftPatternId = null; $('shiftPatternBtn').textContent = 'Configure Shift Pattern'; }
+    renderShiftModal();
+    showToast('success', 'Deleted', 'Shift pattern removed.');
+  } catch (err) {
+    showToast('error', 'Error', err.message);
+  }
+};
+
+$('saveShiftPattern').addEventListener('click', async () => {
+  const name = $('newShiftName').value.trim();
+  if (!name) { showToast('error', 'Validation', 'Pattern name is required'); return; }
+  const schedule = {};
+  DAYS.forEach((day, i) => {
+    schedule[day.toLowerCase()] = {
+      active: document.getElementById(`shift_active_${i}`).checked,
+      start: document.getElementById(`shift_start_${i}`).value,
+      end: document.getElementById(`shift_end_${i}`).value,
+    };
+  });
+  try {
+    const data = await apiFetch('/api/core/shift-patterns', { method:'POST', body: JSON.stringify({name, schedule}) });
+    shiftPatterns.push(data.pattern);
+    $('newShiftName').value = '';
+    renderShiftModal();
+    showToast('success', 'Created', name);
+  } catch (err) {
+    showToast('error', 'Error', err.message);
+  }
+});
+
+// Onboarding Config Modal
+$('onboardingConfigBtn').addEventListener('click', () => {
+  renderConfigModal();
+  $('configModal').classList.add('active');
+});
+
+$('closeConfigModal').addEventListener('click', () => $('configModal').classList.remove('active'));
+$('closeConfigModalBtn').addEventListener('click', () => $('configModal').classList.remove('active'));
+
+const CONFIG_FIELDS = [
+  { key: 'title', label: 'Title (Mr, Ms, etc.)', sub: 'Salutation' },
+  { key: 'preferred_name', label: 'Preferred Name', sub: 'What they like to be called' },
+  { key: 'pronouns', label: 'Pronouns', sub: 'e.g. she/her, he/him' },
+  { key: 'date_of_birth', label: 'Date of Birth', sub: 'Personal info' },
+  { key: 'gender', label: 'Gender', sub: 'Optional diversity data' },
+  { key: 'personal_email', label: 'Personal Email', sub: 'Contact info' },
+  { key: 'personal_phone', label: 'Personal Phone', sub: 'Contact info' },
+  { key: 'address', label: 'Home Address', sub: 'Full address' },
+  { key: 'emergency_contact_1', label: 'Emergency Contact 1', sub: 'Required contact' },
+  { key: 'emergency_contact_2', label: 'Emergency Contact 2', sub: 'Optional second contact' },
+  { key: 'national_insurance', label: 'National Insurance Number', sub: 'Payroll info' },
+  { key: 'bank_details', label: 'Bank Account Details', sub: 'Account, sort code, name' },
+  { key: 'student_loan', label: 'Student Loan Status', sub: 'Payroll info' },
+  { key: 'tax_code', label: 'Tax Code', sub: 'Payroll info' },
+  { key: 'dietary_requirements', label: 'Dietary Requirements', sub: 'Workplace info' },
+  { key: 'accessibility_needs', label: 'Accessibility Needs', sub: 'Workplace adjustments' },
+];
+
+function renderConfigModal() {
+  $('configList').innerHTML = CONFIG_FIELDS.map(f => `
+    <div class="config-item">
+      <div>
+        <div class="config-label">${f.label}</div>
+        <div class="config-sub">${f.sub}</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="cfg_${f.key}" ${onboardingConfig[f.key] ? 'checked' : ''}/>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  `).join('');
+}
+
+$('saveConfigBtn').addEventListener('click', async () => {
+  const required_fields = {};
+  CONFIG_FIELDS.forEach(f => { required_fields[f.key] = document.getElementById(`cfg_${f.key}`).checked; });
+  try {
+    const data = await apiFetch('/api/core/onboarding-config', { method:'POST', body: JSON.stringify({required_fields}) });
+    onboardingConfig = data.required_fields || required_fields;
+    $('configModal').classList.remove('active');
+    showToast('success', 'Saved', 'Onboarding questions updated.');
+  } catch (err) {
+    showToast('error', 'Error', err.message);
+  }
+});
+
+init();
+</script>
+</body>
+</html>
