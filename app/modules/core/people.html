@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>People • SmartCore</title>
+<link rel="stylesheet" href="/app/styles/app.css">
+<style>
+:root{--blue:#3b82f6;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;--purple:#a78bfa;--panel:rgba(255,255,255,.065);--line:rgba(255,255,255,.12);--line2:rgba(255,255,255,.06);--text:#eaf0ff;--muted:rgba(234,240,255,.65);--muted2:rgba(234,240,255,.4)}
+
+/* PAGE SHELL */
+body{background:radial-gradient(900px 600px at 45% -10%,rgba(59,130,246,.18),transparent 62%),radial-gradient(900px 700px at 100% 10%,rgba(14,165,233,.1),transparent 60%),linear-gradient(180deg,#020617,#06153a);min-height:100vh;margin:0;font-family:Inter,system-ui,sans-serif;color:var(--text)}
+#toastwrap{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{display:flex;align-items:flex-start;gap:10px;background:rgba(15,20,40,.95);border:1px solid var(--line);border-radius:14px;padding:14px 16px;min-width:260px;max-width:360px;transition:opacity .4s,transform .4s;pointer-events:auto}
+.tDot{width:8px;height:8px;border-radius:50%;margin-top:4px;flex-shrink:0;background:#64748b}
+.tDot.success{background:var(--green)}.tDot.error{background:var(--red)}.tDot.info{background:var(--blue)}
+.toast b{display:block;font-size:13px;font-weight:700;color:var(--text)}.toast p{font-size:12px;color:var(--muted);margin:2px 0 0}
+
+/* TOP BAR */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 28px;border-bottom:1px solid var(--line2);background:rgba(0,0,0,.25);backdrop-filter:blur(12px);position:sticky;top:0;z-index:100}
+.topbar-left{display:flex;align-items:center;gap:16px}
+.back-btn{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;text-decoration:none;padding:7px 12px;border-radius:10px;border:1px solid var(--line2);background:rgba(255,255,255,.04);transition:.15s}
+.back-btn:hover{background:rgba(255,255,255,.08);color:var(--text)}
+.page-title{font-size:20px;font-weight:800;letter-spacing:-.03em;color:var(--text)}
+.page-sub{font-size:12px;color:var(--muted2);margin-top:2px}
+.topbar-right{display:flex;align-items:center;gap:10px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:12px;font-size:13px;font-weight:700;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.07);color:var(--text);cursor:pointer;transition:.15s;font-family:inherit}
+.btn:hover{background:rgba(255,255,255,.12)}
+.btn.primary{background:linear-gradient(180deg,#3b82f6,#2563eb);border-color:#3b82f6;color:#fff}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.sm{padding:6px 12px;font-size:12px;border-radius:9px}
+.btn.danger{background:linear-gradient(180deg,#ef4444,#dc2626);border-color:#ef4444;color:#fff}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* CONTENT */
+.content{padding:28px;max-width:1400px;margin:0 auto}
+.search-bar{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.search-bar input{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;color:var(--text);padding:10px 14px 10px 40px;font-size:14px;font-family:inherit;width:300px;outline:none}
+.search-bar input:focus{border-color:var(--blue)}
+.search-wrap{position:relative}.search-wrap svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.4}
+.stats-row{display:flex;gap:12px;margin-bottom:24px}
+.stat-card{background:rgba(255,255,255,.05);border:1px solid var(--line2);border-radius:16px;padding:16px 20px;min-width:130px}
+.stat-card .val{font-size:26px;font-weight:800;letter-spacing:-.04em;color:var(--text)}
+.stat-card .lbl{font-size:11px;color:var(--muted2);margin-top:3px;text-transform:uppercase;letter-spacing:.05em}
+
+/* TABLE */
+.emp-table{width:100%;border-collapse:separate;border-spacing:0}
+.emp-table th{font-size:11px;font-weight:700;color:var(--muted2);letter-spacing:.06em;text-transform:uppercase;padding:10px 14px;text-align:left;border-bottom:1px solid var(--line2)}
+.emp-table td{padding:14px;border-bottom:1px solid var(--line2);font-size:13px;vertical-align:middle}
+.emp-table tr:last-child td{border-bottom:none}
+.emp-table tbody tr{transition:.15s;cursor:pointer}
+.emp-table tbody tr:hover td{background:rgba(255,255,255,.04)}
+.emp-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#7c3aed);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;color:#fff;flex-shrink:0}
+.emp-info{display:flex;align-items:center;gap:10px}
+.emp-name{font-weight:700;color:var(--text);font-size:14px}
+.emp-id{font-size:11px;color:var(--muted2);font-family:monospace;margin-top:2px}
+.badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.03em}
+.badge.owner{background:rgba(167,139,250,.2);color:#a78bfa;border:1px solid rgba(167,139,250,.3)}
+.badge.admin{background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid rgba(59,130,246,.3)}
+.badge.employee{background:rgba(255,255,255,.08);color:var(--muted);border:1px solid var(--line2)}
+.badge.complete{background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.25)}
+.badge.pending{background:rgba(245,158,11,.15);color:#fbbf24;border:1px solid rgba(245,158,11,.25)}
+.empty-state{text-align:center;padding:80px 20px;color:var(--muted2)}
+.empty-state .icon{font-size:48px;margin-bottom:16px}
+.empty-state h3{font-size:18px;font-weight:700;color:var(--muted);margin:0 0 8px}
+.empty-state p{font-size:14px}
+
+/* SLIDE-OUT PANEL */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:200;opacity:0;pointer-events:none;transition:opacity .3s}
+.overlay.open{opacity:1;pointer-events:auto}
+.panel{position:fixed;top:0;right:0;width:520px;max-width:100vw;height:100vh;background:#0a0f22;border-left:1px solid var(--line);z-index:201;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);overflow-y:auto;display:flex;flex-direction:column}
+.panel.open{transform:translateX(0)}
+.panel-head{padding:20px 24px;border-bottom:1px solid var(--line2);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#0a0f22;z-index:1}
+.panel-head h2{font-size:17px;font-weight:800;margin:0;letter-spacing:-.02em}
+.panel-close{background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:8px;color:var(--text);width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px}
+.panel-body{padding:24px;flex:1}
+.panel-foot{padding:20px 24px;border-top:1px solid var(--line2);position:sticky;bottom:0;background:#0a0f22}
+
+/* FORM */
+.section-label{font-size:11px;font-weight:700;color:var(--muted2);letter-spacing:.08em;text-transform:uppercase;margin:24px 0 14px;display:flex;align-items:center;gap:8px}
+.section-label:first-child{margin-top:0}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px}
+.field input,.field select,.field textarea{width:100%;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;color:var(--text);padding:10px 14px;font-size:14px;font-family:inherit;box-sizing:border-box;outline:none;transition:.15s}
+.field input:focus,.field select,.field textarea:focus{border-color:var(--blue)}
+.field select{cursor:pointer;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(234,240,255,.4)' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px}
+.field select option{background:#0e1a3a;color:var(--text)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.hint{font-size:11px;color:var(--muted2);margin-top:5px}
+.hint.info{color:#60a5fa}
+.req{color:var(--red);margin-left:2px}
+
+/* CUSTOM DROPDOWN */
+.custom-select{position:relative}
+.custom-select-trigger{width:100%;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;color:var(--text);padding:10px 36px 10px 14px;font-size:14px;font-family:inherit;cursor:pointer;text-align:left;display:flex;align-items:center;justify-content:space-between;transition:.15s}
+.custom-select-trigger:hover,.custom-select-trigger.open{border-color:var(--blue);background:rgba(255,255,255,.09)}
+.custom-select-menu{position:absolute;top:calc(100% + 6px);left:0;right:0;background:#0e1a3a;border:1px solid var(--line);border-radius:12px;z-index:50;overflow:hidden;box-shadow:0 16px 40px rgba(0,0,0,.5)}
+.custom-select-option{padding:10px 14px;font-size:14px;cursor:pointer;transition:.1s;display:flex;align-items:center;gap:8px}
+.custom-select-option:hover{background:rgba(255,255,255,.07)}
+.custom-select-option.selected{color:var(--blue)}
+.custom-select-option.create{color:#60a5fa;border-top:1px solid var(--line2)}
+.custom-select-option.manage{color:var(--muted2);font-size:12px}
+
+/* PRO-RATA */
+.prorata-box{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:10px 14px;margin-top:8px;font-size:12px;color:#93c5fd}
+.override-toggle{display:flex;align-items:center;gap:10px;margin-top:10px;cursor:pointer}
+.toggle-track{width:40px;height:22px;border-radius:11px;background:rgba(255,255,255,.1);border:1px solid var(--line);position:relative;transition:.2s;flex-shrink:0}
+.toggle-track.on{background:var(--blue);border-color:var(--blue)}
+.toggle-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s}
+.toggle-track.on .toggle-knob{left:20px}
+.override-label{font-size:12px;color:var(--muted)}
+
+/* AUTHORIZER */
+.auth-search-wrap{position:relative}
+.auth-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#0e1a3a;border:1px solid var(--line);border-radius:12px;z-index:50;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,.5);display:none}
+.auth-dropdown.open{display:block}
+.auth-option{padding:10px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:space-between;transition:.1s}
+.auth-option:hover{background:rgba(255,255,255,.07)}
+.auth-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.auth-pill{display:inline-flex;align-items:center;gap:6px;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600;color:#93c5fd}
+.auth-pill button{background:none;border:none;color:rgba(147,197,253,.6);cursor:pointer;font-size:14px;line-height:1;padding:0;margin:0}
+.add-another{font-size:12px;color:#60a5fa;cursor:pointer;margin-top:8px;display:inline-block}
+.add-another:hover{text-decoration:underline}
+
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);z-index:300;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal{background:#0a0f22;border:1px solid var(--line);border-radius:20px;width:100%;max-width:560px;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 32px 80px rgba(0,0,0,.7)}
+.modal-head{padding:20px 24px;border-bottom:1px solid var(--line2);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.modal-head h3{margin:0;font-size:16px;font-weight:800;letter-spacing:-.02em}
+.modal-body{padding:24px;overflow-y:auto;flex:1}
+.modal-foot{padding:16px 24px;border-top:1px solid var(--line2);display:flex;justify-content:flex-end;gap:10px;flex-shrink:0}
+
+/* DEPT LIST */
+.dept-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-radius:10px;border:1px solid var(--line2);margin-bottom:8px;background:rgba(255,255,255,.03)}
+.dept-name{font-size:14px;font-weight:600}
+.dept-count{font-size:12px;color:var(--muted2)}
+.dept-actions{display:flex;gap:6px}
+
+/* SHIFT PATTERN */
+.shift-item{border:1px solid var(--line2);border-radius:12px;padding:14px 16px;margin-bottom:10px;background:rgba(255,255,255,.03);display:flex;align-items:center;justify-content:space-between}
+.shift-name{font-size:14px;font-weight:700}
+.shift-days{font-size:11px;color:var(--muted2);margin-top:3px}
+.shift-selected{border-color:var(--blue);background:rgba(59,130,246,.08)}
+.shift-selected .shift-name{color:#60a5fa}
+.shift-day-row{display:grid;grid-template-columns:auto 1fr 1fr 1fr;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line2)}
+.shift-day-row:last-child{border-bottom:none}
+.shift-day-label{font-size:13px;font-weight:600;width:90px}
+.shift-day-row input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:var(--blue)}
+.shift-day-row input[type=time]{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:6px 10px;font-size:13px;font-family:inherit;width:100%;outline:none}
+.shift-day-row input[type=time]:disabled{opacity:.3}
+
+/* ONBOARDING CONFIG */
+.ob-field-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-radius:10px;border:1px solid var(--line2);margin-bottom:8px;background:rgba(255,255,255,.03)}
+.ob-field-name{font-size:13px;font-weight:600}
+.ob-field-desc{font-size:11px;color:var(--muted2);margin-top:2px}
+
+/* INVITE MODAL */
+.invite-option{border:1px solid var(--line2);border-radius:14px;padding:16px 18px;cursor:pointer;margin-bottom:10px;transition:.15s;display:flex;align-items:center;justify-content:space-between}
+.invite-option:hover,.invite-option.selected{border-color:var(--blue);background:rgba(59,130,246,.08)}
+.invite-option-label{font-size:14px;font-weight:700}
+.invite-option-email{font-size:12px;color:var(--muted2);margin-top:3px}
+
+/* CONFIRM MODAL */
+.confirm-reassign{border:1px solid var(--line2);border-radius:10px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+.confirm-reassign select{flex:1;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:7px 10px;font-size:13px;font-family:inherit;outline:none}
+</style>
+</head>
+<body>
+<div id="toastwrap"></div>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="/app/dashboard.html" class="back-btn">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M19 12H5M5 12l7-7M5 12l7 7"/></svg>
+      Dashboard
+    </a>
+    <div>
+      <div class="page-title">People</div>
+      <div class="page-sub" id="companyName">Loading…</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="btn sm admin-only" id="btnOnboardingConfig" style="display:none">⚙ Onboarding Questions</button>
+    <button class="btn primary admin-only" id="btnAddEmployee" style="display:none">+ Add Employee</button>
+    <button class="btn sm" id="btnLogout">Log out</button>
+  </div>
+</div>
+
+<!-- CONTENT -->
+<div class="content">
+  <div class="stats-row" id="statsRow" style="display:none">
+    <div class="stat-card"><div class="val" id="statTotal">—</div><div class="lbl">Total Employees</div></div>
+    <div class="stat-card"><div class="val" id="statOnboarded">—</div><div class="lbl">Onboarded</div></div>
+    <div class="stat-card"><div class="val" id="statPending">—</div><div class="lbl">Pending Invite</div></div>
+    <div class="stat-card"><div class="val" id="statAdmins">—</div><div class="lbl">Admins / Owners</div></div>
+  </div>
+
+  <div class="search-bar">
+    <div class="search-wrap">
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input type="text" id="searchInput" placeholder="Search employees…">
+    </div>
+  </div>
+
+  <div id="loadingState" style="text-align:center;padding:60px;color:var(--muted2)">Loading employees…</div>
+
+  <table class="emp-table" id="empTable" style="display:none">
+    <thead>
+      <tr>
+        <th>Employee</th>
+        <th>Department</th>
+        <th>Role</th>
+        <th>Type</th>
+        <th>Start Date</th>
+        <th>Onboarding</th>
+        <th class="admin-only" style="display:none">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="empBody"></tbody>
+  </table>
+  <div class="empty-state" id="emptyState" style="display:none">
+    <div class="icon">👥</div>
+    <h3>No employees yet</h3>
+    <p>Add your first employee to get started.</p>
+  </div>
+</div>
+
+<!-- ADD EMPLOYEE PANEL -->
+<div class="overlay" id="panelOverlay"></div>
+<div class="panel" id="addPanel">
+  <div class="panel-head">
+    <h2>Add Employee</h2>
+    <button class="panel-close" id="panelClose">✕</button>
+  </div>
+  <div class="panel-body">
+    <!-- Personal Info -->
+    <div class="section-label">👤 Personal Info</div>
+    <div class="field">
+      <label>Full Name<span class="req">*</span></label>
+      <input type="text" id="fName" placeholder="Jane Smith">
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label>Job Title</label>
+        <input type="text" id="fTitle" placeholder="Senior Designer">
+      </div>
+      <div class="field">
+        <label>Department</label>
+        <div class="custom-select" id="deptSelect">
+          <button type="button" class="custom-select-trigger" id="deptTrigger">
+            <span id="deptLabel">Select or create…</span>
+            <svg width="12" height="8" fill="none" viewBox="0 0 12 8"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+          <div class="custom-select-menu" id="deptMenu" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Contact -->
+    <div class="section-label">📧 Contact</div>
+    <div class="field">
+      <label>Work Email</label>
+      <input type="email" id="fWorkEmail" placeholder="jane@company.com">
+    </div>
+    <div class="field">
+      <label>Personal Email</label>
+      <input type="email" id="fPersonalEmail" placeholder="jane@gmail.com">
+    </div>
+    <div class="field">
+      <label>Personal Phone</label>
+      <input type="tel" id="fPhone" placeholder="07700 900000">
+    </div>
+
+    <!-- Employment -->
+    <div class="section-label">💼 Employment</div>
+    <div class="row2">
+      <div class="field">
+        <label>Employment Type</label>
+        <div class="custom-select" id="empTypeSelect">
+          <button type="button" class="custom-select-trigger" id="empTypeTrigger">
+            <span id="empTypeLabel">Full Time</span>
+            <svg width="12" height="8" fill="none" viewBox="0 0 12 8"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+          <div class="custom-select-menu" id="empTypeMenu" style="display:none">
+            <div class="custom-select-option selected" data-val="full_time">Full Time</div>
+            <div class="custom-select-option" data-val="part_time">Part Time</div>
+            <div class="custom-select-option" data-val="other">Other</div>
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Notice Period</label>
+        <input type="text" id="fNotice" placeholder="e.g. 1 month">
+      </div>
+    </div>
+    <div class="field" id="empTypeCustomField" style="display:none">
+      <label>Specify Employment Type</label>
+      <input type="text" id="fEmpTypeCustom" placeholder="e.g. Zero Hours Contract">
+    </div>
+
+    <div class="row2">
+      <div class="field">
+        <label>Role</label>
+        <div class="custom-select" id="roleSelect">
+          <button type="button" class="custom-select-trigger" id="roleTrigger">
+            <span id="roleLabel">Employee</span>
+            <svg width="12" height="8" fill="none" viewBox="0 0 12 8"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+          <div class="custom-select-menu" id="roleMenu" style="display:none">
+            <div class="custom-select-option selected" data-val="employee">Employee</div>
+            <div class="custom-select-option" data-val="admin">Admin</div>
+            <div class="custom-select-option owner-only" data-val="owner" style="display:none">Owner</div>
+          </div>
+        </div>
+        <div class="hint" id="roleHint" style="display:none">Only owners can assign the Owner role</div>
+      </div>
+      <div class="field">
+        <label>Annual Leave Allowance</label>
+        <input type="number" id="fLeave" value="28" min="0" max="365" placeholder="28">
+        <div class="hint">days per year</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Start Date</label>
+      <input type="date" id="fStartDate">
+      <div id="prorataBox" class="prorata-box" style="display:none"></div>
+      <div class="override-toggle" id="overrideToggle" style="display:none">
+        <div class="toggle-track" id="overrideTrack"><div class="toggle-knob"></div></div>
+        <span class="override-label">Executive Allowance Override for this year</span>
+      </div>
+      <div id="overrideField" style="display:none;margin-top:8px">
+        <div class="field" style="margin:0">
+          <label>Override days for this year (supports half days)</label>
+          <input type="number" id="fOverride" min="0" max="365" step="0.5" placeholder="e.g. 14.5">
+          <div class="hint info">This overrides the pro-rata calculation for the current year only.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Authorisers -->
+    <div class="section-label">✅ Authorising Users</div>
+    <div class="hint" style="margin-bottom:12px;color:var(--muted2);font-size:12px">These users will receive and action leave requests from this employee.</div>
+    <div class="auth-search-wrap" id="authSearchWrap">
+      <input type="text" id="authSearchInput" placeholder="Search admins and owners…" autocomplete="off"
+        style="background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;color:var(--text);padding:10px 14px;font-size:14px;font-family:inherit;width:100%;box-sizing:border-box;outline:none">
+      <div class="auth-dropdown" id="authDropdown"></div>
+    </div>
+    <div class="auth-pills" id="authPills"></div>
+    <span class="add-another" id="addAnotherAuth" style="display:none">+ Add Another Authoriser?</span>
+
+    <!-- Shift Pattern -->
+    <div class="section-label">🕐 Shift Pattern</div>
+    <button type="button" class="btn" id="btnShiftPattern" style="width:100%">Configure Shift Pattern</button>
+    <div class="hint" id="shiftPatternHint" style="margin-top:8px">No shift pattern selected</div>
+  </div>
+  <div class="panel-foot">
+    <button class="btn" id="panelCancel">Cancel</button>
+    <button class="btn primary" id="btnSubmitEmployee">Add Employee →</button>
+  </div>
+</div>
+
+<!-- DEPARTMENT MANAGER MODAL -->
+<div class="modal-overlay" id="deptModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Manage Departments</h3>
+      <button class="panel-close" onclick="closeDeptModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field" style="display:flex;gap:8px;margin-bottom:20px">
+        <input type="text" id="newDeptInput" placeholder="New department name…" style="flex:1">
+        <button class="btn primary sm" id="btnCreateDept">Create</button>
+      </div>
+      <div id="deptList"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeDeptModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- DELETE DEPT CONFIRM MODAL -->
+<div class="modal-overlay" id="deleteDeptModal">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-head">
+      <h3>⚠️ Delete Department</h3>
+      <button class="panel-close" onclick="document.getElementById('deleteDeptModal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="deleteDeptMsg" style="font-size:14px;color:var(--muted);margin:0 0 16px"></p>
+      <div id="reassignList"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="document.getElementById('deleteDeptModal').classList.remove('open')">Cancel</button>
+      <button class="btn danger" id="btnConfirmDeleteDept">Delete Anyway</button>
+    </div>
+  </div>
+</div>
+
+<!-- SHIFT PATTERN MODAL -->
+<div class="modal-overlay" id="shiftModal">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-head">
+      <h3 id="shiftModalTitle">Configure Shift Pattern</h3>
+      <button class="panel-close" onclick="closeShiftModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="shiftPatternList"></div>
+      <div style="margin-top:20px;border-top:1px solid var(--line2);padding-top:20px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:14px;color:var(--muted)">+ Create New Shift Pattern</div>
+        <div class="field" style="margin-bottom:12px">
+          <label>Pattern Name</label>
+          <input type="text" id="newShiftName" placeholder="e.g. Standard 9–5, Night Shift…">
+        </div>
+        <div id="shiftDayTable"></div>
+        <button class="btn primary sm" id="btnSaveShift" style="margin-top:12px">Save Pattern</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeShiftModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ONBOARDING CONFIG MODAL -->
+<div class="modal-overlay" id="obConfigModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Adjust Onboarding Questions</h3>
+      <button class="panel-close" onclick="document.getElementById('obConfigModal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--muted2);margin:0 0 16px">Required fields are always mandatory. Toggle optional fields to make them required for your company.</p>
+      <div id="obFieldList"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="document.getElementById('obConfigModal').classList.remove('open')">Cancel</button>
+      <button class="btn primary" id="btnSaveObConfig">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- INVITE MODAL -->
+<div class="modal-overlay" id="inviteModal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-head">
+      <h3>📧 Send Onboarding Invite</h3>
+      <button class="panel-close" onclick="document.getElementById('inviteModal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:14px;color:var(--muted);margin:0 0 20px">Where would you like to send <strong id="inviteEmpName"></strong>'s onboarding link?</p>
+      <div id="inviteOptions"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="document.getElementById('inviteModal').classList.remove('open')">Cancel</button>
+      <button class="btn primary" id="btnSendInvite">Send Invite →</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { requireAuth, getMyProfile, logout } from '/app/shared/auth.js';
+import { toast } from '/app/shared/ui.js';
+
+const SUPABASE_URL = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts';
+
+let profile, token, employees = [], departments = [], shiftPatterns = [];
+let selectedDeptId = null, selectedDeptLabel = 'Select or create…';
+let selectedEmpType = 'full_time', selectedRole = 'employee';
+let selectedShiftId = null, selectedShiftName = null;
+let authorizers = []; // [{id, full_name, role}]
+let overrideOn = false;
+let pendingInviteEmpId = null, selectedInviteTo = null;
+let deleteDeptTarget = null;
+let obConfig = {};
+
+const DAYS = ['mon','tue','wed','thu','fri','sat','sun'];
+const DAY_LABELS = {mon:'Monday',tue:'Tuesday',wed:'Wednesday',thu:'Thursday',fri:'Friday',sat:'Saturday',sun:'Sunday'};
+const shiftDefaults = {mon:{a:true,s:'09:00',e:'17:00'},tue:{a:true,s:'09:00',e:'17:00'},wed:{a:true,s:'09:00',e:'17:00'},thu:{a:true,s:'09:00',e:'17:00'},fri:{a:true,s:'09:00',e:'17:00'},sat:{a:false,s:'09:00',e:'17:00'},sun:{a:false,s:'09:00',e:'17:00'}};
+let newShiftSchedule = JSON.parse(JSON.stringify(shiftDefaults));
+
+const OB_FIELDS = [
+  {key:'title',label:'Title',required:true},
+  {key:'full_name',label:'Full Name',required:true},
+  {key:'preferred_name',label:'Preferred Name',required:false},
+  {key:'personal_email',label:'Personal Email',required:true},
+  {key:'personal_phone',label:'Personal Phone',required:true},
+  {key:'pronouns',label:'Pronouns',required:false},
+  {key:'date_of_birth',label:'Date of Birth',required:true},
+  {key:'address',label:'Address',required:true},
+  {key:'emergency_contact_1',label:'Emergency Contact 1',required:true},
+  {key:'emergency_contact_2',label:'Emergency Contact 2',required:false},
+  {key:'national_insurance',label:'National Insurance Number',required:false},
+  {key:'bank_details',label:'Bank Account Details',required:false},
+  {key:'student_loan_status',label:'Student Loan Status',required:false},
+  {key:'tax_code',label:'Tax Code',required:false},
+  {key:'gender',label:'Gender',required:false},
+  {key:'dietary_requirements',label:'Dietary Requirements',required:false},
+  {key:'accessibility_needs',label:'Accessibility Needs',required:false},
+];
+
+async function api(path, opts = {}) {
+  const r = await fetch(`/api/core/${path}`, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) },
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+async function init() {
+  try {
+    const session = await requireAuth();
+    token = session.access_token;
+    profile = await getMyProfile();
+    document.getElementById('companyName').textContent = profile.full_name + ' · ' + profile.role;
+
+    const isAdmin = ['admin','owner'].includes(profile.role);
+    if (isAdmin) {
+      document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
+      if (profile.role === 'owner') {
+        document.querySelectorAll('.owner-only').forEach(el => el.style.display = '');
+      } else {
+        document.getElementById('roleHint').style.display = 'block';
+      }
+    }
+
+    await loadAll();
+    renderShiftDayTable();
+
+    // Auth search
+    const authInput = document.getElementById('authSearchInput');
+    authInput.addEventListener('input', debounce(searchAuthorizers, 300));
+    authInput.addEventListener('focus', () => { if (authInput.value) searchAuthorizers(); });
+    document.addEventListener('click', e => {
+      if (!document.getElementById('authSearchWrap').contains(e.target)) {
+        document.getElementById('authDropdown').classList.remove('open');
+      }
+    });
+
+    document.getElementById('fStartDate').addEventListener('input', updateProrata);
+    document.getElementById('fLeave').addEventListener('input', updateProrata);
+    document.getElementById('overrideTrack').addEventListener('click', toggleOverride);
+    document.getElementById('btnLogout').addEventListener('click', () => logout());
+    document.getElementById('btnAddEmployee').addEventListener('click', openPanel);
+    document.getElementById('panelClose').addEventListener('click', closePanel);
+    document.getElementById('panelCancel').addEventListener('click', closePanel);
+    document.getElementById('panelOverlay').addEventListener('click', closePanel);
+    document.getElementById('btnSubmitEmployee').addEventListener('click', submitEmployee);
+    document.getElementById('btnShiftPattern').addEventListener('click', openShiftModal);
+    document.getElementById('btnOnboardingConfig').addEventListener('click', openObConfig);
+    document.getElementById('btnSaveObConfig').addEventListener('click', saveObConfig);
+    document.getElementById('btnSendInvite').addEventListener('click', sendInvite);
+    document.getElementById('searchInput').addEventListener('input', renderTable);
+    document.getElementById('btnCreateDept').addEventListener('click', createDept);
+    document.getElementById('btnSaveShift').addEventListener('click', saveNewShift);
+    document.getElementById('btnConfirmDeleteDept').addEventListener('click', confirmDeleteDept);
+    setupCustomSelect('empType', ['full_time','part_time','other'], ['Full Time','Part Time','Other'], v => {
+      selectedEmpType = v;
+      document.getElementById('empTypeCustomField').style.display = v === 'other' ? 'block' : 'none';
+    });
+    setupCustomSelect('role', ['employee','admin'], ['Employee','Admin'], v => { selectedRole = v; });
+
+  } catch (e) {
+    console.error(e);
+    toast('error','Error', e.message);
+  }
+}
+
+async function loadAll() {
+  document.getElementById('loadingState').style.display = 'block';
+  document.getElementById('empTable').style.display = 'none';
+  document.getElementById('emptyState').style.display = 'none';
+  try {
+    const data = await api('get-employees');
+    employees = data.employees || [];
+    departments = data.departments || [];
+    shiftPatterns = data.shift_patterns || [];
+    renderTable();
+    renderStats();
+    renderDeptMenu();
+  } catch(e) {
+    toast('error','Failed to load', e.message);
+  }
+  document.getElementById('loadingState').style.display = 'none';
+}
+
+function renderStats() {
+  document.getElementById('statsRow').style.display = 'flex';
+  document.getElementById('statTotal').textContent = employees.length;
+  document.getElementById('statOnboarded').textContent = employees.filter(e => e.onboarding_completed).length;
+  document.getElementById('statPending').textContent = employees.filter(e => !e.onboarding_completed).length;
+  document.getElementById('statAdmins').textContent = employees.filter(e => ['admin','owner'].includes(e.role)).length;
+}
+
+function renderTable() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const filtered = employees.filter(e =>
+    e.full_name.toLowerCase().includes(q) ||
+    (e.employee_id || '').toLowerCase().includes(q) ||
+    (e.job_title || '').toLowerCase().includes(q)
+  );
+  const isAdmin = ['admin','owner'].includes(profile.role);
+  const tbody = document.getElementById('empBody');
+  document.querySelectorAll('.admin-only').forEach(el => el.style.display = isAdmin ? '' : 'none');
+
+  if (!filtered.length) {
+    document.getElementById('empTable').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'block';
+    return;
+  }
+  document.getElementById('empTable').style.display = 'table';
+  document.getElementById('emptyState').style.display = 'none';
+
+  tbody.innerHTML = filtered.map(e => {
+    const initials = e.full_name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+    const dept = e.department?.name || '—';
+    const type = e.employment_type === 'full_time' ? 'Full Time' : e.employment_type === 'part_time' ? 'Part Time' : (e.employment_type_custom || 'Other');
+    const sd = e.start_date ? new Date(e.start_date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—';
+    const roleBadge = `<span class="badge ${e.role}">${e.role.charAt(0).toUpperCase()+e.role.slice(1)}</span>`;
+    const obBadge = e.onboarding_completed
+      ? '<span class="badge complete">✓ Complete</span>'
+      : '<span class="badge pending">⏳ Pending</span>';
+    const actionCell = isAdmin ? `<td><div style="display:flex;gap:6px">
+      ${!e.onboarding_completed ? `<button class="btn sm" onclick="openInviteModal('${e.id}','${e.full_name.replace(/'/g,"\\'")}','${e.personal_email||''}','${e.work_email||'')'}')">Send Invite</button>` : ''}
+    </div></td>` : '';
+
+    return `<tr>
+      <td><div class="emp-info"><div class="emp-avatar">${initials}</div><div><div class="emp-name">${esc(e.full_name)}</div><div class="emp-id">${esc(e.employee_id)}</div></div></div></td>
+      <td>${esc(dept)}</td>
+      <td>${roleBadge}</td>
+      <td>${esc(type)}</td>
+      <td>${sd}</td>
+      <td>${obBadge}</td>
+      ${actionCell}
+    </tr>`;
+  }).join('');
+}
+
+// ---- DEPT MENU ----
+function renderDeptMenu() {
+  const menu = document.getElementById('deptMenu');
+  menu.innerHTML = `
+    ${departments.map(d => `<div class="custom-select-option${d.id===selectedDeptId?' selected':''}" data-id="${d.id}" data-name="${esc(d.name)}">${esc(d.name)}</div>`).join('')}
+    <div class="custom-select-option create" id="deptCreateOpt">+ Create new department</div>
+    <div class="custom-select-option manage" id="deptManageOpt">⚙ Manage departments</div>
+  `;
+  menu.querySelectorAll('[data-id]').forEach(opt => {
+    opt.addEventListener('click', () => {
+      selectedDeptId = opt.dataset.id;
+      selectedDeptLabel = opt.dataset.name;
+      document.getElementById('deptLabel').textContent = selectedDeptLabel;
+      document.getElementById('deptMenu').style.display = 'none';
+      document.getElementById('deptTrigger').classList.remove('open');
+    });
+  });
+  document.getElementById('deptCreateOpt').onclick = () => {
+    const name = prompt('New department name:');
+    if (name?.trim()) createDeptInline(name.trim());
+  };
+  document.getElementById('deptManageOpt').onclick = openDeptModal;
+}
+
+async function createDeptInline(name) {
+  try {
+    const dept = await api('departments', { method:'POST', body: JSON.stringify({name}) });
+    departments.push(dept);
+    selectedDeptId = dept.id; selectedDeptLabel = dept.name;
+    document.getElementById('deptLabel').textContent = dept.name;
+    document.getElementById('deptMenu').style.display = 'none';
+    renderDeptMenu();
+    toast('success','Department created', dept.name);
+  } catch(e) { toast('error','Error', e.message); }
+}
+
+document.getElementById('deptTrigger').addEventListener('click', () => {
+  const menu = document.getElementById('deptMenu');
+  const isOpen = menu.style.display !== 'none';
+  menu.style.display = isOpen ? 'none' : 'block';
+  document.getElementById('deptTrigger').classList.toggle('open', !isOpen);
+});
+
+// ---- DEPT MODAL ----
+function openDeptModal() {
+  document.getElementById('deptMenu').style.display = 'none';
+  document.getElementById('deptModal').classList.add('open');
+  renderDeptList();
+}
+window.closeDeptModal = () => { document.getElementById('deptModal').classList.remove('open'); loadAll(); };
+
+function renderDeptList() {
+  const list = document.getElementById('deptList');
+  if (!departments.length) { list.innerHTML = '<p style="color:var(--muted2);font-size:13px">No departments yet.</p>'; return; }
+  list.innerHTML = departments.map(d => `
+    <div class="dept-item">
+      <div><div class="dept-name">${esc(d.name)}</div><div class="dept-count">${d.employee_count||0} employee${d.employee_count!==1?'s':''}</div></div>
+      <div class="dept-actions">
+        <button class="btn sm danger" onclick="deleteDept('${d.id}','${esc(d.name)}',${d.employee_count||0})">Delete</button>
+      </div>
+    </div>`).join('');
+}
+
+async function createDept() {
+  const name = document.getElementById('newDeptInput').value.trim();
+  if (!name) return;
+  try {
+    const dept = await api('departments', { method:'POST', body: JSON.stringify({name}) });
+    departments.push({...dept, employee_count:0});
+    document.getElementById('newDeptInput').value = '';
+    renderDeptList();
+    renderDeptMenu();
+    toast('success','Created', name);
+  } catch(e) { toast('error','Error', e.message); }
+}
+
+window.deleteDept = async (id, name, count) => {
+  deleteDeptTarget = { id, name };
+  if (count > 0) {
+    const empsInDept = employees.filter(e => e.department?.name === name || (e.department_id === id));
+    document.getElementById('deleteDeptMsg').textContent = `Are you sure? ${count} employee${count!==1?'s are':' is'} still assigned to "${name}".`;
+    const rl = document.getElementById('reassignList');
+    rl.innerHTML = empsInDept.map(e => `
+      <div class="confirm-reassign">
+        <div style="flex:0 0 auto;font-size:13px;font-weight:600;min-width:120px">${esc(e.full_name)}</div>
+        <select data-emp="${e.id}" onchange="void 0">
+          <option value="">— No department —</option>
+          ${departments.filter(d=>d.id!==id).map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join('')}
+        </select>
+      </div>`).join('');
+    document.getElementById('deleteDeptModal').classList.add('open');
+  } else {
+    if (!confirm(`Delete department "${name}"?`)) return;
+    await doDeleteDept(id);
+  }
+};
+
+async function confirmDeleteDept() {
+  const selects = document.querySelectorAll('#reassignList select');
+  for (const sel of selects) {
+    const empId = sel.dataset.emp;
+    await api(`departments?action=reassign`, { method:'POST', body: JSON.stringify({ employee_id: empId, new_department_id: sel.value || null }) });
+  }
+  await doDeleteDept(deleteDeptTarget.id);
+  document.getElementById('deleteDeptModal').classList.remove('open');
+}
+
+async function doDeleteDept(id) {
+  try {
+    await api(`departments?id=${id}`, { method:'DELETE' });
+    departments = departments.filter(d => d.id !== id);
+    if (selectedDeptId === id) { selectedDeptId = null; selectedDeptLabel = 'Select or create…'; document.getElementById('deptLabel').textContent = selectedDeptLabel; }
+    renderDeptList(); renderDeptMenu();
+    toast('success','Deleted', 'Department removed');
+    await loadAll();
+  } catch(e) { toast('error','Error', e.message); }
+}
+
+// ---- SHIFT MODAL ----
+function openShiftModal() {
+  const name = document.getElementById('fName').value.trim().split(' ')[0];
+  const apos = name.endsWith('s') ? "'" : "'s";
+  document.getElementById('shiftModalTitle').textContent = `Configure ${name || 'Employee'}${name ? apos : ''} Shift Pattern`;
+  renderShiftPatternList();
+  document.getElementById('shiftModal').classList.add('open');
+}
+window.closeShiftModal = () => document.getElementById('shiftModal').classList.remove('open');
+
+function renderShiftPatternList() {
+  const list = document.getElementById('shiftPatternList');
+  if (!shiftPatterns.length) { list.innerHTML = '<p style="color:var(--muted2);font-size:13px">No shift patterns yet. Create one below.</p>'; return; }
+  list.innerHTML = shiftPatterns.map(p => {
+    const activeDays = Object.entries(p.schedule||{}).filter(([,v])=>v.a).map(([k])=>DAY_LABELS[k]?.slice(0,3)||k).join(', ') || 'No days set';
+    const isSelected = p.id === selectedShiftId;
+    return `<div class="shift-item${isSelected?' shift-selected':''}">
+      <div>
+        <div class="shift-name">${esc(p.name)}</div>
+        <div class="shift-days">${activeDays}</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        ${isSelected ? '<span style="color:var(--blue);font-size:12px;font-weight:700">✓ Selected</span>' : `<button class="btn sm" onclick="selectShift('${p.id}','${esc(p.name)}')">Select</button>`}
+        <button class="btn sm danger" onclick="deleteShiftPattern('${p.id}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.selectShift = (id, name) => {
+  selectedShiftId = id; selectedShiftName = name;
+  document.getElementById('shiftPatternHint').textContent = `Selected: ${name}`;
+  document.getElementById('btnShiftPattern').textContent = `✓ ${name}`;
+  renderShiftPatternList();
+};
+
+window.deleteShiftPattern = async (id) => {
+  if (!confirm('Delete this shift pattern?')) return;
+  try {
+    await api(`shift-patterns?id=${id}`, { method:'DELETE' });
+    shiftPatterns = shiftPatterns.filter(p => p.id !== id);
+    if (selectedShiftId === id) { selectedShiftId = null; selectedShiftName = null; document.getElementById('shiftPatternHint').textContent = 'No shift pattern selected'; document.getElementById('btnShiftPattern').textContent = 'Configure Shift Pattern'; }
+    renderShiftPatternList();
+    toast('success','Deleted','Shift pattern removed');
+  } catch(e) { toast('error','Error', e.message); }
+};
+
+function renderShiftDayTable() {
+  document.getElementById('shiftDayTable').innerHTML = DAYS.map(d => `
+    <div class="shift-day-row">
+      <div><input type="checkbox" id="sh_${d}" ${newShiftSchedule[d].a?'checked':''} onchange="newShiftSchedule['${d}'].a=this.checked;toggleShiftDayInputs('${d}')"> <label for="sh_${d}" class="shift-day-label">${DAY_LABELS[d]}</label></div>
+      <input type="time" id="sh_${d}_s" value="${newShiftSchedule[d].s}" ${newShiftSchedule[d].a?'':'disabled'} onchange="newShiftSchedule['${d}'].s=this.value">
+      <input type="time" id="sh_${d}_e" value="${newShiftSchedule[d].e}" ${newShiftSchedule[d].a?'':'disabled'} onchange="newShiftSchedule['${d}'].e=this.value">
+      <span style="font-size:11px;color:var(--muted2)">${newShiftSchedule[d].a?'Active':'Off'}</span>
+    </div>`).join('');
+}
+
+window.toggleShiftDayInputs = (d) => {
+  document.getElementById(`sh_${d}_s`).disabled = !newShiftSchedule[d].a;
+  document.getElementById(`sh_${d}_e`).disabled = !newShiftSchedule[d].a;
+};
+
+async function saveNewShift() {
+  const name = document.getElementById('newShiftName').value.trim();
+  if (!name) { toast('error','Name required','Enter a shift pattern name'); return; }
+  try {
+    const schedule = {};
+    DAYS.forEach(d => { schedule[d] = { a: newShiftSchedule[d].a, s: newShiftSchedule[d].s, e: newShiftSchedule[d].e }; });
+    const pattern = await api('shift-patterns', { method:'POST', body: JSON.stringify({ name, schedule }) });
+    shiftPatterns.push(pattern);
+    document.getElementById('newShiftName').value = '';
+    newShiftSchedule = JSON.parse(JSON.stringify(shiftDefaults));
+    renderShiftDayTable();
+    renderShiftPatternList();
+    toast('success','Created', name);
+  } catch(e) { toast('error','Error', e.message); }
+}
+
+// ---- AUTHORIZERS ----
+let authSearchTimeout = null;
+async function searchAuthorizers() {
+  const q = document.getElementById('authSearchInput').value.trim();
+  if (!q) { document.getElementById('authDropdown').classList.remove('open'); return; }
+  try {
+    const results = await api(`search-employees?q=${encodeURIComponent(q)}&roles=admin,owner`);
+    const dropdown = document.getElementById('authDropdown');
+    const alreadyAdded = authorizers.map(a => a.id);
+    const filtered = results.filter(r => !alreadyAdded.includes(r.id));
+    if (!filtered.length) { dropdown.innerHTML = '<div class="auth-option" style="color:var(--muted2)">No results</div>'; dropdown.classList.add('open'); return; }
+    dropdown.innerHTML = filtered.map(r => `
+      <div class="auth-option" data-id="${r.id}" data-name="${esc(r.full_name)}" data-role="${r.role}">
+        <span>${esc(r.full_name)}</span>
+        <span class="badge ${r.role}" style="font-size:10px">${r.role}</span>
+      </div>`).join('');
+    dropdown.querySelectorAll('.auth-option[data-id]').forEach(opt => {
+      opt.addEventListener('click', () => addAuthorizer({ id: opt.dataset.id, full_name: opt.dataset.name, role: opt.dataset.role }));
+    });
+    dropdown.classList.add('open');
+  } catch(e) {}
+}
+
+function addAuthorizer(a) {
+  authorizers.push(a);
+  document.getElementById('authSearchInput').value = '';
+  document.getElementById('authDropdown').classList.remove('open');
+  renderAuthPills();
+}
+
+function renderAuthPills() {
+  document.getElementById('authPills').innerHTML = authorizers.map(a => `
+    <div class="auth-pill">
+      ${esc(a.full_name)}
+      <span class="badge ${a.role}" style="font-size:10px;padding:1px 6px">${a.role}</span>
+      <button onclick="removeAuthorizer('${a.id}')" title="Remove">✕</button>
+    </div>`).join('');
+  document.getElementById('addAnotherAuth').style.display = authorizers.length > 0 ? 'inline-block' : 'none';
+  document.getElementById('authSearchInput').style.display = authorizers.length > 0 ? 'none' : '';
+}
+
+window.removeAuthorizer = (id) => {
+  authorizers = authorizers.filter(a => a.id !== id);
+  renderAuthPills();
+  if (!authorizers.length) document.getElementById('authSearchInput').style.display = '';
+};
+
+document.getElementById('addAnotherAuth').addEventListener('click', () => {
+  document.getElementById('authSearchInput').style.display = '';
+  document.getElementById('authSearchInput').focus();
+});
+
+// ---- PRO-RATA ----
+function updateProrata() {
+  const sd = document.getElementById('fStartDate').value;
+  const allowance = parseFloat(document.getElementById('fLeave').value) || 28;
+  const box = document.getElementById('prorataBox');
+  const toggleRow = document.getElementById('overrideToggle');
+  if (!sd) { box.style.display = 'none'; toggleRow.style.display = 'none'; return; }
+
+  const startDate = new Date(sd);
+  const thisYear = new Date().getFullYear();
+  if (startDate.getFullYear() === thisYear) {
+    const yearEnd = new Date(thisYear, 11, 31);
+    const daysLeft = Math.ceil((yearEnd - startDate) / 86400000) + 1;
+    const prorata = Math.round((daysLeft / 365) * allowance * 10) / 10;
+    box.textContent = `Pro-rata for ${thisYear}: ${prorata} days (${daysLeft} days remaining ÷ 365 × ${allowance} allowance)`;
+    box.style.display = 'block';
+    toggleRow.style.display = 'flex';
+  } else {
+    box.style.display = 'none';
+    toggleRow.style.display = 'none';
+    overrideOn = false;
+    document.getElementById('overrideTrack').classList.remove('on');
+    document.getElementById('overrideField').style.display = 'none';
+  }
+}
+
+function toggleOverride() {
+  overrideOn = !overrideOn;
+  document.getElementById('overrideTrack').classList.toggle('on', overrideOn);
+  document.getElementById('overrideField').style.display = overrideOn ? 'block' : 'none';
+}
+
+// ---- CUSTOM SELECT HELPER ----
+function setupCustomSelect(id, vals, labels, onChange) {
+  const trigger = document.getElementById(`${id}Trigger`);
+  const menu = document.getElementById(`${id}Menu`);
+  const label = document.getElementById(`${id}Label`);
+  trigger.addEventListener('click', () => {
+    const isOpen = menu.style.display !== 'none';
+    menu.style.display = isOpen ? 'none' : 'block';
+    trigger.classList.toggle('open', !isOpen);
+  });
+  menu.querySelectorAll('.custom-select-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      menu.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      label.textContent = opt.textContent.trim();
+      menu.style.display = 'none';
+      trigger.classList.remove('open');
+      onChange(opt.dataset.val);
+    });
+  });
+  document.addEventListener('click', e => {
+    if (!trigger.closest('.custom-select').contains(e.target)) {
+      menu.style.display = 'none';
+      trigger.classList.remove('open');
+    }
+  });
+}
+
+// ---- PANEL ----
+function openPanel() {
+  document.getElementById('addPanel').classList.add('open');
+  document.getElementById('panelOverlay').classList.add('open');
+  resetPanel();
+}
+function closePanel() {
+  document.getElementById('addPanel').classList.remove('open');
+  document.getElementById('panelOverlay').classList.remove('open');
+}
+function resetPanel() {
+  ['fName','fTitle','fWorkEmail','fPersonalEmail','fPhone','fNotice','fEmpTypeCustom','fOverride'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('fLeave').value = '28';
+  document.getElementById('fStartDate').value = '';
+  selectedDeptId = null; selectedDeptLabel = 'Select or create…'; document.getElementById('deptLabel').textContent = selectedDeptLabel;
+  selectedEmpType = 'full_time'; document.getElementById('empTypeLabel').textContent = 'Full Time';
+  selectedRole = 'employee'; document.getElementById('roleLabel').textContent = 'Employee';
+  selectedShiftId = null; selectedShiftName = null;
+  document.getElementById('shiftPatternHint').textContent = 'No shift pattern selected';
+  document.getElementById('btnShiftPattern').textContent = 'Configure Shift Pattern';
+  authorizers = []; renderAuthPills();
+  document.getElementById('authSearchInput').style.display = '';
+  overrideOn = false; document.getElementById('overrideTrack').classList.remove('on');
+  document.getElementById('overrideField').style.display = 'none';
+  document.getElementById('prorataBox').style.display = 'none';
+  document.getElementById('overrideToggle').style.display = 'none';
+  document.getElementById('empTypeCustomField').style.display = 'none';
+}
+
+// ---- SUBMIT EMPLOYEE ----
+async function submitEmployee() {
+  const btn = document.getElementById('btnSubmitEmployee');
+  const full_name = document.getElementById('fName').value.trim();
+  if (!full_name) { toast('error','Required','Full name is required'); return; }
+
+  btn.disabled = true; btn.textContent = 'Adding…';
+  try {
+    const body = {
+      full_name,
+      job_title: document.getElementById('fTitle').value.trim() || null,
+      department_id: selectedDeptId || null,
+      work_email: document.getElementById('fWorkEmail').value.trim() || null,
+      personal_email: document.getElementById('fPersonalEmail').value.trim() || null,
+      personal_phone: document.getElementById('fPhone').value.trim() || null,
+      employment_type: selectedEmpType,
+      employment_type_custom: selectedEmpType === 'other' ? document.getElementById('fEmpTypeCustom').value.trim() : null,
+      notice_period: document.getElementById('fNotice').value.trim() || null,
+      role: selectedRole,
+      annual_leave_allowance: parseInt(document.getElementById('fLeave').value) || 28,
+      executive_allowance_override: overrideOn ? (parseFloat(document.getElementById('fOverride').value) || null) : null,
+      start_date: document.getElementById('fStartDate').value || null,
+      shift_pattern_id: selectedShiftId || null,
+      authorizer_ids: authorizers.map(a => a.id),
+    };
+
+    const emp = await api('add-employee', { method:'POST', body: JSON.stringify(body) });
+    employees.push(emp);
+    renderTable(); renderStats();
+    closePanel();
+    toast('success','Employee added', `${full_name} — ${emp.employee_id}`);
+    pendingInviteEmpId = emp.id;
+    setTimeout(() => openInviteModal(emp.id, emp.full_name, emp.personal_email, emp.work_email), 400);
+  } catch(e) {
+    toast('error','Error', e.message);
+  }
+  btn.disabled = false; btn.textContent = 'Add Employee →';
+}
+
+// ---- INVITE MODAL ----
+window.openInviteModal = (id, name, personalEmail, workEmail) => {
+  pendingInviteEmpId = id; selectedInviteTo = null;
+  document.getElementById('inviteEmpName').textContent = name;
+  const opts = document.getElementById('inviteOptions');
+  opts.innerHTML = '';
+  if (personalEmail) {
+    opts.innerHTML += `<div class="invite-option" data-to="personal" onclick="selectInviteTo(this,'personal')">
+      <div><div class="invite-option-label">Personal Email</div><div class="invite-option-email">${esc(personalEmail)}</div></div>
+      <div id="invPersCheck" style="display:none">✓</div>
+    </div>`;
+  }
+  if (workEmail) {
+    opts.innerHTML += `<div class="invite-option" data-to="work" onclick="selectInviteTo(this,'work')">
+      <div><div class="invite-option-label">Work Email</div><div class="invite-option-email">${esc(workEmail)}</div></div>
+      <div id="invWorkCheck" style="display:none">✓</div>
+    </div>`;
+  }
+  if (!personalEmail && !workEmail) {
+    opts.innerHTML = '<p style="color:var(--amber);font-size:13px">⚠ No email address set for this employee. Edit their record to add one first.</p>';
+  }
+  document.getElementById('inviteModal').classList.add('open');
+};
+
+window.selectInviteTo = (el, to) => {
+  selectedInviteTo = to;
+  document.querySelectorAll('.invite-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+};
+
+async function sendInvite() {
+  if (!pendingInviteEmpId || !selectedInviteTo) { toast('error','Select email','Choose where to send the invite'); return; }
+  const btn = document.getElementById('btnSendInvite');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    await api('send-employee-invite', { method:'POST', body: JSON.stringify({ employee_id: pendingInviteEmpId, send_to: selectedInviteTo }) });
+    document.getElementById('inviteModal').classList.remove('open');
+    toast('success','Invite sent','Onboarding email has been sent');
+  } catch(e) { toast('error','Error', e.message); }
+  btn.disabled = false; btn.textContent = 'Send Invite →';
+}
+
+// ---- ONBOARDING CONFIG ----
+async function openObConfig() {
+  try {
+    const cfg = await api('onboarding-config');
+    obConfig = cfg.required_fields || {};
+  } catch(e) { obConfig = {}; }
+  renderObFields();
+  document.getElementById('obConfigModal').classList.add('open');
+}
+
+function renderObFields() {
+  document.getElementById('obFieldList').innerHTML = OB_FIELDS.map(f => `
+    <div class="ob-field-item">
+      <div>
+        <div class="ob-field-name">${f.label}</div>
+        <div class="ob-field-desc">${f.required ? 'Always required for all companies' : 'Optional by default'}</div>
+      </div>
+      ${f.required
+        ? '<span class="badge employee">Required</span>'
+        : `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px">
+            <div class="toggle-track${obConfig[f.key]?' on':''}" id="obToggle_${f.key}" onclick="toggleObField('${f.key}')"><div class="toggle-knob"></div></div>
+            <span id="obLabel_${f.key}" style="color:var(--muted2)">${obConfig[f.key]?'Required for your company':'Optional'}</span>
+          </label>`
+      }
+    </div>`).join('');
+}
+
+window.toggleObField = (key) => {
+  obConfig[key] = !obConfig[key];
+  const track = document.getElementById(`obToggle_${key}`);
+  track.classList.toggle('on', obConfig[key]);
+  document.getElementById(`obLabel_${key}`).textContent = obConfig[key] ? 'Required for your company' : 'Optional';
+};
+
+async function saveObConfig() {
+  try {
+    await api('onboarding-config', { method:'POST', body: JSON.stringify({ required_fields: obConfig }) });
+    document.getElementById('obConfigModal').classList.remove('open');
+    toast('success','Saved','Onboarding questions updated');
+  } catch(e) { toast('error','Error', e.message); }
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function debounce(fn, ms) { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); }; }
+
+init();
+</script>
+</body>
+</html>

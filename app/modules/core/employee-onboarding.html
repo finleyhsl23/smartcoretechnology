@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Employee Onboarding • SmartCore</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--blue:#3b82f6;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;--text:#eaf0ff;--muted:rgba(234,240,255,.65);--muted2:rgba(234,240,255,.4);--line:rgba(255,255,255,.12);--line2:rgba(255,255,255,.06);--panel:rgba(255,255,255,.06)}
+body{background:radial-gradient(900px 600px at 45% -10%,rgba(59,130,246,.18),transparent 62%),radial-gradient(900px 700px at 100% 10%,rgba(14,165,233,.1),transparent 60%),linear-gradient(180deg,#020617,#06153a);min-height:100vh;font-family:Inter,system-ui,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased}
+a{color:var(--blue);text-decoration:none}
+.page{display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:40px 20px}
+
+/* HEADER */
+.ob-header{display:flex;align-items:center;gap:12px;margin-bottom:40px}
+.ob-logo{width:42px;height:42px;border-radius:12px;overflow:hidden;flex-shrink:0}
+.ob-logo img{width:100%;height:100%;display:block}
+.ob-brand{font-size:17px;font-weight:800;color:var(--text);letter-spacing:-.03em}
+.ob-brand-sub{font-size:10px;color:var(--muted2);letter-spacing:.08em;text-transform:uppercase}
+
+/* CARD */
+.ob-card{background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.04));border:1px solid var(--line);border-radius:24px;width:100%;max-width:600px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.5)}
+
+/* STEPS */
+.steps-bar{padding:24px 28px 0;display:flex;gap:0}
+.step-dot{flex:1;display:flex;flex-direction:column;align-items:center;position:relative}
+.step-dot:not(:last-child)::after{content:'';position:absolute;top:14px;left:calc(50% + 14px);right:calc(-50% + 14px);height:2px;background:var(--line2)}
+.step-dot:not(:last-child).done::after{background:var(--blue)}
+.step-num{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.06);border:2px solid var(--line);font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;color:var(--muted2);z-index:1;transition:.3s}
+.step-dot.active .step-num{background:var(--blue);border-color:var(--blue);color:#fff}
+.step-dot.done .step-num{background:var(--green);border-color:var(--green);color:#fff}
+.step-label{font-size:10px;color:var(--muted2);margin-top:5px;text-align:center;letter-spacing:.03em}
+.step-dot.active .step-label{color:var(--text)}
+
+/* FORM BODY */
+.ob-body{padding:28px}
+.ob-step{display:none}.ob-step.active{display:block}
+.step-title{font-size:20px;font-weight:800;letter-spacing:-.03em;margin-bottom:4px}
+.step-desc{font-size:13px;color:var(--muted2);margin-bottom:24px;line-height:1.6}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px}
+.field input,.field select,.field textarea{width:100%;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;color:var(--text);padding:11px 14px;font-size:14px;font-family:inherit;outline:none;transition:.15s}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--blue)}
+.field select{cursor:pointer;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(234,240,255,.4)' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px}
+.field select option{background:#0e1a3a;color:var(--text)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.req{color:var(--red);margin-left:2px}
+.hint{font-size:11px;color:var(--muted2);margin-top:5px}
+.error-msg{font-size:12px;color:var(--red);margin-top:4px;display:none}
+.section-divider{border:none;border-top:1px solid var(--line2);margin:20px 0}
+.optional-tag{font-size:10px;font-weight:600;color:var(--muted2);background:rgba(255,255,255,.06);padding:2px 7px;border-radius:6px;margin-left:6px;letter-spacing:.04em;text-transform:uppercase}
+
+/* PHONE ROW */
+.phone-row{display:flex;gap:8px}
+.phone-code{width:110px;flex-shrink:0}
+.phone-code select{width:100%}
+.phone-num{flex:1}
+
+/* NAV */
+.ob-nav{display:flex;align-items:center;justify-content:space-between;padding:20px 28px;border-top:1px solid var(--line2)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:11px 20px;border-radius:12px;font-size:14px;font-weight:700;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.07);color:var(--text);cursor:pointer;font-family:inherit;transition:.15s}
+.btn:hover{background:rgba(255,255,255,.12)}
+.btn.primary{background:linear-gradient(180deg,#3b82f6,#2563eb);border-color:#3b82f6;color:#fff}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.step-counter{font-size:12px;color:var(--muted2)}
+
+/* PASSWORD STRENGTH */
+.pw-strength{height:3px;border-radius:4px;margin-top:6px;background:var(--line);overflow:hidden}
+.pw-strength-fill{height:100%;border-radius:4px;transition:width .3s,background .3s;width:0}
+
+/* REVIEW */
+.review-section{background:rgba(255,255,255,.03);border:1px solid var(--line2);border-radius:14px;padding:16px 18px;margin-bottom:12px}
+.review-section h4{font-size:12px;font-weight:700;color:var(--muted2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px}
+.review-row{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px solid var(--line2)}
+.review-row:last-child{border-bottom:none}
+.review-row span:first-child{color:var(--muted2)}
+.review-row span:last-child{font-weight:600;text-align:right;max-width:60%}
+
+/* SUCCESS */
+.success-screen{text-align:center;padding:48px 28px}
+.success-icon{font-size:56px;margin-bottom:20px}
+.success-title{font-size:26px;font-weight:800;letter-spacing:-.04em;margin-bottom:10px}
+.success-desc{font-size:15px;color:var(--muted);line-height:1.75;margin-bottom:28px}
+.success-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.25);color:#4ade80;border-radius:14px;padding:10px 20px;font-size:14px;font-weight:700}
+
+/* LOADING / ERROR */
+.centered{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;text-align:center;gap:12px}
+.spinner{width:36px;height:36px;border:3px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* TOAST */
+#toastwrap{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{display:flex;align-items:flex-start;gap:10px;background:rgba(15,20,40,.95);border:1px solid var(--line);border-radius:14px;padding:14px 16px;min-width:260px;pointer-events:auto;transition:opacity .4s,transform .4s}
+.tDot{width:8px;height:8px;border-radius:50%;margin-top:4px;flex-shrink:0}
+.tDot.error{background:var(--red)}.tDot.success{background:var(--green)}
+.toast b{display:block;font-size:13px;font-weight:700}.toast p{font-size:12px;color:var(--muted);margin:2px 0 0}
+
+@media(max-width:500px){.row2,.row3{grid-template-columns:1fr}.phone-row{flex-direction:column}.phone-code{width:100%}}
+</style>
+</head>
+<body>
+<div id="toastwrap"></div>
+
+<div class="page">
+  <div class="ob-header">
+    <div class="ob-logo"><img src="https://smartcoretechnology.co.uk/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png" alt="SmartCore"></div>
+    <div><div class="ob-brand">SmartCore</div><div class="ob-brand-sub">Employee Onboarding</div></div>
+  </div>
+
+  <!-- LOADING -->
+  <div class="centered" id="loadingView">
+    <div class="spinner"></div>
+    <div style="color:var(--muted2);font-size:14px">Verifying your invite link…</div>
+  </div>
+
+  <!-- ERROR -->
+  <div class="centered" id="errorView" style="display:none">
+    <div style="font-size:48px">⚠️</div>
+    <div style="font-size:20px;font-weight:800" id="errorTitle">Invalid Link</div>
+    <div style="font-size:14px;color:var(--muted2)" id="errorMsg">This invite link is invalid or has expired.</div>
+  </div>
+
+  <!-- MAIN CARD -->
+  <div class="ob-card" id="mainCard" style="display:none">
+
+    <!-- STEP INDICATORS -->
+    <div class="steps-bar" id="stepsBar"></div>
+
+    <!-- STEPS -->
+    <div class="ob-body">
+
+      <!-- Step 1: Account Setup -->
+      <div class="ob-step" data-step="1">
+        <div class="step-title">Create your account</div>
+        <div class="step-desc">Set a secure password to access your SmartCore workspace.</div>
+        <div class="field">
+          <label>Password<span class="req">*</span></label>
+          <input type="password" id="fPassword" placeholder="Minimum 8 characters" oninput="checkPasswordStrength()">
+          <div class="pw-strength"><div class="pw-strength-fill" id="pwFill"></div></div>
+          <div class="hint" id="pwHint">Use 8+ characters with a mix of letters and numbers</div>
+        </div>
+        <div class="field">
+          <label>Confirm Password<span class="req">*</span></label>
+          <input type="password" id="fConfirmPassword" placeholder="Repeat your password">
+          <div class="error-msg" id="pwMatchError">Passwords do not match</div>
+        </div>
+      </div>
+
+      <!-- Step 2: Personal Details -->
+      <div class="ob-step" data-step="2">
+        <div class="step-title">Personal details</div>
+        <div class="step-desc">Tell us a bit about yourself. Your full name is pre-filled from HR.</div>
+        <div class="row2">
+          <div class="field">
+            <label>Title<span class="req">*</span></label>
+            <select id="fTitleSel">
+              <option value="">Select…</option>
+              <option>Mr</option><option>Mrs</option><option>Miss</option><option>Ms</option><option>Dr</option><option>Prof</option><option>Mx</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Preferred Name<span class="optional-tag">Optional</span></label>
+            <input type="text" id="fPreferredName" placeholder="What you like to be called">
+          </div>
+        </div>
+        <div class="field">
+          <label>Full Name<span class="req">*</span></label>
+          <input type="text" id="fFullName" placeholder="Your full legal name">
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Date of Birth<span class="req">*</span></label>
+            <input type="date" id="fDob">
+          </div>
+          <div class="field">
+            <label>Gender<span class="optional-tag">Optional</span></label>
+            <select id="fGender">
+              <option value="">Prefer not to say</option>
+              <option>Male</option><option>Female</option><option>Non-binary</option><option>Other</option><option>Prefer not to say</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Pronouns<span class="optional-tag">Optional</span></label>
+          <input type="text" id="fPronouns" placeholder="e.g. he/him, she/her, they/them">
+        </div>
+      </div>
+
+      <!-- Step 3: Contact Details -->
+      <div class="ob-step" data-step="3">
+        <div class="step-title">Contact & address</div>
+        <div class="step-desc">Your contact information and home address.</div>
+        <div class="field">
+          <label>Personal Email<span class="req">*</span></label>
+          <input type="email" id="fPersonalEmail" placeholder="your@email.com">
+        </div>
+        <div class="field">
+          <label>Personal Phone<span class="req">*</span></label>
+          <div class="phone-row">
+            <div class="phone-code">
+              <select id="fCountryCode">
+                <option value="+44">🇬🇧 +44</option>
+                <option value="+1">🇺🇸 +1</option>
+                <option value="+353">🇮🇪 +353</option>
+                <option value="+33">🇫🇷 +33</option>
+                <option value="+49">🇩🇪 +49</option>
+                <option value="+34">🇪🇸 +34</option>
+                <option value="+39">🇮🇹 +39</option>
+                <option value="+31">🇳🇱 +31</option>
+                <option value="+61">🇦🇺 +61</option>
+                <option value="+64">🇳🇿 +64</option>
+                <option value="+91">🇮🇳 +91</option>
+                <option value="+27">🇿🇦 +27</option>
+              </select>
+            </div>
+            <div class="phone-num">
+              <input type="tel" id="fPhone" placeholder="7700 900000" oninput="this.value=this.value.replace(/[^0-9 ]/g,'')">
+            </div>
+          </div>
+        </div>
+        <hr class="section-divider">
+        <div class="field">
+          <label>Address Line 1<span class="req">*</span></label>
+          <input type="text" id="fAddr1" placeholder="House number and street">
+        </div>
+        <div class="field">
+          <label>Address Line 2<span class="optional-tag">Optional</span></label>
+          <input type="text" id="fAddr2" placeholder="Flat, suite, etc.">
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>City<span class="req">*</span></label>
+            <input type="text" id="fCity" placeholder="London">
+          </div>
+          <div class="field">
+            <label>County<span class="optional-tag">Optional</span></label>
+            <input type="text" id="fCounty" placeholder="Greater London">
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Postcode<span class="req">*</span></label>
+            <input type="text" id="fPostcode" placeholder="SW1A 1AA" style="text-transform:uppercase">
+          </div>
+          <div class="field">
+            <label>Country<span class="req">*</span></label>
+            <select id="fCountry">
+              <option>United Kingdom</option><option>Ireland</option><option>United States</option><option>Australia</option><option>Canada</option><option>New Zealand</option><option>Other</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4: Emergency Contacts -->
+      <div class="ob-step" data-step="4">
+        <div class="step-title">Emergency contacts</div>
+        <div class="step-desc">These people will be contacted in case of an emergency.</div>
+        <div style="font-size:11px;font-weight:700;color:var(--muted2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px">Primary Contact (Required)</div>
+        <div class="row2">
+          <div class="field">
+            <label>Name<span class="req">*</span></label>
+            <input type="text" id="fEc1Name" placeholder="Full name">
+          </div>
+          <div class="field">
+            <label>Relationship<span class="req">*</span></label>
+            <input type="text" id="fEc1Rel" placeholder="e.g. Spouse, Parent">
+          </div>
+        </div>
+        <div class="field">
+          <label>Phone<span class="req">*</span></label>
+          <input type="tel" id="fEc1Phone" placeholder="+44 7700 900000">
+        </div>
+        <div class="field">
+          <label>Email<span class="optional-tag">Optional</span></label>
+          <input type="email" id="fEc1Email" placeholder="contact@email.com">
+        </div>
+        <hr class="section-divider">
+        <div style="font-size:11px;font-weight:700;color:var(--muted2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px">Secondary Contact <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px">(Optional)</span></div>
+        <div class="row2">
+          <div class="field">
+            <label>Name<span class="optional-tag">Optional</span></label>
+            <input type="text" id="fEc2Name" placeholder="Full name">
+          </div>
+          <div class="field">
+            <label>Relationship<span class="optional-tag">Optional</span></label>
+            <input type="text" id="fEc2Rel" placeholder="e.g. Sibling, Friend">
+          </div>
+        </div>
+        <div class="field">
+          <label>Phone<span class="optional-tag">Optional</span></label>
+          <input type="tel" id="fEc2Phone" placeholder="+44 7700 900000">
+        </div>
+        <div class="field">
+          <label>Email<span class="optional-tag">Optional</span></label>
+          <input type="email" id="fEc2Email" placeholder="contact@email.com">
+        </div>
+      </div>
+
+      <!-- Step 5: Financial & Tax -->
+      <div class="ob-step" data-step="5">
+        <div class="step-title">Financial & tax</div>
+        <div class="step-desc">This information is kept securely and used for payroll purposes only.</div>
+        <div class="field">
+          <label>National Insurance Number<span class="optional-tag">Optional</span></label>
+          <input type="text" id="fNino" placeholder="e.g. AB 12 34 56 C" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Student Loan Status<span class="optional-tag">Optional</span></label>
+            <select id="fStudentLoan">
+              <option value="">Not applicable</option>
+              <option value="plan1">Plan 1</option>
+              <option value="plan2">Plan 2</option>
+              <option value="plan4">Plan 4 (Scotland)</option>
+              <option value="postgrad">Postgraduate Loan</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Tax Code<span class="optional-tag">Optional</span></label>
+            <input type="text" id="fTaxCode" placeholder="e.g. 1257L" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+          </div>
+        </div>
+        <hr class="section-divider">
+        <div style="font-size:11px;font-weight:700;color:var(--muted2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px">Bank Account Details <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px">(Optional)</span></div>
+        <div class="field">
+          <label>Account Holder Name</label>
+          <input type="text" id="fBankName" placeholder="Full name as on account">
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Sort Code</label>
+            <input type="text" id="fSortCode" placeholder="00-00-00" maxlength="8" oninput="formatSortCode(this)">
+          </div>
+          <div class="field">
+            <label>Account Number</label>
+            <input type="text" id="fAccountNum" placeholder="12345678" maxlength="8" oninput="this.value=this.value.replace(/\D/g,'')">
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 6: Additional Info -->
+      <div class="ob-step" data-step="6">
+        <div class="step-title">Additional information</div>
+        <div class="step-desc">Help us make your workplace as comfortable as possible.</div>
+        <div class="field">
+          <label>Dietary Requirements<span class="optional-tag">Optional</span></label>
+          <textarea id="fDietary" rows="3" placeholder="e.g. Vegetarian, gluten-free, nut allergy…" style="resize:vertical"></textarea>
+        </div>
+        <div class="field">
+          <label>Accessibility Needs<span class="optional-tag">Optional</span></label>
+          <textarea id="fAccessibility" rows="3" placeholder="Any adjustments or support you may need in the workplace…" style="resize:vertical"></textarea>
+        </div>
+      </div>
+
+      <!-- Step 7: Review -->
+      <div class="ob-step" data-step="7">
+        <div class="step-title">Review & submit</div>
+        <div class="step-desc">Please check everything looks correct before submitting.</div>
+        <div id="reviewContent"></div>
+        <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:12px;padding:14px 16px;margin-top:16px;font-size:13px;color:#93c5fd;line-height:1.6">
+          By submitting, you confirm that all information provided is accurate and you agree to SmartCore's <a href="https://smartcoretechnology.co.uk/privacy-policy.html" target="_blank">Privacy Policy</a>.
+        </div>
+      </div>
+
+    </div><!-- /ob-body -->
+
+    <!-- NAV -->
+    <div class="ob-nav">
+      <button class="btn" id="btnBack" onclick="goBack()" style="display:none">← Back</button>
+      <div class="step-counter" id="stepCounter">Step 1 of 7</div>
+      <button class="btn primary" id="btnNext" onclick="goNext()">Next →</button>
+    </div>
+
+  </div><!-- /ob-card -->
+
+  <!-- SUCCESS -->
+  <div class="ob-card" id="successCard" style="display:none">
+    <div class="success-screen">
+      <div class="success-icon">🎉</div>
+      <div class="success-title">Welcome to the team!</div>
+      <div class="success-desc">Your account has been set up and your details have been saved.<br>You can now log in to your SmartCore workspace.</div>
+      <div class="success-badge">✓ Onboarding Complete</div>
+      <div style="margin-top:24px">
+        <a href="/app/" class="btn primary" style="font-size:15px;padding:13px 28px;text-decoration:none">Go to SmartCore →</a>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:24px;font-size:12px;color:var(--muted2);text-align:center">
+    SmartCore Technology &bull; <a href="mailto:support@smartcoretechnology.co.uk">support@smartcoretechnology.co.uk</a>
+  </div>
+</div>
+
+<script>
+const STEPS = [
+  { label: 'Account' },
+  { label: 'Personal' },
+  { label: 'Contact' },
+  { label: 'Emergency' },
+  { label: 'Financial' },
+  { label: 'Additional' },
+  { label: 'Review' },
+];
+
+let currentStep = 1;
+let token = null;
+let employeeData = {};
+
+// Parse token from URL
+const params = new URLSearchParams(location.search);
+token = params.get('token');
+
+async function init() {
+  if (!token) { showError('No invite token', 'This link appears to be invalid. Please check your email for the correct link.'); return; }
+
+  try {
+    const r = await fetch(`/api/core/verify-onboarding-token?token=${encodeURIComponent(token)}`);
+    const data = await r.json();
+    if (!r.ok) { showError('Invalid Link', data.error || 'This link is invalid or has expired.'); return; }
+
+    employeeData = data;
+    document.getElementById('fFullName').value = data.full_name || '';
+    document.getElementById('fPersonalEmail').value = data.personal_email || '';
+
+    document.getElementById('loadingView').style.display = 'none';
+    document.getElementById('mainCard').style.display = 'block';
+    renderStepsBar();
+    goToStep(1);
+  } catch(e) {
+    showError('Error', 'Could not verify your invite. Please try again.');
+  }
+}
+
+function showError(title, msg) {
+  document.getElementById('loadingView').style.display = 'none';
+  document.getElementById('errorView').style.display = 'flex';
+  document.getElementById('errorTitle').textContent = title;
+  document.getElementById('errorMsg').textContent = msg;
+}
+
+function renderStepsBar() {
+  document.getElementById('stepsBar').innerHTML = STEPS.map((s, i) => {
+    const n = i + 1;
+    return `<div class="step-dot" id="stepDot${n}">
+      <div class="step-num">${n}</div>
+      <div class="step-label">${s.label}</div>
+    </div>`;
+  }).join('');
+}
+
+function goToStep(n) {
+  currentStep = n;
+  document.querySelectorAll('.ob-step').forEach(el => el.classList.remove('active'));
+  document.querySelector(`[data-step="${n}"]`).classList.add('active');
+
+  STEPS.forEach((_, i) => {
+    const dot = document.getElementById(`stepDot${i+1}`);
+    dot.classList.remove('active','done');
+    if (i + 1 === n) dot.classList.add('active');
+    else if (i + 1 < n) dot.classList.add('done');
+  });
+
+  document.getElementById('btnBack').style.display = n > 1 ? 'inline-flex' : 'none';
+  document.getElementById('btnNext').textContent = n === STEPS.length ? 'Submit →' : 'Next →';
+  document.getElementById('stepCounter').textContent = `Step ${n} of ${STEPS.length}`;
+
+  if (n === STEPS.length) buildReview();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goBack() { if (currentStep > 1) goToStep(currentStep - 1); }
+
+function goNext() {
+  if (!validateStep(currentStep)) return;
+  if (currentStep === STEPS.length) { submitOnboarding(); return; }
+  goToStep(currentStep + 1);
+}
+
+function validateStep(n) {
+  if (n === 1) {
+    const pw = document.getElementById('fPassword').value;
+    const cpw = document.getElementById('fConfirmPassword').value;
+    if (!pw || pw.length < 8) { toast('error','Password too short','Use at least 8 characters'); return false; }
+    if (pw !== cpw) { document.getElementById('pwMatchError').style.display = 'block'; toast('error','Mismatch','Passwords do not match'); return false; }
+    document.getElementById('pwMatchError').style.display = 'none';
+  }
+  if (n === 2) {
+    if (!document.getElementById('fTitleSel').value) { toast('error','Required','Please select your title'); return false; }
+    if (!document.getElementById('fFullName').value.trim()) { toast('error','Required','Full name is required'); return false; }
+    if (!document.getElementById('fDob').value) { toast('error','Required','Date of birth is required'); return false; }
+  }
+  if (n === 3) {
+    if (!document.getElementById('fPersonalEmail').value.includes('@')) { toast('error','Required','Valid personal email required'); return false; }
+    if (!document.getElementById('fPhone').value.trim()) { toast('error','Required','Personal phone required'); return false; }
+    if (!document.getElementById('fAddr1').value.trim()) { toast('error','Required','Address line 1 required'); return false; }
+    if (!document.getElementById('fCity').value.trim()) { toast('error','Required','City required'); return false; }
+    if (!document.getElementById('fPostcode').value.trim()) { toast('error','Required','Postcode required'); return false; }
+  }
+  if (n === 4) {
+    if (!document.getElementById('fEc1Name').value.trim()) { toast('error','Required','Primary emergency contact name required'); return false; }
+    if (!document.getElementById('fEc1Rel').value.trim()) { toast('error','Required','Primary contact relationship required'); return false; }
+    if (!document.getElementById('fEc1Phone').value.trim()) { toast('error','Required','Primary contact phone required'); return false; }
+  }
+  return true;
+}
+
+function buildReview() {
+  const v = id => document.getElementById(id)?.value || '';
+  const rows = (items) => items.filter(([,val])=>val).map(([lbl,val])=>`<div class="review-row"><span>${lbl}</span><span>${val}</span></div>`).join('');
+
+  document.getElementById('reviewContent').innerHTML = `
+    <div class="review-section"><h4>Account</h4>${rows([['Password','●●●●●●●●']])}</div>
+    <div class="review-section"><h4>Personal Details</h4>${rows([['Title',v('fTitleSel')],['Full Name',v('fFullName')],['Preferred Name',v('fPreferredName')],['Date of Birth',v('fDob')],['Gender',v('fGender')],['Pronouns',v('fPronouns')]])}</div>
+    <div class="review-section"><h4>Contact & Address</h4>${rows([['Personal Email',v('fPersonalEmail')],['Phone',v('fCountryCode')+' '+v('fPhone')],['Address',[v('fAddr1'),v('fAddr2'),v('fCity'),v('fCounty'),v('fPostcode'),v('fCountry')].filter(Boolean).join(', ')]])}</div>
+    <div class="review-section"><h4>Emergency Contact 1</h4>${rows([['Name',v('fEc1Name')],['Relationship',v('fEc1Rel')],['Phone',v('fEc1Phone')],['Email',v('fEc1Email')]])}</div>
+    ${v('fEc2Name') ? `<div class="review-section"><h4>Emergency Contact 2</h4>${rows([['Name',v('fEc2Name')],['Relationship',v('fEc2Rel')],['Phone',v('fEc2Phone')],['Email',v('fEc2Email')]])}</div>` : ''}
+    <div class="review-section"><h4>Financial & Tax</h4>${rows([['NI Number',v('fNino')],['Tax Code',v('fTaxCode')],['Student Loan',v('fStudentLoan')],['Bank Name',v('fBankName')],['Sort Code',v('fSortCode')],['Account Number',v('fAccountNum')]])}</div>
+    ${(v('fDietary')||v('fAccessibility'))?`<div class="review-section"><h4>Additional Info</h4>${rows([['Dietary',v('fDietary')],['Accessibility',v('fAccessibility')]])}</div>`:''}
+  `;
+}
+
+async function submitOnboarding() {
+  const btn = document.getElementById('btnNext');
+  btn.disabled = true; btn.textContent = 'Submitting…';
+
+  const v = id => document.getElementById(id)?.value || '';
+  const body = {
+    token,
+    password: v('fPassword'),
+    title: v('fTitleSel'),
+    full_name: v('fFullName'),
+    preferred_name: v('fPreferredName') || null,
+    pronouns: v('fPronouns') || null,
+    date_of_birth: v('fDob') || null,
+    gender: v('fGender') || null,
+    personal_email: v('fPersonalEmail'),
+    personal_phone: v('fPhone'),
+    country_code: v('fCountryCode'),
+    address_line_1: v('fAddr1'),
+    address_line_2: v('fAddr2') || null,
+    city: v('fCity'),
+    county: v('fCounty') || null,
+    postcode: v('fPostcode').toUpperCase(),
+    country: v('fCountry'),
+    emergency_contact_1_name: v('fEc1Name'),
+    emergency_contact_1_relationship: v('fEc1Rel'),
+    emergency_contact_1_phone: v('fEc1Phone'),
+    emergency_contact_1_email: v('fEc1Email') || null,
+    emergency_contact_2_name: v('fEc2Name') || null,
+    emergency_contact_2_relationship: v('fEc2Rel') || null,
+    emergency_contact_2_phone: v('fEc2Phone') || null,
+    emergency_contact_2_email: v('fEc2Email') || null,
+    national_insurance: v('fNino') || null,
+    tax_code: v('fTaxCode') || null,
+    student_loan_status: v('fStudentLoan') || null,
+    bank_account_name: v('fBankName') || null,
+    bank_sort_code: v('fSortCode') || null,
+    bank_account_number: v('fAccountNum') || null,
+    dietary_requirements: v('fDietary') || null,
+    accessibility_needs: v('fAccessibility') || null,
+  };
+
+  try {
+    const r = await fetch('/api/core/complete-onboarding', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Submission failed');
+    document.getElementById('mainCard').style.display = 'none';
+    document.getElementById('successCard').style.display = 'block';
+  } catch(e) {
+    toast('error','Submission failed', e.message);
+    btn.disabled = false; btn.textContent = 'Submit →';
+  }
+}
+
+function checkPasswordStrength() {
+  const pw = document.getElementById('fPassword').value;
+  const fill = document.getElementById('pwFill');
+  const hint = document.getElementById('pwHint');
+  let strength = 0;
+  if (pw.length >= 8) strength++;
+  if (/[A-Z]/.test(pw)) strength++;
+  if (/[0-9]/.test(pw)) strength++;
+  if (/[^A-Za-z0-9]/.test(pw)) strength++;
+  const colours = ['','#ef4444','#f59e0b','#3b82f6','#22c55e'];
+  const labels = ['','Weak','Fair','Good','Strong'];
+  fill.style.width = (strength * 25) + '%';
+  fill.style.background = colours[strength] || '';
+  hint.textContent = strength > 0 ? labels[strength] : 'Use 8+ characters with a mix of letters and numbers';
+  hint.style.color = colours[strength] || 'var(--muted2)';
+}
+
+function formatSortCode(input) {
+  let v = input.value.replace(/\D/g, '').slice(0, 6);
+  if (v.length > 4) v = v.slice(0,2) + '-' + v.slice(2,4) + '-' + v.slice(4);
+  else if (v.length > 2) v = v.slice(0,2) + '-' + v.slice(2);
+  input.value = v;
+}
+
+function toast(type, title, msg) {
+  const wrap = document.getElementById('toastwrap');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<div class="tDot ${type}"></div><div><b>${title}</b><p>${msg}</p></div>`;
+  wrap.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(6px)'; }, 3600);
+  setTimeout(() => el.remove(), 4300);
+}
+
+init();
+</script>
+</body>
+</html>
