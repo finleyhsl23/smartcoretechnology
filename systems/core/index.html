@@ -358,6 +358,11 @@
     .emp-view-val{color:var(--text);text-align:right;font-weight:500;word-break:break-word;}
     .emp-view-val.muted{color:var(--muted);font-weight:400;}
     .emp-view-foot{padding:16px 28px;border-top:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:rgba(0,0,0,.2);}
+    .ev-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:capitalize;}
+    .ev-badge-purple{background:var(--purple-soft);color:var(--purple);border:1px solid rgba(191,90,242,.25);}
+    .ev-badge-amber{background:rgba(255,159,10,.12);color:var(--amber);border:1px solid rgba(255,159,10,.25);}
+    .ev-badge-blue{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-border);}
+    .ev-badge-grey{background:var(--surface);color:var(--muted);border:1px solid var(--border2);}
 
     /* ── SHIFT PICKER ────────────────────────────────────────────── */
     .shift-picker{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.09);border-radius:12px;overflow:hidden;}
@@ -772,10 +777,14 @@
             </div>
           </div>
           <div class="fcard">
-            <div class="fcard-title">Authorising Manager(s)</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <div class="fcard-title" style="margin-bottom:0;">Authorising Manager(s)</div>
+              <span style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--red);background:var(--red-soft);border:1px solid var(--red-border);padding:2px 8px;border-radius:20px;">Required</span>
+            </div>
+            <p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5;">At least one manager, admin, or owner who can approve this employee's requests.</p>
             <div class="pill-box" id="af_pills" style="margin-bottom:10px;min-height:36px;"></div>
             <div class="search-drop" style="margin-bottom:14px;">
-              <input class="inp" id="af_auth_search" placeholder="Search by name…" autocomplete="off" style="border-radius:10px;"/>
+              <input class="inp" id="af_auth_search" placeholder="Type a name to search managers, admins & owners…" autocomplete="off" style="border-radius:10px;"/>
               <div class="drop-results" id="af_auth_drop"></div>
             </div>
           </div>
@@ -1080,67 +1089,96 @@ function openView(emp) {
 
   document.getElementById('evAvatar').textContent = initials(emp.full_name);
   document.getElementById('evName').textContent = emp.full_name;
-  document.getElementById('evSub').textContent = [emp.job_title, dept].filter(Boolean).join(' · ') || '—';
+  document.getElementById('evSub').textContent = [emp.job_title, dept].filter(v=>v&&v!=='—').join(' · ') || 'No title set';
 
-  function sec(title, rows, full) {
-    const items = rows.filter(([,v])=>v!==null&&v!==undefined)
-      .map(([k,v])=>`<div class="emp-view-row"><span class="emp-view-key">${k}</span><span class="emp-view-val${v==='—'?' muted':''}">${esc(String(v))}</span></div>`).join('');
-    return `<div class="emp-view-section${full?' full':''}"><div class="emp-view-sec-title">${title}</div>${items}</div>`;
-  }
+  const roleBadge = {
+    owner:`<span class="ev-badge ev-badge-purple">Owner</span>`,
+    admin:`<span class="ev-badge ev-badge-amber">Admin</span>`,
+    supervisor:`<span class="ev-badge ev-badge-blue">Supervisor</span>`,
+    employee:`<span class="ev-badge ev-badge-grey">Employee</span>`,
+  }[emp.role] || `<span class="ev-badge ev-badge-grey">${esc(emp.role||'—')}</span>`;
 
   const leaveAllowance = emp.executive_allowance_override ?? emp.annual_leave_allowance ?? 28;
-  const authList = (emp.authorizers||[]).map(a=>a.full_name).join(', ') || '—';
+
+  function row(k, v, badge) {
+    const isEmpty = !v || v==='—';
+    const display = badge ? badge : `<span class="emp-view-val${isEmpty?' muted':''}">${esc(String(v||'—'))}</span>`;
+    return `<div class="emp-view-row"><span class="emp-view-key">${k}</span>${display}</div>`;
+  }
+
+  function sec(title, content, full) {
+    return `<div class="emp-view-section${full?' full':''}"><div class="emp-view-sec-title">${title}</div>${content}</div>`;
+  }
+
+  function ecBlock(n, nameV, phoneV, relV) {
+    const hasAny = nameV || phoneV || relV;
+    return `<div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:12px 14px;margin-bottom:${n===1?'10px':'0'};">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.25);margin-bottom:8px;">Contact ${n}</div>
+      ${hasAny ? [
+        nameV?row('Name',nameV):'',
+        phoneV?row('Phone',phoneV):'',
+        relV?row('Relationship',relV):'',
+      ].join('') : `<div style="font-size:12px;color:var(--muted);font-style:italic;">Not provided</div>`}
+    </div>`;
+  }
+
+  const authorizers = (emp.authorizers||[]);
 
   document.getElementById('evBody').innerHTML = [
-    sec('Personal Details',[
-      ['Full Name', emp.full_name],
-      ['Pronouns', emp.pronouns||'—'],
-      ['Date of Birth', emp.date_of_birth?fmtDate(emp.date_of_birth):'—'],
-      ['Gender', emp.gender||'—'],
-      ['Nationality', emp.nationality||'—'],
-      ['Address', emp.address||'—'],
-    ]),
-    sec('Employment',[
-      ['Employee ID', emp.employee_id||'—'],
-      ['Job Title', emp.job_title||'—'],
-      ['Department', dept],
-      ['Role', emp.role],
-      ['Employment Type', fmtEmpType(emp.employment_type, emp.employment_type_custom)],
-      ['Start Date', emp.start_date?fmtDate(emp.start_date):'—'],
-      ['Notice Period', emp.notice_period||'—'],
-      ['Onboarding', emp.onboarding_completed?'Completed':'Pending'],
-    ]),
-    sec('Contact',[
-      ['Work Email', emp.work_email||'—'],
-      ['Personal Email', emp.personal_email||'—'],
-      ['Phone', emp.personal_phone||'—'],
-    ]),
-    sec('Emergency Contacts',[
-      ['Contact 1 Name', emp.emergency_contact_1_name||'—'],
-      ['Contact 1 Phone', emp.emergency_contact_1_phone||'—'],
-      ['Contact 1 Relation', emp.emergency_contact_1_relation||'—'],
-      ['Contact 2 Name', emp.emergency_contact_2_name||'—'],
-      ['Contact 2 Phone', emp.emergency_contact_2_phone||'—'],
-      ['Contact 2 Relation', emp.emergency_contact_2_relation||'—'],
-    ]),
-    sec('Leave & Schedule',[
-      ['Annual Leave', `${leaveAllowance} days`],
-      ['Leave Override', emp.executive_allowance_override!=null?`${emp.executive_allowance_override} days`:'—'],
-      ['Shift Pattern', shift?.name||'—'],
-    ]),
-    sec('Financial & Payroll',[
-      ['National Insurance', emp.national_insurance||'—'],
-      ['Tax Code', emp.tax_code||'—'],
-      ['Student Loan', emp.student_loan_plan||'—'],
-      ['Bank Name', emp.bank_name||'—'],
-      ['Account Number', emp.bank_account_number||'—'],
-      ['Sort Code', emp.bank_sort_code||'—'],
-    ]),
-    sec('Accessibility & Dietary',[
-      ['Dietary Requirements', emp.dietary_requirements||'—'],
-      ['Accessibility Needs', emp.accessibility_needs||'—'],
-    ]),
-    sec('Authorisers',[ ['Authoriser(s)', authList] ], true),
+    sec('Personal Details', [
+      row('Pronouns', emp.pronouns),
+      row('Date of Birth', emp.date_of_birth?fmtDate(emp.date_of_birth):null),
+      row('Gender', emp.gender),
+      row('Nationality', emp.nationality),
+      row('Address', emp.address),
+    ].join('')),
+    sec('Employment', [
+      row('Employee ID', emp.employee_id),
+      row('Department', dept),
+      row('Role', null, roleBadge),
+      row('Employment Type', fmtEmpType(emp.employment_type, emp.employment_type_custom)),
+      row('Start Date', emp.start_date?fmtDate(emp.start_date):null),
+      row('Notice Period', emp.notice_period),
+    ].join('')),
+    sec('Contact', [
+      row('Work Email', emp.work_email),
+      row('Personal Email', emp.personal_email),
+      row('Phone', emp.personal_phone),
+    ].join('')),
+    sec('Emergency Contacts',
+      ecBlock(1, emp.emergency_contact_1_name, emp.emergency_contact_1_phone, emp.emergency_contact_1_relation) +
+      ecBlock(2, emp.emergency_contact_2_name, emp.emergency_contact_2_phone, emp.emergency_contact_2_relation)
+    ),
+    sec('Leave & Schedule', [
+      row('Annual Leave', `${leaveAllowance} days`),
+      emp.executive_allowance_override!=null ? row('Leave Override', `${emp.executive_allowance_override} days`) : '',
+      row('Shift Pattern', shift?.name),
+    ].join('')),
+    sec('Financial & Payroll', [
+      row('National Insurance', emp.national_insurance),
+      row('Tax Code', emp.tax_code),
+      row('Student Loan', emp.student_loan_plan),
+      row('Bank Name', emp.bank_name),
+      row('Account Number', emp.bank_account_number),
+      row('Sort Code', emp.bank_sort_code),
+    ].join('')),
+    sec('Accessibility & Dietary', [
+      row('Dietary Requirements', emp.dietary_requirements),
+      row('Accessibility Needs', emp.accessibility_needs),
+    ].join('')),
+    sec('Authorising Manager(s)',
+      authorizers.length
+        ? authorizers.map(a=>`<div class="emp-view-row">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div class="avatar" style="width:28px;height:28px;font-size:10px;flex-shrink:0;">${initials(a.full_name)}</div>
+              <div>
+                <div style="font-size:13px;font-weight:600;color:var(--text);">${esc(a.full_name)}</div>
+                <div style="font-size:11px;color:var(--muted);text-transform:capitalize;">${esc(a.role||'')}</div>
+              </div>
+            </div>
+          </div>`).join('')
+        : `<div style="font-size:12px;color:var(--muted);font-style:italic;">No authorisers assigned</div>`
+    , true),
   ].join('');
 
   const actions = document.getElementById('evActions');
@@ -1155,7 +1193,7 @@ function openView(emp) {
   const status = document.getElementById('evStatus');
   status.innerHTML = emp.onboarding_completed
     ? `<span style="font-size:12px;color:var(--green);background:var(--green-soft);border:1px solid var(--green-border);padding:4px 10px;border-radius:20px;font-weight:600;">✓ Onboarding Complete</span>`
-    : `<span style="font-size:12px;color:var(--amber);background:rgba(255,159,10,.12);border:1px solid rgba(255,159,10,.3);padding:4px 10px;border-radius:20px;font-weight:600;">⏳ Onboarding Pending</span>`;
+    : `<span style="font-size:12px;color:var(--amber);background:rgba(255,159,10,.12);border:1px solid rgba(255,159,10,.3);padding:4px 10px;border-radius:20px;font-weight:600;">⏳ Pending Onboarding</span>`;
 
   document.getElementById('empViewOverlay').classList.add('open');
   document.getElementById('empViewWrap').classList.add('open');
@@ -1286,7 +1324,7 @@ function updateProrata(){
 
 async function searchAuth(q){
   try{
-    const data=await api('GET',`search-employees?q=${encodeURIComponent(q)}&roles=admin,owner`);
+    const data=await api('GET',`search-employees?q=${encodeURIComponent(q)}&roles=admin,owner,supervisor`);
     const drop=document.getElementById('af_auth_drop');
     const filtered=data.filter(e=>!addAuthorisers.find(a=>a.id===e.id));
     if(!filtered.length){drop.style.display='none';return;}
@@ -1317,6 +1355,7 @@ async function saveEmployee(){
   const btn=document.getElementById('addSave');
   const name=document.getElementById('af_name').value.trim();
   if(!name){toast('warn','Required','Full name is required');return;}
+  if(!addAuthorisers.length){goAddStep(4);toast('warn','Required','Please assign at least one authorising manager before saving.');return;}
   btn.disabled=true;btn.textContent='Saving…';
   try{
     const r=await api('POST','add-employee',{
