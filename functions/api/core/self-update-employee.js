@@ -31,6 +31,8 @@ export async function onRequestPatch(context) {
       'pronouns', 'gender', 'date_of_birth',
       'address_line_1', 'address_line_2', 'city', 'county', 'postcode', 'country',
       'personal_email', 'personal_phone',
+      'emergency_contact_1_name', 'emergency_contact_1_relationship', 'emergency_contact_1_phone',
+      'emergency_contact_2_name', 'emergency_contact_2_relationship', 'emergency_contact_2_phone',
       'dietary_requirements', 'accessibility_needs',
     ];
     const updateData = {};
