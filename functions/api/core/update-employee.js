@@ -30,6 +30,12 @@ export async function onRequestPatch(context) {
       'personal_phone','employment_type','employment_type_custom','notice_period',
       'role','annual_leave_allowance','executive_allowance_override','start_date',
       'shift_pattern_id',
+      'date_of_birth','address_line_1','address_line_2','city','county','postcode',
+      'emergency_contact_1_name','emergency_contact_1_phone','emergency_contact_1_relationship',
+      'emergency_contact_2_name','emergency_contact_2_phone','emergency_contact_2_relationship',
+      'national_insurance','tax_code','student_loan_status',
+      'bank_account_name','bank_account_number','bank_sort_code',
+      'dietary_requirements','accessibility_needs','pronouns','gender',
     ];
     for (const k of allowed) {
       if (k in fields) updateData[k] = fields[k];
