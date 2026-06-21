@@ -13,8 +13,9 @@ export async function onRequestGet(context) {
       const existing = await sbGet(env, `/core_employees?auth_user_id=eq.${profile.auth_id}&company_id=eq.${profile.company_id}&limit=1`);
       const derivedName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.auth_email || 'Owner';
       if (!existing?.length) {
-        const companyRes = await sbGet(env, `/smartcore_core_companies?id=eq.${profile.company_id}&select=company_name&limit=1`);
-        const companyName = companyRes?.[0]?.company_name || 'EMP';
+        const companyRes = await sbGet(env, `/smartcore_core_companies?id=eq.${profile.company_id}&select=company_name,company_email,company_phone&limit=1`);
+        const company = companyRes?.[0] || {};
+        const companyName = company.company_name || 'EMP';
         const prefix = companyName.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase().padEnd(3, 'X');
         const digits = String(Math.floor(Math.random() * 1e9)).padStart(9, '0');
         const employee_id = `${prefix}${digits}`;
@@ -23,15 +24,19 @@ export async function onRequestGet(context) {
           auth_user_id: profile.auth_id,
           employee_id,
           full_name: derivedName,
-          work_email: profile.auth_email || null,
+          work_email: profile.auth_email || company.company_email || null,
+          personal_phone: profile.mobile_number?.replace(/^\+44\s*$/, '') || company.company_phone || null,
           role: profile.role || 'owner',
           onboarding_completed: true,
         });
-      } else if (existing[0].full_name === 'Owner' && derivedName !== 'Owner') {
+      } else if (existing[0].full_name === 'Owner') {
         // Fix placeholder name from a previous bad creation
+        const companyRes = await sbGet(env, `/smartcore_core_companies?id=eq.${profile.company_id}&select=company_email,company_phone&limit=1`);
+        const company = companyRes?.[0] || {};
         await sbPatch(env, `/core_employees?auth_user_id=eq.${profile.auth_id}&company_id=eq.${profile.company_id}`, {
           full_name: derivedName,
-          work_email: existing[0].work_email || profile.auth_email || null,
+          work_email: existing[0].work_email || profile.auth_email || company.company_email || null,
+          personal_phone: existing[0].personal_phone || company.company_phone || null,
         });
       }
     }
