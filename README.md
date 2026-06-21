@@ -1,4 +1,4 @@
- # SmartCore Holiday Management
+  # SmartCore Holiday Management
 
 Upload this folder to the root of your Cloudflare Pages project so the app lives at:
 
