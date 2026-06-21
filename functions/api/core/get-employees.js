@@ -1,4 +1,4 @@
-import { json, options, getCallerProfile, sbGet } from './_auth.js';
+import { json, options, getCallerProfile, sbGet, sbPost } from './_auth.js';
 
 export const onRequestOptions = () => options();
 
@@ -7,6 +7,27 @@ export async function onRequestGet(context) {
   try {
     const profile = await getCallerProfile(request, env);
     if (!profile) return json({ error: 'Unauthorised' }, 401);
+
+    // Ensure the caller has a core_employees record (owners who signed up may not have one)
+    if (profile.auth_id) {
+      const existing = await sbGet(env, `/core_employees?auth_user_id=eq.${profile.auth_id}&company_id=eq.${profile.company_id}&limit=1`);
+      if (!existing?.length) {
+        const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.email || 'Owner';
+        const companyRes = await sbGet(env, `/smartcore_core_companies?id=eq.${profile.company_id}&select=company_name&limit=1`);
+        const companyName = companyRes?.[0]?.company_name || 'EMP';
+        const prefix = companyName.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase().padEnd(3, 'X');
+        const digits = String(Math.floor(Math.random() * 1e9)).padStart(9, '0');
+        const employee_id = `${prefix}${digits}`;
+        await sbPost(env, '/core_employees', {
+          company_id: profile.company_id,
+          auth_user_id: profile.auth_id,
+          employee_id,
+          full_name: fullName,
+          role: profile.role || 'owner',
+          onboarding_completed: true,
+        });
+      }
+    }
 
     const [employees, departments, shiftPatterns, authorizers] = await Promise.all([
       sbGet(env, `/core_employees?company_id=eq.${profile.company_id}&order=full_name.asc`),
