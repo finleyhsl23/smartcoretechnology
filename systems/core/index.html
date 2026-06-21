@@ -466,6 +466,20 @@
   </div>
 </div>
 
+<!-- MY PROFILE VIEW (employees) -->
+<div class="view" id="viewMyProfile">
+  <div class="app-wrap" style="max-width:680px;">
+    <div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.04em;">My Profile</h1>
+        <p style="font-size:13px;color:var(--muted);margin-top:4px;" id="mpSubtitle"></p>
+      </div>
+      <button class="btn-accent" id="mpEditBtn" style="display:none;">Edit Profile</button>
+    </div>
+    <div id="mpBody"></div>
+  </div>
+</div>
+
 <!-- APP VIEW -->
 <div class="view" id="viewApp">
   <div class="app-wrap">
@@ -943,6 +957,78 @@
   </div>
 </div>
 
+<!-- EDIT MY PROFILE MODAL (employee self-service) -->
+<div class="emp-view-overlay" id="mpEditOverlay"></div>
+<div class="emp-view-wrap" id="mpEditWrap">
+  <div class="emp-view-card" style="width:min(620px,100%);">
+    <div class="emp-view-head">
+      <div class="emp-view-hero">
+        <div class="emp-view-avatar" id="mpEditAvatar"></div>
+        <div>
+          <div class="emp-view-name" style="font-size:16px;" id="mpEditName"></div>
+          <div class="emp-view-sub">Edit your profile</div>
+        </div>
+      </div>
+      <button class="drawer-close" id="mpEditClose">✕ Cancel</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:24px 28px;">
+
+      <div class="ee-section">
+        <div class="ee-section-title">Personal Details</div>
+        <div class="fg2">
+          <div class="fm"><label>Pronouns</label><input class="inp" id="mp_pronouns" placeholder="she/her"/></div>
+          <div class="fm"><label>Gender</label>
+            <div class="csel-wrap"><div class="csel" id="mp_gender_csel"><span class="csel-val muted-opt" id="mp_gender_cval">Prefer not to say</span><span class="csel-arr">▾</span></div>
+            <div class="csel-panel" id="mp_gender_panel">
+              <div class="csel-opt" data-val="prefer_not_to_say">Prefer not to say</div>
+              <div class="csel-opt" data-val="male">Male</div>
+              <div class="csel-opt" data-val="female">Female</div>
+              <div class="csel-opt" data-val="non_binary">Non-binary</div>
+              <div class="csel-opt" data-val="other">Other</div>
+            </div></div>
+            <select id="mp_gender" style="display:none;"><option value="prefer_not_to_say">Prefer not to say</option><option value="male">Male</option><option value="female">Female</option><option value="non_binary">Non-binary</option><option value="other">Other</option></select>
+          </div>
+        </div>
+        <div class="fg1">
+          <div class="fm"><label>Date of Birth</label><input class="inp" type="date" id="mp_dob"/></div>
+        </div>
+        <div class="fg1">
+          <div class="fm"><label>Address Line 1</label><input class="inp" id="mp_addr1" placeholder="123 High Street"/></div>
+        </div>
+        <div class="fg2">
+          <div class="fm"><label>Address Line 2</label><input class="inp" id="mp_addr2" placeholder="Flat 4"/></div>
+          <div class="fm"><label>City</label><input class="inp" id="mp_city" placeholder="London"/></div>
+        </div>
+        <div class="fg2">
+          <div class="fm"><label>County</label><input class="inp" id="mp_county" placeholder="Greater London"/></div>
+          <div class="fm"><label>Postcode</label><input class="inp" id="mp_postcode" placeholder="SW1A 1AA"/></div>
+        </div>
+      </div>
+
+      <div class="ee-section">
+        <div class="ee-section-title">Contact</div>
+        <div class="fg2">
+          <div class="fm"><label>Personal Email</label><input class="inp" type="email" id="mp_personal_email" placeholder="you@gmail.com"/></div>
+          <div class="fm"><label>Phone Number</label><input class="inp" id="mp_phone" placeholder="+44 7700 900000"/></div>
+        </div>
+      </div>
+
+      <div class="ee-section">
+        <div class="ee-section-title">Accessibility & Dietary</div>
+        <div class="fg2">
+          <div class="fm"><label>Dietary Requirements</label><input class="inp" id="mp_dietary" placeholder="e.g. Vegetarian"/></div>
+          <div class="fm"><label>Accessibility Needs</label><input class="inp" id="mp_accessibility" placeholder="e.g. Wheelchair access"/></div>
+        </div>
+      </div>
+
+    </div>
+    <div class="emp-view-foot" style="justify-content:flex-end;gap:10px;">
+      <button class="btn-ghost" id="mpEditCancelBtn">Cancel</button>
+      <button class="btn-accent" id="mpEditSaveBtn">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- DEPARTMENTS MODAL -->
 <div class="modal-bg" id="deptModal">
   <div class="modal">
@@ -995,7 +1081,7 @@ const SUPABASE_URL  = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
-let profile = null, token = null;
+let profile = null, token = null, role = 'employee';
 let employees = [], departments = [], shiftPatterns = [];
 let addAuthorisers = [], overrideOn = false, onboardConfig = {}, addCurStep = 1;
 
@@ -1071,8 +1157,8 @@ async function afterLogin(session) {
     profile = emp;
   }
 
-  const role = profile.role || (profile.is_admin ? 'admin' : 'employee');
-  if (!['admin','owner'].includes(role)) { showView('viewDenied'); return; }
+  role = profile.role || (profile.is_admin ? 'admin' : 'employee');
+  if (!['admin','owner','supervisor'].includes(role) && role !== 'employee') { showView('viewDenied'); return; }
 
   // Nav
   const name = profile.full_name || `${profile.first_name||''} ${profile.last_name||''}`.trim() || session.user.email;
@@ -1094,12 +1180,157 @@ async function afterLogin(session) {
     if (ownerCsel) ownerCsel.style.display = '';
   }
 
+  if (role === 'employee') {
+    await loadMyProfile();
+    showView('viewMyProfile');
+    return;
+  }
+
   setupTabs();
   setupDrawers();
   setupModals();
   await loadAll();
   renderEmployees();
   showView('viewApp');
+}
+
+// ── My Profile (employee self-service) ────────────────────────────────────
+let myEmpRecord = null;
+
+async function loadMyProfile() {
+  setupMpEditModal();
+  try {
+    [myEmpRecord, departments, shiftPatterns] = await Promise.all([
+      api('GET', 'self-update-employee').catch(()=>null),
+      api('GET', 'departments').catch(()=>[]),
+      api('GET', 'shift-patterns').catch(()=>[]),
+    ]);
+  } catch(e) {
+    myEmpRecord = null;
+  }
+  renderMyProfile();
+
+  document.getElementById('mpEditBtn').style.display = '';
+  document.getElementById('mpEditBtn').onclick = openMyEdit;
+  document.getElementById('mpSubtitle').textContent = myEmpRecord?.job_title || '';
+}
+
+function fmtAddr(e) {
+  return [e.address_line_1, e.address_line_2, e.city, e.county, e.postcode, e.country].filter(Boolean).join(', ') || '—';
+}
+
+function renderMyProfile() {
+  const e = myEmpRecord;
+  if (!e) { document.getElementById('mpBody').innerHTML = `<p style="color:var(--muted)">Could not load your profile.</p>`; return; }
+
+  function sec(title, rows) {
+    const items = rows.filter(([,v])=>v).map(([k,v])=>`
+      <div class="emp-view-row"><span class="emp-view-key">${k}</span><span class="emp-view-val">${esc(String(v))}</span></div>`).join('');
+    return `<div class="emp-view-section" style="margin-bottom:14px;"><div class="emp-view-sec-title">${title}</div>${items||'<div style="font-size:12px;color:var(--muted);font-style:italic;">Nothing recorded yet</div>'}</div>`;
+  }
+
+  const shift = shiftPatterns.find?.(s=>s.id===e.shift_pattern_id);
+  const leaveAllowance = e.executive_allowance_override ?? e.annual_leave_allowance ?? 28;
+
+  document.getElementById('mpBody').innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:22px;padding:20px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;">
+      <div class="emp-view-avatar" style="width:64px;height:64px;font-size:22px;">${initials(e.full_name)}</div>
+      <div>
+        <div style="font-size:22px;font-weight:800;letter-spacing:-.04em;">${esc(e.full_name)}</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:4px;">${esc(e.job_title||'')}</div>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+          ${e.employee_id?`<span style="font-size:11px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);padding:3px 10px;border-radius:20px;color:var(--muted);">${esc(e.employee_id)}</span>`:''}
+          ${e.onboarding_completed?`<span style="font-size:11px;color:var(--green);background:var(--green-soft);border:1px solid var(--green-border);padding:3px 10px;border-radius:20px;font-weight:600;">✓ Onboarding Complete</span>`:`<span style="font-size:11px;color:var(--amber);background:rgba(255,159,10,.12);border:1px solid rgba(255,159,10,.3);padding:3px 10px;border-radius:20px;font-weight:600;">Onboarding Pending</span>`}
+        </div>
+      </div>
+    </div>
+    ${sec('Personal Details',[
+      ['Pronouns', e.pronouns],
+      ['Date of Birth', e.date_of_birth?fmtDate(e.date_of_birth):null],
+      ['Gender', e.gender],
+      ['Address', fmtAddr(e)!=='—'?fmtAddr(e):null],
+    ])}
+    ${sec('Contact',[
+      ['Work Email', e.work_email],
+      ['Personal Email', e.personal_email],
+      ['Phone', e.personal_phone],
+    ])}
+    ${sec('Employment',[
+      ['Department', e.department_id ? (departments.find?.(d=>d.id===e.department_id)?.name||'—') : null],
+      ['Employment Type', fmtEmpType(e.employment_type, e.employment_type_custom)],
+      ['Start Date', e.start_date?fmtDate(e.start_date):null],
+      ['Notice Period', e.notice_period],
+      ['Annual Leave', `${leaveAllowance} days`],
+      ['Shift Pattern', shift?.name],
+    ])}
+    ${sec('Accessibility & Dietary',[
+      ['Dietary Requirements', e.dietary_requirements],
+      ['Accessibility Needs', e.accessibility_needs],
+    ])}
+  `;
+}
+
+function openMyEdit() {
+  const e = myEmpRecord;
+  if(!e) return;
+  document.getElementById('mpEditAvatar').textContent = initials(e.full_name);
+  document.getElementById('mpEditName').textContent = e.full_name;
+  document.getElementById('mp_pronouns').value = e.pronouns||'';
+  document.getElementById('mp_dob').value = e.date_of_birth||'';
+  document.getElementById('mp_addr1').value = e.address_line_1||'';
+  document.getElementById('mp_addr2').value = e.address_line_2||'';
+  document.getElementById('mp_city').value = e.city||'';
+  document.getElementById('mp_county').value = e.county||'';
+  document.getElementById('mp_postcode').value = e.postcode||'';
+  document.getElementById('mp_personal_email').value = e.personal_email||'';
+  document.getElementById('mp_phone').value = e.personal_phone||'';
+  document.getElementById('mp_dietary').value = e.dietary_requirements||'';
+  document.getElementById('mp_accessibility').value = e.accessibility_needs||'';
+
+  const genderLabels = {prefer_not_to_say:'Prefer not to say',male:'Male',female:'Female',non_binary:'Non-binary',other:'Other'};
+  const mpCval = document.getElementById('mp_gender_cval');
+  const mpSel = document.getElementById('mp_gender');
+  const mpPanel = document.getElementById('mp_gender_panel');
+  if(mpCval) mpCval.textContent = genderLabels[e.gender]||'Prefer not to say';
+  if(mpSel) mpSel.value = e.gender||'prefer_not_to_say';
+  if(mpPanel) mpPanel.querySelectorAll('.csel-opt').forEach(o=>o.classList.toggle('selected',o.dataset.val===(e.gender||'prefer_not_to_say')));
+
+  document.getElementById('mpEditOverlay').classList.add('open');
+  document.getElementById('mpEditWrap').classList.add('open');
+}
+
+function closeMpEdit() {
+  document.getElementById('mpEditOverlay').classList.remove('open');
+  document.getElementById('mpEditWrap').classList.remove('open');
+}
+
+async function saveMpEdit() {
+  const btn = document.getElementById('mpEditSaveBtn');
+  btn.disabled=true; btn.textContent='Saving…';
+  try {
+    await api('PATCH','self-update-employee',{
+      pronouns: document.getElementById('mp_pronouns').value.trim()||null,
+      gender: document.getElementById('mp_gender').value||null,
+      date_of_birth: document.getElementById('mp_dob').value||null,
+      address_line_1: document.getElementById('mp_addr1').value.trim()||null,
+      address_line_2: document.getElementById('mp_addr2').value.trim()||null,
+      city: document.getElementById('mp_city').value.trim()||null,
+      county: document.getElementById('mp_county').value.trim()||null,
+      postcode: document.getElementById('mp_postcode').value.trim()||null,
+      personal_email: document.getElementById('mp_personal_email').value.trim()||null,
+      personal_phone: document.getElementById('mp_phone').value.trim()||null,
+      dietary_requirements: document.getElementById('mp_dietary').value.trim()||null,
+      accessibility_needs: document.getElementById('mp_accessibility').value.trim()||null,
+    });
+    myEmpRecord = await api('GET','self-update-employee');
+    renderMyProfile();
+    closeMpEdit();
+    toast('ok','Saved','Your profile has been updated.');
+  } catch(e) {
+    toast('err','Error',e.message);
+  } finally {
+    btn.disabled=false; btn.textContent='Save Changes';
+  }
 }
 
 async function doLogout() {
@@ -1498,6 +1729,26 @@ async function saveEditEmployee() {
 }
 
 let eeDeb;
+function setupMpEditModal() {
+  document.getElementById('mpEditClose').onclick = closeMpEdit;
+  document.getElementById('mpEditCancelBtn').onclick = closeMpEdit;
+  document.getElementById('mpEditOverlay').onclick = closeMpEdit;
+  document.getElementById('mpEditSaveBtn').onclick = saveMpEdit;
+  // wire gender csel
+  const csel = document.getElementById('mp_gender_csel');
+  const panel = document.getElementById('mp_gender_panel');
+  const cval = document.getElementById('mp_gender_cval');
+  const sel = document.getElementById('mp_gender');
+  if(csel) csel.onclick = e=>{ e.stopPropagation(); csel.classList.toggle('open'); panel.classList.toggle('open'); };
+  if(panel) panel.querySelectorAll('.csel-opt').forEach(o=>{
+    o.onclick=()=>{
+      cval.textContent=o.textContent; sel.value=o.dataset.val;
+      panel.querySelectorAll('.csel-opt').forEach(x=>x.classList.toggle('selected',x===o));
+      csel.classList.remove('open'); panel.classList.remove('open');
+    };
+  });
+}
+
 function setupEditModal() {
   document.getElementById('empEditClose').onclick = closeEdit;
   document.getElementById('empEditCancelBtn').onclick = closeEdit;
@@ -1578,6 +1829,7 @@ function setupDrawers() {
   document.getElementById('empViewOverlay').onclick=()=>closeView();
   document.getElementById('addCancel').onclick=()=>closeDrawer('add');
   setupEditModal();
+  setupMpEditModal();
 
   // Step navigation
   document.getElementById('addNext').onclick=()=>{
