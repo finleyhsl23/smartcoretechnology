@@ -407,10 +407,52 @@ const STEPS = [
 let currentStep = 1;
 let token = null;
 let employeeData = {};
+let requiredFields = {};
 
 // Parse token from URL
 const params = new URLSearchParams(location.search);
 token = params.get('token');
+
+// Map config keys → arrays of field element IDs and their label text
+const FIELD_CONFIG = {
+  pronouns:             { ids: ['fPronouns'],        step: 2 },
+  date_of_birth:        { ids: ['fDob'],              step: 2 },
+  gender:               { ids: ['fGender'],           step: 2 },
+  address:              { ids: ['fAddr1','fCity','fPostcode','fCountry'], step: 3 },
+  emergency_contacts:   { ids: ['fEc1Name','fEc1Rel','fEc1Phone'], step: 4 },
+  national_insurance:   { ids: ['fNino'],             step: 5 },
+  student_loan:         { ids: ['fStudentLoan'],      step: 5 },
+  tax_code:             { ids: ['fTaxCode'],          step: 5 },
+  bank_details:         { ids: ['fBankName','fSortCode','fAccountNum'], step: 5 },
+  dietary_requirements: { ids: ['fDietary'],          step: 6 },
+  accessibility_needs:  { ids: ['fAccessibility'],    step: 6 },
+};
+
+function applyRequiredFields() {
+  // For each configurable field, update the label badge and mark the input
+  Object.entries(FIELD_CONFIG).forEach(([key, {ids}]) => {
+    const isReq = !!requiredFields[key];
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const field = el.closest('.field');
+      if (!field) return;
+      const lbl = field.querySelector('label');
+      if (!lbl) return;
+      // remove existing badge/req marker
+      lbl.querySelectorAll('.optional-tag,.req').forEach(n => n.remove());
+      if (isReq) {
+        const span = document.createElement('span');
+        span.className = 'req'; span.textContent = '*';
+        lbl.appendChild(span);
+      } else {
+        const span = document.createElement('span');
+        span.className = 'optional-tag'; span.textContent = 'Optional';
+        lbl.appendChild(span);
+      }
+    });
+  });
+}
 
 async function init() {
   if (!token) { showError('No invite token', 'This link appears to be invalid. Please check your email for the correct link.'); return; }
@@ -421,12 +463,14 @@ async function init() {
     if (!r.ok) { showError('Invalid Link', data.error || 'This link is invalid or has expired.'); return; }
 
     employeeData = data;
+    requiredFields = data.required_fields || {};
     document.getElementById('fFullName').value = data.full_name || '';
     document.getElementById('fPersonalEmail').value = data.personal_email || '';
 
     document.getElementById('loadingView').style.display = 'none';
     document.getElementById('mainCard').style.display = 'block';
     renderStepsBar();
+    applyRequiredFields();
     goToStep(1);
   } catch(e) {
     showError('Error', 'Could not verify your invite. Please try again.');
@@ -478,6 +522,8 @@ function goNext() {
   goToStep(currentStep + 1);
 }
 
+function chk(id) { const el = document.getElementById(id); return el ? (el.value||'').trim() : ''; }
+
 function validateStep(n) {
   if (n === 1) {
     const pw = document.getElementById('fPassword').value;
@@ -487,21 +533,43 @@ function validateStep(n) {
     document.getElementById('pwMatchError').style.display = 'none';
   }
   if (n === 2) {
+    // Always required
     if (!document.getElementById('fTitleSel').value) { toast('error','Required','Please select your title'); return false; }
-    if (!document.getElementById('fFullName').value.trim()) { toast('error','Required','Full name is required'); return false; }
-    if (!document.getElementById('fDob').value) { toast('error','Required','Date of birth is required'); return false; }
+    if (!chk('fFullName')) { toast('error','Required','Full name is required'); return false; }
+    // Config-driven
+    if (requiredFields.date_of_birth && !chk('fDob')) { toast('error','Required','Date of birth is required'); return false; }
+    if (requiredFields.pronouns && !chk('fPronouns')) { toast('error','Required','Pronouns are required by your company'); return false; }
+    if (requiredFields.gender && !document.getElementById('fGender').value) { toast('error','Required','Please select your gender'); return false; }
   }
   if (n === 3) {
     if (!document.getElementById('fPersonalEmail').value.includes('@')) { toast('error','Required','Valid personal email required'); return false; }
-    if (!document.getElementById('fPhone').value.trim()) { toast('error','Required','Personal phone required'); return false; }
-    if (!document.getElementById('fAddr1').value.trim()) { toast('error','Required','Address line 1 required'); return false; }
-    if (!document.getElementById('fCity').value.trim()) { toast('error','Required','City required'); return false; }
-    if (!document.getElementById('fPostcode').value.trim()) { toast('error','Required','Postcode required'); return false; }
+    if (!chk('fPhone')) { toast('error','Required','Personal phone required'); return false; }
+    if (requiredFields.address) {
+      if (!chk('fAddr1')) { toast('error','Required','Address line 1 required'); return false; }
+      if (!chk('fCity')) { toast('error','Required','City required'); return false; }
+      if (!chk('fPostcode')) { toast('error','Required','Postcode required'); return false; }
+    }
   }
   if (n === 4) {
-    if (!document.getElementById('fEc1Name').value.trim()) { toast('error','Required','Primary emergency contact name required'); return false; }
-    if (!document.getElementById('fEc1Rel').value.trim()) { toast('error','Required','Primary contact relationship required'); return false; }
-    if (!document.getElementById('fEc1Phone').value.trim()) { toast('error','Required','Primary contact phone required'); return false; }
+    if (requiredFields.emergency_contacts) {
+      if (!chk('fEc1Name')) { toast('error','Required','Primary emergency contact name required'); return false; }
+      if (!chk('fEc1Rel')) { toast('error','Required','Primary contact relationship required'); return false; }
+      if (!chk('fEc1Phone')) { toast('error','Required','Primary contact phone required'); return false; }
+    }
+  }
+  if (n === 5) {
+    if (requiredFields.national_insurance && !chk('fNino')) { toast('error','Required','National Insurance number required'); return false; }
+    if (requiredFields.tax_code && !chk('fTaxCode')) { toast('error','Required','Tax code required'); return false; }
+    if (requiredFields.student_loan && !document.getElementById('fStudentLoan').value) { toast('error','Required','Student loan status required'); return false; }
+    if (requiredFields.bank_details) {
+      if (!chk('fBankName')) { toast('error','Required','Bank account holder name required'); return false; }
+      if (!chk('fSortCode')) { toast('error','Required','Sort code required'); return false; }
+      if (!chk('fAccountNum')) { toast('error','Required','Account number required'); return false; }
+    }
+  }
+  if (n === 6) {
+    if (requiredFields.dietary_requirements && !chk('fDietary')) { toast('error','Required','Dietary requirements required by your company'); return false; }
+    if (requiredFields.accessibility_needs && !chk('fAccessibility')) { toast('error','Required','Accessibility needs required by your company'); return false; }
   }
   return true;
 }

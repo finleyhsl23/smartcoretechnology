@@ -19,8 +19,12 @@ export async function onRequestGet(context) {
     if (!emps?.length) return json({ error: 'Employee not found' }, 404);
     const emp = emps[0];
 
-    const companies = await sbGet(env, `/smartcore_core_companies?id=eq.${emp.company_id}&select=company_name&limit=1`);
+    const [companies, configRows] = await Promise.all([
+      sbGet(env, `/smartcore_core_companies?id=eq.${emp.company_id}&select=company_name&limit=1`),
+      sbGet(env, `/core_onboarding_config?company_id=eq.${emp.company_id}&limit=1`),
+    ]);
     const companyName = companies?.[0]?.company_name || '';
+    const requiredFields = configRows?.[0]?.required_fields || {};
 
     return json({
       employee_id: emp.id,
@@ -30,6 +34,7 @@ export async function onRequestGet(context) {
       personal_email: emp.personal_email,
       work_email: emp.work_email,
       role: emp.role,
+      required_fields: requiredFields,
     });
   } catch (e) {
     return json({ error: e.message }, 500);
