@@ -303,9 +303,18 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ── Module registry ───────────────────────────────────────────────────────
 // Add new modules here as they are built. url is where the module lives.
+// slugs must match the module_slug values in smartcore_core_purchased_modules.
 const MODULE_REGISTRY = [
   {
-    key:   "presence-and-fire-safety",
+    slugs: ["holiday-management"],
+    name:  "Holiday Management",
+    desc:  "Employee holiday requests, leave allowances, approvals and company-wide calendar.",
+    icon:  "🌴",
+    color: "#22c55e",
+    url:   "/systems/holidaymanagement/home.html",
+  },
+  {
+    slugs: ["presence-and-fire-safety"],
     name:  "Presence & Fire Safety",
     desc:  "Staff presence tracking, fire roll calls, visitor management and compliance reporting.",
     icon:  "🔥",
@@ -313,13 +322,61 @@ const MODULE_REGISTRY = [
     url:   "/app/modules/presence-and-fire-safety.html",
   },
   {
-    key:   "smartcore-crm",
+    slugs: ["smartcore-crm", "smartcore-crm-lite", "smartcore-crm-professional", "smartcore-crm-business", "smartcore-crm-enterprise"],
     name:  "SmartCore CRM",
     desc:  "Full-featured CRM — companies, contacts, leads, pipeline, quotes, documents and reports.",
     icon:  "🎯",
     color: "#1e5cff",
     url:   "/systems/crm/dashboard.html",
     tierLabel: true,
+  },
+  {
+    slugs: ["accident-and-injury-book"],
+    name:  "Accident & Injury Book",
+    desc:  "Digital accident reporting, injury logs and RIDDOR-compliant record keeping.",
+    icon:  "🩹",
+    color: "#ef4444",
+    url:   "/app/modules/accident-and-injury-book.html",
+  },
+  {
+    slugs: ["training-and-compliance"],
+    name:  "Training & Compliance",
+    desc:  "Track staff training, certifications, expiry dates and compliance status.",
+    icon:  "📚",
+    color: "#8b5cf6",
+    url:   "/app/modules/training-and-compliance.html",
+  },
+  {
+    slugs: ["policies-and-staff-handbook"],
+    name:  "Policies & Staff Handbook",
+    desc:  "Publish and manage company policies, staff handbook and document sign-offs.",
+    icon:  "📋",
+    color: "#0ea5ff",
+    url:   "/app/modules/policies-and-staff-handbook.html",
+  },
+  {
+    slugs: ["expenses-upload"],
+    name:  "Expenses",
+    desc:  "Staff expense submissions, receipt uploads and approval workflows.",
+    icon:  "💳",
+    color: "#f59e0b",
+    url:   "/app/modules/expenses-upload.html",
+  },
+  {
+    slugs: ["onboarding-and-offboarding"],
+    name:  "Onboarding & Offboarding",
+    desc:  "Structured checklists and workflows for joining and leaving employees.",
+    icon:  "🚪",
+    color: "#06b6d4",
+    url:   "/app/modules/onboarding-and-offboarding.html",
+  },
+  {
+    slugs: ["wellbeing-check"],
+    name:  "Wellbeing Check",
+    desc:  "Regular wellbeing surveys and mood tracking to support your team.",
+    icon:  "💚",
+    color: "#10b981",
+    url:   "/app/modules/wellbeing-check.html",
   },
 ];
 
@@ -390,12 +447,14 @@ async function showModules(session) {
   document.getElementById("modulesView").style.display = "block";
   document.getElementById("signOutBtn").style.display  = "flex";
 
-  // Load profile
-  const { data: profile } = await sb
+  // Load profile — user may have multiple rows, pick the most complete one
+  const { data: profiles } = await sb
     .from("core_employees")
     .select("company_id, full_name, role")
-    .eq("auth_user_id", session.user.id)
-    .maybeSingle();
+    .eq("auth_user_id", session.user.id);
+
+  const profile = profiles?.find(p => p.full_name && p.full_name !== session.user.email)
+    || profiles?.[0];
 
   if (!profile) {
     document.getElementById("modulesContent").innerHTML = `
@@ -407,31 +466,33 @@ async function showModules(session) {
   }
 
   // Show user info
-  const initials = (profile.full_name || session.user.email || "?")
-    .split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+  const displayName = (profile.full_name && profile.full_name !== session.user.email)
+    ? profile.full_name : session.user.email;
+  const initials = displayName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
   document.getElementById("userAvatar").textContent      = initials;
-  document.getElementById("userNameDisplay").textContent = profile.full_name || session.user.email;
+  document.getElementById("userNameDisplay").textContent = displayName;
   document.getElementById("userPill").style.display      = "flex";
 
-  // Load company name
+  // Load company name from smartcore_core_companies
   const { data: company } = await sb
-    .from("companies")
-    .select("name")
+    .from("smartcore_core_companies")
+    .select("company_name")
     .eq("id", profile.company_id)
     .maybeSingle();
-  document.getElementById("companyTag").textContent = "🏢 " + (company?.name || "Your Company");
+  document.getElementById("companyTag").textContent = "🏢 " + (company?.company_name || "Your Company");
 
-  // Load enabled modules for this company
-  const { data: mods } = await sb
-    .from("company_modules")
-    .select("module_key, enabled, tier")
-    .eq("company_id", profile.company_id);
+  // Load purchased modules from smartcore_core_purchased_modules
+  const { data: purchased } = await sb
+    .from("smartcore_core_purchased_modules")
+    .select("module_slug, status")
+    .eq("company_id", profile.company_id)
+    .eq("status", "active");
 
-  const modMap = new Map((mods || []).map(m => [m.module_key, m]));
+  const ownedSlugs = new Set((purchased || []).map(m => m.module_slug));
 
-  // Render
-  const active  = MODULE_REGISTRY.filter(m => modMap.get(m.key)?.enabled);
-  const locked  = MODULE_REGISTRY.filter(m => !modMap.get(m.key)?.enabled);
+  // Render — a module is active if ANY of its slugs are owned
+  const active  = MODULE_REGISTRY.filter(m => m.slugs.some(s => ownedSlugs.has(s)));
+  const locked  = MODULE_REGISTRY.filter(m => !m.slugs.some(s => ownedSlugs.has(s)));
 
   let html = "";
 
@@ -446,13 +507,13 @@ async function showModules(session) {
     if (active.length > 0) {
       html += `<div class="section-label">Active modules (${active.length})</div>
         <div class="modules-grid" style="margin-bottom:40px">
-          ${active.map(m => moduleCard(m, modMap.get(m.key))).join("")}
+          ${active.map(m => moduleCard(m, true)).join("")}
         </div>`;
     }
     if (locked.length > 0) {
       html += `<div class="section-label">Available to add</div>
         <div class="modules-grid">
-          ${locked.map(m => moduleCard(m, null)).join("")}
+          ${locked.map(m => moduleCard(m, false)).join("")}
         </div>`;
     }
   }
@@ -460,10 +521,9 @@ async function showModules(session) {
   document.getElementById("modulesContent").innerHTML = html;
 }
 
-function moduleCard(m, modData) {
-  const isActive = !!modData?.enabled;
-  const tier = modData?.tier;
-  const tierLabel = tier ? tier.charAt(0).toUpperCase() + tier.slice(1) : null;
+function moduleCard(m, isActive) {
+  const tier = null;
+  const tierLabel = null;
 
   if (isActive) {
     return `
