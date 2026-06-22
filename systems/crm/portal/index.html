@@ -17,75 +17,71 @@
     button{width:100%;background:#1e5cff;color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .2s}
     button:hover{opacity:.9}
     button:disabled{opacity:.5;cursor:not-allowed}
-    .success{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:16px;font-size:14px;color:#4ade80;text-align:center;display:none}
     .error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:12px;font-size:13px;color:#fca5a5;margin-bottom:14px;display:none}
     .hint{font-size:12px;color:rgba(233,240,255,.4);text-align:center;margin-top:20px}
+    .pw-wrap{position:relative;margin-bottom:16px}
+    .pw-wrap input{margin-bottom:0}
+    .pw-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:rgba(233,240,255,.4);cursor:pointer;padding:4px;width:auto;font-size:14px}
   </style>
 </head>
 <body>
 <div class="card">
   <div class="logo">SC</div>
   <h1>Customer Portal</h1>
-  <p>Enter your email address and we'll send you a secure login link — no password needed.</p>
+  <p>Sign in with your email and password to access your account.</p>
   <div id="errBox" class="error"></div>
-  <div id="successBox" class="success">
-    ✓ Check your inbox!<br><span style="font-size:12px;color:rgba(74,222,128,.7)">We've sent a login link to your email. It expires in 1 hour.</span>
-  </div>
   <div id="formWrap">
     <label for="emailInput">Email address</label>
     <input id="emailInput" type="email" placeholder="you@company.com" autofocus/>
-    <button id="sendBtn" onclick="sendMagicLink()">Send login link →</button>
+    <label for="pwInput">Password</label>
+    <div class="pw-wrap">
+      <input id="pwInput" type="password" placeholder="Your password" onkeydown="if(event.key==='Enter')login()"/>
+      <button class="pw-toggle" type="button" onclick="togglePw()" id="pwToggle">👁</button>
+    </div>
+    <button id="loginBtn" onclick="login()">Sign in →</button>
   </div>
-  <div class="hint">Contact your account manager if you haven't received an invitation.</div>
+  <div class="hint">Contact your account manager if you need access or have forgotten your password.</div>
 </div>
-<script type="module">
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-const sb = createClient("https://hjdpcfhozhoyeqevnupm.supabase.co","eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts");
-
-// If already logged in with a portal session, redirect to dashboard
-const { data: { session } } = await sb.auth.getSession();
-if (session?.user) {
-  // Check they're a portal user (not a CRM staff member)
-  const { data: pu } = await sb.from("crm_portal_users").select("id").eq("auth_user_id", session.user.id).limit(1);
-  if (pu?.length) { window.location.href = "/systems/crm/portal/dashboard.html"; }
+<script>
+function togglePw() {
+  const inp = document.getElementById("pwInput");
+  inp.type = inp.type === "password" ? "text" : "password";
 }
 
-// Handle magic link callback (hash contains access_token)
-const hash = new URLSearchParams(window.location.hash.slice(1));
-if (hash.get("access_token")) {
-  window.location.href = "/systems/crm/portal/dashboard.html";
-}
-
-window.sendMagicLink = async function() {
+async function login() {
   const email = document.getElementById("emailInput").value.trim();
+  const password = document.getElementById("pwInput").value;
   const errBox = document.getElementById("errBox");
   errBox.style.display = "none";
+
   if (!email || !email.includes("@")) { errBox.textContent = "Please enter a valid email."; errBox.style.display = "block"; return; }
+  if (!password) { errBox.textContent = "Please enter your password."; errBox.style.display = "block"; return; }
 
-  // Check they've been invited
-  const { data: pu } = await sb.from("crm_portal_users").select("id,status").eq("email", email.toLowerCase()).limit(1);
-  if (!pu?.length) { errBox.textContent = "This email hasn't been invited to the portal. Contact your account manager."; errBox.style.display = "block"; return; }
-  if (pu[0].status === "suspended") { errBox.textContent = "Your portal access has been suspended. Contact your account manager."; errBox.style.display = "block"; return; }
+  const btn = document.getElementById("loginBtn");
+  btn.disabled = true; btn.textContent = "Signing in…";
 
-  const btn = document.getElementById("sendBtn");
-  btn.disabled = true;
-  btn.textContent = "Sending…";
+  try {
+    const res = await fetch("/api/crm/portal-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Login failed");
 
-  const { error } = await sb.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: `${location.origin}/systems/crm/portal/dashboard.html` }
-  });
-
-  if (error) {
-    errBox.textContent = error.message;
+    sessionStorage.setItem("portal_token", data.token);
+    sessionStorage.setItem("portal_user", JSON.stringify(data.user));
+    window.location.href = "/systems/crm/portal/dashboard.html";
+  } catch (err) {
+    errBox.textContent = err.message;
     errBox.style.display = "block";
-    btn.disabled = false;
-    btn.textContent = "Send login link →";
-  } else {
-    document.getElementById("formWrap").style.display = "none";
-    document.getElementById("successBox").style.display = "block";
+    btn.disabled = false; btn.textContent = "Sign in →";
   }
-};
+}
+
+// Already logged in?
+const existing = sessionStorage.getItem("portal_token");
+if (existing) window.location.href = "/systems/crm/portal/dashboard.html";
 </script>
 </body>
 </html>

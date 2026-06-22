@@ -126,7 +126,8 @@ function portalUserRow(u) {
     <td>${contactName !== "—" ? `<span class="text-sm">${esc(contactName)}</span>` : `<button class="btn btn-ghost btn-sm" onclick="linkContact('${u.id}')">Link contact</button>`}</td>
     <td><span class="badge ${statusBadge}">${u.status}</span></td>
     <td><span class="text-sm text-muted">${u.last_login_at ? fmtDate(u.last_login_at) : "Never"}</span></td>
-    <td>
+    <td style="display:flex;gap:6px">
+      <button class="btn btn-ghost btn-sm" onclick="resetPassword('${u.id}','${esc(u.email)}')">Reset PW</button>
       ${u.status !== "suspended"
         ? `<button class="btn btn-ghost btn-sm" onclick="revokeUser('${u.id}')">Revoke</button>`
         : `<button class="btn btn-ghost btn-sm" onclick="reinstateUser('${u.id}')">Reinstate</button>`}
@@ -148,32 +149,42 @@ window.inviteUser = function() {
       <label class="form-label">Name</label>
       <input id="invName" class="form-control" placeholder="Full name"/>
     </div>
+    <div style="margin-bottom:12px">
+      <label class="form-label">Password *</label>
+      <input id="invPassword" class="form-control" type="password" placeholder="Min. 6 characters"/>
+    </div>
     <div style="margin-bottom:20px">
       <label class="form-label">Link to CRM Contact (optional)</label>
       <select id="invContact" class="form-control"><option value="">— select contact —</option>${contactOpts}</select>
     </div>
-    <div class="callout callout-blue" style="margin-bottom:16px;padding:12px;background:var(--blue-dim);border-radius:var(--r2);font-size:13px">
-      <strong>🔗 Portal link:</strong> Send the customer to <code style="font-size:11px">${location.origin}/systems/crm/portal/index.html</code> and ask them to sign in with their email — they'll receive a magic login link.
-    </div>
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button class="btn btn-ghost" onclick="document.getElementById('crm-modal').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="doInvite()">Invite</button>
+      <button class="btn btn-primary" onclick="doInvite()">Create Account</button>
     </div>
   `);
 };
 
 window.doInvite = async function() {
-  const email = document.getElementById("invEmail").value.trim();
-  const name  = document.getElementById("invName").value.trim();
-  const cid   = document.getElementById("invContact").value || null;
+  const email    = document.getElementById("invEmail").value.trim();
+  const name     = document.getElementById("invName").value.trim();
+  const password = document.getElementById("invPassword").value;
+  const cid      = document.getElementById("invContact").value || null;
   if (!email || !email.includes("@")) { toast("bad","Error","Valid email required"); return; }
+  if (!password || password.length < 6) { toast("bad","Error","Password must be at least 6 characters"); return; }
   try {
-    const u = await portalUsers.invite(email, name, cid);
+    const res = await fetch("/api/crm/portal-invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, name, password, crm_contact_id: cid, tenant_id: profile.company_id }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    const u = data.user;
     portalUsersList.unshift(u);
     const tbody = document.getElementById("portalUsersTbody");
     if (tbody) tbody.insertAdjacentHTML("afterbegin", portalUserRow(u));
     document.getElementById("crm-modal")?.remove();
-    toast("good","Invited",`${email} can now access the portal`);
+    toast("good","Account created",`${email} can now sign in at the portal`);
   } catch(e) { toast("bad","Error",e.message); }
 };
 
@@ -204,6 +215,37 @@ window.doLinkContact = async function(userId) {
     document.getElementById("crm-modal")?.remove();
     toast("good","Linked","Contact linked to portal user");
     await loadPortal();
+  } catch(e) { toast("bad","Error",e.message); }
+};
+
+window.resetPassword = function(userId, email) {
+  modal(`
+    <h2 style="margin-bottom:16px">Reset Password</h2>
+    <p class="text-muted text-sm" style="margin-bottom:16px">Set a new password for <strong>${esc(email)}</strong>.</p>
+    <div style="margin-bottom:20px">
+      <label class="form-label">New Password *</label>
+      <input id="newPw" class="form-control" type="password" placeholder="Min. 6 characters" autofocus/>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="document.getElementById('crm-modal').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="doResetPassword('${userId}')">Save Password</button>
+    </div>
+  `);
+};
+
+window.doResetPassword = async function(userId) {
+  const password = document.getElementById("newPw").value;
+  if (!password || password.length < 6) { toast("bad","Error","Password must be at least 6 characters"); return; }
+  try {
+    const res = await fetch("/api/crm/portal-invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: portalUsersList.find(u => u.id === userId)?.email, password, tenant_id: profile.company_id }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    document.getElementById("crm-modal")?.remove();
+    toast("good","Password updated","Customer can now sign in with their new password");
   } catch(e) { toast("bad","Error",e.message); }
 };
 
