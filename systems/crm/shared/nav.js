@@ -16,7 +16,7 @@ const NAV_LINKS = [
   { id: "portal",     icon: "🌐", label: "Customer Portal", href: "/systems/crm/portal.html",     tier: "business" },
   { id: "messaging",  icon: "💬", label: "Messaging",       href: "/systems/crm/messaging.html",  tier: "business" },
   { id: "projects",   icon: "📋", label: "Projects",        href: "/systems/crm/projects.html",   tier: "business" },
-  { id: "settings",   icon: "⚙️",  label: "Settings",       href: "/systems/crm/settings.html" },
+  { id: "settings",   icon: "⚙️",  label: "Settings",       href: "/systems/crm/settings.html", system: true },
 ];
 
 const TIER_ORDER = { lite: 0, professional: 1, business: 2, enterprise: 3 };
@@ -44,7 +44,7 @@ export function renderNav(currentPage, profile, tier) {
       <div class="sidebar-section">
         <div class="sidebar-section-label">Main</div>
       </div>
-      ${NAV_LINKS.filter(l => !l.tier).map(l => navItem(l, currentPage, tier)).join("")}
+      ${NAV_LINKS.filter(l => !l.tier && !l.system).map(l => navItem(l, currentPage, tier)).join("")}
       <div class="sidebar-section" style="margin-top:8px">
         <div class="sidebar-section-label">Features</div>
       </div>

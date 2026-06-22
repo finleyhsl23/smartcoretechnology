@@ -28,21 +28,21 @@
 
 <script type="module">
 import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js";
-import { companies, documents, quotes, portalUsers, contacts } from "/systems/crm/shared/api.js?v=2";
+import { portalUsers } from "/systems/crm/shared/api.js?v=2";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
 import { initTheme } from "/systems/crm/shared/theme.js";
-import { esc, fmt, fmtDate, toast, tierGate, modal, confirm, loading, setInner } from "/systems/crm/shared/ui.js";
+import { esc, fmtDate, toast, tierGate, modal, confirm, loading, setInner } from "/systems/crm/shared/ui.js";
+import { sb } from "/systems/crm/shared/supabase.js";
 
 initTheme();
 
-let profile, tier, portalUsersList = [], contactsList = [];
+let profile, tier, portalUsersList = [];
 
 try {
   ({ profile, tier } = await requireCRMAccess());
   renderNav("portal", profile, tier);
   initMobileNav();
   initTopbar(profile);
-
   if (!tierHasFeature(tier, "portal")) {
     document.getElementById("content").innerHTML = tierGate("portal");
   } else {
@@ -53,220 +53,160 @@ try {
 async function loadPortal() {
   setInner("content", loading());
   try {
-    const [puRes, docsRes, quotesRes, contactsRes] = await Promise.all([
-      portalUsers.list(),
-      documents.list({ limit: 500 }),
-      quotes.list({ limit: 500 }),
-      contacts.list({ limit: 500 }),
-    ]);
-    portalUsersList = puRes;
-    contactsList = contactsRes.data;
-    const portalDocs   = docsRes.data.filter(d => d.is_portal_visible);
-    const quotesList_  = quotesRes.data;
-
-    const active    = portalUsersList.filter(u => u.status === "active").length;
-    const invited   = portalUsersList.filter(u => u.status === "invited").length;
-    const suspended = portalUsersList.filter(u => u.status === "suspended").length;
-
-    setInner("content", `
-      <div class="page-header">
-        <div class="page-header-left">
-          <h1>Customer Portal</h1>
-          <p>Manage customer access, portal users, and shared content</p>
-        </div>
-        <button class="btn btn-primary" onclick="inviteUser()">+ Invite Customer</button>
-      </div>
-
-      <div class="stat-row" style="margin-bottom:20px">
-        <div class="stat-card"><div class="stat-value" style="color:var(--good)">${active}</div><div class="stat-label">Active Users</div></div>
-        <div class="stat-card"><div class="stat-value" style="color:var(--warn)">${invited}</div><div class="stat-label">Invited</div></div>
-        <div class="stat-card"><div class="stat-value">${portalDocs.length}</div><div class="stat-label">Portal Docs</div></div>
-        <div class="stat-card"><div class="stat-value" style="color:var(--purple)">${quotesList_.filter(q=>q.status==="sent").length}</div><div class="stat-label">Pending Quotes</div></div>
-      </div>
-
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-header">
-          <h2>Portal Users</h2>
-          <a href="/systems/crm/portal/index.html" target="_blank" class="btn btn-ghost btn-sm">🔗 Open Portal</a>
-        </div>
-        <div class="tbl-wrap">
-          <table class="tbl">
-            <thead><tr><th>Name</th><th>Email</th><th>Linked Contact</th><th>Status</th><th>Last Login</th><th></th></tr></thead>
-            <tbody id="portalUsersTbody">
-              ${portalUsersList.length === 0
-                ? `<tr><td colspan="6"><div class="empty-state" style="padding:20px"><p>No portal users yet. Invite a customer to get started.</p></div></td></tr>`
-                : portalUsersList.map(u => portalUserRow(u)).join("")}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><h2>Portal Documents</h2><a href="/systems/crm/documents.html" class="btn btn-ghost btn-sm">Manage →</a></div>
-        <div class="card-body" style="padding:0">
-          ${portalDocs.length === 0
-            ? `<div class="empty-state" style="padding:24px"><p>No portal-visible documents. Mark documents as visible in the Documents page.</p></div>`
-            : portalDocs.slice(0,8).map(d => `
-              <div style="padding:10px 16px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;align-items:center">
-                <div><div style="font-weight:600;font-size:13px">${esc(d.name)}</div><div class="text-xs text-muted">${esc(d.category)} · ${fmtDate(d.created_at)}</div></div>
-                <span class="badge badge-green">Portal</span>
-              </div>`).join("")}
-        </div>
-      </div>`);
+    portalUsersList = await portalUsers.list();
+    render();
   } catch(e) { toast("bad","Load error",e.message); }
 }
 
-function portalUserRow(u) {
+function render() {
+  setInner("content", `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Customer Portal</h1>
+        <p>Manage portal user accounts</p>
+      </div>
+      <button class="btn btn-primary" onclick="addUser()">+ Add User</button>
+    </div>
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Last Login</th><th></th></tr></thead>
+          <tbody id="portalUsersTbody">
+            ${portalUsersList.length === 0
+              ? `<tr><td colspan="5"><div class="empty-state" style="padding:20px"><p>No portal users yet. Add one to get started.</p></div></td></tr>`
+              : portalUsersList.map(u => userRow(u)).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`);
+}
+
+function userRow(u) {
   const statusBadge = { active:"badge-green", invited:"badge-yellow", suspended:"badge-grey" }[u.status] || "badge-grey";
-  const contact = u.crm_contacts;
-  const contactName = contact ? `${contact.first_name||""} ${contact.last_name||""}`.trim() : "—";
-  return `<tr>
-    <td><strong>${esc(u.name||u.email)}</strong></td>
+  return `<tr id="pur-${u.id}">
+    <td><strong>${esc(u.name||"—")}</strong></td>
     <td><span class="text-sm">${esc(u.email)}</span></td>
-    <td>${contactName !== "—" ? `<span class="text-sm">${esc(contactName)}</span>` : `<button class="btn btn-ghost btn-sm" onclick="linkContact('${u.id}')">Link contact</button>`}</td>
     <td><span class="badge ${statusBadge}">${u.status}</span></td>
     <td><span class="text-sm text-muted">${u.last_login_at ? fmtDate(u.last_login_at) : "Never"}</span></td>
-    <td style="display:flex;gap:6px">
-      <button class="btn btn-ghost btn-sm" onclick="resetPassword('${u.id}','${esc(u.email)}')">Reset PW</button>
-      ${u.status !== "suspended"
-        ? `<button class="btn btn-ghost btn-sm" onclick="revokeUser('${u.id}')">Revoke</button>`
-        : `<button class="btn btn-ghost btn-sm" onclick="reinstateUser('${u.id}')">Reinstate</button>`}
+    <td>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" onclick="editUser('${u.id}')">Edit</button>
+        <button class="btn btn-ghost btn-sm btn-danger" onclick="deleteUser('${u.id}','${esc(u.email)}')">Delete</button>
+      </div>
     </td>
   </tr>`;
 }
 
-window.inviteUser = function() {
-  const contactOpts = contactsList.map(c =>
-    `<option value="${c.id}">${esc(`${c.first_name||""} ${c.last_name||""}`.trim()||c.email)}</option>`
-  ).join("");
-  modal(`
-    <h2 style="margin-bottom:16px">Invite Customer to Portal</h2>
-    <div style="margin-bottom:12px">
-      <label class="form-label">Customer Email *</label>
-      <input id="invEmail" class="form-control" type="email" placeholder="customer@example.com" autofocus/>
-    </div>
+function userModal(title, u = {}) {
+  return `
+    <h2 style="margin-bottom:16px">${title}</h2>
     <div style="margin-bottom:12px">
       <label class="form-label">Name</label>
-      <input id="invName" class="form-control" placeholder="Full name"/>
+      <input id="puName" class="form-control" placeholder="Full name" value="${esc(u.name||"")}"/>
     </div>
     <div style="margin-bottom:12px">
-      <label class="form-label">Password *</label>
-      <input id="invPassword" class="form-control" type="password" placeholder="Min. 6 characters"/>
+      <label class="form-label">Email *</label>
+      <input id="puEmail" class="form-control" type="email" placeholder="customer@example.com" value="${esc(u.email||"")}"/>
     </div>
     <div style="margin-bottom:20px">
-      <label class="form-label">Link to CRM Contact (optional)</label>
-      <select id="invContact" class="form-control"><option value="">— select contact —</option>${contactOpts}</select>
-    </div>
+      <label class="form-label">${u.id ? "New Password (leave blank to keep current)" : "Password *"}</label>
+      <input id="puPassword" class="form-control" type="password" placeholder="Min. 6 characters"/>
+    </div>`;
+}
+
+window.addUser = function() {
+  modal(`
+    ${userModal("Add Portal User")}
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button class="btn btn-ghost" onclick="document.getElementById('crm-modal').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="doInvite()">Create Account</button>
+      <button class="btn btn-primary" onclick="doAddUser()">Create Account</button>
     </div>
   `);
+  document.getElementById("puEmail").focus();
 };
 
-window.doInvite = async function() {
-  const email    = document.getElementById("invEmail").value.trim();
-  const name     = document.getElementById("invName").value.trim();
-  const password = document.getElementById("invPassword").value;
-  const cid      = document.getElementById("invContact").value || null;
+window.doAddUser = async function() {
+  const email    = document.getElementById("puEmail").value.trim();
+  const name     = document.getElementById("puName").value.trim();
+  const password = document.getElementById("puPassword").value;
   if (!email || !email.includes("@")) { toast("bad","Error","Valid email required"); return; }
   if (!password || password.length < 6) { toast("bad","Error","Password must be at least 6 characters"); return; }
   try {
     const res = await fetch("/api/crm/portal-invite", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, name, password, crm_contact_id: cid, tenant_id: profile.company_id }),
+      body: JSON.stringify({ email, name, password, tenant_id: profile.company_id }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-    const u = data.user;
-    portalUsersList.unshift(u);
-    const tbody = document.getElementById("portalUsersTbody");
-    if (tbody) tbody.insertAdjacentHTML("afterbegin", portalUserRow(u));
     document.getElementById("crm-modal")?.remove();
-    toast("good","Account created",`${email} can now sign in at the portal`);
-  } catch(e) { toast("bad","Error",e.message); }
-};
-
-window.linkContact = function(userId) {
-  const contactOpts = contactsList.map(c =>
-    `<option value="${c.id}">${esc(`${c.first_name||""} ${c.last_name||""}`.trim()||c.email)}</option>`
-  ).join("");
-  modal(`
-    <h2 style="margin-bottom:16px">Link Contact</h2>
-    <div style="margin-bottom:20px">
-      <label class="form-label">CRM Contact</label>
-      <select id="lcContact" class="form-control"><option value="">— select —</option>${contactOpts}</select>
-    </div>
-    <div style="display:flex;gap:10px;justify-content:flex-end">
-      <button class="btn btn-ghost" onclick="document.getElementById('crm-modal').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="doLinkContact('${userId}')">Link</button>
-    </div>
-  `);
-};
-
-window.doLinkContact = async function(userId) {
-  const cid = document.getElementById("lcContact").value;
-  if (!cid) return;
-  try {
-    await import("/systems/crm/shared/supabase.js").then(async ({sb}) => {
-      await sb().from("crm_portal_users").update({ crm_contact_id: cid }).eq("id", userId);
-    });
-    document.getElementById("crm-modal")?.remove();
-    toast("good","Linked","Contact linked to portal user");
+    toast("good","Account created",`${email} can now sign in`);
     await loadPortal();
   } catch(e) { toast("bad","Error",e.message); }
 };
 
-window.resetPassword = function(userId, email) {
+window.editUser = function(id) {
+  const u = portalUsersList.find(x => x.id === id);
+  if (!u) return;
   modal(`
-    <h2 style="margin-bottom:16px">Reset Password</h2>
-    <p class="text-muted text-sm" style="margin-bottom:16px">Set a new password for <strong>${esc(email)}</strong>.</p>
-    <div style="margin-bottom:20px">
-      <label class="form-label">New Password *</label>
-      <input id="newPw" class="form-control" type="password" placeholder="Min. 6 characters" autofocus/>
-    </div>
-    <div style="display:flex;gap:10px;justify-content:flex-end">
-      <button class="btn btn-ghost" onclick="document.getElementById('crm-modal').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="doResetPassword('${userId}')">Save Password</button>
+    ${userModal("Edit Portal User", u)}
+    <div style="display:flex;gap:10px;justify-content:space-between">
+      <div style="display:flex;gap:8px;align-items:center">
+        <label class="form-label" style="margin:0">Status</label>
+        <select id="puStatus" class="form-control" style="width:auto">
+          <option value="active" ${u.status==="active"?"selected":""}>Active</option>
+          <option value="suspended" ${u.status==="suspended"?"selected":""}>Suspended</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-ghost" onclick="document.getElementById('crm-modal').remove()">Cancel</button>
+        <button class="btn btn-primary" onclick="doEditUser('${id}')">Save</button>
+      </div>
     </div>
   `);
 };
 
-window.doResetPassword = async function(userId) {
-  const password = document.getElementById("newPw").value;
-  if (!password || password.length < 6) { toast("bad","Error","Password must be at least 6 characters"); return; }
+window.doEditUser = async function(id) {
+  const email    = document.getElementById("puEmail").value.trim();
+  const name     = document.getElementById("puName").value.trim();
+  const password = document.getElementById("puPassword").value;
+  const status   = document.getElementById("puStatus").value;
+  if (!email || !email.includes("@")) { toast("bad","Error","Valid email required"); return; }
+  if (password && password.length < 6) { toast("bad","Error","Password must be at least 6 characters"); return; }
   try {
-    const res = await fetch("/api/crm/portal-invite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: portalUsersList.find(u => u.id === userId)?.email, password, tenant_id: profile.company_id }),
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
+    // Update email/name/status directly
+    const { error } = await sb().from("crm_portal_users")
+      .update({ email: email.toLowerCase(), name: name || null, status })
+      .eq("id", id);
+    if (error) throw error;
+
+    // If new password provided, re-hash via Worker
+    if (password) {
+      const res = await fetch("/api/crm/portal-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.toLowerCase(), password, tenant_id: profile.company_id }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+    }
+
     document.getElementById("crm-modal")?.remove();
-    toast("good","Password updated","Customer can now sign in with their new password");
+    toast("good","Saved","Portal user updated");
+    await loadPortal();
   } catch(e) { toast("bad","Error",e.message); }
 };
 
-window.revokeUser = function(id) {
-  confirm("Revoke access", "This will suspend the customer's portal access.", async () => {
+window.deleteUser = function(id, email) {
+  confirm("Delete portal user", `Remove "${email}"? They will no longer be able to sign in.`, async () => {
     try {
-      await portalUsers.revoke(id);
-      toast("good","Revoked","Portal access suspended");
-      await loadPortal();
+      const { error } = await sb().from("crm_portal_users").delete().eq("id", id);
+      if (error) throw error;
+      portalUsersList = portalUsersList.filter(u => u.id !== id);
+      document.getElementById(`pur-${id}`)?.remove();
+      toast("good","Deleted","Portal user removed");
     } catch(e) { toast("bad","Error",e.message); }
   });
-};
-
-window.reinstateUser = async function(id) {
-  try {
-    await import("/systems/crm/shared/supabase.js").then(async ({sb}) => {
-      await sb().from("crm_portal_users").update({ status: "invited" }).eq("id", id);
-    });
-    toast("good","Reinstated","Portal access restored");
-    await loadPortal();
-  } catch(e) { toast("bad","Error",e.message); }
 };
 </script>
 </body>
