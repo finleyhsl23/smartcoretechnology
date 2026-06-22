@@ -207,6 +207,68 @@
     .mod-arrow { color: var(--muted); font-size: 18px; transition: transform .15s; }
     .module-card:not(.locked):hover .mod-arrow { transform: translateX(4px); color: var(--text); }
 
+    .mod-gear {
+      position: absolute; top: 12px; right: 12px;
+      background: var(--card2); border: 1px solid var(--line);
+      border-radius: 7px; width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; cursor: pointer; z-index: 2;
+      opacity: 0; transition: opacity .15s;
+      text-decoration: none; color: inherit;
+    }
+    .module-card:hover .mod-gear { opacity: 1; }
+    .mod-gear:hover { background: var(--blue-dim); border-color: rgba(30,92,255,.4); }
+
+    /* ── Access modal ── */
+    #accessModal {
+      display: none; position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,.6); backdrop-filter: blur(6px);
+      align-items: center; justify-content: center;
+    }
+    #accessModal.open { display: flex; }
+    .access-modal-box {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 18px; padding: 32px; width: 100%; max-width: 440px;
+      box-shadow: 0 24px 64px rgba(0,0,0,.5);
+    }
+    .access-modal-title { font-size: 18px; font-weight: 800; margin-bottom: 4px; }
+    .access-modal-sub   { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+    .role-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px; background: var(--card2); border-radius: 10px;
+      margin-bottom: 10px; border: 1px solid var(--line);
+    }
+    .role-row-label { font-size: 14px; font-weight: 600; }
+    .role-row-sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .toggle-switch {
+      position: relative; width: 40px; height: 22px; flex-shrink: 0;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-track {
+      position: absolute; inset: 0; border-radius: 99px;
+      background: var(--line); cursor: pointer; transition: background .2s;
+    }
+    .toggle-track::after {
+      content: ""; position: absolute; top: 3px; left: 3px;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: var(--muted); transition: transform .2s, background .2s;
+    }
+    .toggle-switch input:checked + .toggle-track { background: var(--blue); }
+    .toggle-switch input:checked + .toggle-track::after { transform: translateX(18px); background: #fff; }
+    .access-modal-btns { display: flex; gap: 10px; margin-top: 20px; }
+    .btn-modal-save {
+      flex: 1; background: var(--blue); color: #fff; border: none;
+      border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 700;
+      cursor: pointer; transition: opacity .2s;
+    }
+    .btn-modal-save:hover { opacity: .9; }
+    .btn-modal-cancel {
+      background: var(--card2); color: var(--text); border: 1px solid var(--line);
+      border-radius: 10px; padding: 11px 20px; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background .2s;
+    }
+    .btn-modal-cancel:hover { background: var(--blue-dim); }
+
     .section-label {
       font-size: 11px; font-weight: 700; text-transform: uppercase;
       letter-spacing: .1em; color: var(--muted); margin-bottom: 14px;
@@ -293,6 +355,19 @@
 </div>
 
 <div id="toastwrap"></div>
+
+<!-- Access control modal -->
+<div id="accessModal">
+  <div class="access-modal-box">
+    <div class="access-modal-title" id="accessModalTitle">Module Access</div>
+    <div class="access-modal-sub">Choose which roles can access this module</div>
+    <div id="accessRoleRows"></div>
+    <div class="access-modal-btns">
+      <button class="btn-modal-cancel" onclick="closeAccessModal()">Cancel</button>
+      <button class="btn-modal-save" onclick="saveAccess()">Save</button>
+    </div>
+  </div>
+</div>
 
 <script type="module">
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -490,6 +565,8 @@ async function showModules(session) {
   const ownedSlugs    = new Set((purchased  || []).map(m => m.module_slug));
   const catalogueSlugs = new Set((catalogue || []).map(m => m.slug));
 
+  const isAdmin = ["owner","admin"].includes(profile.role);
+
   // Active = owned; Available = in the store but not yet owned (skip smartcore-core)
   const active  = MODULE_REGISTRY.filter(m => m.slugs.some(s => ownedSlugs.has(s)));
   const locked  = MODULE_REGISTRY.filter(m =>
@@ -497,9 +574,25 @@ async function showModules(session) {
     m.slugs.some(s => catalogueSlugs.has(s) && s !== "smartcore-core")
   );
 
+  // Load access rules for this company
+  const { data: accessRows } = await sb
+    .from("module_access")
+    .select("module_slug, allowed_roles")
+    .eq("company_id", profile.company_id);
+  const accessMap = {};
+  (accessRows || []).forEach(r => { accessMap[r.module_slug] = r.allowed_roles; });
+
+  // Filter active modules by role (admins/owners always see all)
+  const visibleActive = isAdmin
+    ? active
+    : active.filter(m => {
+        const rules = accessMap[m.slugs[0]];
+        return !rules || rules.includes(profile.role);
+      });
+
   let html = "";
 
-  if (active.length === 0 && locked.length === 0) {
+  if (visibleActive.length === 0 && locked.length === 0) {
     html = `
       <div class="empty-modules">
         <h3>No modules yet</h3>
@@ -507,37 +600,47 @@ async function showModules(session) {
         <a class="btn-shop" href="/shop/index.html">Browse modules →</a>
       </div>`;
   } else {
-    if (active.length > 0) {
-      html += `<div class="section-label">Active modules (${active.length})</div>
+    if (visibleActive.length > 0) {
+      html += `<div class="section-label">Active modules (${visibleActive.length})</div>
         <div class="modules-grid" style="margin-bottom:40px">
-          ${active.map(m => moduleCard(m, true)).join("")}
+          ${visibleActive.map(m => moduleCard(m, true, isAdmin, accessMap)).join("")}
         </div>`;
     }
-    if (locked.length > 0) {
+    if (locked.length > 0 && isAdmin) {
       html += `<div class="section-label">Available to add</div>
         <div class="modules-grid">
-          ${locked.map(m => moduleCard(m, false)).join("")}
+          ${locked.map(m => moduleCard(m, false, false, {})).join("")}
         </div>`;
     }
   }
 
   document.getElementById("modulesContent").innerHTML = html;
+
+  // Make openAccessModal available globally (called from inline onclick)
+  window._moduleAccessMap = accessMap;
+  window._companyId = profile.company_id;
 }
 
-function moduleCard(m, isActive) {
-  const tier = null;
-  const tierLabel = null;
+function moduleCard(m, isActive, isAdmin, accessMap) {
+  const slug = m.slugs[0];
+  const allowedRoles = (accessMap || {})[slug] || ["owner","admin","manager","employee"];
+  const restrictedLabel = allowedRoles.length < 4
+    ? `<span class="mod-badge badge-tier" style="font-size:10px">${allowedRoles.join(", ")}</span>` : "";
+  const gearBtn = isAdmin
+    ? `<button class="mod-gear" title="Access settings" onclick="event.preventDefault();event.stopPropagation();openAccessModal('${slug}','${m.name.replace(/'/g,"\\'")}')">⚙️</button>`
+    : "";
 
   if (isActive) {
     return `
       <a class="module-card" href="${m.url}" style="--mod-color:${m.color}">
+        ${gearBtn}
         <div class="mod-icon" style="background:${m.color}22;font-size:24px">${m.icon}</div>
         <div class="mod-name">${m.name}</div>
         <div class="mod-desc">${m.desc}</div>
         <div class="mod-footer">
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <span class="mod-badge badge-active">● Active</span>
-            ${tierLabel ? `<span class="mod-badge badge-tier">${tierLabel}</span>` : ""}
+            ${restrictedLabel}
           </div>
           <span class="mod-arrow">→</span>
         </div>
@@ -554,6 +657,65 @@ function moduleCard(m, isActive) {
         </div>
       </div>`;
   }
+}
+
+// ── Module access modal ───────────────────────────────────────────────────
+const ALL_ROLES = [
+  { id: "owner",    label: "Owner",    sub: "Company owner" },
+  { id: "admin",    label: "Admin",    sub: "Administrators" },
+  { id: "manager",  label: "Manager",  sub: "Team managers" },
+  { id: "employee", label: "Employee", sub: "All staff members" },
+];
+
+let _accessModalSlug = null;
+
+window.openAccessModal = function(slug, name) {
+  _accessModalSlug = slug;
+  document.getElementById("accessModalTitle").textContent = name + " — Access";
+  const current = (window._moduleAccessMap || {})[slug] || ALL_ROLES.map(r => r.id);
+  document.getElementById("accessRoleRows").innerHTML = ALL_ROLES.map(r => `
+    <div class="role-row">
+      <div>
+        <div class="role-row-label">${r.label}</div>
+        <div class="role-row-sub">${r.sub}</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="role-${r.id}" ${current.includes(r.id) || r.id === "owner" ? "checked" : ""} ${r.id === "owner" ? "disabled" : ""}>
+        <span class="toggle-track"></span>
+      </label>
+    </div>`).join("");
+  document.getElementById("accessModal").classList.add("open");
+};
+
+window.closeAccessModal = function() {
+  document.getElementById("accessModal").classList.remove("open");
+  _accessModalSlug = null;
+};
+
+window.saveAccess = async function() {
+  if (!_accessModalSlug) return;
+  const allowed = ALL_ROLES.filter(r => document.getElementById("role-" + r.id)?.checked).map(r => r.id);
+  const { error } = await sb.from("module_access").upsert({
+    company_id:    window._companyId,
+    module_slug:   _accessModalSlug,
+    allowed_roles: allowed,
+    updated_at:    new Date().toISOString(),
+  }, { onConflict: "company_id,module_slug" });
+  if (error) { toast("Could not save: " + error.message); return; }
+  window._moduleAccessMap[_accessModalSlug] = allowed;
+  closeAccessModal();
+};
+
+document.getElementById("accessModal").addEventListener("click", e => {
+  if (e.target === document.getElementById("accessModal")) closeAccessModal();
+});
+
+function toast(msg) {
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.textContent = msg;
+  document.getElementById("toastwrap").appendChild(el);
+  setTimeout(() => el.remove(), 3500);
 }
 
 // ── Sign out ──────────────────────────────────────────────────────────────
