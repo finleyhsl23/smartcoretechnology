@@ -481,18 +481,21 @@ async function showModules(session) {
     .maybeSingle();
   document.getElementById("companyTag").textContent = "🏢 " + (company?.company_name || "Your Company");
 
-  // Load purchased modules from smartcore_core_purchased_modules
-  const { data: purchased } = await sb
-    .from("smartcore_core_purchased_modules")
-    .select("module_slug, status")
-    .eq("company_id", profile.company_id)
-    .eq("status", "active");
+  // Load purchased modules and marketplace catalogue in parallel
+  const [{ data: purchased }, { data: catalogue }] = await Promise.all([
+    sb.from("smartcore_core_purchased_modules").select("module_slug, status").eq("company_id", profile.company_id).eq("status", "active"),
+    sb.from("marketplace_modules").select("slug"),
+  ]);
 
-  const ownedSlugs = new Set((purchased || []).map(m => m.module_slug));
+  const ownedSlugs    = new Set((purchased  || []).map(m => m.module_slug));
+  const catalogueSlugs = new Set((catalogue || []).map(m => m.slug));
 
-  // Render — a module is active if ANY of its slugs are owned
+  // Active = owned; Available = in the store but not yet owned (skip smartcore-core)
   const active  = MODULE_REGISTRY.filter(m => m.slugs.some(s => ownedSlugs.has(s)));
-  const locked  = MODULE_REGISTRY.filter(m => !m.slugs.some(s => ownedSlugs.has(s)));
+  const locked  = MODULE_REGISTRY.filter(m =>
+    !m.slugs.some(s => ownedSlugs.has(s)) &&
+    m.slugs.some(s => catalogueSlugs.has(s) && s !== "smartcore-core")
+  );
 
   let html = "";
 
