@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SmartCore CRM</title>
+  <link rel="stylesheet" href="/app/styles/app.css"/>
+</head>
+<body>
+<div style="display:flex;align-items:center;justify-content:center;min-height:100vh">
+  <div style="text-align:center;opacity:.6;font-size:14px">Loading CRM…</div>
+</div>
+<script type="module">
+import { requireAuth, getMyProfile } from "/app/shared/auth.js";
+import { supabaseClient } from "/app/shared/supabase.js";
+
+try {
+  await requireAuth();
+  const profile = await getMyProfile();
+  const sb = supabaseClient();
+
+  const { data: mod } = await sb
+    .from("company_modules")
+    .select("enabled, tier")
+    .eq("company_id", profile.company_id)
+    .eq("module_key", "smartcore-crm")
+    .maybeSingle();
+
+  if (mod?.enabled) {
+    window.location.href = "/systems/crm/dashboard.html";
+  } else {
+    window.location.href = "/shop/index.html?highlight=smartcore-crm";
+  }
+} catch (e) {
+  window.location.href = "/app/index.html";
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Documents — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Documents</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js";
+import { documents, companies } from "/systems/crm/shared/api.js";
+import { sb } from "/systems/crm/shared/supabase.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmtDate, toast, confirm, tierGate, loading, setInner } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier, allDocs = [], companiesList = [];
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("documents", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+
+  if (!tierHasFeature(tier, "documents")) {
+    document.getElementById("content").innerHTML = tierGate("documents");
+  } else {
+    companiesList = await companies.list({ limit: 500 }).then(r => r.data);
+    await loadAndRender();
+  }
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+async function loadAndRender(category="") {
+  setInner("content", loading());
+  try {
+    const res = await documents.list({ category, limit: 200 });
+    allDocs = res.data;
+    renderPage(allDocs, category);
+  } catch(e) { toast("bad","Load error",e.message); }
+}
+
+const CATEGORIES = ["general","contract","quote","proposal","photo","form","report","other"];
+const CAT_ICONS = { general:"📄", contract:"📜", quote:"💰", proposal:"📋", photo:"🖼️", form:"📝", report:"📊", other:"📁" };
+const FILE_ICONS = { "application/pdf":"📕", "image/png":"🖼️", "image/jpeg":"🖼️", "application/msword":"📄", "application/vnd.openxmlformats-officedocument.wordprocessingml.document":"📄" };
+
+function fileIcon(type) { return FILE_ICONS[type] || "📄"; }
+function fileSize(bytes) {
+  if (!bytes) return "";
+  if (bytes < 1024) return bytes+"B";
+  if (bytes < 1048576) return (bytes/1024).toFixed(1)+"KB";
+  return (bytes/1048576).toFixed(1)+"MB";
+}
+
+function renderPage(rows, selCat) {
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Documents</h1>
+        <p>${rows.length} document${rows.length!==1?"s":""}</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" id="uploadBtn">📤 Upload Document</button>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <select class="filter-select" id="catFilter">
+        <option value="" ${!selCat?"selected":""}>All Categories</option>
+        ${CATEGORIES.map(c => `<option value="${c}" ${selCat===c?"selected":""}>${CAT_ICONS[c]} ${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join("")}
+      </select>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px" id="docsGrid">
+      ${rows.length === 0
+        ? `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">📁</div><h3>No documents yet</h3><p>Upload contracts, proposals, photos and more.</p></div>`
+        : rows.map(d => docCard(d)).join("")}
+    </div>`;
+
+  document.getElementById("uploadBtn").onclick = () => openUploadModal();
+  document.getElementById("catFilter").addEventListener("change", e => loadAndRender(e.target.value));
+  document.querySelectorAll(".del-doc").forEach(b => b.addEventListener("click", () => deleteDoc(b.dataset.id, b.dataset.name)));
+}
+
+function docCard(d) {
+  const co = d.crm_companies?.name;
+  const icon = fileIcon(d.file_type);
+  return `<div class="card" style="padding:16px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <div style="font-size:28px">${icon}</div>
+      <div style="min-width:0">
+        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(d.name)}">${esc(d.name)}</div>
+        <div class="text-sm text-muted">${fileSize(d.file_size)}</div>
+      </div>
+    </div>
+    <div style="margin-bottom:8px">
+      <span class="badge badge-blue">${CAT_ICONS[d.category]||""} ${esc(d.category)}</span>
+      ${d.is_portal_visible ? '<span class="badge badge-green" style="margin-left:4px">Portal</span>' : ""}
+    </div>
+    ${co ? `<div class="text-sm text-muted" style="margin-bottom:8px">🏢 ${esc(co)}</div>` : ""}
+    <div class="text-xs text-dim" style="margin-bottom:12px">${fmtDate(d.created_at)}</div>
+    <div style="display:flex;gap:6px">
+      <a href="${esc(d.file_path)}" target="_blank" class="btn btn-sm btn-primary" style="flex:1;justify-content:center">Download</a>
+      <button class="btn btn-sm btn-danger del-doc" data-id="${d.id}" data-name="${esc(d.name)}">Del</button>
+    </div>
+  </div>`;
+}
+
+function openUploadModal() {
+  const compOpts = companiesList.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Upload Document</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">File *</label>
+          <input class="form-control" id="mFile" type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.xlsx,.csv"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Document Name</label>
+          <input class="form-control" id="mName" placeholder="Leave blank to use filename"/>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Category</label>
+            <select class="form-control" id="mCat">
+              ${CATEGORIES.map(c => `<option value="${c}">${CAT_ICONS[c]} ${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Company</label>
+            <select class="form-control" id="mCompany"><option value="">None</option>${compOpts}</select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" id="mDesc" rows="2" placeholder="Optional description…"></textarea>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="mPortal"/>
+          <label for="mPortal" class="form-label" style="margin:0;cursor:pointer">Visible in customer portal</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">Upload</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  // Auto-fill name from file
+  overlay.querySelector("#mFile").addEventListener("change", e => {
+    const f = e.target.files[0];
+    if (f && !overlay.querySelector("#mName").value) overlay.querySelector("#mName").value = f.name.replace(/\.[^.]+$/,"");
+  });
+
+  overlay.querySelector("#saveBtn").onclick = async () => {
+    const fileInput = overlay.querySelector("#mFile");
+    const file = fileInput.files[0];
+    if (!file) return toast("warn","Validation","Please select a file.");
+    const btn = overlay.querySelector("#saveBtn");
+    btn.disabled = true; btn.textContent = "Uploading…";
+    try {
+      const { data: { session } } = await sb().auth.getSession();
+      const path = `crm/${session.user.id}/${Date.now()}_${file.name}`;
+      const { error: upErr } = await sb().storage.from("crm-documents").upload(path, file, { cacheControl: "3600", upsert: false });
+      if (upErr) throw upErr;
+      const { data: { publicUrl } } = sb().storage.from("crm-documents").getPublicUrl(path);
+      await documents.create({
+        name: overlay.querySelector("#mName").value.trim() || file.name,
+        file_path: publicUrl,
+        file_type: file.type,
+        file_size: file.size,
+        category: overlay.querySelector("#mCat").value,
+        crm_company_id: overlay.querySelector("#mCompany").value || null,
+        description: overlay.querySelector("#mDesc").value.trim() || null,
+        is_portal_visible: overlay.querySelector("#mPortal").checked,
+      });
+      overlay.remove();
+      toast("ok","Document uploaded");
+      await loadAndRender();
+    } catch(e) {
+      toast("bad","Upload failed",e.message);
+      btn.disabled = false; btn.textContent = "Upload";
+    }
+  };
+}
+
+async function deleteDoc(id, name) {
+  confirm("Delete Document", `Delete "${name}"?`, async () => {
+    try { await documents.delete(id); toast("ok","Deleted"); await loadAndRender(); }
+    catch(e) { toast("bad","Error",e.message); }
+  });
+}
+</script>
+</body>
+</html>

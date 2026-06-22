@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Quotes — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Quotes</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js";
+import { quotes, companies, leads } from "/systems/crm/shared/api.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmt, fmtDate, toast, confirm, quoteBadge, tierGate, loading, setInner } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier, allQuotes = [], companiesList = [], leadsList = [];
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("quotes", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+
+  if (!tierHasFeature(tier, "quotes")) {
+    document.getElementById("content").innerHTML = tierGate("quotes");
+  } else {
+    [companiesList, leadsList] = await Promise.all([
+      companies.list({ limit: 500 }).then(r => r.data),
+      leads.list({ limit: 500 }).then(r => r.data),
+    ]);
+    await loadAndRender();
+  }
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+async function loadAndRender(status="") {
+  setInner("content", loading());
+  try {
+    const res = await quotes.list({ status, limit: 200 });
+    allQuotes = res.data;
+    renderPage(allQuotes, status);
+  } catch(e) { toast("bad","Load error",e.message); }
+}
+
+function renderPage(rows, selStatus) {
+  const totalValue = rows.reduce((s,q) => s + (Number(q.total)||0), 0);
+  const accepted = rows.filter(q => q.status === "accepted").length;
+
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Quotes</h1>
+        <p>${rows.length} quote${rows.length!==1?"s":""} · Total value: ${fmt(totalValue)} · ${accepted} accepted</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" id="addBtn">+ New Quote</button>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <select class="filter-select" id="statusFilter">
+        <option value="" ${!selStatus?"selected":""}>All Statuses</option>
+        <option value="draft" ${selStatus==="draft"?"selected":""}>Draft</option>
+        <option value="sent" ${selStatus==="sent"?"selected":""}>Sent</option>
+        <option value="accepted" ${selStatus==="accepted"?"selected":""}>Accepted</option>
+        <option value="rejected" ${selStatus==="rejected"?"selected":""}>Rejected</option>
+        <option value="expired" ${selStatus==="expired"?"selected":""}>Expired</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Quote #</th>
+              <th>Company</th>
+              <th>Title</th>
+              <th>Status</th>
+              <th>Total</th>
+              <th>Date Issued</th>
+              <th>Expiry</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.length === 0
+              ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">💰</div><h3>No quotes yet</h3><p>Create a quote to send to a prospect.</p></div></td></tr>`
+              : rows.map(q => quoteRow(q)).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  document.getElementById("addBtn").onclick = () => openModal();
+  document.getElementById("statusFilter").addEventListener("change", e => loadAndRender(e.target.value));
+  document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
+  document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteQuote(b.dataset.id)));
+  document.querySelectorAll(".status-btn").forEach(b => b.addEventListener("click", () => updateStatus(b.dataset.id, b.dataset.status)));
+}
+
+function quoteRow(q) {
+  const co = q.crm_companies?.name;
+  const isExpired = q.status === "sent" && q.expiry_date && new Date(q.expiry_date) < new Date();
+  return `<tr>
+    <td><span class="font-bold text-blue">${esc(q.quote_number)}</span></td>
+    <td>${co ? esc(co) : '<span class="text-dim">—</span>'}</td>
+    <td>${q.title ? esc(q.title) : '<span class="text-dim">—</span>'}</td>
+    <td>${quoteBadge(isExpired ? "expired" : q.status)}</td>
+    <td><strong>${fmt(q.total)}</strong></td>
+    <td>${fmtDate(q.date_issued)}</td>
+    <td>${q.expiry_date ? `<span style="${isExpired?"color:var(--bad)":""}">${fmtDate(q.expiry_date)}</span>` : '<span class="text-dim">—</span>'}</td>
+    <td>
+      <div class="tbl-actions">
+        <button class="btn btn-sm edit-btn" data-id="${q.id}">Edit</button>
+        ${q.status === "draft" ? `<button class="btn btn-sm status-btn" data-id="${q.id}" data-status="sent">Send</button>` : ""}
+        ${q.status === "sent" ? `<button class="btn btn-sm status-btn badge-green" data-id="${q.id}" data-status="accepted">Accept</button>` : ""}
+        <button class="btn btn-sm btn-danger del-btn" data-id="${q.id}">Del</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function openModal(id) {
+  const q = id ? allQuotes.find(x => x.id === id) : null;
+  const compOpts = companiesList.map(c => `<option value="${c.id}" ${q?.crm_company_id===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
+  const leadOpts = leadsList.map(l => `<option value="${l.id}" ${q?.crm_lead_id===l.id?"selected":""}>${esc(l.title)}</option>`).join("");
+  const lineItems = q?.line_items || [{ description: "", qty: 1, unit_price: 0 }];
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal modal-xl">
+      <div class="modal-header">
+        <h3>${q ? `Edit Quote ${q.quote_number}` : "New Quote"}</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Title</label>
+            <input class="form-control" id="mTitle" value="${esc(q?.title||"")}" placeholder="Service quote for…"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select class="form-control" id="mStatus">
+              <option value="draft" ${q?.status==="draft"||!q?"selected":""}>Draft</option>
+              <option value="sent" ${q?.status==="sent"?"selected":""}>Sent</option>
+              <option value="accepted" ${q?.status==="accepted"?"selected":""}>Accepted</option>
+              <option value="rejected" ${q?.status==="rejected"?"selected":""}>Rejected</option>
+              <option value="expired" ${q?.status==="expired"?"selected":""}>Expired</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Company</label>
+            <select class="form-control" id="mCompany"><option value="">None</option>${compOpts}</select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Related Lead</label>
+            <select class="form-control" id="mLead"><option value="">None</option>${leadOpts}</select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Date Issued</label>
+            <input class="form-control" id="mIssued" type="date" value="${q?.date_issued||new Date().toISOString().slice(0,10)}"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Expiry Date</label>
+            <input class="form-control" id="mExpiry" type="date" value="${q?.expiry_date||""}"/>
+          </div>
+        </div>
+
+        <div class="section-title" style="margin-top:16px">Line Items</div>
+        <div id="lineItems">
+          ${lineItems.map((li, i) => lineItemRow(li, i)).join("")}
+        </div>
+        <button class="btn btn-sm" id="addLine" style="margin-top:8px">+ Add Line</button>
+
+        <div style="margin-top:16px;display:flex;justify-content:flex-end">
+          <div style="min-width:240px">
+            <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)">
+              <span>Subtotal</span><span id="subtotalDisp">£0.00</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;align-items:center">
+              <span>Discount (£)</span>
+              <input type="number" id="mDiscount" value="${q?.discount_amount||0}" style="width:80px" class="form-control" min="0"/>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:16px;font-weight:700;border-top:2px solid var(--line);margin-top:4px">
+              <span>Total</span><span id="totalDisp">£0.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">Notes</label>
+          <textarea class="form-control" id="mNotes" rows="2">${esc(q?.notes||"")}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Terms</label>
+          <textarea class="form-control" id="mTerms" rows="2">${esc(q?.terms||"Payment due within 30 days.")}</textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">${q ? "Save Changes" : "Create Quote"}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  let lineCount = lineItems.length;
+  function recalc() {
+    let sub = 0;
+    overlay.querySelectorAll(".line-row").forEach(row => {
+      const qty = parseFloat(row.querySelector(".li-qty").value)||0;
+      const price = parseFloat(row.querySelector(".li-price").value)||0;
+      sub += qty * price;
+    });
+    const disc = parseFloat(overlay.querySelector("#mDiscount").value)||0;
+    overlay.querySelector("#subtotalDisp").textContent = "£"+sub.toFixed(2);
+    overlay.querySelector("#totalDisp").textContent = "£"+(Math.max(0,sub-disc)).toFixed(2);
+  }
+  overlay.addEventListener("input", recalc);
+  recalc();
+
+  overlay.querySelector("#addLine").onclick = () => {
+    overlay.querySelector("#lineItems").insertAdjacentHTML("beforeend", lineItemRow({description:"",qty:1,unit_price:0}, lineCount++));
+    overlay.querySelectorAll(".li-remove").forEach(b => b.onclick = e => { e.target.closest(".line-row").remove(); recalc(); });
+    recalc();
+  };
+  overlay.querySelectorAll(".li-remove").forEach(b => b.onclick = e => { e.target.closest(".line-row").remove(); recalc(); });
+
+  overlay.querySelector("#saveBtn").onclick = async () => {
+    const btn = overlay.querySelector("#saveBtn");
+    btn.disabled = true;
+    try {
+      const lineRows = [...overlay.querySelectorAll(".line-row")].map(row => ({
+        description: row.querySelector(".li-desc").value,
+        qty: parseFloat(row.querySelector(".li-qty").value)||0,
+        unit_price: parseFloat(row.querySelector(".li-price").value)||0,
+        total: (parseFloat(row.querySelector(".li-qty").value)||0) * (parseFloat(row.querySelector(".li-price").value)||0),
+      }));
+      const subtotal = lineRows.reduce((s,l) => s + l.total, 0);
+      const discount = parseFloat(overlay.querySelector("#mDiscount").value)||0;
+      const total = Math.max(0, subtotal - discount);
+      const fields = {
+        title: overlay.querySelector("#mTitle").value.trim() || null,
+        status: overlay.querySelector("#mStatus").value,
+        crm_company_id: overlay.querySelector("#mCompany").value || null,
+        crm_lead_id: overlay.querySelector("#mLead").value || null,
+        date_issued: overlay.querySelector("#mIssued").value || null,
+        expiry_date: overlay.querySelector("#mExpiry").value || null,
+        line_items: lineRows,
+        subtotal, discount_amount: discount, total,
+        notes: overlay.querySelector("#mNotes").value.trim() || null,
+        terms: overlay.querySelector("#mTerms").value.trim() || null,
+      };
+      if (q) await quotes.update(q.id, fields);
+      else await quotes.create(fields);
+      overlay.remove();
+      toast("ok", q ? "Quote updated" : "Quote created");
+      await loadAndRender();
+    } catch(e) { toast("bad","Error",e.message); btn.disabled = false; }
+  };
+}
+
+function lineItemRow(li, i) {
+  return `<div class="line-row" style="display:grid;grid-template-columns:1fr 80px 100px 32px;gap:8px;margin-bottom:6px;align-items:center">
+    <input class="form-control li-desc" placeholder="Description" value="${esc(li.description||"")}"/>
+    <input class="form-control li-qty" type="number" min="0" placeholder="Qty" value="${li.qty||1}" style="text-align:center"/>
+    <input class="form-control li-price" type="number" min="0" step="0.01" placeholder="£ Unit price" value="${li.unit_price||0}"/>
+    <button class="btn btn-icon btn-danger li-remove" title="Remove">✕</button>
+  </div>`;
+}
+
+async function updateStatus(id, status) {
+  try { await quotes.update(id, { status }); toast("ok","Status updated"); await loadAndRender(); }
+  catch(e) { toast("bad","Error",e.message); }
+}
+
+async function deleteQuote(id) {
+  confirm("Delete Quote","Delete this quote?", async () => {
+    try { await quotes.delete(id); toast("ok","Deleted"); await loadAndRender(); }
+    catch(e) { toast("bad","Error",e.message); }
+  });
+}
+</script>
+</body>
+</html>
