@@ -278,10 +278,10 @@
     modList.innerHTML = [
       `<div class="mod-row"><span class="mod-name">SmartCore Core</span><span class="mod-price free">Included free</span></div>`,
       ...regular.map(m => {
-        const multiplier = o.size_multiplier || 1;
+        const multiplier = (m.size_pricing === false) ? 1 : (o.size_multiplier || 1);
         const basePrice = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
         const actualPrice = basePrice * multiplier;
-        const tierLabel = o.size_tier ? o.size_tier.charAt(0).toUpperCase() + o.size_tier.slice(1) : '';
+        const tierLabel = (m.size_pricing !== false && o.size_tier) ? o.size_tier.charAt(0).toUpperCase() + o.size_tier.slice(1) : '';
         return `<div class="mod-row"><span class="mod-name">${esc(m.name)}${tierLabel ? `<span style="font-size:11px;font-weight:600;color:rgba(255,255,255,.4);margin-left:8px">${tierLabel}</span>` : ''}</span><span class="mod-price">${fmt(actualPrice)}${o.billing_type==='yearly'?'/yr':'/mo'}</span></div>`;
       }),
     ].join('');
@@ -322,12 +322,30 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ order_id: orderId }),
         }).catch(() => {}); // best-effort
-        // Extract ref and company from data.redirect, then go to onboarding
         const redirectUrl = new URL(data.redirect, location.origin);
         const ref = redirectUrl.searchParams.get('ref') || '';
         const company = redirectUrl.searchParams.get('company') || (order ? order.company_name : '');
         const total = order ? order.total : '';
         const billing = order ? (order.billing_type || 'monthly') : 'monthly';
+
+        // If order was for an existing company, check if details are complete
+        if (order && order.existing_company_id) {
+          const { data: co } = await sb
+            .from('companies')
+            .select('company_name,contact_name,contact_email,contact_phone,address_line1,town_city,postcode')
+            .eq('id', order.existing_company_id)
+            .single();
+          const required = ['company_name','contact_name','contact_email','contact_phone','address_line1','town_city','postcode'];
+          const missing = co ? required.filter(f => !co[f]) : required;
+          if (missing.length === 0) {
+            window.location.href = `/shop/order-confirmed.html?ref=${encodeURIComponent(ref)}&company=${encodeURIComponent(company)}&total=${encodeURIComponent(total)}&billing=${encodeURIComponent(billing)}`;
+            return;
+          }
+          // Has missing fields — go to onboarding with flag
+          window.location.href = `/shop/onboarding.html?order_id=${encodeURIComponent(orderId)}&ref=${encodeURIComponent(ref)}&company=${encodeURIComponent(company)}&total=${encodeURIComponent(total)}&billing=${encodeURIComponent(billing)}&existing=1&missing=${encodeURIComponent(missing.join(','))}`;
+          return;
+        }
+
         window.location.href = `/shop/onboarding.html?order_id=${encodeURIComponent(orderId)}&ref=${encodeURIComponent(ref)}&company=${encodeURIComponent(company)}&total=${encodeURIComponent(total)}&billing=${encodeURIComponent(billing)}`;
       } else if (!data.success && result === 'failed') {
         errBox.textContent   = data.message || 'Payment was declined.';

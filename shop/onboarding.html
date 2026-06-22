@@ -149,12 +149,12 @@
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
       Payment confirmed
     </div>
-    <h1 class="page-title">Set up your company profile</h1>
-    <p class="page-sub">Help us set up your SmartCore workspace. This information is used to configure your account, invoices, and support routing. You can update it later from your dashboard.</p>
+    <h1 class="page-title" id="pageTitle">Set up your company profile</h1>
+    <p class="page-sub" id="pageSub">Help us set up your SmartCore workspace. This information is used to configure your account, invoices, and support routing. You can update it later from your dashboard.</p>
   </div>
 
   <!-- Section 1: Company Identity -->
-  <div class="card">
+  <div class="card" id="sec-identity">
     <div class="section-label">Section 1</div>
     <div class="section-title">Company Identity</div>
     <div class="section-sub">Basic details about your business.</div>
@@ -174,7 +174,7 @@
   </div>
 
   <!-- Section 2: Billing & Support -->
-  <div class="card">
+  <div class="card" id="sec-billing">
     <div class="section-label">Section 2</div>
     <div class="section-title">Billing &amp; Support</div>
     <div class="section-sub">Where should we send invoices and support communications?</div>
@@ -196,7 +196,7 @@
   </div>
 
   <!-- Section 3: Company Size -->
-  <div class="card">
+  <div class="card" id="sec-size">
     <div class="section-label">Section 3</div>
     <div class="section-title">Company Size</div>
     <div class="section-sub">Confirmed from your order. You can adjust the staff count if needed.</div>
@@ -217,7 +217,7 @@
   </div>
 
   <!-- Section 4: Address -->
-  <div class="card">
+  <div class="card" id="sec-address">
     <div class="section-label">Section 4</div>
     <div class="section-title">Address</div>
     <div class="section-sub">Your company's registered or main business address.</div>
@@ -234,7 +234,7 @@
   </div>
 
   <!-- Section 5: Working Hours -->
-  <div class="card">
+  <div class="card" id="sec-hours">
     <div class="section-label">Section 5</div>
     <div class="section-title">Working Hours</div>
     <div class="section-sub">Set start and end times for each working day.</div>
@@ -250,12 +250,15 @@
 </main>
 
 <script>
-  const params    = new URLSearchParams(location.search);
-  const orderId   = params.get('order_id');
-  const ref       = params.get('ref')     || '';
-  const company   = params.get('company') || '';
-  const total     = params.get('total')   || '';
-  const billing   = params.get('billing') || 'monthly';
+  const params       = new URLSearchParams(location.search);
+  const orderId      = params.get('order_id');
+  const ref          = params.get('ref')     || '';
+  const company      = params.get('company') || '';
+  const total        = params.get('total')   || '';
+  const billing      = params.get('billing') || 'monthly';
+  const isExisting   = params.get('existing') === '1';
+  const missingParam = params.get('missing') || '';
+  const missingFields = missingParam ? missingParam.split(',') : [];
 
   const SIZE_TIERS = [
     { id: 'micro',      label: 'Micro',      range: '1–10',    multiplier: 1.00, icon: '👤' },
@@ -408,14 +411,41 @@
     // Check session
     const { data: { session } } = await sb.auth.getSession();
     if (!session?.user) {
-      // No auth — skip straight to confirmed
       return skipOnboarding();
     }
     userId = session.user.id;
 
-    // Pre-fill company name in page header if available
-    if (company) {
-      document.querySelector('.page-title').textContent = 'Set up ' + company;
+    // Personalise heading for existing-company "missing details" flow
+    if (isExisting && missingFields.length > 0) {
+      const { data: profile } = await sb.from('companies')
+        .select('contact_name,primary_contact_name')
+        .eq('owner_user_id', userId)
+        .limit(1)
+        .single();
+      const name = profile?.contact_name || profile?.primary_contact_name || session.user.email?.split('@')[0] || '';
+      document.getElementById('pageTitle').textContent = name
+        ? `Hey ${name}, we're missing some details`
+        : `We're missing some details`;
+      document.getElementById('pageSub').textContent =
+        `Your modules have been added to ${company || 'your company'}. Just fill in the missing information below and you're all set.`;
+
+      // Hide sections whose fields are all present
+      const fieldMap = {
+        company_name:   'sec-identity',
+        contact_name:   'sec-identity',
+        contact_email:  'sec-billing',
+        contact_phone:  'sec-billing',
+        address_line1:  'sec-address',
+        town_city:      'sec-address',
+        postcode:       'sec-address',
+      };
+      const showSections = new Set(missingFields.map(f => fieldMap[f]).filter(Boolean));
+      ['sec-identity','sec-billing','sec-size','sec-address','sec-hours'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = showSections.has(id) ? '' : 'none';
+      });
+    } else if (!isExisting && company) {
+      document.getElementById('pageTitle').textContent = 'Set up ' + company;
     }
 
     // Fetch order to get size_tier, staff_count, modules
@@ -508,34 +538,46 @@
       primary_contact_phone:   orderData?.phone || null,
     };
 
-    const { error } = await sb.from('companies').insert(payload);
-
-    if (error) {
-      // Try without optional fields that might not exist in schema
-      const fallback = {
-        company_name:        companyName,
-        legal_name:          legalName,
-        trading_name:        tradingName || null,
-        website:             website || null,
-        accounts_team_email: accountsEmail,
-        support_team_email:  supportEmail || null,
-        approx_staff_count:  staffCount,
-        address:             address || null,
-        working_hours:       workingHours,
-        packages:            packages,
-      };
-      const { error: err2 } = await sb.from('companies').insert(fallback);
-      if (err2) {
-        errBox.textContent = 'Could not save company details: ' + err2.message + '. You can complete setup later from your dashboard.';
-        errBox.style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = 'Complete Setup →';
-        return;
+    let saveError;
+    if (isExisting) {
+      // Update existing company with the missing fields only
+      const { error } = await sb.from('companies').update(payload).eq('owner_user_id', userId);
+      saveError = error;
+    } else {
+      const { error } = await sb.from('companies').insert(payload);
+      if (error) {
+        const fallback = {
+          company_name:        companyName,
+          legal_name:          legalName,
+          trading_name:        tradingName || null,
+          website:             website || null,
+          accounts_team_email: accountsEmail,
+          support_team_email:  supportEmail || null,
+          approx_staff_count:  staffCount,
+          address:             address || null,
+          working_hours:       workingHours,
+          packages:            packages,
+        };
+        const { error: err2 } = await sb.from('companies').insert(fallback);
+        saveError = err2;
       }
+    }
+
+    if (saveError) {
+      errBox.textContent = 'Could not save company details: ' + saveError.message + '. You can complete setup later from your dashboard.';
+      errBox.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Complete Setup →';
+      return;
     }
 
     btn.disabled = false;
     btn.textContent = 'Complete Setup →';
+
+    if (isExisting) {
+      window.location.href = buildConfirmedUrl();
+      return;
+    }
 
     // Redirect to owner onboarding
     window.location.href = `/shop/owner-onboarding.html?order_id=${encodeURIComponent(orderId || '')}&ref=${encodeURIComponent(ref)}&company=${encodeURIComponent(company)}&total=${encodeURIComponent(total)}&billing=${encodeURIComponent(billing)}`;
