@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Pipeline — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Pipeline <span id="pipelineValue"></span></div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content" style="padding:16px;overflow-x:auto">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess } from "/systems/crm/shared/auth.js";
+import { leads } from "/systems/crm/shared/api.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmt, fmtDate, toast } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+const STAGES = [
+  { id: "new",           label: "New",           color: "#6366f1" },
+  { id: "contacted",     label: "Contacted",      color: "#f59e0b" },
+  { id: "qualified",     label: "Qualified",      color: "#3b82f6" },
+  { id: "proposal_sent", label: "Proposal Sent",  color: "#8b5cf6" },
+  { id: "negotiation",   label: "Negotiation",    color: "#ec4899" },
+  { id: "won",           label: "Won",            color: "#10b981" },
+  { id: "lost",          label: "Lost",           color: "#ef4444" },
+];
+
+let profile, tier, allLeads = [];
+let draggedId = null;
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("pipeline", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  await load();
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+async function load() {
+  const res = await leads.list({ limit: 500 });
+  allLeads = res.data;
+  renderBoard();
+}
+
+function renderBoard() {
+  const pipelineLeads = allLeads.filter(l => !["won","lost"].includes(l.status));
+  const totalValue = pipelineLeads.reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
+  document.getElementById("pipelineValue").textContent = `· ${fmt(totalValue)} pipeline`;
+
+  const board = document.createElement("div");
+  board.className = "kanban-board";
+  board.id = "kanbanBoard";
+
+  for (const stage of STAGES) {
+    const stageLeads = allLeads.filter(l => l.pipeline_stage === stage.id || l.status === stage.id);
+    const stageValue = stageLeads.reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
+
+    const col = document.createElement("div");
+    col.className = "kanban-col";
+    col.dataset.stage = stage.id;
+    col.innerHTML = `
+      <div class="kanban-col-header" style="border-top:3px solid ${stage.color}">
+        <span class="col-title">${stage.label}</span>
+        <span class="col-count">${stageLeads.length}</span>
+      </div>
+      <div style="padding:4px 10px;font-size:11px;color:var(--text3);border-bottom:1px solid var(--line2)">${fmt(stageValue)}</div>
+      <div class="kanban-col-body" id="col-${stage.id}">
+        ${stageLeads.map(l => cardHtml(l)).join("")}
+        <div class="kanban-drop-zone" data-stage="${stage.id}"></div>
+      </div>`;
+    board.appendChild(col);
+  }
+
+  const content = document.getElementById("content");
+  content.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Sales Pipeline</h1>
+        <p>Drag and drop leads between stages</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" onclick="window.location.href='/systems/crm/leads.html'">+ New Lead</button>
+      </div>
+    </div>`;
+  content.appendChild(board);
+
+  // Drag & drop
+  initDragDrop();
+}
+
+function cardHtml(l) {
+  const co = l.crm_companies?.name;
+  const lastActivity = l.updated_at ? fmtDate(l.updated_at) : "—";
+  return `<div class="kanban-card" draggable="true" data-id="${l.id}" data-stage="${l.pipeline_stage || l.status}">
+    <div class="kcard-title">${esc(l.title)}</div>
+    ${co ? `<div class="kcard-company">🏢 ${esc(co)}</div>` : ""}
+    ${l.probability ? `<div style="margin-bottom:6px"><div class="progress-bar"><div class="progress-fill" style="width:${l.probability}%"></div></div></div>` : ""}
+    <div class="kcard-footer">
+      <span class="kcard-value">${l.estimated_value ? fmt(l.estimated_value) : "—"}</span>
+      <span class="kcard-date">${lastActivity}</span>
+    </div>
+  </div>`;
+}
+
+function initDragDrop() {
+  document.querySelectorAll(".kanban-card").forEach(card => {
+    card.addEventListener("dragstart", e => {
+      draggedId = card.dataset.id;
+      card.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    });
+    card.addEventListener("dragend", () => {
+      card.classList.remove("dragging");
+      document.querySelectorAll(".kanban-drop-zone").forEach(z => z.classList.remove("over"));
+    });
+    card.addEventListener("click", () => {
+      window.location.href = `/systems/crm/leads.html`;
+    });
+  });
+
+  document.querySelectorAll(".kanban-col-body, .kanban-drop-zone").forEach(zone => {
+    zone.addEventListener("dragover", e => {
+      e.preventDefault();
+      zone.classList.add("over");
+    });
+    zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+    zone.addEventListener("drop", async e => {
+      e.preventDefault();
+      zone.classList.remove("over");
+      const newStage = zone.dataset.stage || zone.closest(".kanban-col")?.dataset.stage;
+      if (!draggedId || !newStage) return;
+      try {
+        await leads.updateStage(draggedId, newStage);
+        toast("ok", "Lead moved", `Moved to ${STAGES.find(s=>s.id===newStage)?.label}`);
+        await load();
+      } catch(err) { toast("bad","Error",err.message); }
+    });
+  });
+}
+</script>
+</body>
+</html>

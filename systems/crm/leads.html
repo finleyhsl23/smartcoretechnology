@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Leads — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Leads</div>
+      <div class="topbar-search">
+        <span class="search-icon">🔍</span>
+        <input type="text" placeholder="Search leads…"/>
+      </div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess } from "/systems/crm/shared/auth.js";
+import { leads, companies, contacts, getStaff } from "/systems/crm/shared/api.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmt, fmtDate, toast, confirm, leadBadge, loading, setInner } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier, allLeads = [], companiesList = [], contactsList = [], staffList = [];
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("leads", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  [companiesList, contactsList, staffList] = await Promise.all([
+    companies.list({ limit: 500 }).then(r => r.data),
+    contacts.list({ limit: 500 }).then(r => r.data),
+    getStaff()
+  ]);
+  await loadAndRender();
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+async function loadAndRender(search="", status="") {
+  setInner("content", loading());
+  try {
+    const res = await leads.list({ search, status, limit: 200 });
+    allLeads = res.data;
+    renderTable(allLeads);
+  } catch(e) { toast("bad","Load error",e.message); }
+}
+
+function renderTable(rows) {
+  const totalValue = rows.filter(l => !["won","lost"].includes(l.status)).reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
+  const forecast = rows.filter(l => !["won","lost"].includes(l.status)).reduce((s,l) => s + (Number(l.estimated_value)||0)*((l.probability||0)/100), 0);
+
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Leads</h1>
+        <p>${rows.length} lead${rows.length !== 1 ? "s" : ""} · Pipeline: ${fmt(totalValue)} · Forecast: ${fmt(forecast)}</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn" onclick="window.location.href='/systems/crm/pipeline.html'">📋 Pipeline View</button>
+        <button class="btn btn-primary" id="addBtn">+ New Lead</button>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input class="search-input" type="text" placeholder="Search leads…" id="searchInput"/>
+      </div>
+      <select class="filter-select" id="statusFilter">
+        <option value="">All Statuses</option>
+        <option value="new">New</option>
+        <option value="contacted">Contacted</option>
+        <option value="qualified">Qualified</option>
+        <option value="proposal_sent">Proposal Sent</option>
+        <option value="negotiation">Negotiation</option>
+        <option value="won">Won</option>
+        <option value="lost">Lost</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Lead</th>
+              <th>Company</th>
+              <th>Status</th>
+              <th>Value</th>
+              <th>Probability</th>
+              <th>Source</th>
+              <th>Assigned</th>
+              <th>Close Date</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.length === 0
+              ? `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🎯</div><h3>No leads yet</h3><p>Create your first lead to start tracking opportunities.</p></div></td></tr>`
+              : rows.map(l => leadRow(l)).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  document.getElementById("addBtn").onclick = () => openModal();
+  document.getElementById("searchInput").addEventListener("input", debounce(e => loadAndRender(e.target.value, document.getElementById("statusFilter").value), 300));
+  document.getElementById("statusFilter").addEventListener("change", e => loadAndRender(document.getElementById("searchInput").value, e.target.value));
+  document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
+  document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteLead(b.dataset.id)));
+}
+
+function leadRow(l) {
+  const co = l.crm_companies?.name;
+  const staff = staffList.find(s => s.id === l.assigned_to);
+  const probColor = l.probability >= 70 ? "var(--good)" : l.probability >= 40 ? "var(--warn)" : "var(--bad)";
+  return `<tr>
+    <td>
+      <div style="font-weight:600">${esc(l.title)}</div>
+      ${l.lead_score ? `<div class="tbl-muted">Score: ${l.lead_score}</div>` : ""}
+    </td>
+    <td>${co ? esc(co) : '<span class="text-dim">—</span>'}</td>
+    <td>${leadBadge(l.status)}</td>
+    <td>${l.estimated_value ? `<strong>${fmt(l.estimated_value)}</strong>` : '<span class="text-dim">—</span>'}</td>
+    <td>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="progress-bar" style="width:60px">
+          <div class="progress-fill" style="width:${l.probability||0}%;background:${probColor}"></div>
+        </div>
+        <span style="font-size:12px;color:${probColor}">${l.probability||0}%</span>
+      </div>
+    </td>
+    <td>${l.source ? esc(l.source.replace("_"," ")) : '<span class="text-dim">—</span>'}</td>
+    <td>${staff ? esc(staff.full_name) : '<span class="text-dim">—</span>'}</td>
+    <td>${l.expected_close_date ? fmtDate(l.expected_close_date) : '<span class="text-dim">—</span>'}</td>
+    <td>
+      <div class="tbl-actions">
+        <button class="btn btn-sm edit-btn" data-id="${l.id}">Edit</button>
+        <button class="btn btn-sm btn-danger del-btn" data-id="${l.id}">Del</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function openModal(id) {
+  const l = id ? allLeads.find(x => x.id === id) : null;
+  const compOpts = companiesList.map(c => `<option value="${c.id}" ${l?.crm_company_id===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
+  const contOpts = contactsList.map(c => `<option value="${c.id}" ${l?.crm_contact_id===c.id?"selected":""}>${esc(c.first_name+' '+c.last_name)}</option>`).join("");
+  const staffOpts = staffList.map(s => `<option value="${s.id}" ${l?.assigned_to===s.id?"selected":""}>${esc(s.full_name)}</option>`).join("");
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>${l ? "Edit Lead" : "New Lead"}</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Lead Title *</label>
+          <input class="form-control" id="mTitle" value="${esc(l?.title||"")}" placeholder="New website project for Acme Ltd"/>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Company</label>
+            <select class="form-control" id="mCompany"><option value="">None</option>${compOpts}</select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Contact</label>
+            <select class="form-control" id="mContact"><option value="">None</option>${contOpts}</select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select class="form-control" id="mStatus">
+              <option value="new" ${l?.status==="new"||!l?"selected":""}>New</option>
+              <option value="contacted" ${l?.status==="contacted"?"selected":""}>Contacted</option>
+              <option value="qualified" ${l?.status==="qualified"?"selected":""}>Qualified</option>
+              <option value="proposal_sent" ${l?.status==="proposal_sent"?"selected":""}>Proposal Sent</option>
+              <option value="negotiation" ${l?.status==="negotiation"?"selected":""}>Negotiation</option>
+              <option value="won" ${l?.status==="won"?"selected":""}>Won</option>
+              <option value="lost" ${l?.status==="lost"?"selected":""}>Lost</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Source</label>
+            <select class="form-control" id="mSource">
+              <option value="">Unknown</option>
+              <option value="website" ${l?.source==="website"?"selected":""}>Website</option>
+              <option value="referral" ${l?.source==="referral"?"selected":""}>Referral</option>
+              <option value="cold_call" ${l?.source==="cold_call"?"selected":""}>Cold Call</option>
+              <option value="email" ${l?.source==="email"?"selected":""}>Email Campaign</option>
+              <option value="social_media" ${l?.source==="social_media"?"selected":""}>Social Media</option>
+              <option value="event" ${l?.source==="event"?"selected":""}>Event</option>
+              <option value="other" ${l?.source==="other"?"selected":""}>Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Estimated Value (£)</label>
+            <input class="form-control" id="mValue" type="number" value="${l?.estimated_value||""}" placeholder="5000"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Probability (%)</label>
+            <input class="form-control" id="mProb" type="number" min="0" max="100" value="${l?.probability||20}" placeholder="50"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Assigned To</label>
+            <select class="form-control" id="mAssigned"><option value="">Unassigned</option>${staffOpts}</select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Expected Close Date</label>
+            <input class="form-control" id="mClose" type="date" value="${l?.expected_close_date||""}"/>
+          </div>
+        </div>
+        ${l?.status === "lost" ? `<div class="form-group">
+          <label class="form-label">Lost Reason</label>
+          <input class="form-control" id="mLostReason" value="${esc(l?.lost_reason||"")}" placeholder="Why was this lead lost?"/>
+        </div>` : ""}
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <textarea class="form-control" id="mNotes" rows="3">${esc(l?.notes||"")}</textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">${l ? "Save Changes" : "Create Lead"}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector("#saveBtn").onclick = async () => {
+    const title = document.getElementById("mTitle").value.trim();
+    if (!title) return toast("warn","Validation","Lead title is required.");
+    const btn = overlay.querySelector("#saveBtn");
+    btn.disabled = true;
+    try {
+      const status = document.getElementById("mStatus").value;
+      const fields = {
+        title,
+        crm_company_id: document.getElementById("mCompany").value || null,
+        crm_contact_id: document.getElementById("mContact").value || null,
+        status,
+        pipeline_stage: status,
+        source: document.getElementById("mSource").value || null,
+        estimated_value: parseFloat(document.getElementById("mValue").value) || null,
+        probability: parseInt(document.getElementById("mProb").value) || 20,
+        assigned_to: document.getElementById("mAssigned").value || null,
+        expected_close_date: document.getElementById("mClose").value || null,
+        notes: document.getElementById("mNotes").value.trim() || null,
+        lost_reason: document.getElementById("mLostReason")?.value.trim() || null,
+      };
+      if (l) await leads.update(l.id, fields);
+      else await leads.create(fields);
+      overlay.remove();
+      toast("ok", l ? "Lead updated" : "Lead created");
+      await loadAndRender();
+    } catch(e) { toast("bad","Error",e.message); btn.disabled = false; }
+  };
+}
+
+async function deleteLead(id) {
+  confirm("Delete Lead", "Delete this lead? This cannot be undone.", async () => {
+    try { await leads.delete(id); toast("ok","Deleted"); await loadAndRender(); }
+    catch(e) { toast("bad","Error",e.message); }
+  });
+}
+
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+</script>
+</body>
+</html>

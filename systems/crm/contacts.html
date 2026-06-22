@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Contacts — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Contacts</div>
+      <div class="topbar-search">
+        <span class="search-icon">🔍</span>
+        <input type="text" placeholder="Search contacts…"/>
+      </div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess } from "/systems/crm/shared/auth.js";
+import { contacts, companies } from "/systems/crm/shared/api.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmtDate, toast, confirm, loading, setInner } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier, allContacts = [], companiesList = [];
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("contacts", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  const [compRes] = await Promise.all([companies.list({ limit: 500 })]);
+  companiesList = compRes.data;
+  await loadAndRender();
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+async function loadAndRender(search="", status="") {
+  setInner("content", loading());
+  try {
+    const res = await contacts.list({ search, status, limit: 200 });
+    allContacts = res.data;
+    renderTable(allContacts);
+  } catch(e) { toast("bad","Load error",e.message); }
+}
+
+function renderTable(rows) {
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Contacts</h1>
+        <p>${rows.length} contact${rows.length !== 1 ? "s" : ""}</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" id="addBtn">+ Add Contact</button>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input class="search-input" type="text" placeholder="Search by name or email…" id="searchInput"/>
+      </div>
+      <select class="filter-select" id="statusFilter">
+        <option value="">All</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Job Title</th>
+              <th>Company</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tblBody">
+            ${rows.length === 0
+              ? `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">👥</div><h3>No contacts yet</h3><p>Add your first contact to get started.</p></div></td></tr>`
+              : rows.map(c => row(c)).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  document.getElementById("addBtn").onclick = () => openModal();
+  document.getElementById("searchInput").addEventListener("input", debounce(e => loadAndRender(e.target.value, document.getElementById("statusFilter").value), 300));
+  document.getElementById("statusFilter").addEventListener("change", e => loadAndRender(document.getElementById("searchInput").value, e.target.value));
+  document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
+  document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => delContact(b.dataset.id, b.dataset.name)));
+}
+
+function row(c) {
+  const co = companiesList.find(x => x.id === c.crm_company_id);
+  const statusBadge = c.status === "active"
+    ? '<span class="badge badge-green">Active</span>'
+    : '<span class="badge badge-grey">Inactive</span>';
+  return `<tr>
+    <td>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="avatar avatar-sm">${esc((c.first_name[0]||"")+(c.last_name[0]||""))}</div>
+        <div>
+          <div style="font-weight:600">${esc(c.first_name)} ${esc(c.last_name)}</div>
+          ${c.department ? `<div class="tbl-muted">${esc(c.department)}</div>` : ""}
+        </div>
+      </div>
+    </td>
+    <td>${c.job_title ? esc(c.job_title) : '<span class="text-dim">—</span>'}</td>
+    <td>${co ? `<a href="/systems/crm/companies.html" class="tbl-link">${esc(co.name)}</a>` : '<span class="text-dim">—</span>'}</td>
+    <td>${c.email ? `<a href="mailto:${esc(c.email)}" class="text-blue">${esc(c.email)}</a>` : '<span class="text-dim">—</span>'}</td>
+    <td>${c.phone || c.mobile || '<span class="text-dim">—</span>'}</td>
+    <td>${statusBadge}</td>
+    <td>
+      <div class="tbl-actions">
+        <button class="btn btn-sm edit-btn" data-id="${c.id}">Edit</button>
+        <button class="btn btn-sm btn-danger del-btn" data-id="${c.id}" data-name="${esc(c.first_name+' '+c.last_name)}">Del</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function openModal(id) {
+  const c = id ? allContacts.find(x => x.id === id) : null;
+  const companyOptions = companiesList.map(co => `<option value="${co.id}" ${c?.crm_company_id === co.id ? "selected" : ""}>${esc(co.name)}</option>`).join("");
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>${c ? "Edit Contact" : "Add Contact"}</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">First Name *</label>
+            <input class="form-control" id="mFirst" value="${esc(c?.first_name||"")}" placeholder="John"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Last Name *</label>
+            <input class="form-control" id="mLast" value="${esc(c?.last_name||"")}" placeholder="Smith"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input class="form-control" id="mEmail" type="email" value="${esc(c?.email||"")}" placeholder="john@company.com"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone</label>
+            <input class="form-control" id="mPhone" value="${esc(c?.phone||"")}" placeholder="+44…"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Job Title</label>
+            <input class="form-control" id="mJobTitle" value="${esc(c?.job_title||"")}" placeholder="Managing Director"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Department</label>
+            <input class="form-control" id="mDept" value="${esc(c?.department||"")}" placeholder="Sales"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Company</label>
+            <select class="form-control" id="mCompany"><option value="">None</option>${companyOptions}</select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select class="form-control" id="mStatus">
+              <option value="active" ${c?.status!=="inactive"?"selected":""}>Active</option>
+              <option value="inactive" ${c?.status==="inactive"?"selected":""}>Inactive</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <textarea class="form-control" id="mNotes" rows="3">${esc(c?.notes||"")}</textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">${c ? "Save Changes" : "Add Contact"}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector("#saveBtn").onclick = async () => {
+    const first = document.getElementById("mFirst").value.trim();
+    const last  = document.getElementById("mLast").value.trim();
+    if (!first || !last) return toast("warn","Validation","First and last name are required.");
+    const btn = overlay.querySelector("#saveBtn");
+    btn.disabled = true;
+    try {
+      const fields = {
+        first_name: first, last_name: last,
+        email: document.getElementById("mEmail").value.trim() || null,
+        phone: document.getElementById("mPhone").value.trim() || null,
+        job_title: document.getElementById("mJobTitle").value.trim() || null,
+        department: document.getElementById("mDept").value.trim() || null,
+        crm_company_id: document.getElementById("mCompany").value || null,
+        status: document.getElementById("mStatus").value,
+        notes: document.getElementById("mNotes").value.trim() || null,
+      };
+      if (c) await contacts.update(c.id, fields);
+      else await contacts.create(fields);
+      overlay.remove();
+      toast("ok", c ? "Contact updated" : "Contact added");
+      await loadAndRender();
+    } catch(e) { toast("bad","Error",e.message); btn.disabled = false; }
+  };
+}
+
+async function delContact(id, name) {
+  confirm("Delete Contact", `Delete "${name}"?`, async () => {
+    try { await contacts.delete(id); toast("ok","Deleted"); await loadAndRender(); }
+    catch(e) { toast("bad","Error",e.message); }
+  });
+}
+
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+</script>
+</body>
+</html>

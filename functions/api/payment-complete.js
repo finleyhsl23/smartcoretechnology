@@ -59,6 +59,9 @@ export async function onRequestPost(context) {
     // Provision SmartCore Core (best-effort — don't fail the payment if this errors)
     try { await provisionCore(env, o); } catch (e) { console.error('provision error:', e); }
 
+    // Provision CRM module if purchased (best-effort)
+    try { await provisionCRM(env, o); } catch (e) { console.error('crm provision error:', e); }
+
     // Send confirmation + first invoice (best-effort)
     const modules = parseModules(o.modules);
     // Merge billing dates into order object for invoice generation
@@ -128,6 +131,72 @@ async function provisionCore(env, o) {
       activated_at: new Date().toISOString(),
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// CRM Provisioning
+// ---------------------------------------------------------------------------
+const CRM_TIER_MAP = {
+  'smartcore-crm-lite':         'lite',
+  'smartcore-crm-professional': 'professional',
+  'smartcore-crm-business':     'business',
+  'smartcore-crm-enterprise':   'enterprise',
+};
+
+async function provisionCRM(env, o) {
+  const modules = parseModules(o.modules);
+  const crmModule = modules.find(m => CRM_TIER_MAP[m.slug]);
+  if (!crmModule) return;
+
+  const tier = CRM_TIER_MAP[crmModule.slug];
+
+  // Find the company that was provisioned for this order
+  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
+  const company = companies?.[0];
+  if (!company?.id) return;
+
+  // Upsert company_modules record
+  await fetch(`${env.SUPABASE_URL}/rest/v1/company_modules`, {
+    method: 'POST',
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify({
+      company_id:   company.id,
+      module_key:   'smartcore-crm',
+      enabled:      true,
+      tier,
+      activated_at: new Date().toISOString(),
+    }),
+  });
+
+  // Upsert crm_settings with default pipeline stages
+  const defaultStages = [
+    { name: 'New',           color: '#6366f1', order: 0 },
+    { name: 'Contacted',     color: '#f59e0b', order: 1 },
+    { name: 'Qualified',     color: '#3b82f6', order: 2 },
+    { name: 'Proposal Sent', color: '#8b5cf6', order: 3 },
+    { name: 'Negotiation',   color: '#ec4899', order: 4 },
+    { name: 'Won',           color: '#22c55e', order: 5 },
+    { name: 'Lost',          color: '#ef4444', order: 6 },
+  ];
+  await fetch(`${env.SUPABASE_URL}/rest/v1/crm_settings`, {
+    method: 'POST',
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=ignore-duplicates,return=minimal',
+    },
+    body: JSON.stringify({
+      tenant_id:       company.id,
+      tier,
+      pipeline_stages: defaultStages,
+    }),
+  });
 }
 
 // ---------------------------------------------------------------------------

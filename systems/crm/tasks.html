@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Tasks — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Tasks</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess } from "/systems/crm/shared/auth.js";
+import { tasks, companies, leads, getStaff } from "/systems/crm/shared/api.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmtDateTime, toast, confirm, taskPriorityBadge, taskStatusBadge, loading, setInner } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier, allTasks = [], companiesList = [], leadsList = [], staffList = [];
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("tasks", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  [companiesList, leadsList, staffList] = await Promise.all([
+    companies.list({ limit: 500 }).then(r => r.data),
+    leads.list({ limit: 500 }).then(r => r.data),
+    getStaff()
+  ]);
+  await loadAndRender();
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+async function loadAndRender(status="", priority="") {
+  setInner("content", loading());
+  try {
+    const res = await tasks.list({ status, priority, limit: 300 });
+    // Mark overdue
+    const now = new Date();
+    allTasks = res.data.map(t => {
+      if (t.status !== "completed" && t.due_date && new Date(t.due_date) < now) {
+        return { ...t, status: "overdue" };
+      }
+      return t;
+    });
+    renderPage(allTasks, status, priority);
+  } catch(e) { toast("bad","Load error",e.message); }
+}
+
+function renderPage(rows, selStatus, selPriority) {
+  const todo = rows.filter(t => t.status === "todo").length;
+  const inProg = rows.filter(t => t.status === "in_progress").length;
+  const done = rows.filter(t => t.status === "completed").length;
+  const overdue = rows.filter(t => t.status === "overdue").length;
+
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Tasks</h1>
+        <p>${todo} to do · ${inProg} in progress · ${overdue > 0 ? `<span class="text-bad">${overdue} overdue</span> · ` : ""}${done} completed</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" id="addBtn">+ New Task</button>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <select class="filter-select" id="statusFilter">
+        <option value="" ${!selStatus?"selected":""}>All Statuses</option>
+        <option value="todo" ${selStatus==="todo"?"selected":""}>To Do</option>
+        <option value="in_progress" ${selStatus==="in_progress"?"selected":""}>In Progress</option>
+        <option value="completed" ${selStatus==="completed"?"selected":""}>Completed</option>
+        <option value="overdue" ${selStatus==="overdue"?"selected":""}>Overdue</option>
+      </select>
+      <select class="filter-select" id="priorityFilter">
+        <option value="" ${!selPriority?"selected":""}>All Priorities</option>
+        <option value="urgent" ${selPriority==="urgent"?"selected":""}>Urgent</option>
+        <option value="high" ${selPriority==="high"?"selected":""}>High</option>
+        <option value="medium" ${selPriority==="medium"?"selected":""}>Medium</option>
+        <option value="low" ${selPriority==="low"?"selected":""}>Low</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th style="width:40px"></th>
+              <th>Task</th>
+              <th>Priority</th>
+              <th>Status</th>
+              <th>Due Date</th>
+              <th>Company</th>
+              <th>Assigned To</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.length === 0
+              ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">✅</div><h3>No tasks found</h3><p>Create a task to track your to-dos.</p></div></td></tr>`
+              : rows.map(t => taskRow(t)).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  document.getElementById("addBtn").onclick = () => openModal();
+  document.getElementById("statusFilter").addEventListener("change", e => loadAndRender(e.target.value, document.getElementById("priorityFilter").value));
+  document.getElementById("priorityFilter").addEventListener("change", e => loadAndRender(document.getElementById("statusFilter").value, e.target.value));
+  document.querySelectorAll(".complete-btn").forEach(b => b.addEventListener("click", () => completeTask(b.dataset.id)));
+  document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
+  document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteTask(b.dataset.id)));
+}
+
+function taskRow(t) {
+  const co = companiesList.find(c => c.id === t.crm_company_id);
+  const staff = staffList.find(s => s.id === t.assigned_to);
+  const isDone = t.status === "completed";
+  return `<tr style="${isDone ? "opacity:.6" : ""}">
+    <td>
+      <input type="checkbox" ${isDone ? "checked disabled" : ""} class="complete-btn" data-id="${t.id}" style="cursor:${isDone?"default":"pointer"}"/>
+    </td>
+    <td>
+      <div style="font-weight:600;${isDone?"text-decoration:line-through":""}">${esc(t.title)}</div>
+      ${t.description ? `<div class="tbl-muted">${esc(t.description.slice(0,60))}${t.description.length>60?"…":""}</div>` : ""}
+    </td>
+    <td>${taskPriorityBadge(t.priority)}</td>
+    <td>${taskStatusBadge(t.status)}</td>
+    <td>
+      ${t.due_date
+        ? `<span style="color:${t.status==="overdue"?"var(--bad)":"inherit"}">${fmtDateTime(t.due_date)}</span>`
+        : '<span class="text-dim">—</span>'}
+    </td>
+    <td>${co ? esc(co.name) : '<span class="text-dim">—</span>'}</td>
+    <td>${staff ? esc(staff.full_name) : '<span class="text-dim">—</span>'}</td>
+    <td>
+      <div class="tbl-actions">
+        ${!isDone ? `<button class="btn btn-sm edit-btn" data-id="${t.id}">Edit</button>` : ""}
+        <button class="btn btn-sm btn-danger del-btn" data-id="${t.id}">Del</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function openModal(id) {
+  const t = id ? allTasks.find(x => x.id === id) : null;
+  const compOpts = companiesList.map(c => `<option value="${c.id}" ${t?.crm_company_id===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
+  const staffOpts = staffList.map(s => `<option value="${s.id}" ${t?.assigned_to===s.id?"selected":""}>${esc(s.full_name)}</option>`).join("");
+  const dueVal = t?.due_date ? new Date(t.due_date).toISOString().slice(0,16) : "";
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>${t ? "Edit Task" : "New Task"}</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Task Title *</label>
+          <input class="form-control" id="mTitle" value="${esc(t?.title||"")}" placeholder="Follow up with client"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" id="mDesc" rows="2">${esc(t?.description||"")}</textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Priority</label>
+            <select class="form-control" id="mPriority">
+              <option value="low" ${t?.priority==="low"?"selected":""}>Low</option>
+              <option value="medium" ${t?.priority==="medium"||!t?"selected":""}>Medium</option>
+              <option value="high" ${t?.priority==="high"?"selected":""}>High</option>
+              <option value="urgent" ${t?.priority==="urgent"?"selected":""}>Urgent</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Due Date & Time</label>
+            <input class="form-control" id="mDue" type="datetime-local" value="${dueVal}"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Company</label>
+            <select class="form-control" id="mCompany"><option value="">None</option>${compOpts}</select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Assign To</label>
+            <select class="form-control" id="mAssigned"><option value="">Unassigned</option>${staffOpts}</select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <textarea class="form-control" id="mNotes" rows="2">${esc(t?.notes||"")}</textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">${t ? "Save Changes" : "Create Task"}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector("#saveBtn").onclick = async () => {
+    const title = document.getElementById("mTitle").value.trim();
+    if (!title) return toast("warn","Validation","Task title is required.");
+    const btn = overlay.querySelector("#saveBtn");
+    btn.disabled = true;
+    try {
+      const fields = {
+        title,
+        description: document.getElementById("mDesc").value.trim() || null,
+        priority: document.getElementById("mPriority").value,
+        due_date: document.getElementById("mDue").value ? new Date(document.getElementById("mDue").value).toISOString() : null,
+        crm_company_id: document.getElementById("mCompany").value || null,
+        assigned_to: document.getElementById("mAssigned").value || null,
+        notes: document.getElementById("mNotes").value.trim() || null,
+        status: t?.status || "todo",
+      };
+      if (t) await tasks.update(t.id, fields);
+      else await tasks.create(fields);
+      overlay.remove();
+      toast("ok", t ? "Task updated" : "Task created");
+      await loadAndRender();
+    } catch(e) { toast("bad","Error",e.message); btn.disabled = false; }
+  };
+}
+
+async function completeTask(id) {
+  try {
+    await tasks.complete(id);
+    toast("ok","Task completed");
+    await loadAndRender();
+  } catch(e) { toast("bad","Error",e.message); }
+}
+
+async function deleteTask(id) {
+  confirm("Delete Task", "Delete this task?", async () => {
+    try { await tasks.delete(id); toast("ok","Deleted"); await loadAndRender(); }
+    catch(e) { toast("bad","Error",e.message); }
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Calendar — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Calendar</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js";
+import { events, companies } from "/systems/crm/shared/api.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmtDateTime, toast, confirm, tierGate, loading } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier, allEvents = [], companiesList = [];
+let currentDate = new Date();
+let viewMode = "month"; // month | week | day
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("calendar", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+
+  if (!tierHasFeature(tier, "calendar")) {
+    document.getElementById("content").innerHTML = tierGate("calendar");
+  } else {
+    companiesList = await companies.list({ limit: 500 }).then(r => r.data);
+    await loadAndRender();
+  }
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+async function loadAndRender() {
+  const start = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).toISOString();
+  const end   = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59).toISOString();
+  allEvents = await events.list({ from: start, to: end, limit: 300 });
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const monthName = currentDate.toLocaleString("en-GB", { month: "long", year: "numeric" });
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = new Date();
+
+  let days = "";
+  // Blanks for offset (Sunday = 0, Monday = 1…)
+  const offset = (firstDay + 6) % 7;
+  for (let i = 0; i < offset; i++) {
+    const prevDate = new Date(year, month, -offset + i + 1).getDate();
+    days += `<div class="cal-day other-month"><div class="cal-date">${prevDate}</div></div>`;
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const isToday = today.getFullYear()===year && today.getMonth()===month && today.getDate()===d;
+    const dateStr = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const dayEvents = allEvents.filter(e => e.start_time?.startsWith(dateStr));
+    const evHtml = dayEvents.slice(0,3).map(e => {
+      const col = e.type==="meeting"?"":"green";
+      return `<div class="cal-event ${col}" title="${esc(e.title)}">${esc(e.title)}</div>`;
+    }).join("");
+    const more = dayEvents.length > 3 ? `<div class="cal-event" style="opacity:.5">+${dayEvents.length-3} more</div>` : "";
+    days += `<div class="cal-day ${isToday?"today":""}" data-date="${dateStr}">
+      <div class="cal-date">${d}</div>
+      <div class="cal-events">${evHtml}${more}</div>
+    </div>`;
+  }
+
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Calendar</h1>
+        <p>Manage meetings, follow-ups and site visits</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" id="addEventBtn">+ New Event</button>
+      </div>
+    </div>
+
+    <div class="cal-header">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" id="prevBtn">◀</button>
+        <button class="btn btn-sm" id="todayBtn">Today</button>
+        <button class="btn btn-sm" id="nextBtn">▶</button>
+      </div>
+      <h2 style="font-size:18px;font-weight:700">${monthName}</h2>
+      <div style="display:flex;gap:4px">
+        <button class="btn btn-sm">Month</button>
+      </div>
+    </div>
+
+    <div class="cal-grid">
+      <div class="cal-day-label">Mon</div>
+      <div class="cal-day-label">Tue</div>
+      <div class="cal-day-label">Wed</div>
+      <div class="cal-day-label">Thu</div>
+      <div class="cal-day-label">Fri</div>
+      <div class="cal-day-label">Sat</div>
+      <div class="cal-day-label">Sun</div>
+      ${days}
+    </div>
+
+    <!-- Upcoming list -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><h2>Upcoming Events</h2></div>
+      <div class="card-body" style="padding:0">
+        ${allEvents.filter(e => new Date(e.start_time) >= new Date()).slice(0,8).map(e => `
+          <div style="padding:12px 18px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div style="font-weight:600">${esc(e.title)}</div>
+              <div class="text-muted text-sm">${fmtDateTime(e.start_time)} ${e.crm_companies?.name ? "· "+esc(e.crm_companies.name) : ""}</div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <span class="badge badge-blue">${esc(e.type)}</span>
+              <button class="btn btn-sm btn-danger" onclick="delEvent('${e.id}')">Del</button>
+            </div>
+          </div>`).join("") || `<div class="empty-state" style="padding:24px"><p>No upcoming events</p></div>`}
+      </div>
+    </div>`;
+
+  document.getElementById("prevBtn").onclick = () => { currentDate.setMonth(currentDate.getMonth()-1); loadAndRender(); };
+  document.getElementById("nextBtn").onclick = () => { currentDate.setMonth(currentDate.getMonth()+1); loadAndRender(); };
+  document.getElementById("todayBtn").onclick = () => { currentDate = new Date(); loadAndRender(); };
+  document.getElementById("addEventBtn").onclick = () => openModal();
+  document.querySelectorAll(".cal-day:not(.other-month)").forEach(day => {
+    day.addEventListener("click", e => {
+      if (!e.target.classList.contains("cal-event")) openModal(null, day.dataset.date);
+    });
+  });
+  window.delEvent = async (id) => {
+    confirm("Delete Event", "Delete this event?", async () => {
+      try { await events.delete(id); toast("ok","Deleted"); await loadAndRender(); }
+      catch(err) { toast("bad","Error",err.message); }
+    });
+  };
+}
+
+function openModal(id, prefillDate) {
+  const ev = id ? allEvents.find(x => x.id === id) : null;
+  const compOpts = companiesList.map(c => `<option value="${c.id}" ${ev?.crm_company_id===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
+  const defStart = prefillDate ? prefillDate + "T09:00" : (ev?.start_time ? new Date(ev.start_time).toISOString().slice(0,16) : "");
+  const defEnd = prefillDate ? prefillDate + "T10:00" : (ev?.end_time ? new Date(ev.end_time).toISOString().slice(0,16) : "");
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>${ev ? "Edit Event" : "New Event"}</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Title *</label>
+          <input class="form-control" id="mTitle" value="${esc(ev?.title||"")}" placeholder="Meeting with client"/>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Type</label>
+            <select class="form-control" id="mType">
+              <option value="meeting" ${ev?.type==="meeting"||!ev?"selected":""}>Meeting</option>
+              <option value="follow_up" ${ev?.type==="follow_up"?"selected":""}>Follow Up</option>
+              <option value="site_visit" ${ev?.type==="site_visit"?"selected":""}>Site Visit</option>
+              <option value="call" ${ev?.type==="call"?"selected":""}>Call</option>
+              <option value="other" ${ev?.type==="other"?"selected":""}>Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Company</label>
+            <select class="form-control" id="mCompany"><option value="">None</option>${compOpts}</select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Start Time *</label>
+            <input class="form-control" id="mStart" type="datetime-local" value="${defStart}"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">End Time</label>
+            <input class="form-control" id="mEnd" type="datetime-local" value="${defEnd}"/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Location</label>
+          <input class="form-control" id="mLocation" value="${esc(ev?.location||"")}" placeholder="Office / Video call / Address"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" id="mDesc" rows="3">${esc(ev?.description||"")}</textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">${ev ? "Save Changes" : "Create Event"}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector("#saveBtn").onclick = async () => {
+    const title = document.getElementById("mTitle").value.trim();
+    const start = document.getElementById("mStart").value;
+    if (!title || !start) return toast("warn","Validation","Title and start time are required.");
+    const btn = overlay.querySelector("#saveBtn");
+    btn.disabled = true;
+    try {
+      const fields = {
+        title, type: document.getElementById("mType").value,
+        crm_company_id: document.getElementById("mCompany").value || null,
+        start_time: new Date(start).toISOString(),
+        end_time: document.getElementById("mEnd").value ? new Date(document.getElementById("mEnd").value).toISOString() : null,
+        location: document.getElementById("mLocation").value.trim() || null,
+        description: document.getElementById("mDesc").value.trim() || null,
+      };
+      if (ev) await events.update(ev.id, fields);
+      else await events.create(fields);
+      overlay.remove();
+      toast("ok", ev ? "Event updated" : "Event created");
+      await loadAndRender();
+    } catch(e) { toast("bad","Error",e.message); btn.disabled = false; }
+  };
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Settings — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Settings</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess, getCRMSettings, tierHasFeature, TIER_FEATURES } from "/systems/crm/shared/auth.js";
+import { sb } from "/systems/crm/shared/supabase.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme, toggleTheme, getTheme } from "/systems/crm/shared/theme.js";
+import { esc, toast } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier, settings;
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  settings = await getCRMSettings();
+  renderNav("settings", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  renderSettings();
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+const TIER_LABELS = { lite:"CRM Lite", professional:"CRM Professional", business:"CRM Business", enterprise:"CRM Enterprise" };
+const TIER_PRICES = { lite:"£19.99/mo", professional:"£39.99/mo", business:"£69.99/mo", enterprise:"£149.99/mo" };
+const TIER_COLORS = { lite:"badge-blue", professional:"badge-green", business:"badge-purple", enterprise:"badge-yellow" };
+
+function renderSettings() {
+  const features = TIER_FEATURES[tier] || TIER_FEATURES.lite;
+  const allFeatures = ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields","portal","multi_site","contracts","renewals","assets","workflows","advanced_permissions","support_tickets","executive_dashboards","advanced_analytics","department_mgmt","branch_mgmt","api_access","audit_logs","custom_branding","custom_pipelines","data_import","priority_support"];
+  const featureLabels = { dashboard:"Dashboard",companies:"Companies",contacts:"Contacts",leads:"Leads",pipeline:"Pipeline (Kanban)",tasks:"Tasks",timeline:"Customer Timeline",quotes:"Quotes",documents:"Documents",calendar:"Calendar",reports:"Reports",email_templates:"Email Templates",lead_scoring:"Lead Scoring",forecasting:"Revenue Forecasting",custom_fields:"Custom Fields",portal:"Customer Portal",multi_site:"Multi-Site Support",contracts:"Contract Tracking",renewals:"Renewal Tracking",assets:"Asset Tracking",workflows:"Workflow Automation",advanced_permissions:"Advanced Permissions",support_tickets:"Support Tickets",executive_dashboards:"Executive Dashboards",advanced_analytics:"Advanced Analytics",department_mgmt:"Department Management",branch_mgmt:"Branch Management",api_access:"API Access",audit_logs:"Audit Logs",custom_branding:"Custom Branding",custom_pipelines:"Custom Pipelines",data_import:"Data Import Tools",priority_support:"Priority Support" };
+
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>CRM Settings</h1>
+        <p>Manage your SmartCore CRM configuration</p>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs-bar" id="tabBar">
+      <button class="tab active" data-tab="general">General</button>
+      <button class="tab" data-tab="plan">Plan & Features</button>
+      <button class="tab" data-tab="pipeline">Pipeline Stages</button>
+      ${tierHasFeature(tier,"email_templates") ? '<button class="tab" data-tab="templates">Email Templates</button>' : ""}
+      <button class="tab" data-tab="appearance">Appearance</button>
+    </div>
+
+    <!-- General Tab -->
+    <div id="tab-general">
+      <div class="card">
+        <div class="card-header"><h2>Account Information</h2></div>
+        <div class="card-body">
+          <div style="display:grid;gap:12px">
+            <div style="display:flex;justify-content:space-between;padding:10px;background:var(--card2);border-radius:var(--r2)">
+              <span class="text-muted">Full Name</span><strong>${esc(profile.full_name||"—")}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px;background:var(--card2);border-radius:var(--r2)">
+              <span class="text-muted">Email</span><strong>${esc(profile.email||profile.work_email||"—")}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px;background:var(--card2);border-radius:var(--r2)">
+              <span class="text-muted">Role</span><strong>${esc(profile.role||"—")}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px;background:var(--card2);border-radius:var(--r2)">
+              <span class="text-muted">Company ID</span><strong style="font-family:var(--mono);font-size:11px">${esc(profile.company_id||"—")}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px;background:var(--card2);border-radius:var(--r2)">
+              <span class="text-muted">CRM Tier</span><span class="badge ${TIER_COLORS[tier]||"badge-blue"}">${TIER_LABELS[tier]||tier}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><h2>Quick Links</h2></div>
+        <div class="card-body" style="display:flex;flex-wrap:wrap;gap:10px">
+          <a href="/app/dashboard.html" class="btn">← SmartCore Dashboard</a>
+          <a href="/shop/index.html" class="btn">Upgrade Plan</a>
+          <button class="btn btn-danger" id="signOutBtn">Sign Out</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Plan Tab -->
+    <div id="tab-plan" class="hidden">
+      <div class="card">
+        <div class="card-header">
+          <h2>Current Plan: <span class="badge ${TIER_COLORS[tier]||"badge-blue"}">${TIER_LABELS[tier]||tier}</span></h2>
+          <a href="/shop/index.html" class="btn btn-primary btn-sm">Upgrade →</a>
+        </div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
+            ${allFeatures.map(f => `
+              <div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:var(--r2);${features.includes(f)?"background:var(--good-dim)":"opacity:.5"}">
+                <span>${features.includes(f) ? "✅" : "🔒"}</span>
+                <span style="font-size:13px">${featureLabels[f]||f}</span>
+              </div>`).join("")}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pipeline Tab -->
+    <div id="tab-pipeline" class="hidden">
+      <div class="card">
+        <div class="card-header"><h2>Pipeline Stages</h2></div>
+        <div class="card-body">
+          <p class="text-muted" style="margin-bottom:16px">The default pipeline stages used in your CRM. ${tierHasFeature(tier,"custom_pipelines") ? "You can customise these for your business." : "Custom pipelines are available on the Enterprise plan."}</p>
+          <div style="display:flex;flex-direction:column;gap:8px" id="stagesList">
+            ${(settings?.pipeline_stages || []).map(stage => `
+              <div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--card2);border-radius:var(--r2);border:1px solid var(--line)">
+                <div style="width:12px;height:12px;border-radius:50%;background:${stage.color};flex-shrink:0"></div>
+                <span style="font-weight:600">${esc(stage.name)}</span>
+                <span class="badge badge-grey">Stage ${stage.order+1}</span>
+              </div>`).join("")}
+          </div>
+          ${tierHasFeature(tier,"custom_pipelines")
+            ? `<button class="btn btn-primary" style="margin-top:12px" id="customiseStages">Customise Stages</button>`
+            : `<div style="margin-top:12px"><span class="badge badge-yellow">Enterprise plan required for custom stages</span></div>`}
+        </div>
+      </div>
+    </div>
+
+    <!-- Templates Tab -->
+    ${tierHasFeature(tier,"email_templates") ? `
+    <div id="tab-templates" class="hidden">
+      <div class="card">
+        <div class="card-header">
+          <h2>Email Templates</h2>
+          <button class="btn btn-primary btn-sm" id="addTemplateBtn">+ Add Template</button>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="empty-icon">📧</div>
+            <h3>No templates yet</h3>
+            <p>Create email templates for follow-ups, quotes, and welcome messages to save time.</p>
+          </div>
+        </div>
+      </div>
+    </div>` : ""}
+
+    <!-- Appearance Tab -->
+    <div id="tab-appearance" class="hidden">
+      <div class="card">
+        <div class="card-header"><h2>Appearance</h2></div>
+        <div class="card-body">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:14px;background:var(--card2);border-radius:var(--r2)">
+            <div>
+              <div style="font-weight:600">Theme</div>
+              <div class="text-sm text-muted">Switch between dark and light mode</div>
+            </div>
+            <button class="btn btn-primary" id="themeToggleSettings">
+              ${getTheme() === "dark" ? "☀️ Switch to Light" : "🌙 Switch to Dark"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  // Tabs
+  document.querySelectorAll(".tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      ["general","plan","pipeline","templates","appearance"].forEach(t => {
+        const el = document.getElementById(`tab-${t}`);
+        if (el) el.classList.toggle("hidden", t !== tab.dataset.tab);
+      });
+    });
+  });
+
+  document.getElementById("signOutBtn")?.addEventListener("click", () => {
+    if (confirm("Sign out?")) { sb().auth.signOut().then(() => window.location.href = "/app/index.html"); }
+  });
+
+  document.getElementById("themeToggleSettings")?.addEventListener("click", () => {
+    toggleTheme();
+    document.getElementById("themeToggleSettings").textContent = getTheme() === "dark" ? "☀️ Switch to Light" : "🌙 Switch to Dark";
+  });
+}
+</script>
+</body>
+</html>

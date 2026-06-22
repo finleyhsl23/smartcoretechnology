@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Companies — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Companies</div>
+      <div class="topbar-search">
+        <span class="search-icon">🔍</span>
+        <input type="text" placeholder="Search companies…" id="globalSearch"/>
+      </div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess } from "/systems/crm/shared/auth.js";
+import { companies, getStaff } from "/systems/crm/shared/api.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmt, fmtDate, timeAgo, toast, confirm, companyStatusBadge, loading, setInner } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier, allCompanies = [], staffList = [], currentCompany = null;
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("companies", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  [staffList] = await Promise.all([getStaff()]);
+  await loadAndRender();
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+async function loadAndRender(search="", status="") {
+  setInner("content", loading());
+  try {
+    const res = await companies.list({ search, status, limit: 200 });
+    allCompanies = res.data;
+    renderTable(allCompanies);
+  } catch(e) { toast("bad","Load error", e.message); }
+}
+
+function renderTable(rows) {
+  const content = document.getElementById("content");
+  content.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Companies</h1>
+        <p>${rows.length} company record${rows.length !== 1 ? "s" : ""}</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" id="addBtn">+ Add Company</button>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input class="search-input" type="text" placeholder="Search companies…" id="searchInput"/>
+      </div>
+      <select class="filter-select" id="statusFilter">
+        <option value="">All Statuses</option>
+        <option value="prospect">Prospect</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+        <option value="churned">Churned</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Company</th>
+              <th>Industry</th>
+              <th>Status</th>
+              <th>Value</th>
+              <th>Assigned To</th>
+              <th>Since</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tblBody">
+            ${rows.length === 0
+              ? `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🏢</div><h3>No companies yet</h3><p>Add your first company to get started.</p></div></td></tr>`
+              : rows.map(c => companyRow(c)).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  document.getElementById("addBtn").onclick = () => openModal();
+  document.getElementById("searchInput").addEventListener("input", debounce(e => loadAndRender(e.target.value, document.getElementById("statusFilter").value), 300));
+  document.getElementById("statusFilter").addEventListener("change", e => loadAndRender(document.getElementById("searchInput").value, e.target.value));
+  document.querySelectorAll(".view-btn").forEach(btn => btn.addEventListener("click", () => viewCompany(btn.dataset.id)));
+  document.querySelectorAll(".edit-btn").forEach(btn => btn.addEventListener("click", () => openModal(btn.dataset.id)));
+  document.querySelectorAll(".del-btn").forEach(btn => btn.addEventListener("click", () => deleteCompany(btn.dataset.id, btn.dataset.name)));
+}
+
+function companyRow(c) {
+  const staff = staffList.find(s => s.id === c.assigned_to);
+  return `<tr>
+    <td>
+      <div style="font-weight:600;cursor:pointer" class="tbl-link view-btn" data-id="${c.id}">${esc(c.name)}</div>
+      ${c.email ? `<div class="tbl-muted">${esc(c.email)}</div>` : ""}
+    </td>
+    <td>${c.industry ? esc(c.industry) : '<span class="text-dim">—</span>'}</td>
+    <td>${companyStatusBadge(c.status)}</td>
+    <td>${c.company_value ? fmt(c.company_value) : '<span class="text-dim">—</span>'}</td>
+    <td>${staff ? esc(staff.full_name) : '<span class="text-dim">Unassigned</span>'}</td>
+    <td>${c.customer_since ? fmtDate(c.customer_since) : '<span class="text-dim">—</span>'}</td>
+    <td>
+      <div class="tbl-actions">
+        <button class="btn btn-sm btn-ghost view-btn" data-id="${c.id}">View</button>
+        <button class="btn btn-sm edit-btn" data-id="${c.id}">Edit</button>
+        <button class="btn btn-sm btn-danger del-btn" data-id="${c.id}" data-name="${esc(c.name)}">Del</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function openModal(id) {
+  const c = id ? allCompanies.find(x => x.id === id) : null;
+  currentCompany = c;
+  const staffOptions = staffList.map(s => `<option value="${s.id}" ${c?.assigned_to === s.id ? "selected" : ""}>${esc(s.full_name)}</option>`).join("");
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>${c ? "Edit Company" : "Add Company"}</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Company Name *</label>
+            <input class="form-control" id="mName" value="${esc(c?.name||"")}" placeholder="Acme Ltd"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Industry</label>
+            <select class="form-control" id="mIndustry">
+              <option value="">Select…</option>
+              ${["Construction","Technology","Healthcare","Finance","Retail","Manufacturing","Education","Property","Legal","Hospitality","Transport","Other"].map(i => `<option value="${i}" ${c?.industry===i?"selected":""}>${i}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input class="form-control" id="mEmail" type="email" value="${esc(c?.email||"")}" placeholder="info@company.com"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone</label>
+            <input class="form-control" id="mPhone" value="${esc(c?.phone||"")}" placeholder="+44…"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Website</label>
+            <input class="form-control" id="mWebsite" value="${esc(c?.website||"")}" placeholder="https://…"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select class="form-control" id="mStatus">
+              <option value="prospect" ${c?.status==="prospect"||!c?"selected":""}>Prospect</option>
+              <option value="active" ${c?.status==="active"?"selected":""}>Active</option>
+              <option value="inactive" ${c?.status==="inactive"?"selected":""}>Inactive</option>
+              <option value="churned" ${c?.status==="churned"?"selected":""}>Churned</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Company Value (£)</label>
+            <input class="form-control" id="mValue" type="number" value="${c?.company_value||""}" placeholder="0.00"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Assigned To</label>
+            <select class="form-control" id="mAssigned"><option value="">Unassigned</option>${staffOptions}</select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Address</label>
+            <input class="form-control" id="mAddress1" value="${esc(c?.address_line1||"")}" placeholder="Address line 1"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">City</label>
+            <input class="form-control" id="mCity" value="${esc(c?.city||"")}" placeholder="City"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Postcode</label>
+            <input class="form-control" id="mPostcode" value="${esc(c?.postcode||"")}" placeholder="SW1A 1AA"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Customer Since</label>
+            <input class="form-control" id="mSince" type="date" value="${c?.customer_since||""}"/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <textarea class="form-control" id="mNotes" rows="3" placeholder="Internal notes…">${esc(c?.notes||"")}</textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">${c ? "Save Changes" : "Add Company"}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector("#saveBtn").onclick = async () => {
+    const name = document.getElementById("mName").value.trim();
+    if (!name) return toast("warn","Validation","Company name is required.");
+    const btn = overlay.querySelector("#saveBtn");
+    btn.disabled = true; btn.textContent = "Saving…";
+    try {
+      const fields = {
+        name,
+        industry: document.getElementById("mIndustry").value || null,
+        email: document.getElementById("mEmail").value.trim() || null,
+        phone: document.getElementById("mPhone").value.trim() || null,
+        website: document.getElementById("mWebsite").value.trim() || null,
+        status: document.getElementById("mStatus").value,
+        company_value: parseFloat(document.getElementById("mValue").value) || null,
+        assigned_to: document.getElementById("mAssigned").value || null,
+        address_line1: document.getElementById("mAddress1").value.trim() || null,
+        city: document.getElementById("mCity").value.trim() || null,
+        postcode: document.getElementById("mPostcode").value.trim() || null,
+        customer_since: document.getElementById("mSince").value || null,
+        notes: document.getElementById("mNotes").value.trim() || null,
+      };
+      if (c) await companies.update(c.id, fields);
+      else await companies.create(fields);
+      overlay.remove();
+      toast("ok", c ? "Company updated" : "Company added");
+      await loadAndRender();
+    } catch(e) { toast("bad","Error",e.message); btn.disabled = false; btn.textContent = c ? "Save Changes" : "Add Company"; }
+  };
+}
+
+async function viewCompany(id) {
+  window.location.href = `/systems/crm/company-detail.html?id=${id}`;
+}
+
+async function deleteCompany(id, name) {
+  confirm("Delete Company", `Delete "${name}"? This cannot be undone.`, async () => {
+    try { await companies.delete(id); toast("ok","Deleted"); await loadAndRender(); }
+    catch(e) { toast("bad","Error",e.message); }
+  });
+}
+
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+</script>
+</body>
+</html>

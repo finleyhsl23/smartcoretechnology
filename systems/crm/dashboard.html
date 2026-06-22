@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Dashboard — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="crm-shell">
+  <!-- Sidebar -->
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- Main -->
+  <div class="crm-main">
+    <!-- Topbar -->
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Dashboard <span>/ Overview</span></div>
+      <div class="topbar-search">
+        <span class="search-icon">🔍</span>
+        <input type="text" placeholder="Search…" id="globalSearch"/>
+      </div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle" title="Toggle theme">☀️</button>
+        <button class="topbar-btn" id="logoutBtn" title="Sign out">🚪</button>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess, getCRMSettings } from "/systems/crm/shared/auth.js";
+import { dashboardStats } from "/systems/crm/shared/api.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { fmt, fmtDate, fmtDateTime, timeAgo, esc, toast } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+try {
+  const { profile, tier } = await requireCRMAccess();
+  renderNav("dashboard", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+
+  const stats = await dashboardStats();
+  render(stats, tier, profile);
+} catch(e) {
+  if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) {
+    document.getElementById("content").innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Error loading dashboard</h3><p>${esc(e.message)}</p></div>`;
+  }
+}
+
+function render(s, tier, profile) {
+  const content = document.getElementById("content");
+  content.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Welcome back, ${esc((profile.full_name || "").split(" ")[0] || "there")} 👋</h1>
+        <p>Here's what's happening with your business today.</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" onclick="window.location.href='/systems/crm/leads.html'">+ New Lead</button>
+        <button class="btn" onclick="window.location.href='/systems/crm/companies.html'">+ Company</button>
+      </div>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="stats-grid">
+      <div class="stat-card" style="--stat-color:var(--blue);--stat-dim:var(--blue-dim)">
+        <div class="stat-icon">🏢</div>
+        <div class="stat-value">${s.totalCompanies}</div>
+        <div class="stat-label">Total Companies</div>
+        <div class="stat-change up">▲ ${s.activeCompanies} active</div>
+      </div>
+      <div class="stat-card" style="--stat-color:var(--purple);--stat-dim:var(--purple-dim)">
+        <div class="stat-icon">🎯</div>
+        <div class="stat-value">${s.activeLeads}</div>
+        <div class="stat-label">Active Leads</div>
+        <div class="stat-change">${s.wonLeads} won · ${s.lostLeads} lost</div>
+      </div>
+      <div class="stat-card" style="--stat-color:var(--good);--stat-dim:var(--good-dim)">
+        <div class="stat-icon">💰</div>
+        <div class="stat-value">${fmt(s.pipelineValue)}</div>
+        <div class="stat-label">Pipeline Value</div>
+        <div class="stat-change up text-good">Active opportunities</div>
+      </div>
+      <div class="stat-card" style="--stat-color:var(--blue2);--stat-dim:rgba(14,165,255,.12)">
+        <div class="stat-icon">📈</div>
+        <div class="stat-value">${fmt(s.forecast)}</div>
+        <div class="stat-label">Revenue Forecast</div>
+        <div class="stat-change">Probability-weighted</div>
+      </div>
+      <div class="stat-card" style="--stat-color:var(--warn);--stat-dim:var(--warn-dim)">
+        <div class="stat-icon">✅</div>
+        <div class="stat-value">${s.todayTasks}</div>
+        <div class="stat-label">Tasks Due Today</div>
+        <div class="stat-change ${s.overdueTasks > 0 ? "down text-bad" : ""}">${s.overdueTasks > 0 ? `▼ ${s.overdueTasks} overdue` : "All on track"}</div>
+      </div>
+      <div class="stat-card" style="--stat-color:var(--good);--stat-dim:var(--good-dim)">
+        <div class="stat-icon">🏆</div>
+        <div class="stat-value">${s.wonLeads}</div>
+        <div class="stat-label">Deals Won</div>
+        <div class="stat-change ${s.lostLeads > 0 ? "down" : "up"}">${s.lostLeads} lost this period</div>
+      </div>
+    </div>
+
+    <!-- Charts + Activity -->
+    <div class="grid-3-1" style="gap:16px;margin-bottom:16px">
+      <div class="card">
+        <div class="card-header">
+          <h2>Pipeline Overview</h2>
+          <a href="/systems/crm/pipeline.html" class="btn btn-ghost btn-sm">View board →</a>
+        </div>
+        <div class="card-body">
+          <div class="chart-wrap"><canvas id="pipelineChart"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h2>Lead Status</h2></div>
+        <div class="card-body">
+          <div style="height:220px;display:flex;align-items:center;justify-content:center">
+            <canvas id="leadPieChart" style="max-height:200px"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2" style="gap:16px">
+      <!-- Upcoming events -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Upcoming Events</h2>
+          <a href="/systems/crm/calendar.html" class="btn btn-ghost btn-sm">Calendar →</a>
+        </div>
+        <div class="card-body" style="padding:0">
+          ${s.upcomingEvents.length === 0
+            ? `<div class="empty-state" style="padding:24px"><p>No upcoming events</p></div>`
+            : s.upcomingEvents.map(ev => `
+              <div style="padding:12px 18px;border-bottom:1px solid var(--line2);display:flex;gap:12px;align-items:center">
+                <div style="width:40px;height:40px;border-radius:10px;background:var(--blue-dim);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0">
+                  <span style="font-size:14px;font-weight:800;color:var(--blue2)">${new Date(ev.start_time).getDate()}</span>
+                  <span style="font-size:9px;color:var(--text3)">${new Date(ev.start_time).toLocaleString("en",{month:"short"}).toUpperCase()}</span>
+                </div>
+                <div style="min-width:0">
+                  <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(ev.title)}</div>
+                  <div style="font-size:11px;color:var(--text3)">${fmtDateTime(ev.start_time)}${ev.crm_companies?.name ? ` · ${esc(ev.crm_companies.name)}` : ""}</div>
+                </div>
+              </div>`).join("")}
+        </div>
+      </div>
+
+      <!-- Recent activity -->
+      <div class="card">
+        <div class="card-header"><h2>Recent Activity</h2></div>
+        <div class="card-body">
+          ${s.recentActivity.length === 0
+            ? `<div class="empty-state" style="padding:24px"><p>No recent activity</p></div>`
+            : `<div class="timeline">${s.recentActivity.map(a => activityItem(a)).join("")}</div>`}
+        </div>
+      </div>
+    </div>`;
+
+  initCharts(s);
+}
+
+function activityItem(a) {
+  const icons = { note:"📝", call:"📞", email:"📧", meeting:"🤝", task_completed:"✅", quote_created:"💰", deal_won:"🏆", deal_lost:"😔", company_created:"🏢", contact_added:"👤", lead_created:"🎯", document_uploaded:"📁" };
+  const icon = icons[a.type] || "•";
+  return `<div class="timeline-item">
+    <div class="timeline-dot"></div>
+    <div class="timeline-header">
+      <span class="timeline-title">${icon} ${esc(a.title)}</span>
+      <span class="timeline-time">${timeAgo(a.created_at)}</span>
+    </div>
+    ${a.crm_companies?.name ? `<div class="timeline-body">${esc(a.crm_companies.name)}</div>` : ""}
+  </div>`;
+}
+
+function initCharts(s) {
+  // Pipeline bar chart
+  const pCtx = document.getElementById("pipelineChart")?.getContext("2d");
+  if (pCtx) {
+    const stages = ["New","Contacted","Qualified","Proposal Sent","Negotiation"];
+    const values = stages.map((_, i) => Math.max(0, s.pipelineValue * [.3,.25,.2,.15,.1][i]));
+    new Chart(pCtx, {
+      type: "bar",
+      data: {
+        labels: stages,
+        datasets: [{ label: "Value (£)", data: values, backgroundColor: ["#6366f1","#f59e0b","#3b82f6","#8b5cf6","#ec4899"], borderRadius: 6, borderSkipped: false }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "rgba(233,240,255,.5)", font: { size: 11 } } },
+          y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "rgba(233,240,255,.5)", font: { size: 11 }, callback: v => "£"+v.toLocaleString() } }
+        }
+      }
+    });
+  }
+
+  // Lead pie chart
+  const lCtx = document.getElementById("leadPieChart")?.getContext("2d");
+  if (lCtx) {
+    new Chart(lCtx, {
+      type: "doughnut",
+      data: {
+        labels: ["Active","Won","Lost"],
+        datasets: [{ data: [s.activeLeads || 1, s.wonLeads || 0, s.lostLeads || 0], backgroundColor: ["#1e5cff","#10b981","#ef4444"], borderWidth: 0, hoverOffset: 4 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        cutout: "70%",
+        plugins: { legend: { position: "bottom", labels: { color: "rgba(233,240,255,.7)", font: { size: 12 }, boxWidth: 10 } } }
+      }
+    });
+  }
+}
+</script>
+</body>
+</html>

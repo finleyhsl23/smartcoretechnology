@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Customer Portal — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Customer Portal</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js";
+import { companies, documents, quotes } from "/systems/crm/shared/api.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmt, fmtDate, toast, tierGate } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier;
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("portal", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+
+  if (!tierHasFeature(tier, "portal")) {
+    document.getElementById("content").innerHTML = tierGate("portal");
+  } else {
+    await loadPortal();
+  }
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+async function loadPortal() {
+  const [companiesRes, docsRes, quotesRes] = await Promise.all([
+    companies.list({ status: "active", limit: 200 }),
+    documents.list({ limit: 500 }),
+    quotes.list({ limit: 500 }),
+  ]);
+  const companiesList = companiesRes.data;
+  const docsList = docsRes.data;
+  const quotesList = quotesRes.data;
+
+  const portalDocs = docsList.filter(d => d.is_portal_visible);
+
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Customer Portal Management</h1>
+        <p>Manage what your customers can see and access</p>
+      </div>
+    </div>
+
+    <div class="grid-2" style="gap:16px;margin-bottom:16px">
+      <div class="card">
+        <div class="card-header"><h2>Portal Overview</h2></div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;text-align:center">
+            <div style="padding:16px;background:var(--blue-dim);border-radius:var(--r2)">
+              <div style="font-size:28px;font-weight:800;color:var(--blue2)">${companiesList.length}</div>
+              <div class="text-sm text-muted">Active Customers</div>
+            </div>
+            <div style="padding:16px;background:var(--good-dim);border-radius:var(--r2)">
+              <div style="font-size:28px;font-weight:800;color:var(--good)">${portalDocs.length}</div>
+              <div class="text-sm text-muted">Portal Documents</div>
+            </div>
+            <div style="padding:16px;background:var(--purple-dim);border-radius:var(--r2)">
+              <div style="font-size:28px;font-weight:800;color:var(--purple)">${quotesList.filter(q=>q.status==="sent").length}</div>
+              <div class="text-sm text-muted">Pending Quotes</div>
+            </div>
+            <div style="padding:16px;background:var(--warn-dim);border-radius:var(--r2)">
+              <div style="font-size:28px;font-weight:800;color:var(--warn)">${quotesList.filter(q=>q.status==="accepted").length}</div>
+              <div class="text-sm text-muted">Accepted Quotes</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h2>Portal Documents</h2></div>
+        <div class="card-body" style="padding:0">
+          ${portalDocs.length === 0
+            ? `<div class="empty-state" style="padding:24px"><p>No portal-visible documents. Mark documents as "Visible in customer portal" from the Documents page.</p></div>`
+            : portalDocs.slice(0,6).map(d => `
+              <div style="padding:10px 16px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;align-items:center">
+                <div>
+                  <div style="font-weight:600;font-size:13px">${esc(d.name)}</div>
+                  <div class="text-xs text-muted">${esc(d.category)} · ${fmtDate(d.created_at)}</div>
+                </div>
+                <span class="badge badge-green">Portal</span>
+              </div>`).join("")}
+          ${portalDocs.length > 6 ? `<div style="padding:10px 16px;text-align:center"><a href="/systems/crm/documents.html" class="btn btn-ghost btn-sm">View all ${portalDocs.length} documents</a></div>` : ""}
+        </div>
+      </div>
+    </div>
+
+    <!-- Customer access table -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Active Customer Companies</h2>
+        <span class="text-muted text-sm">${companiesList.length} customers with portal access</span>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Company</th>
+              <th>Email</th>
+              <th>Quotes</th>
+              <th>Documents</th>
+              <th>Customer Since</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${companiesList.length === 0
+              ? `<tr><td colspan="6"><div class="empty-state" style="padding:20px"><p>No active customers yet</p></div></td></tr>`
+              : companiesList.map(c => {
+                  const cQuotes = quotesList.filter(q => q.crm_company_id === c.id);
+                  const cDocs = portalDocs.filter(d => d.crm_company_id === c.id);
+                  return `<tr>
+                    <td><span class="font-bold">${esc(c.name)}</span></td>
+                    <td>${c.email ? `<a href="mailto:${esc(c.email)}" class="text-blue text-sm">${esc(c.email)}</a>` : '<span class="text-dim">—</span>'}</td>
+                    <td><span class="badge badge-blue">${cQuotes.length}</span></td>
+                    <td><span class="badge badge-purple">${cDocs.length}</span></td>
+                    <td>${fmtDate(c.customer_since)}</td>
+                    <td><span class="badge badge-green">Active</span></td>
+                  </tr>`;
+                }).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><h2>Coming Soon</h2></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
+          ${[
+            ["🔐","Customer Login Portal","Allow customers to log in and view their account"],
+            ["💬","Customer Messaging","Direct messaging with customers from the portal"],
+            ["📋","Project Tracking","Let customers track project progress"],
+            ["🤝","E-Signatures","Customers sign documents digitally"],
+          ].map(([icon,title,desc]) => `
+            <div style="padding:16px;background:var(--card2);border:1px solid var(--line);border-radius:var(--r2);opacity:.7">
+              <div style="font-size:24px;margin-bottom:8px">${icon}</div>
+              <div style="font-weight:600;font-size:13px;margin-bottom:4px">${title}</div>
+              <div class="text-xs text-muted">${desc}</div>
+              <span class="badge badge-yellow" style="margin-top:8px">Coming Soon</span>
+            </div>`).join("")}
+        </div>
+      </div>
+    </div>`;
+}
+</script>
+</body>
+</html>
