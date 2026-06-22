@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SmartCore — My Modules</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #05081a;
+      --surface:  #080d20;
+      --card:     #0d1328;
+      --card2:    #111827;
+      --line:     rgba(255,255,255,.07);
+      --blue:     #1e5cff;
+      --blue2:    #0ea5ff;
+      --blue-dim: rgba(30,92,255,.12);
+      --text:     #e9f0ff;
+      --muted:    rgba(233,240,255,.45);
+      --good:     #22c55e;
+      --bad:      #ef4444;
+      --r:        14px;
+      --r2:       10px;
+    }
+    [data-theme="light"] {
+      --bg:       #f0f4f8;
+      --surface:  #ffffff;
+      --card:     #ffffff;
+      --card2:    #f8fafc;
+      --line:     rgba(0,0,0,.08);
+      --text:     #0f172a;
+      --muted:    rgba(15,23,42,.5);
+      --blue-dim: rgba(30,92,255,.08);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+      min-height: 100vh;
+      transition: background .25s, color .25s;
+    }
+
+    /* ── Top bar ── */
+    .topbar {
+      position: sticky; top: 0; z-index: 50;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(12px);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 32px; height: 60px;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .brand-dot {
+      width: 32px; height: 32px; border-radius: 9px;
+      background: linear-gradient(135deg, var(--blue) 0%, var(--blue2) 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 900; color: #fff; letter-spacing: -.02em;
+    }
+    .brand-name {
+      font-size: 15px; font-weight: 800; letter-spacing: -.01em;
+    }
+    .brand-name span { color: var(--blue2); }
+    .topbar-right { display: flex; align-items: center; gap: 10px; }
+    .theme-btn {
+      background: var(--card2); border: 1px solid var(--line);
+      border-radius: 8px; padding: 7px 10px; cursor: pointer;
+      font-size: 14px; color: var(--text); transition: background .2s;
+    }
+    .theme-btn:hover { background: var(--blue-dim); }
+    .signout-btn {
+      background: transparent; border: 1px solid var(--line);
+      border-radius: 8px; padding: 7px 14px; cursor: pointer;
+      font-size: 13px; font-weight: 600; color: var(--muted);
+      transition: all .2s;
+    }
+    .signout-btn:hover { border-color: var(--bad); color: var(--bad); }
+    .user-pill {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--card2); border: 1px solid var(--line);
+      border-radius: 20px; padding: 5px 14px 5px 6px;
+      font-size: 13px;
+    }
+    .user-avatar {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue), var(--blue2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: #fff;
+    }
+
+    /* ── Main layout ── */
+    .main { max-width: 1100px; margin: 0 auto; padding: 48px 24px 80px; }
+
+    /* ── Sign-in panel ── */
+    #loginView {
+      display: flex; align-items: center; justify-content: center;
+      min-height: calc(100vh - 60px);
+    }
+    .login-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--r);
+      padding: 40px 40px 36px;
+      width: 100%; max-width: 400px;
+      box-shadow: 0 24px 64px rgba(0,0,0,.35);
+    }
+    .login-logo {
+      width: 52px; height: 52px; border-radius: 14px;
+      background: linear-gradient(135deg, var(--blue) 0%, var(--blue2) 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; font-weight: 900; color: #fff;
+      margin-bottom: 22px;
+    }
+    .login-title { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+    .login-sub   { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+    .form-label  { display: block; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+    .form-control {
+      width: 100%; background: var(--card2); border: 1px solid var(--line);
+      border-radius: 9px; padding: 11px 14px; color: var(--text);
+      font-size: 14px; transition: border .2s; outline: none;
+      margin-bottom: 16px;
+    }
+    .form-control:focus { border-color: var(--blue); }
+    .form-control::placeholder { color: var(--muted); }
+    .btn-login {
+      width: 100%; background: var(--blue); color: #fff;
+      border: none; border-radius: 10px; padding: 13px;
+      font-size: 14px; font-weight: 700; cursor: pointer;
+      transition: opacity .2s, transform .1s;
+      margin-top: 4px;
+    }
+    .btn-login:hover  { opacity: .9; }
+    .btn-login:active { transform: scale(.98); }
+    .btn-login:disabled { opacity: .5; cursor: not-allowed; }
+    .login-error {
+      background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
+      border-radius: 8px; padding: 10px 14px; font-size: 13px;
+      color: #fca5a5; margin-bottom: 16px; display: none;
+    }
+    .login-divider {
+      text-align: center; font-size: 12px; color: var(--muted);
+      margin-top: 20px;
+    }
+
+    /* ── Modules view ── */
+    #modulesView { display: none; }
+    .page-hero { margin-bottom: 40px; }
+    .page-hero h1 { font-size: 30px; font-weight: 900; letter-spacing: -.02em; }
+    .page-hero p  { color: var(--muted); font-size: 15px; margin-top: 6px; }
+    .company-tag {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--blue-dim); border: 1px solid rgba(30,92,255,.3);
+      border-radius: 20px; padding: 4px 12px; font-size: 12px;
+      font-weight: 600; color: var(--blue2); margin-top: 12px;
+    }
+
+    .modules-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 18px;
+    }
+    .module-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--r);
+      padding: 24px;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      transition: border-color .2s, transform .15s, box-shadow .2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .module-card::before {
+      content: "";
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, var(--mod-color, var(--blue)) 0%, transparent 60%);
+      opacity: 0; transition: opacity .2s;
+      border-radius: var(--r);
+    }
+    .module-card:hover { border-color: var(--mod-color, var(--blue)); transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,.25); }
+    .module-card:hover::before { opacity: .06; }
+    .module-card.locked { cursor: default; opacity: .55; }
+    .module-card.locked:hover { transform: none; box-shadow: none; border-color: var(--line); }
+    .module-card.locked::before { display: none; }
+
+    .mod-icon {
+      width: 48px; height: 48px; border-radius: 13px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; margin-bottom: 16px;
+      background: rgba(255,255,255,.05);
+    }
+    .mod-name   { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+    .mod-desc   { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 14px; }
+    .mod-footer { display: flex; align-items: center; justify-content: space-between; }
+    .mod-badge {
+      font-size: 11px; font-weight: 700; padding: 3px 9px;
+      border-radius: 20px; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .badge-active  { background: rgba(34,197,94,.15); color: #4ade80; border: 1px solid rgba(34,197,94,.25); }
+    .badge-locked  { background: rgba(255,255,255,.06); color: var(--muted); border: 1px solid var(--line); }
+    .badge-tier    { background: var(--blue-dim); color: var(--blue2); border: 1px solid rgba(30,92,255,.25); }
+    .mod-arrow { color: var(--muted); font-size: 18px; transition: transform .15s; }
+    .module-card:not(.locked):hover .mod-arrow { transform: translateX(4px); color: var(--text); }
+
+    .section-label {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .1em; color: var(--muted); margin-bottom: 14px;
+    }
+    .empty-modules {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: var(--r); padding: 48px 32px; text-align: center;
+    }
+    .empty-modules h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+    .empty-modules p  { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+    .btn-shop {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--blue); color: #fff;
+      border: none; border-radius: 10px; padding: 11px 22px;
+      font-size: 14px; font-weight: 700; cursor: pointer; text-decoration: none;
+      transition: opacity .2s;
+    }
+    .btn-shop:hover { opacity: .9; }
+
+    /* ── Toast ── */
+    #toastwrap {
+      position: fixed; bottom: 24px; right: 24px;
+      display: flex; flex-direction: column; gap: 10px; z-index: 9999;
+    }
+    .toast {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 12px 18px;
+      font-size: 13px; box-shadow: 0 8px 32px rgba(0,0,0,.4);
+      animation: slideIn .2s ease; display: flex; align-items: center; gap: 10px;
+    }
+    @keyframes slideIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+
+    @media (max-width: 600px) {
+      .topbar { padding: 0 16px; }
+      .main { padding: 32px 16px 60px; }
+      .login-card { padding: 28px 20px; }
+      .modules-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="topbar">
+  <div class="brand">
+    <div class="brand-dot">S</div>
+    <div class="brand-name">Smart<span>Core</span></div>
+  </div>
+  <div class="topbar-right">
+    <button class="theme-btn" id="themeBtn" title="Toggle theme">☀️</button>
+    <div class="user-pill" id="userPill" style="display:none">
+      <div class="user-avatar" id="userAvatar">?</div>
+      <span id="userNameDisplay">—</span>
+    </div>
+    <button class="signout-btn" id="signOutBtn" style="display:none">Sign out</button>
+  </div>
+</nav>
+
+<!-- Sign-in view -->
+<div id="loginView">
+  <div class="login-card">
+    <div class="login-logo">S</div>
+    <div class="login-title">Sign in to SmartCore</div>
+    <div class="login-sub">Access your modules and company tools</div>
+    <div class="login-error" id="loginError"></div>
+    <label class="form-label" for="emailInput">Email address</label>
+    <input class="form-control" id="emailInput" type="email" placeholder="you@company.com" autocomplete="email"/>
+    <label class="form-label" for="passInput">Password</label>
+    <input class="form-control" id="passInput" type="password" placeholder="••••••••" autocomplete="current-password"/>
+    <button class="btn-login" id="loginBtn">Sign in</button>
+    <div class="login-divider">Need an account? <a href="/shop/index.html" style="color:var(--blue2);text-decoration:none;font-weight:600">Visit the shop →</a></div>
+  </div>
+</div>
+
+<!-- Modules view -->
+<div id="modulesView">
+  <div class="main">
+    <div class="page-hero">
+      <h1>Your Modules</h1>
+      <p>Click any active module to open it.</p>
+      <div class="company-tag" id="companyTag">🏢 Loading…</div>
+    </div>
+    <div id="modulesContent"></div>
+  </div>
+</div>
+
+<div id="toastwrap"></div>
+
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const SUPABASE_URL     = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── Module registry ───────────────────────────────────────────────────────
+// Add new modules here as they are built. url is where the module lives.
+const MODULE_REGISTRY = [
+  {
+    key:   "presence-and-fire-safety",
+    name:  "Presence & Fire Safety",
+    desc:  "Staff presence tracking, fire roll calls, visitor management and compliance reporting.",
+    icon:  "🔥",
+    color: "#f97316",
+    url:   "/app/modules/presence-and-fire-safety.html",
+  },
+  {
+    key:   "smartcore-crm",
+    name:  "SmartCore CRM",
+    desc:  "Full-featured CRM — companies, contacts, leads, pipeline, quotes, documents and reports.",
+    icon:  "🎯",
+    color: "#1e5cff",
+    url:   "/systems/crm/dashboard.html",
+    tierLabel: true,
+  },
+];
+
+// ── Theme ─────────────────────────────────────────────────────────────────
+const root = document.documentElement;
+const saved = localStorage.getItem("sc-modules-theme") || "dark";
+root.setAttribute("data-theme", saved);
+document.getElementById("themeBtn").textContent = saved === "dark" ? "☀️" : "🌙";
+
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  root.setAttribute("data-theme", next);
+  localStorage.setItem("sc-modules-theme", next);
+  document.getElementById("themeBtn").textContent = next === "dark" ? "☀️" : "🌙";
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────
+const { data: { session } } = await sb.auth.getSession();
+if (session) {
+  await showModules(session);
+} else {
+  showLogin();
+}
+
+sb.auth.onAuthStateChange(async (event, session) => {
+  if (event === "SIGNED_IN"  && session) await showModules(session);
+  if (event === "SIGNED_OUT")            showLogin();
+});
+
+// ── Sign-in ───────────────────────────────────────────────────────────────
+function showLogin() {
+  document.getElementById("loginView").style.display   = "flex";
+  document.getElementById("modulesView").style.display = "none";
+  document.getElementById("userPill").style.display    = "none";
+  document.getElementById("signOutBtn").style.display  = "none";
+}
+
+const loginBtn   = document.getElementById("loginBtn");
+const loginError = document.getElementById("loginError");
+
+function showError(msg) {
+  loginError.textContent = msg;
+  loginError.style.display = "block";
+}
+
+loginBtn.addEventListener("click", async () => {
+  const email = document.getElementById("emailInput").value.trim();
+  const pass  = document.getElementById("passInput").value;
+  if (!email || !pass) { showError("Please enter your email and password."); return; }
+  loginError.style.display = "none";
+  loginBtn.disabled = true;
+  loginBtn.textContent = "Signing in…";
+  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  if (error) {
+    showError(error.message || "Sign-in failed. Please check your credentials.");
+    loginBtn.disabled = false;
+    loginBtn.textContent = "Sign in";
+  }
+});
+
+document.getElementById("passInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") loginBtn.click();
+});
+
+// ── Modules view ──────────────────────────────────────────────────────────
+async function showModules(session) {
+  document.getElementById("loginView").style.display   = "none";
+  document.getElementById("modulesView").style.display = "block";
+  document.getElementById("signOutBtn").style.display  = "flex";
+
+  // Load profile
+  const { data: profile } = await sb
+    .from("core_employees")
+    .select("company_id, full_name, role")
+    .eq("auth_user_id", session.user.id)
+    .maybeSingle();
+
+  if (!profile) {
+    document.getElementById("modulesContent").innerHTML = `
+      <div class="empty-modules">
+        <h3>No profile found</h3>
+        <p>Your account doesn't have a company profile linked. Contact your administrator.</p>
+      </div>`;
+    return;
+  }
+
+  // Show user info
+  const initials = (profile.full_name || session.user.email || "?")
+    .split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+  document.getElementById("userAvatar").textContent      = initials;
+  document.getElementById("userNameDisplay").textContent = profile.full_name || session.user.email;
+  document.getElementById("userPill").style.display      = "flex";
+
+  // Load company name
+  const { data: company } = await sb
+    .from("companies")
+    .select("name")
+    .eq("id", profile.company_id)
+    .maybeSingle();
+  document.getElementById("companyTag").textContent = "🏢 " + (company?.name || "Your Company");
+
+  // Load enabled modules for this company
+  const { data: mods } = await sb
+    .from("company_modules")
+    .select("module_key, enabled, tier")
+    .eq("company_id", profile.company_id);
+
+  const modMap = new Map((mods || []).map(m => [m.module_key, m]));
+
+  // Render
+  const active  = MODULE_REGISTRY.filter(m => modMap.get(m.key)?.enabled);
+  const locked  = MODULE_REGISTRY.filter(m => !modMap.get(m.key)?.enabled);
+
+  let html = "";
+
+  if (active.length === 0 && locked.length === 0) {
+    html = `
+      <div class="empty-modules">
+        <h3>No modules yet</h3>
+        <p>Your company hasn't purchased any SmartCore modules. Visit the shop to get started.</p>
+        <a class="btn-shop" href="/shop/index.html">Browse modules →</a>
+      </div>`;
+  } else {
+    if (active.length > 0) {
+      html += `<div class="section-label">Active modules (${active.length})</div>
+        <div class="modules-grid" style="margin-bottom:40px">
+          ${active.map(m => moduleCard(m, modMap.get(m.key))).join("")}
+        </div>`;
+    }
+    if (locked.length > 0) {
+      html += `<div class="section-label">Available to add</div>
+        <div class="modules-grid">
+          ${locked.map(m => moduleCard(m, null)).join("")}
+        </div>`;
+    }
+  }
+
+  document.getElementById("modulesContent").innerHTML = html;
+}
+
+function moduleCard(m, modData) {
+  const isActive = !!modData?.enabled;
+  const tier = modData?.tier;
+  const tierLabel = tier ? tier.charAt(0).toUpperCase() + tier.slice(1) : null;
+
+  if (isActive) {
+    return `
+      <a class="module-card" href="${m.url}" style="--mod-color:${m.color}">
+        <div class="mod-icon" style="background:${m.color}22;font-size:24px">${m.icon}</div>
+        <div class="mod-name">${m.name}</div>
+        <div class="mod-desc">${m.desc}</div>
+        <div class="mod-footer">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <span class="mod-badge badge-active">● Active</span>
+            ${tierLabel ? `<span class="mod-badge badge-tier">${tierLabel}</span>` : ""}
+          </div>
+          <span class="mod-arrow">→</span>
+        </div>
+      </a>`;
+  } else {
+    return `
+      <div class="module-card locked">
+        <div class="mod-icon" style="font-size:24px">${m.icon}</div>
+        <div class="mod-name">${m.name}</div>
+        <div class="mod-desc">${m.desc}</div>
+        <div class="mod-footer">
+          <span class="mod-badge badge-locked">🔒 Not active</span>
+          <a href="/shop/index.html" style="font-size:12px;color:var(--blue2);text-decoration:none;font-weight:600">Add →</a>
+        </div>
+      </div>`;
+  }
+}
+
+// ── Sign out ──────────────────────────────────────────────────────────────
+document.getElementById("signOutBtn").addEventListener("click", async () => {
+  await sb.auth.signOut();
+});
+</script>
+</body>
+</html>
