@@ -97,21 +97,33 @@ export async function onRequestOptions() {
 // Provisioning
 // ---------------------------------------------------------------------------
 async function provisionCore(env, o) {
-  const existing = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
-  if (existing?.length) return;
+  let companyId;
 
-  const rows = await dbPost(env, '/smartcore_core_companies', {
-    order_id:     o.id,
-    company_name: o.company_name,
-    company_email: o.email,
-    company_phone: o.phone || null,
-    staff_count:  o.staff_count || null,
-    status:       'active',
-    provisioned_at: new Date().toISOString(),
-  }, true);
-
-  const company = Array.isArray(rows) ? rows[0] : rows;
-  if (!company?.id) return;
+  if (o.existing_company_id) {
+    // Adding modules to an existing owned company — don't create a new one
+    companyId = o.existing_company_id;
+    // Still tag the order with this company so provisionCRM can find it
+    const alreadyTagged = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(companyId)}&select=id&limit=1`);
+    if (!alreadyTagged?.length) return; // safety check — company must exist
+  } else {
+    // New company purchase — check we haven't already provisioned it
+    const existing = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
+    if (existing?.length) { companyId = existing[0].id; }
+    else {
+      const rows = await dbPost(env, '/smartcore_core_companies', {
+        order_id:       o.id,
+        company_name:   o.company_name,
+        company_email:  o.email,
+        company_phone:  o.phone || null,
+        staff_count:    o.staff_count || null,
+        status:         'active',
+        provisioned_at: new Date().toISOString(),
+      }, true);
+      const company = Array.isArray(rows) ? rows[0] : rows;
+      if (!company?.id) return;
+      companyId = company.id;
+    }
+  }
 
   const modules = parseModules(o.modules);
   const all = [
@@ -120,15 +132,25 @@ async function provisionCore(env, o) {
   ];
 
   for (const m of all) {
-    await dbPost(env, '/smartcore_core_purchased_modules', {
-      company_id:   company.id,
-      order_id:     o.id,
-      module_slug:  m.slug,
-      module_name:  m.name,
-      billing_type: o.billing_type,
-      price:        m.price || 0,
-      status:       'active',
-      activated_at: new Date().toISOString(),
+    // Use upsert (ignore duplicates) so re-running doesn't fail on existing slugs
+    await fetch(`${env.SUPABASE_URL}/rest/v1/smartcore_core_purchased_modules`, {
+      method: 'POST',
+      headers: {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=ignore-duplicates,return=minimal',
+      },
+      body: JSON.stringify({
+        company_id:   companyId,
+        order_id:     o.id,
+        module_slug:  m.slug,
+        module_name:  m.name,
+        billing_type: o.billing_type,
+        price:        m.price || 0,
+        status:       'active',
+        activated_at: new Date().toISOString(),
+      }),
     });
   }
 }
@@ -150,9 +172,14 @@ async function provisionCRM(env, o) {
 
   const tier = CRM_TIER_MAP[crmModule.slug];
 
-  // Find the company that was provisioned for this order
-  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
-  const company = companies?.[0];
+  // Find the company — use existing if supplied, otherwise the one provisioned for this order
+  let company;
+  if (o.existing_company_id) {
+    company = { id: o.existing_company_id };
+  } else {
+    const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
+    company = companies?.[0];
+  }
   if (!company?.id) return;
 
   // Upsert company_modules record

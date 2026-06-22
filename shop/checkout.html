@@ -209,6 +209,10 @@
       <h1 class="text-2xl font-extrabold tracking-tight mb-2">Your Details</h1>
       <p class="text-sm mb-7" style="color:var(--muted)">Tell us about your company and we'll get back to you within 1 working day to confirm and activate your modules.</p>
 
+      <!-- Company selector (injected here if user has existing companies) -->
+      <div id="companySelectorSection"></div>
+      <input type="hidden" id="existingCompanyId" value="" />
+
       <div class="grid sm:grid-cols-2 gap-4">
         <div>
           <label class="label">Company Name <span style="color:#f87171">*</span></label>
@@ -419,14 +423,101 @@ function markAccountDone() {
   document.getElementById('stepDetailsLabel').style.color = 'var(--accent)';
 }
 
-function showDetailsPanel() {
+async function showDetailsPanel() {
   document.getElementById('authPanel').style.display = 'none';
   document.getElementById('detailsPanel').style.display = '';
   // Pre-fill email from auth form
   const email = document.getElementById('authEmail')?.value || document.getElementById('signinEmail')?.value || '';
   const fEmail = document.getElementById('fEmail');
   if (email && fEmail && !fEmail.value) fEmail.value = email;
+  // Check for existing owned companies
+  if (authedUserId) await loadExistingCompanies();
 }
+
+let existingCompanies = [];
+
+async function loadExistingCompanies() {
+  try {
+    const { data: empRows } = await sb
+      .from('core_employees')
+      .select('company_id, role')
+      .eq('auth_user_id', authedUserId)
+      .in('role', ['owner', 'admin']);
+    if (!empRows?.length) return;
+    const ids = [...new Set(empRows.map(r => r.company_id).filter(Boolean))];
+    if (!ids.length) return;
+    const { data: companies } = await sb
+      .from('smartcore_core_companies')
+      .select('id, company_name')
+      .in('id', ids);
+    existingCompanies = companies || [];
+    if (existingCompanies.length) renderCompanySelector();
+  } catch (e) { console.error('loadExistingCompanies:', e); }
+}
+
+function renderCompanySelector() {
+  const sec = document.getElementById('companySelectorSection');
+  if (!sec) return;
+  sec.innerHTML = `
+    <div style="margin-bottom:24px;padding:20px;border-radius:16px;background:rgba(120,170,255,.08);border:1px solid rgba(120,170,255,.22)">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:rgba(120,170,255,.85);margin-bottom:10px">Company Assignment</div>
+      <h2 style="font-size:16px;font-weight:800;color:#eaf0ff;margin-bottom:4px">Add to which company?</h2>
+      <p style="font-size:12px;color:rgba(234,240,255,.6);margin-bottom:16px">We found ${existingCompanies.length > 1 ? existingCompanies.length + ' companies' : 'a company'} you already own. Add these modules to an existing one or register a new company.</p>
+      <div style="display:flex;flex-direction:column;gap:8px" id="companyOptions">
+        ${existingCompanies.map(c => `
+          <div id="coOpt-${c.id}" onclick="selectExistingCompany('${c.id}',${JSON.stringify(c.company_name).replace(/</g,'\\u003c').replace(/>/g,'\\u003e')})" style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-radius:12px;border:2px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);cursor:pointer;transition:all .15s">
+            <div id="coRadio-${c.id}" style="width:18px;height:18px;border-radius:50%;border:2px solid rgba(255,255,255,.3);flex-shrink:0;display:flex;align-items:center;justify-content:center"></div>
+            <div>
+              <div style="font-weight:700;font-size:14px;color:#eaf0ff">${esc(c.company_name)}</div>
+              <div style="font-size:11px;color:rgba(234,240,255,.5)">Existing company</div>
+            </div>
+          </div>`).join('')}
+        <div id="coOptNew" onclick="selectNewCompany()" style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-radius:12px;border:2px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);cursor:pointer;transition:all .15s">
+          <div id="coRadioNew" style="width:18px;height:18px;border-radius:50%;border:2px solid rgba(255,255,255,.3);flex-shrink:0;display:flex;align-items:center;justify-content:center"></div>
+          <div>
+            <div style="font-weight:700;font-size:14px;color:#eaf0ff">Register a new company</div>
+            <div style="font-size:11px;color:rgba(234,240,255,.5)">Set up a brand new company account</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+window.selectExistingCompany = function(companyId, companyName) {
+  document.querySelectorAll('#companyOptions > div').forEach(el => {
+    el.style.borderColor = 'rgba(255,255,255,.10)';
+    el.style.background  = 'rgba(255,255,255,.04)';
+  });
+  document.querySelectorAll('[id^="coRadio"]').forEach(el => {
+    el.innerHTML = '';
+    el.style.borderColor = 'rgba(255,255,255,.3)';
+  });
+  const opt = document.getElementById('coOpt-' + companyId);
+  if (opt) { opt.style.borderColor = 'rgba(120,170,255,.6)'; opt.style.background = 'rgba(120,170,255,.1)'; }
+  const radio = document.getElementById('coRadio-' + companyId);
+  if (radio) { radio.innerHTML = '<div style="width:9px;height:9px;border-radius:50%;background:var(--accent)"></div>'; radio.style.borderColor = 'var(--accent)'; }
+  const fCompany = document.getElementById('fCompany');
+  if (fCompany) { fCompany.value = companyName; fCompany.disabled = true; fCompany.style.opacity = '.6'; }
+  document.getElementById('existingCompanyId').value = companyId;
+};
+
+window.selectNewCompany = function() {
+  document.querySelectorAll('#companyOptions > div').forEach(el => {
+    el.style.borderColor = 'rgba(255,255,255,.10)';
+    el.style.background  = 'rgba(255,255,255,.04)';
+  });
+  document.querySelectorAll('[id^="coRadio"]').forEach(el => {
+    el.innerHTML = '';
+    el.style.borderColor = 'rgba(255,255,255,.3)';
+  });
+  const opt = document.getElementById('coOptNew');
+  if (opt) { opt.style.borderColor = 'rgba(120,170,255,.6)'; opt.style.background = 'rgba(120,170,255,.1)'; }
+  const radio = document.getElementById('coRadioNew');
+  if (radio) { radio.innerHTML = '<div style="width:9px;height:9px;border-radius:50%;background:var(--accent)"></div>'; radio.style.borderColor = 'var(--accent)'; }
+  const fCompany = document.getElementById('fCompany');
+  if (fCompany) { fCompany.value = ''; fCompany.disabled = false; fCompany.style.opacity = ''; }
+  document.getElementById('existingCompanyId').value = '';
+};
 
 function showSignup() {
   document.getElementById('authSignup').style.display = '';
@@ -735,6 +826,7 @@ async function submitOrder() {
       staff_count:          staff,
       notes:                notes || null,
       auth_user_id:         authedUserId || null,
+      existing_company_id:  document.getElementById('existingCompanyId')?.value || null,
       modules:              basket.map(m => ({
         id:            m.id,
         slug:          m.slug,
