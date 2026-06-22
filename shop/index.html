@@ -777,6 +777,9 @@ const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE
 // ── State ─────────────────────────────────────────────────
 const SESSION_ID = (sessionStorage.sc_sid ||= Math.random().toString(36).slice(2));
 
+// Tier picker state: groupKey → selected module id
+const groupSelection = {};
+
 // £2.25/person/month model. Micro has a minimum fee (base price).
 // All other tiers: representative_employees × £2.25 / £35_base = multiplier
 const SIZE_TIERS = [
@@ -810,10 +813,12 @@ function fmtMo(n, forceYr) { return fmt(n) + (forceYr || (typeof forceYr === 'un
 function $id(id)  { return document.getElementById(id); }
 
 function modulePrice(m) {
-  if (!shopSizeTier || shopSizeTier.multiplier === null) return null;
   const base = state.billing === 'yearly'
     ? (m.yearly_price || +(m.monthly_price * 0.92).toFixed(2))
     : m.monthly_price;
+  // Fixed-price modules (e.g. CRM tiers) don't scale with company size
+  if (m.size_pricing === false) return +base.toFixed(2);
+  if (!shopSizeTier || shopSizeTier.multiplier === null) return null;
   return +(base * shopSizeTier.multiplier).toFixed(2);
 }
 
@@ -889,11 +894,44 @@ function catBadgeClass(cat) {
   return map[cat] || 'badge-cat';
 }
 
+// ── Group processing ──────────────────────────────────────
+// Modules that share a group_key are collapsed into one display item.
+function buildDisplayItems(modules) {
+  const groupMap = {};
+  const singles  = [];
+
+  for (const m of modules) {
+    if (m.group_key) {
+      (groupMap[m.group_key] = groupMap[m.group_key] || []).push(m);
+    } else {
+      singles.push(m);
+    }
+  }
+
+  const groups = Object.entries(groupMap).map(([key, versions]) => {
+    versions.sort((a, b) => (a.monthly_price || 0) - (b.monthly_price || 0));
+    const rep  = versions[0];
+    // Strip tier suffix from name for the group card
+    const groupName = rep.name.replace(/\s+(Lite|Professional|Business|Enterprise|Basic|Pro|Standard|Starter)$/i, '').trim();
+    return {
+      ...rep,
+      id:         '_group_' + key,
+      name:       groupName,
+      _isGroup:   true,
+      _groupKey:  key,
+      _versions:  versions,
+    };
+  });
+
+  return [...singles, ...groups];
+}
+
 // ── Load data ─────────────────────────────────────────────
 async function loadModules() {
   const { data } = await sb.from('marketplace_modules')
     .select('*').eq('status','published').order('sort_order',{ascending:true});
   state.modules = (data || []).filter(m => m.slug !== 'smartcore-core');
+  state.displayItems = buildDisplayItems(state.modules);
   applyFilters();
   buildChips();
   updateBasketBar();
@@ -901,9 +939,10 @@ async function loadModules() {
 }
 
 function applyFilters() {
-  const q   = state.search.toLowerCase();
-  const cat = state.category;
-  state.filtered = state.modules.filter(m =>
+  const q    = state.search.toLowerCase();
+  const cat  = state.category;
+  const items = state.displayItems || [];
+  state.filtered = items.filter(m =>
     (cat === 'All' || m.category === cat) &&
     (!q || m.name.toLowerCase().includes(q) || (m.short_description||'').toLowerCase().includes(q))
   );
@@ -911,7 +950,7 @@ function applyFilters() {
 }
 
 function buildChips() {
-  const cats = ['All', ...new Set(state.modules.map(m => m.category).filter(Boolean))];
+  const cats = ['All', ...new Set((state.displayItems||[]).map(m => m.category).filter(Boolean))];
   $id('categoryChips').innerHTML = cats.map(c => `
     <button class="chip${c === state.category ? ' active' : ''}" onclick="setCategory('${esc(c)}')">${esc(c)}</button>
   `).join('');
@@ -924,6 +963,10 @@ function setCategory(cat) {
 }
 
 // ── Render grid ───────────────────────────────────────────
+function groupInBasket(g) {
+  return g._versions.some(v => state.basket.some(b => b.id === v.id));
+}
+
 function renderGrid() {
   const grid = $id('moduleGrid');
   if (!state.filtered.length) {
@@ -937,25 +980,63 @@ function renderGrid() {
   }
 
   grid.innerHTML = state.filtered.map(m => {
+    const accent = catColor(m.category);
+
+    if (m._isGroup) {
+      // ── Group card (e.g. SmartCore CRM with 4 tiers) ──
+      const inBasket   = groupInBasket(m);
+      const lowestPrice = modulePrice(m._versions[0]);
+      const features   = Array.isArray(m.features) ? m.features.slice(0,3) : [];
+      return `
+        <div class="mod-card${inBasket?' selected':''}" id="card-${m._groupKey}" onclick="openGroupDetail('${m._groupKey}')">
+          <div class="card-tick">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          ${m.thumbnail_url
+            ? `<img class="card-thumb" src="${esc(m.thumbnail_url)}" alt="${esc(m.name)}" loading="lazy" />`
+            : `<div class="card-thumb-placeholder" style="background:linear-gradient(135deg,${accent}18,${accent}06)">
+                 <svg width="36" height="36" viewBox="0 0 24 24" fill="none" style="opacity:.3"><rect x="3" y="3" width="18" height="18" rx="3" stroke="${accent}" stroke-width="1.5"/><path d="M9 9h6M9 12h6M9 15h4" stroke="${accent}" stroke-width="1.2" stroke-linecap="round"/></svg>
+               </div>`}
+          <div class="card-accent" style="background:linear-gradient(90deg,${accent},${accent}55)"></div>
+          <div class="card-body">
+            <div class="card-badges">
+              <span class="badge ${catBadgeClass(m.category)}">${esc(m.category)}</span>
+              <span class="badge badge-purple">${m._versions.length} plans</span>
+              ${m.featured ? '<span class="badge badge-amber">Featured</span>' : ''}
+            </div>
+            <div class="card-name">${esc(m.name)}</div>
+            <div class="card-desc">${esc(m.short_description||'')}</div>
+            ${features.length ? `<div class="card-features">
+              ${features.map(f=>`<div class="card-feature"><div class="card-feature-dot" style="background:${accent}"></div><span>${esc(f)}</span></div>`).join('')}
+            </div>` : ''}
+          </div>
+          <div class="card-footer">
+            <div>
+              <div class="card-price"><span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.02em">from </span>${lowestPrice !== null ? fmtMo(lowestPrice) : 'Custom'}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px">${m._versions.map(v=>v.version_label).join(' · ')}</div>
+            </div>
+            <button class="card-add ${inBasket?'added':'add'}" onclick="event.stopPropagation();openGroupDetail('${m._groupKey}')">
+              ${inBasket ? '✓ Added' : 'Choose plan'}
+            </button>
+          </div>
+        </div>`;
+    }
+
+    // ── Regular single-module card ──
     const inBasket = state.basket.some(b => b.id === m.id);
     const price    = modulePrice(m);
     const features = Array.isArray(m.features) ? m.features.slice(0,3) : [];
-    const accent   = catColor(m.category);
-
     return `
       <div class="mod-card${inBasket?' selected':''}" id="card-${m.id}" onclick="openDetail('${m.id}')">
         <div class="card-tick">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
-
         ${m.thumbnail_url
           ? `<img class="card-thumb" src="${esc(m.thumbnail_url)}" alt="${esc(m.name)}" loading="lazy" />`
           : `<div class="card-thumb-placeholder" style="background:linear-gradient(135deg,${accent}18,${accent}06)">
                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" style="opacity:.3"><rect x="3" y="3" width="18" height="18" rx="3" stroke="${accent}" stroke-width="1.5"/><path d="M9 9h6M9 12h6M9 15h4" stroke="${accent}" stroke-width="1.2" stroke-linecap="round"/></svg>
-             </div>`
-        }
+             </div>`}
         <div class="card-accent" style="background:linear-gradient(90deg,${accent},${accent}55)"></div>
-
         <div class="card-body">
           <div class="card-badges">
             <span class="badge ${catBadgeClass(m.category)}">${esc(m.category)}</span>
@@ -965,29 +1046,168 @@ function renderGrid() {
           </div>
           <div class="card-name">${esc(m.name)}</div>
           <div class="card-desc">${esc(m.short_description||'')}</div>
-          ${features.length ? `
-            <div class="card-features">
-              ${features.map(f=>`<div class="card-feature"><div class="card-feature-dot" style="background:${accent}"></div><span>${esc(f)}</span></div>`).join('')}
-            </div>
-          ` : ''}
+          ${features.length ? `<div class="card-features">
+            ${features.map(f=>`<div class="card-feature"><div class="card-feature-dot" style="background:${accent}"></div><span>${esc(f)}</span></div>`).join('')}
+          </div>` : ''}
         </div>
-
         <div class="card-footer">
           <div>
             ${price === null
               ? `<div class="card-price" style="color:#a78bfa;font-size:13px">Custom pricing</div>`
-              : `<div class="card-price">${shopSizeTier ? '' : '<span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.02em">from </span>'}${fmtMo(price)}</div>
-            ${state.billing==='yearly'&&m.monthly_price!==price
-              ? `<div class="card-price-was">${fmtMo(m.monthly_price * (shopSizeTier?.multiplier||1))}</div>` : ''}`
-            }
+              : `<div class="card-price">${(shopSizeTier && m.size_pricing !== false) ? '' : '<span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.02em">from </span>'}${fmtMo(price)}</div>
+                 ${state.billing==='yearly'&&m.monthly_price!==price ? `<div class="card-price-was">${fmtMo(m.monthly_price * (shopSizeTier?.multiplier||1))}</div>` : ''}`}
           </div>
-          <button class="card-add ${inBasket?'added':'add'}"
-            onclick="event.stopPropagation();toggleBasket('${m.id}')">
+          <button class="card-add ${inBasket?'added':'add'}" onclick="event.stopPropagation();toggleBasket('${m.id}')">
             ${inBasket ? '✓ Added' : '+ Add'}
           </button>
         </div>
       </div>`;
   }).join('');
+}
+
+// ── Group detail (tier picker) ────────────────────────────
+function openGroupDetail(groupKey) {
+  const item = (state.displayItems||[]).find(x => x._isGroup && x._groupKey === groupKey);
+  if (!item) return;
+  state.detailId = '_group_' + groupKey;
+
+  const versions = item._versions;
+  const accent   = catColor(item.category);
+  const features = Array.isArray(item.features) ? item.features : [];
+
+  // Which version is currently in basket (if any)?
+  const basketedVersion = versions.find(v => state.basket.some(b => b.id === v.id));
+  // Default selection: basked version or first
+  if (!groupSelection[groupKey]) {
+    groupSelection[groupKey] = (basketedVersion || versions[0]).id;
+  }
+
+  $id('detailNavTitle').textContent = item.name;
+  _renderGroupDetail(item);
+
+  $id('detail').classList.add('visible');
+  document.body.style.overflow = 'hidden';
+  $id('detail').addEventListener('scroll', onDetailScroll, {passive:true});
+}
+
+function _renderGroupDetail(item) {
+  const groupKey = item._groupKey;
+  const versions = item._versions;
+  const accent   = catColor(item.category);
+  const features = Array.isArray(item.features) ? item.features : [];
+  const selId    = groupSelection[groupKey] || versions[0].id;
+  const selVer   = versions.find(v => v.id === selId) || versions[0];
+  const inBasket = state.basket.some(b => b.id === selId);
+
+  updateDetailNavBtn(inBasket);
+
+  $id('detailBody').innerHTML = `<div class="detail-layout">
+    <div class="detail-left">
+      ${item.thumbnail_url ? `<div class="detail-hero"><img src="${esc(item.thumbnail_url)}" alt="${esc(item.name)}" /></div>` : ''}
+
+      <!-- Tier comparison table -->
+      <div class="detail-section">
+        <div class="detail-section-title">Compare plans</div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:10px 12px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border2)">Feature</th>
+                ${versions.map(v => `
+                  <th style="padding:10px 12px;border-bottom:1px solid var(--border2);text-align:center;cursor:pointer;color:${v.id===selId?accent:'var(--muted)'};font-weight:700" onclick="selectGroupTier('${groupKey}','${v.id}')">
+                    ${esc(v.version_label||v.name)}
+                    ${v.id===selId?`<div style="width:6px;height:6px;border-radius:50%;background:${accent};margin:4px auto 0"></div>`:''}
+                  </th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${versions[0].features?.map((feat, i) => `
+                <tr>
+                  <td style="padding:9px 12px;color:var(--muted);border-bottom:1px solid var(--border2)">${esc(feat)}</td>
+                  ${versions.map(v => `<td style="padding:9px 12px;text-align:center;border-bottom:1px solid var(--border2)">
+                    ${(v.features||[])[i] !== undefined ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#30d158" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>` : `<span style="color:var(--muted2)">—</span>`}
+                  </td>`).join('')}
+                </tr>`).join('') || ''}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-right">
+      <div class="detail-badges">
+        <span style="background:${accent}22;color:${accent};border:1px solid ${accent}44;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">${esc(item.category)}</span>
+        <span style="background:rgba(168,85,247,.12);color:#c084fc;border:1px solid rgba(168,85,247,.2);border-radius:6px;padding:2px 8px;font-size:10px;font-weight:700;text-transform:uppercase">${versions.length} plans</span>
+      </div>
+      <div class="detail-name">${esc(item.name)}</div>
+      ${item.short_description ? `<div class="detail-tagline">${esc(item.short_description)}</div>` : ''}
+
+      <!-- Tier selector -->
+      <div style="margin-bottom:20px">
+        <div class="detail-section-title">Choose your plan</div>
+        <div style="display:flex;flex-direction:column;gap:8px" id="tierPills">
+          ${versions.map(v => {
+            const price = modulePrice(v);
+            const isSel = v.id === selId;
+            return `<div onclick="selectGroupTier('${groupKey}','${v.id}')" style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-radius:12px;border:2px solid ${isSel?accent:'var(--border2)'};background:${isSel?accent+'18':'rgba(255,255,255,.03)'};cursor:pointer;transition:border-color .15s">
+              <div>
+                <div style="font-weight:700;font-size:14px;color:${isSel?accent:'var(--text)'}">${esc(v.version_label||v.name)}</div>
+                ${v.short_description ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">${esc(v.short_description)}</div>` : ''}
+              </div>
+              <div style="text-align:right;flex-shrink:0;margin-left:12px">
+                <div style="font-weight:800;font-size:15px">${price !== null ? fmtMo(price) : 'Custom'}</div>
+                ${state.billing==='yearly'&&v.monthly_price ? `<div style="font-size:11px;color:var(--muted);text-decoration:line-through">${fmtMo(v.monthly_price,false)}</div>` : ''}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- Pricing card -->
+      <div class="pricing-card">
+        <div class="pricing-amount">${(() => { const p = modulePrice(selVer); return p !== null ? fmtMo(p) : 'Custom'; })()</div>
+        <div class="pricing-period">${esc(selVer.version_label||'')} plan · ${state.billing === 'yearly' ? 'billed annually' : 'billed monthly'}</div>
+        <button class="pricing-cta ${inBasket?'in-basket':''}" onclick="groupToggleBasket('${groupKey}')" id="detailPricingBtn">
+          ${inBasket ? '✓ In basket — Remove' : '+ Add to basket'}
+        </button>
+        <p class="pricing-note">Cancel anytime · No setup fee · SmartCore Core included free</p>
+      </div>
+    </div>
+  </div>`;
+}
+
+function selectGroupTier(groupKey, moduleId) {
+  groupSelection[groupKey] = moduleId;
+  const item = (state.displayItems||[]).find(x => x._isGroup && x._groupKey === groupKey);
+  if (item) _renderGroupDetail(item);
+}
+
+function groupToggleBasket(groupKey) {
+  const item  = (state.displayItems||[]).find(x => x._isGroup && x._groupKey === groupKey);
+  if (!item) return;
+  const selId = groupSelection[groupKey] || item._versions[0].id;
+  const selVer = item._versions.find(v => v.id === selId);
+  if (!selVer) return;
+
+  // Remove any other version of this group from basket first
+  item._versions.forEach(v => {
+    const idx = state.basket.findIndex(b => b.id === v.id);
+    if (idx >= 0) state.basket.splice(idx, 1);
+  });
+
+  // If selected version was already the one in basket, we just removed it (toggle off)
+  const wasInBasket = state.basket.findIndex(b => b.id === selId) >= 0;
+  if (!wasInBasket) {
+    state.basket.push(selVer);
+    trackEvent(selId, 'add_to_basket');
+  }
+
+  saveBasket();
+  updateBasketBar();
+  renderGrid();
+  // Re-render detail panel
+  _renderGroupDetail(item);
+  updateDetailNavBtn(state.basket.some(b => b.id === selId));
 }
 
 // ── Detail ────────────────────────────────────────────────
@@ -1101,6 +1321,10 @@ function updateDetailNavBtn(inBasket) {
 
 function detailToggleBasket() {
   if (!state.detailId) return;
+  if (state.detailId.startsWith('_group_')) {
+    groupToggleBasket(state.detailId.replace('_group_', ''));
+    return;
+  }
   toggleBasket(state.detailId);
   const inBasket = state.basket.some(b => b.id === state.detailId);
   updateDetailNavBtn(inBasket);
