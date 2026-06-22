@@ -100,11 +100,20 @@ async function provisionCore(env, o) {
   let companyId;
 
   if (o.existing_company_id) {
-    // Adding modules to an existing owned company — don't create a new one
-    companyId = o.existing_company_id;
-    // Still tag the order with this company so provisionCRM can find it
-    const alreadyTagged = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(companyId)}&select=id&limit=1`);
-    if (!alreadyTagged?.length) return; // safety check — company must exist
+    // Adding modules to an existing company — find the owner's smartcore_core_companies record
+    // First try to find one already linked to this public company's owner via core_employees
+    const pubCompany = await dbGet(env, `/companies?id=eq.${enc(o.existing_company_id)}&select=owner_user_id&limit=1`);
+    const ownerUserId = pubCompany?.[0]?.owner_user_id;
+    if (ownerUserId) {
+      const emp = await dbGet(env, `/core_employees?auth_user_id=eq.${enc(ownerUserId)}&select=company_id&limit=1`);
+      companyId = emp?.[0]?.company_id;
+    }
+    // Fallback: check if there's already a smartcore_core_companies row for this order
+    if (!companyId) {
+      const byOrder = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
+      companyId = byOrder?.[0]?.id;
+    }
+    if (!companyId) return; // can't find the core company to provision into
   } else {
     // New company purchase — check we haven't already provisioned it
     const existing = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
@@ -172,10 +181,20 @@ async function provisionCRM(env, o) {
 
   const tier = CRM_TIER_MAP[crmModule.slug];
 
-  // Find the company — use existing if supplied, otherwise the one provisioned for this order
+  // Find the core company (smartcore_core_companies) for this order
   let company;
   if (o.existing_company_id) {
-    company = { id: o.existing_company_id };
+    // Look up via the owner's core_employees record
+    const pubCompany = await dbGet(env, `/companies?id=eq.${enc(o.existing_company_id)}&select=owner_user_id&limit=1`);
+    const ownerUserId = pubCompany?.[0]?.owner_user_id;
+    if (ownerUserId) {
+      const emp = await dbGet(env, `/core_employees?auth_user_id=eq.${enc(ownerUserId)}&select=company_id&limit=1`);
+      if (emp?.[0]?.company_id) company = { id: emp[0].company_id };
+    }
+    if (!company) {
+      const byOrder = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
+      company = byOrder?.[0];
+    }
   } else {
     const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
     company = companies?.[0];
