@@ -192,8 +192,18 @@
 
     <!-- FORM -->
     <div id="detailsPanel" class="glass p-6 sm:p-8" style="display:none">
+      <!-- Existing-company fast-track (shown when user picks an existing company) -->
+      <div id="existingFastTrack" style="display:none;margin-bottom:24px">
+        <div id="fastTrackCard" style="padding:24px;border-radius:16px;background:rgba(34,197,94,.07);border:2px solid rgba(34,197,94,.25);text-align:center">
+          <div style="font-size:28px;margin-bottom:12px">🏢</div>
+          <div style="font-size:17px;font-weight:800;color:#eaf0ff;margin-bottom:6px" id="fastTrackName"></div>
+          <div style="font-size:13px;color:rgba(234,240,255,.6);margin-bottom:20px">These modules will be added to your existing company account.</div>
+          <button class="btn btn-primary w-full py-4 text-base font-extrabold" onclick="fastTrackSubmit()">Proceed to Payment →</button>
+        </div>
+      </div>
+
       <!-- Step 1: Company Size -->
-      <div class="mb-8">
+      <div class="mb-8" id="sizeSection">
         <div class="text-xs font-bold uppercase tracking-widest mb-3" style="color:rgba(234,240,255,.52)">Step 1 — Company Size</div>
         <h2 class="text-lg font-extrabold tracking-tight mb-1" style="color:#eaf0ff">How many employees does your company have?</h2>
         <p class="text-xs mb-4" style="color:rgba(234,240,255,.60)">This helps us tailor your pricing to the right scale for your team.</p>
@@ -204,7 +214,8 @@
         <input type="hidden" id="fSizeMultiplier" value="1.00" />
       </div>
 
-      <div class="border-t mb-7" style="border-color:rgba(255,255,255,.08)"></div>
+      <div class="border-t mb-7" style="border-color:rgba(255,255,255,.08)" id="detailsDivider"></div>
+      <div id="detailsSection">
       <div class="text-xs font-bold uppercase tracking-widest mb-4" style="color:rgba(234,240,255,.52)">Step 2 — Your Details</div>
       <h1 class="text-2xl font-extrabold tracking-tight mb-2">Your Details</h1>
       <p class="text-sm mb-7" style="color:var(--muted)">Tell us about your company and we'll get back to you within 1 working day to confirm and activate your modules.</p>
@@ -250,6 +261,7 @@
       <button id="submitBtn" class="btn btn-primary w-full mt-6 py-4 text-base font-extrabold" onclick="submitOrder()">
         Submit Order →
       </button>
+      </div><!-- /detailsSection -->
 
       <p class="mt-4 text-xs text-center" style="color:var(--muted2)">
         By submitting you agree to our <a href="/privacy-policy.html" style="color:var(--accent);text-decoration:underline">Privacy Policy</a>.
@@ -479,6 +491,7 @@ function renderCompanySelector() {
 }
 
 window.selectExistingCompany = function(companyId, companyName) {
+  // Highlight the selected option
   document.querySelectorAll('#companyOptions > div').forEach(el => {
     el.style.borderColor = 'rgba(255,255,255,.10)';
     el.style.background  = 'rgba(255,255,255,.04)';
@@ -488,12 +501,23 @@ window.selectExistingCompany = function(companyId, companyName) {
     el.style.borderColor = 'rgba(255,255,255,.3)';
   });
   const opt = document.getElementById('coOpt-' + companyId);
-  if (opt) { opt.style.borderColor = 'rgba(120,170,255,.6)'; opt.style.background = 'rgba(120,170,255,.1)'; }
+  if (opt) { opt.style.borderColor = 'rgba(34,197,94,.5)'; opt.style.background = 'rgba(34,197,94,.08)'; }
   const radio = document.getElementById('coRadio-' + companyId);
-  if (radio) { radio.innerHTML = '<div style="width:9px;height:9px;border-radius:50%;background:var(--accent)"></div>'; radio.style.borderColor = 'var(--accent)'; }
-  const fCompany = document.getElementById('fCompany');
-  if (fCompany) { fCompany.value = companyName; fCompany.disabled = true; fCompany.style.opacity = '.6'; }
+  if (radio) { radio.innerHTML = '<div style="width:9px;height:9px;border-radius:50%;background:#4ade80"></div>'; radio.style.borderColor = '#4ade80'; }
+
+  // Store values
   document.getElementById('existingCompanyId').value = companyId;
+  const fCompany = document.getElementById('fCompany');
+  if (fCompany) fCompany.value = companyName;
+
+  // Hide the size + details form, show fast-track card
+  document.getElementById('sizeSection').style.display = 'none';
+  document.getElementById('detailsDivider').style.display = 'none';
+  document.getElementById('detailsSection').style.display = 'none';
+  const ft = document.getElementById('existingFastTrack');
+  const ftName = document.getElementById('fastTrackName');
+  if (ft) ft.style.display = '';
+  if (ftName) ftName.textContent = companyName;
 };
 
 window.selectNewCompany = function() {
@@ -509,10 +533,67 @@ window.selectNewCompany = function() {
   if (opt) { opt.style.borderColor = 'rgba(120,170,255,.6)'; opt.style.background = 'rgba(120,170,255,.1)'; }
   const radio = document.getElementById('coRadioNew');
   if (radio) { radio.innerHTML = '<div style="width:9px;height:9px;border-radius:50%;background:var(--accent)"></div>'; radio.style.borderColor = 'var(--accent)'; }
-  const fCompany = document.getElementById('fCompany');
-  if (fCompany) { fCompany.value = ''; fCompany.disabled = false; fCompany.style.opacity = ''; }
+
+  // Show full form, hide fast-track
+  document.getElementById('sizeSection').style.display = '';
+  document.getElementById('detailsDivider').style.display = '';
+  document.getElementById('detailsSection').style.display = '';
+  document.getElementById('existingFastTrack').style.display = 'none';
   document.getElementById('existingCompanyId').value = '';
+  const fCompany = document.getElementById('fCompany');
+  if (fCompany) { fCompany.value = ''; }
 };
+
+async function fastTrackSubmit() {
+  const companyId   = document.getElementById('existingCompanyId').value;
+  const companyName = document.getElementById('fCompany').value;
+  if (!companyId) return;
+
+  const btn = document.querySelector('#existingFastTrack button');
+  if (btn) { btn.disabled = true; btn.textContent = 'Processing…'; }
+
+  const billable = basket.filter(m => m.slug !== 'smartcore-core');
+  if (!billable.length) { if (btn) { btn.disabled = false; btn.textContent = 'Proceed to Payment →'; } return; }
+
+  const totals = calcTotals();
+  const ref = genRef();
+
+  try {
+    const { data: insertedRows, error } = await sb.from('marketplace_orders').insert({
+      order_reference:      ref,
+      company_name:         companyName,
+      contact_name:         companyName,
+      email:                (await sb.auth.getUser()).data.user?.email || '',
+      auth_user_id:         authedUserId || null,
+      existing_company_id:  companyId,
+      modules:              basket.map(m => ({
+        id:            m.id,
+        slug:          m.slug,
+        name:          m.name,
+        monthly_price: m.monthly_price,
+        yearly_price:  m.yearly_price,
+        price:         billingType === 'yearly' ? m.yearly_price : m.monthly_price,
+        size_pricing:  m.size_pricing,
+      })),
+      billing_type:         billingType,
+      size_tier:            selectedSizeTier.id,
+      size_multiplier:      selectedSizeTier.multiplier,
+      subtotal:             totals.subtotal,
+      discount_percent:     0,
+      discount_amount:      totals.pkgDiscount,
+      annual_discount_amount: totals.annualDiscount,
+      total:                totals.total,
+      status:               'pending_payment',
+    }).select('id');
+
+    if (error) throw new Error(error.message);
+    localStorage.removeItem('sc_basket');
+    window.location.href = `/shop/payment.html?order_id=${encodeURIComponent(insertedRows[0].id)}`;
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Proceed to Payment →'; }
+    alert('Error: ' + err.message);
+  }
+}
 
 function showSignup() {
   document.getElementById('authSignup').style.display = '';
