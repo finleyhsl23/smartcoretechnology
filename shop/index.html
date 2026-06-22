@@ -546,13 +546,13 @@
     .feature-text{font-size:14px;color:var(--muted);letter-spacing:-.01em;line-height:1.4}
 
     /* Screenshots */
-    .screenshots-scroll{
+    .screenshot-grid{
       display:flex;gap:12px;overflow-x:auto;padding-bottom:4px;
       scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.12) transparent;
     }
-    .screenshots-scroll::-webkit-scrollbar{height:4px}
-    .screenshots-scroll::-webkit-scrollbar-track{background:transparent}
-    .screenshots-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:2px}
+    .screenshot-grid::-webkit-scrollbar{height:4px}
+    .screenshot-grid::-webkit-scrollbar-track{background:transparent}
+    .screenshot-grid::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:2px}
     .screenshot-thumb{
       flex-shrink:0;
       width:300px;height:190px;
@@ -1105,7 +1105,23 @@ function _renderGroupDetail(item) {
 
   $id('detailBody').innerHTML = `<div class="detail-layout">
     <div class="detail-left">
-      ${item.thumbnail_url ? `<div class="detail-hero"><img src="${esc(item.thumbnail_url)}" alt="${esc(item.name)}" /></div>` : ''}
+      ${item.thumbnail_url ? `<div class="detail-hero"><img src="${esc(item.thumbnail_url)}" alt="${esc(item.name)}" onclick="openLightbox('${esc(item.thumbnail_url)}')" /></div>` : ''}
+
+      <!-- Screenshots (from representative version) -->
+      ${Array.isArray(item.screenshots) && item.screenshots.length ? `
+        <div class="detail-section">
+          <div class="detail-section-title">Screenshots</div>
+          <div class="screenshot-grid">
+            ${item.screenshots.map(s=>`<div class="screenshot-thumb" onclick="openLightbox('${esc(s)}')"><img src="${esc(s)}" alt="screenshot" loading="lazy" /></div>`).join('')}
+          </div>
+        </div>` : ''}
+
+      <!-- Videos -->
+      ${Array.isArray(item.videos) && item.videos.length ? `
+        <div class="detail-section">
+          <div class="detail-section-title">Videos</div>
+          <div class="video-grid">${item.videos.map(v=>renderVideo(v)).join('')}</div>
+        </div>` : ''}
 
       <!-- Tier comparison table (collapsed by default) -->
       <div class="detail-section">
@@ -1146,6 +1162,12 @@ function _renderGroupDetail(item) {
       </div>
       <div class="detail-name">${esc(item.name)}</div>
       ${item.short_description ? `<div class="detail-tagline">${esc(item.short_description)}</div>` : ''}
+
+      ${item.long_description ? `
+        <div class="detail-section">
+          <div class="detail-section-title">Overview</div>
+          <div class="detail-desc" style="white-space:pre-wrap">${esc(item.long_description)}</div>
+        </div>` : ''}
 
       <!-- Tier selector -->
       <div style="margin-bottom:20px">
@@ -1256,7 +1278,7 @@ function openDetail(id) {
         <div class="detail-section">
           <div class="detail-section-title">Screenshots</div>
           <div class="screenshot-grid">
-            ${shots.map(s=>`<img src="${esc(s)}" class="screenshot-thumb" onclick="openLightbox('${esc(s)}')" alt="screenshot" loading="lazy" />`).join('')}
+            ${shots.map(s=>`<div class="screenshot-thumb" onclick="openLightbox('${esc(s)}')"><img src="${esc(s)}" alt="screenshot" loading="lazy" /></div>`).join('')}
           </div>
         </div>` : ''}
 
@@ -1264,7 +1286,7 @@ function openDetail(id) {
       ${vids.length ? `
         <div class="detail-section">
           <div class="detail-section-title">Videos</div>
-          ${vids.map(v=>renderVideo(v)).join('')}
+          <div class="video-grid">${vids.map(v=>renderVideo(v)).join('')}</div>
         </div>` : ''}
     </div>
 
@@ -1283,7 +1305,7 @@ function openDetail(id) {
       ${m.long_description ? `
         <div class="detail-section">
           <div class="detail-section-title">Overview</div>
-          <div class="detail-desc">${esc(m.long_description)}</div>
+          <div class="detail-desc" style="white-space:pre-wrap">${esc(m.long_description)}</div>
         </div>` : ''}
 
       <!-- Features -->
