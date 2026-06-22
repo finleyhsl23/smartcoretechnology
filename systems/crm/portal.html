@@ -28,7 +28,7 @@
 
 <script type="module">
 import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js";
-import { portalUsers } from "/systems/crm/shared/api.js?v=2";
+import { portalUsers, companies } from "/systems/crm/shared/api.js?v=2";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmtDate, toast, tierGate, modal, confirm, loading, setInner } from "/systems/crm/shared/ui.js";
@@ -36,7 +36,7 @@ import { sb } from "/systems/crm/shared/supabase.js";
 
 initTheme();
 
-let profile, tier, portalUsersList = [];
+let profile, tier, portalUsersList = [], companiesList = [];
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -53,12 +53,26 @@ try {
 async function loadPortal() {
   setInner("content", loading());
   try {
-    portalUsersList = await portalUsers.list();
+    [portalUsersList, { data: companiesList }] = await Promise.all([
+      portalUsers.list(),
+      companies.list({ limit: 500 }),
+    ]);
     render();
   } catch(e) { toast("bad","Load error",e.message); }
 }
 
 function render() {
+  if (!companiesList.length) {
+    setInner("content", `
+      <div class="page-header"><div class="page-header-left"><h1>Customer Portal</h1><p>Manage portal user accounts</p></div></div>
+      <div class="card"><div class="empty-state">
+        <div class="empty-icon">🏢</div>
+        <h3>No companies yet</h3>
+        <p>Add a company first before inviting portal users.</p>
+        <a href="/systems/crm/companies.html" class="btn btn-primary" style="margin-top:12px">Go to Companies →</a>
+      </div></div>`);
+    return;
+  }
   setInner("content", `
     <div class="page-header">
       <div class="page-header-left">
@@ -70,10 +84,10 @@ function render() {
     <div class="card">
       <div class="tbl-wrap">
         <table class="tbl">
-          <thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Last Login</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Status</th><th>Last Login</th><th></th></tr></thead>
           <tbody id="portalUsersTbody">
             ${portalUsersList.length === 0
-              ? `<tr><td colspan="5"><div class="empty-state" style="padding:20px"><p>No portal users yet. Add one to get started.</p></div></td></tr>`
+              ? `<tr><td colspan="6"><div class="empty-state" style="padding:20px"><p>No portal users yet. Add one to get started.</p></div></td></tr>`
               : portalUsersList.map(u => userRow(u)).join("")}
           </tbody>
         </table>
@@ -83,9 +97,11 @@ function render() {
 
 function userRow(u) {
   const statusBadge = { active:"badge-green", invited:"badge-yellow", suspended:"badge-grey" }[u.status] || "badge-grey";
+  const coName = u.crm_companies?.name || companiesList.find(c => c.id === u.crm_company_id)?.name || "—";
   return `<tr id="pur-${u.id}">
     <td><strong>${esc(u.name||"—")}</strong></td>
     <td><span class="text-sm">${esc(u.email)}</span></td>
+    <td><span class="text-sm">${esc(coName)}</span></td>
     <td><span class="badge ${statusBadge}">${u.status}</span></td>
     <td><span class="text-sm text-muted">${u.last_login_at ? fmtDate(u.last_login_at) : "Never"}</span></td>
     <td>
@@ -98,8 +114,17 @@ function userRow(u) {
 }
 
 function userModal(title, u = {}) {
+  const coOpts = companiesList.map(c =>
+    `<option value="${c.id}" ${u.crm_company_id===c.id?"selected":""}>${esc(c.name)}</option>`
+  ).join("");
   return `
     <h2 style="margin-bottom:16px">${title}</h2>
+    <div style="margin-bottom:12px">
+      <label class="form-label">Company *</label>
+      <select id="puCompany" class="form-control">
+        <option value="">— select company —</option>${coOpts}
+      </select>
+    </div>
     <div style="margin-bottom:12px">
       <label class="form-label">Name</label>
       <input id="puName" class="form-control" placeholder="Full name" value="${esc(u.name||"")}"/>
@@ -126,16 +151,18 @@ window.addUser = function() {
 };
 
 window.doAddUser = async function() {
-  const email    = document.getElementById("puEmail").value.trim();
-  const name     = document.getElementById("puName").value.trim();
-  const password = document.getElementById("puPassword").value;
+  const email      = document.getElementById("puEmail").value.trim();
+  const name       = document.getElementById("puName").value.trim();
+  const password   = document.getElementById("puPassword").value;
+  const companyId  = document.getElementById("puCompany").value;
+  if (!companyId) { toast("bad","Error","Please select a company"); return; }
   if (!email || !email.includes("@")) { toast("bad","Error","Valid email required"); return; }
   if (!password || password.length < 6) { toast("bad","Error","Password must be at least 6 characters"); return; }
   try {
     const res = await fetch("/api/crm/portal-invite", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, name, password, tenant_id: profile.company_id }),
+      body: JSON.stringify({ email, name, password, crm_company_id: companyId, tenant_id: profile.company_id }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
@@ -167,16 +194,17 @@ window.editUser = function(id) {
 };
 
 window.doEditUser = async function(id) {
-  const email    = document.getElementById("puEmail").value.trim();
-  const name     = document.getElementById("puName").value.trim();
-  const password = document.getElementById("puPassword").value;
-  const status   = document.getElementById("puStatus").value;
+  const email     = document.getElementById("puEmail").value.trim();
+  const name      = document.getElementById("puName").value.trim();
+  const password  = document.getElementById("puPassword").value;
+  const status    = document.getElementById("puStatus").value;
+  const companyId = document.getElementById("puCompany").value;
+  if (!companyId) { toast("bad","Error","Please select a company"); return; }
   if (!email || !email.includes("@")) { toast("bad","Error","Valid email required"); return; }
   if (password && password.length < 6) { toast("bad","Error","Password must be at least 6 characters"); return; }
   try {
-    // Update email/name/status directly
     const { error } = await sb().from("crm_portal_users")
-      .update({ email: email.toLowerCase(), name: name || null, status })
+      .update({ email: email.toLowerCase(), name: name || null, status, crm_company_id: companyId || null })
       .eq("id", id);
     if (error) throw error;
 

@@ -436,7 +436,7 @@ export const portalUsers = {
   async list() {
     const tenantId = await tid();
     const { data, error } = await sb().from("crm_portal_users")
-      .select("*, crm_contacts(first_name, last_name, email)")
+      .select("*, crm_contacts(first_name, last_name, email), crm_companies(name)")
       .eq("tenant_id", tenantId)
       .order("invited_at", { ascending: false });
     if (error) throw error;
