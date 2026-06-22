@@ -438,19 +438,14 @@ let existingCompanies = [];
 
 async function loadExistingCompanies() {
   try {
-    const { data: empRows } = await sb
-      .from('core_employees')
-      .select('company_id, role')
-      .eq('auth_user_id', authedUserId)
-      .in('role', ['owner', 'admin']);
-    if (!empRows?.length) return;
-    const ids = [...new Set(empRows.map(r => r.company_id).filter(Boolean))];
-    if (!ids.length) return;
     const { data: companies } = await sb
-      .from('smartcore_core_companies')
-      .select('id, company_name')
-      .in('id', ids);
-    existingCompanies = companies || [];
+      .from('companies')
+      .select('id, name, company_name')
+      .eq('owner_user_id', authedUserId);
+    existingCompanies = (companies || []).map(c => ({
+      id: c.id,
+      company_name: c.company_name || c.name || 'Unnamed Company',
+    }));
     if (existingCompanies.length) renderCompanySelector();
   } catch (e) { console.error('loadExistingCompanies:', e); }
 }
