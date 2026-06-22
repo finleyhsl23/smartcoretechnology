@@ -16,12 +16,14 @@ export async function getProfile() {
   const session = await requireAuth();
   const uid = session.user.id;
 
-  const { data, error } = await sb()
+  const { data: rows, error } = await sb()
     .from("core_employees")
     .select("id, company_id, role, full_name, work_email, auth_user_id")
     .eq("auth_user_id", uid)
-    .maybeSingle();
+    .order("created_at", { ascending: false })
+    .limit(1);
 
+  const data = rows?.[0] ?? null;
   if (error || !data) {
     throw new Error("Employee profile not found. Contact your administrator.");
   }
