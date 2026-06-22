@@ -1781,29 +1781,112 @@
         <div class="card p-4"><div class="text-sm muted">Total Views</div><div class="text-3xl font-extrabold mt-1">${totalViews.toLocaleString()}</div></div>
       `;
 
-      $("#mktRows").innerHTML = rows.map(m => {
-        const flags = [m.featured?"Featured":"",m.popular?"Popular":"",m.recommended?"Recommended":""].filter(Boolean).join(", ") || "—";
-        const statusClass = m.status==="published"?"success":m.status==="draft"?"warning":"";
-        return `<tr>
-          <td><b>${esc(m.name)}</b><br><span class="text-xs muted">${esc(m.slug)}</span></td>
-          <td>${esc(m.category)}</td>
-          <td>£${Number(m.monthly_price||0).toFixed(2)}</td>
-          <td>£${Number(m.yearly_price||0).toFixed(2)}</td>
-          <td><span class="tag ${statusClass}">${esc(m.status)}</span></td>
-          <td class="text-xs muted">${esc(flags)}</td>
-          <td>${m.view_count||0}</td>
-          <td>
-            <div class="flex gap-2 flex-wrap">
-              <button class="btn" onclick="openModuleForm('${m.id}')">Edit</button>
-              <button class="btn ${m.status==='published'?'warning':'success'}" onclick="toggleModuleStatus('${m.id}','${m.status}')">
-                ${m.status==='published'?'Unpublish':'Publish'}
-              </button>
-              <button class="btn danger" onclick="deleteModule('${m.id}')">Delete</button>
-            </div>
-          </td>
-        </tr>`;
+      // Group rows by group_key so CRM tiers appear as one expandable row
+      const groupMap = {};
+      const singles = [];
+      for (const m of rows) {
+        if (m.group_key) {
+          (groupMap[m.group_key] = groupMap[m.group_key] || []).push(m);
+        } else {
+          singles.push(m);
+        }
+      }
+      const displayRows = [
+        ...singles.map(m => ({ type: 'single', m })),
+        ...Object.entries(groupMap).map(([key, versions]) => {
+          versions.sort((a,b) => (a.monthly_price||0) - (b.monthly_price||0));
+          return { type: 'group', key, versions };
+        })
+      ];
+
+      $("#mktRows").innerHTML = displayRows.map(item => {
+        if (item.type === 'single') {
+          const m = item.m;
+          const flags = [m.featured?"Featured":"",m.popular?"Popular":"",m.recommended?"Recommended":""].filter(Boolean).join(", ") || "—";
+          const statusClass = m.status==="published"?"success":m.status==="draft"?"warning":"";
+          return `<tr>
+            <td><b>${esc(m.name)}</b><br><span class="text-xs muted">${esc(m.slug)}</span></td>
+            <td>${esc(m.category)}</td>
+            <td>£${Number(m.monthly_price||0).toFixed(2)}</td>
+            <td>£${Number(m.yearly_price||0).toFixed(2)}</td>
+            <td><span class="tag ${statusClass}">${esc(m.status)}</span></td>
+            <td class="text-xs muted">${esc(flags)}</td>
+            <td>${m.view_count||0}</td>
+            <td>
+              <div class="flex gap-2 flex-wrap">
+                <button class="btn" onclick="openModuleForm('${m.id}')">Edit</button>
+                <button class="btn ${m.status==='published'?'warning':'success'}" onclick="toggleModuleStatus('${m.id}','${m.status}')">
+                  ${m.status==='published'?'Unpublish':'Publish'}
+                </button>
+                <button class="btn danger" onclick="deleteModule('${m.id}')">Delete</button>
+              </div>
+            </td>
+          </tr>`;
+        } else {
+          // Group row
+          const { key, versions } = item;
+          const rep = versions[0];
+          const groupName = rep.name.replace(/\s+(Lite|Professional|Business|Enterprise|Basic|Pro|Standard|Starter)$/i,'').trim();
+          const allPublished = versions.every(v => v.status === 'published');
+          const anyPublished = versions.some(v => v.status === 'published');
+          const statusClass = allPublished ? 'success' : anyPublished ? 'warning' : 'warning';
+          const statusLabel = allPublished ? 'published' : anyPublished ? 'partial' : 'draft';
+          const priceRange = `£${Number(versions[0].monthly_price||0).toFixed(2)} – £${Number(versions[versions.length-1].monthly_price||0).toFixed(2)}`;
+          const expandId = `grp-${key.replace(/[^a-z0-9]/gi,'_')}`;
+          return `
+            <tr style="background:rgba(255,255,255,.03);cursor:pointer" onclick="toggleGroupRows('${expandId}')">
+              <td colspan="2">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <svg id="${expandId}-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;transition:transform .15s"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <div>
+                    <b>${esc(groupName)}</b>
+                    <span style="font-size:11px;color:var(--muted);margin-left:6px">${versions.length} tiers</span>
+                    <br><span class="text-xs muted">${esc(key)}</span>
+                  </div>
+                </div>
+              </td>
+              <td>${esc(rep.category)}</td>
+              <td style="font-size:12px">${priceRange}/mo</td>
+              <td></td>
+              <td><span class="tag ${statusClass}">${statusLabel}</span></td>
+              <td></td>
+              <td>${versions.reduce((s,v)=>s+(v.view_count||0),0)}</td>
+            </tr>
+            ${versions.map(v => {
+              const flags = [v.featured?"Featured":"",v.popular?"Popular":"",v.recommended?"Recommended":""].filter(Boolean).join(", ") || "—";
+              const sc = v.status==="published"?"success":v.status==="draft"?"warning":"";
+              return `<tr class="${expandId}-child" style="display:none;background:rgba(0,0,0,.15)">
+                <td style="padding-left:36px"><b>${esc(v.version_label||v.name)}</b><br><span class="text-xs muted">${esc(v.slug)}</span></td>
+                <td></td>
+                <td>${esc(v.category)}</td>
+                <td>£${Number(v.monthly_price||0).toFixed(2)}</td>
+                <td>£${Number(v.yearly_price||0).toFixed(2)}</td>
+                <td><span class="tag ${sc}">${esc(v.status)}</span></td>
+                <td class="text-xs muted">${esc(flags)}</td>
+                <td>${v.view_count||0}</td>
+                <td>
+                  <div class="flex gap-2 flex-wrap">
+                    <button class="btn" onclick="event.stopPropagation();openModuleForm('${v.id}')">Edit</button>
+                    <button class="btn ${v.status==='published'?'warning':'success'}" onclick="event.stopPropagation();toggleModuleStatus('${v.id}','${v.status}')">
+                      ${v.status==='published'?'Unpublish':'Publish'}
+                    </button>
+                    <button class="btn danger" onclick="event.stopPropagation();deleteModule('${v.id}')">Delete</button>
+                  </div>
+                </td>
+              </tr>`;
+            }).join('')}
+          `;
+        }
       }).join("") || `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--muted)">${(state.mktModules||[]).length===0 ? 'No modules yet. <button class="btn primary" style="margin-left:12px" onclick="openModuleForm()">+ Add your first module</button>' : 'No modules match the current filters.'}</td></tr>`;
     }
+
+    window.toggleGroupRows = function toggleGroupRows(expandId) {
+      const children = document.querySelectorAll(`.${expandId}-child`);
+      const chevron = document.getElementById(`${expandId}-chevron`);
+      const isOpen = children[0]?.style.display !== 'none';
+      children.forEach(r => r.style.display = isOpen ? 'none' : 'table-row');
+      if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+    };
 
     window.closeMktForm = function closeMktForm() {
       const panel = document.getElementById('mktFormPanel');
@@ -1950,6 +2033,13 @@
         ? await sb.from("marketplace_modules").update(payload).eq("id",id)
         : await sb.from("marketplace_modules").insert(payload);
       if (result.error) return alert(result.error.message);
+      // Sync thumbnail to all modules in the same group
+      if (id && payload.group_key && payload.thumbnail_url) {
+        await sb.from("marketplace_modules")
+          .update({ thumbnail_url: payload.thumbnail_url })
+          .eq("group_key", payload.group_key)
+          .neq("id", id);
+      }
       await audit(id?"update_module":"add_module","marketplace_modules",id||payload.slug,{name:payload.name});
       closeMktForm();
       await loadMarketplaceModules();
