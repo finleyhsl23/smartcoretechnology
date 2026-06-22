@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Projects — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+  <style>
+    .milestone-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line2); }
+    .milestone-row:last-child { border-bottom:none; }
+    .ms-status { width:22px; height:22px; border-radius:50%; border:2px solid var(--line2); flex-shrink:0; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:11px; }
+    .ms-status.pending     { border-color:var(--text-dim); }
+    .ms-status.in_progress { border-color:var(--warn); background:var(--warn-dim); }
+    .ms-status.completed   { border-color:var(--good); background:var(--good-dim); }
+    .progress-bar { height:6px; border-radius:3px; background:var(--line2); overflow:hidden; margin-top:8px; }
+    .progress-fill { height:100%; border-radius:3px; background:var(--blue); transition:width .3s; }
+    .project-card { cursor:pointer; transition:border-color .2s; }
+    .project-card:hover { border-color:var(--blue); }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Projects</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+<script type="module">
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js";
+import { projects, companies } from "/systems/crm/shared/api.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmtDate, toast, modal, confirm, tierGate, loading, setInner } from "/systems/crm/shared/ui.js";
+
+initTheme();
+let profile, tier, allProjects = [], companiesList = [];
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("projects", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  if (!tierHasFeature(tier, "projects")) {
+    document.getElementById("content").innerHTML = tierGate("projects");
+  } else {
+    await load();
+  }
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+async function load() {
+  setInner("content", loading());
+  try {
+    [allProjects, { data: companiesList }] = await Promise.all([
+      projects.list(),
+      companies.list({ limit: 500 }),
+    ]);
+    render();
+  } catch(e) { toast("bad","Load error", e.message); }
+}
+
+function render() {
+  const statusCounts = { active: 0, completed: 0, paused: 0 };
+  allProjects.forEach(p => { statusCounts[p.status] = (statusCounts[p.status]||0)+1; });
+
+  setInner("content", `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Projects</h1>
+        <p>Track work and share progress with customers</p>
+      </div>
+      <button class="btn btn-primary" onclick="newProject()">+ New Project</button>
+    </div>
+
+    <div class="stat-row" style="margin-bottom:20px">
+      <div class="stat-card"><div class="stat-value">${allProjects.length}</div><div class="stat-label">Total</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--blue2)">${statusCounts.active||0}</div><div class="stat-label">Active</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--good)">${statusCounts.completed||0}</div><div class="stat-label">Completed</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--warn)">${statusCounts.paused||0}</div><div class="stat-label">Paused</div></div>
+    </div>
+
+    ${allProjects.length === 0
+      ? `<div class="card"><div class="empty-state"><p>No projects yet. Create one to start tracking work.</p></div></div>`
+      : `<div class="grid-2">${allProjects.map(p => projectCard(p)).join("")}</div>`}
+  `);
+}
+
+function projectCard(p) {
+  const ms = p.crm_project_milestones || [];
+  const done = ms.filter(m => m.status === "completed").length;
+  const pct = ms.length ? Math.round(done/ms.length*100) : 0;
+  const statusColor = { active:"badge-blue", completed:"badge-green", paused:"badge-yellow" }[p.status] || "badge-grey";
+  return `
+    <div class="card project-card" onclick="openProject('${p.id}')">
+      <div class="card-header">
+        <div>
+          <h2 style="font-size:16px">${esc(p.name)}</h2>
+          <div class="text-xs text-muted">${esc(p.crm_companies?.name||"No company")} · ${fmtDate(p.created_at)}</div>
+        </div>
+        <span class="badge ${statusColor}">${p.status}</span>
+      </div>
+      <div class="card-body" style="padding-top:8px">
+        ${p.description ? `<p class="text-sm text-muted" style="margin-bottom:10px">${esc(p.description)}</p>` : ""}
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-dim);margin-bottom:4px">
+          <span>${ms.length} milestones</span><span>${pct}% complete</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+        <div style="margin-top:10px;display:flex;gap:6px">
+          ${p.visible_to_portal ? `<span class="badge badge-green" style="font-size:10px">🌐 Portal visible</span>` : `<span class="badge badge-grey" style="font-size:10px">Hidden from portal</span>`}
+        </div>
+      </div>
+    </div>`;
+}
+
+window.openProject = function(id) {
+  const p = allProjects.find(x => x.id === id);
+  if (!p) return;
+  const ms = (p.crm_project_milestones||[]).sort((a,b) => a.sort_order - b.sort_order);
+  const statusOpts = ["pending","in_progress","completed"].map(s => `<option value="${s}" ${p.status===s?"selected":""}>${s.replace("_"," ")}</option>`).join("");
+  const coOpts = companiesList.map(c => `<option value="${c.id}" ${p.crm_company_id===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
+
+  modal(`
+    <h2 style="margin-bottom:4px">${esc(p.name)}</h2>
+    <p class="text-muted text-sm" style="margin-bottom:20px">${esc(p.crm_companies?.name||"")}</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div>
+        <label class="form-label">Status</label>
+        <select id="pjStatus" class="form-control">${statusOpts}</select>
+      </div>
+      <div>
+        <label class="form-label">Company</label>
+        <select id="pjCompany" class="form-control"><option value="">— none —</option>${coOpts}</select>
+      </div>
+    </div>
+    <div style="margin-bottom:16px">
+      <label class="form-label">Description</label>
+      <textarea id="pjDesc" class="form-control" rows="2">${esc(p.description||"")}</textarea>
+    </div>
+    <div style="margin-bottom:16px">
+      <label class="form-label" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="pjPortal" ${p.visible_to_portal?"checked":""} style="accent-color:var(--blue)"> Visible in customer portal
+      </label>
+    </div>
+
+    <div style="border-top:1px solid var(--line2);padding-top:16px;margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <strong>Milestones</strong>
+        <button class="btn btn-ghost btn-sm" onclick="addMilestone('${p.id}')">+ Add</button>
+      </div>
+      <div id="milestoneList">
+        ${ms.length === 0 ? `<p class="text-sm text-muted">No milestones yet</p>` : ms.map(m => milestoneRow(m)).join("")}
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:20px;justify-content:space-between">
+      <button class="btn btn-danger btn-sm" onclick="deleteProject('${p.id}')">Delete</button>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-ghost" onclick="document.getElementById('crm-modal').remove()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveProject('${p.id}')">Save</button>
+      </div>
+    </div>
+  `);
+};
+
+function milestoneRow(m) {
+  const cls = m.status;
+  const icon = m.status==="completed" ? "✓" : m.status==="in_progress" ? "…" : "";
+  return `
+    <div class="milestone-row" id="ms-${m.id}">
+      <div class="ms-status ${cls}" onclick="cycleMilestone('${m.id}','${m.status}')" title="Click to change status">${icon}</div>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">${esc(m.name)}</div>
+        ${m.due_date ? `<div class="text-xs text-muted">Due ${fmtDate(m.due_date)}</div>` : ""}
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="deleteMilestone('${m.id}','${m.name.replace(/'/g,"\\'")}')">✕</button>
+    </div>`;
+}
+
+window.addMilestone = async function(projectId) {
+  const name = prompt("Milestone name:");
+  if (!name?.trim()) return;
+  const due = prompt("Due date (YYYY-MM-DD), or leave blank:");
+  try {
+    const m = await projects.addMilestone(projectId, { name: name.trim(), due_date: due||null, sort_order: 99 });
+    const list = document.getElementById("milestoneList");
+    if (list) list.insertAdjacentHTML("beforeend", milestoneRow(m));
+    const p = allProjects.find(x => x.id === projectId);
+    if (p) { p.crm_project_milestones = p.crm_project_milestones || []; p.crm_project_milestones.push(m); }
+  } catch(e) { toast("bad","Error",e.message); }
+};
+
+window.cycleMilestone = async function(id, current) {
+  const next = { pending:"in_progress", in_progress:"completed", completed:"pending" }[current] || "pending";
+  try {
+    await projects.updateMilestone(id, { status: next, completed_at: next==="completed" ? new Date().toISOString() : null });
+    const row = document.getElementById(`ms-${id}`);
+    if (row) {
+      const dot = row.querySelector(".ms-status");
+      dot.className = `ms-status ${next}`;
+      dot.textContent = next==="completed"?"✓":next==="in_progress"?"…":"";
+      dot.onclick = () => window.cycleMilestone(id, next);
+    }
+    allProjects.forEach(p => {
+      const ms = p.crm_project_milestones||[];
+      const m = ms.find(x => x.id === id);
+      if (m) m.status = next;
+    });
+  } catch(e) { toast("bad","Error",e.message); }
+};
+
+window.deleteMilestone = function(id, name) {
+  confirm("Delete milestone", `Remove "${name}"?`, async () => {
+    try {
+      await projects.deleteMilestone(id);
+      document.getElementById(`ms-${id}`)?.remove();
+    } catch(e) { toast("bad","Error",e.message); }
+  });
+};
+
+window.saveProject = async function(id) {
+  try {
+    const updated = await projects.update(id, {
+      status:           document.getElementById("pjStatus").value,
+      crm_company_id:   document.getElementById("pjCompany").value || null,
+      description:      document.getElementById("pjDesc").value.trim() || null,
+      visible_to_portal: document.getElementById("pjPortal").checked,
+    });
+    document.getElementById("crm-modal")?.remove();
+    const idx = allProjects.findIndex(x => x.id === id);
+    if (idx !== -1) allProjects[idx] = { ...allProjects[idx], ...updated };
+    render();
+    toast("good","Saved","Project updated");
+  } catch(e) { toast("bad","Error",e.message); }
+};
+
+window.deleteProject = function(id) {
+  confirm("Delete project", "This will delete all milestones too. Continue?", async () => {
+    try {
+      await projects.delete(id);
+      document.getElementById("crm-modal")?.remove();
+      allProjects = allProjects.filter(x => x.id !== id);
+      render();
+      toast("good","Deleted","Project removed");
+    } catch(e) { toast("bad","Error",e.message); }
+  });
+};
+
+window.newProject = function() {
+  const coOpts = companiesList.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  modal(`
+    <h2 style="margin-bottom:16px">New Project</h2>
+    <div style="margin-bottom:12px">
+      <label class="form-label">Project Name *</label>
+      <input id="npName" class="form-control" placeholder="e.g. Website Redesign" autofocus/>
+    </div>
+    <div style="margin-bottom:12px">
+      <label class="form-label">Company</label>
+      <select id="npCompany" class="form-control"><option value="">— select —</option>${coOpts}</select>
+    </div>
+    <div style="margin-bottom:12px">
+      <label class="form-label">Description</label>
+      <textarea id="npDesc" class="form-control" rows="2" placeholder="Brief description…"></textarea>
+    </div>
+    <div style="margin-bottom:20px">
+      <label class="form-label" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="npPortal" checked style="accent-color:var(--blue)"> Visible in customer portal
+      </label>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="document.getElementById('crm-modal').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="createProject()">Create</button>
+    </div>
+  `);
+};
+
+window.createProject = async function() {
+  const name = document.getElementById("npName").value.trim();
+  if (!name) { toast("bad","Error","Project name required"); return; }
+  try {
+    const p = await projects.create({
+      name,
+      crm_company_id:   document.getElementById("npCompany").value || null,
+      description:      document.getElementById("npDesc").value.trim() || null,
+      visible_to_portal: document.getElementById("npPortal").checked,
+    });
+    document.getElementById("crm-modal")?.remove();
+    p.crm_project_milestones = [];
+    const co = companiesList.find(c => c.id === p.crm_company_id);
+    p.crm_companies = co ? { name: co.name } : null;
+    allProjects.unshift(p);
+    render();
+    toast("good","Created","Project created");
+  } catch(e) { toast("bad","Error",e.message); }
+};
+</script>
+</body>
+</html>

@@ -14,6 +14,8 @@ const NAV_LINKS = [
   { id: "documents",  icon: "📁", label: "Documents",       href: "/systems/crm/documents.html",  tier: "professional" },
   { id: "reports",    icon: "📈", label: "Reports",         href: "/systems/crm/reports.html",    tier: "professional" },
   { id: "portal",     icon: "🌐", label: "Customer Portal", href: "/systems/crm/portal.html",     tier: "business" },
+  { id: "messaging",  icon: "💬", label: "Messaging",       href: "/systems/crm/messaging.html",  tier: "business" },
+  { id: "projects",   icon: "📋", label: "Projects",        href: "/systems/crm/projects.html",   tier: "business" },
   { id: "settings",   icon: "⚙️",  label: "Settings",       href: "/systems/crm/settings.html" },
 ];
 

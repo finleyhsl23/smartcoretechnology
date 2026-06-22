@@ -28,7 +28,7 @@
 
 <script type="module">
 import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js";
-import { documents, companies } from "/systems/crm/shared/api.js";
+import { documents, companies, signatures, contacts } from "/systems/crm/shared/api.js";
 import { sb } from "/systems/crm/shared/supabase.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
 import { initTheme } from "/systems/crm/shared/theme.js";
@@ -40,7 +40,7 @@ const CATEGORIES = ["general","contract","quote","proposal","photo","form","repo
 const CAT_ICONS = { general:"📄", contract:"📜", quote:"💰", proposal:"📋", photo:"🖼️", form:"📝", report:"📊", other:"📁" };
 const FILE_ICONS = { "application/pdf":"📕", "image/png":"🖼️", "image/jpeg":"🖼️", "application/msword":"📄", "application/vnd.openxmlformats-officedocument.wordprocessingml.document":"📄" };
 
-let profile, tier, allDocs = [], companiesList = [];
+let profile, tier, allDocs = [], companiesList = [], contactsList = [];
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -51,7 +51,10 @@ try {
   if (!tierHasFeature(tier, "documents")) {
     document.getElementById("content").innerHTML = tierGate("documents");
   } else {
-    companiesList = await companies.list({ limit: 500 }).then(r => r.data);
+    [companiesList, contactsList] = await Promise.all([
+      companies.list({ limit: 500 }).then(r => r.data),
+      contacts.list({ limit: 500 }).then(r => r.data),
+    ]);
     await loadAndRender();
   }
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
@@ -101,6 +104,7 @@ function renderPage(rows, selCat) {
   document.getElementById("uploadBtn").onclick = () => openUploadModal();
   document.getElementById("catFilter").addEventListener("change", e => loadAndRender(e.target.value));
   document.querySelectorAll(".del-doc").forEach(b => b.addEventListener("click", () => deleteDoc(b.dataset.id, b.dataset.name)));
+  document.querySelectorAll(".sig-doc").forEach(b => b.addEventListener("click", () => openSignModal(b.dataset.id, b.dataset.name, b.dataset.url)));
 }
 
 function docCard(d) {
@@ -122,6 +126,7 @@ function docCard(d) {
     <div class="text-xs text-dim" style="margin-bottom:12px">${fmtDate(d.created_at)}</div>
     <div style="display:flex;gap:6px">
       <a href="${esc(d.file_path)}" target="_blank" class="btn btn-sm btn-primary" style="flex:1;justify-content:center">Download</a>
+      ${tierHasFeature(tier,"esignatures") ? `<button class="btn btn-sm btn-ghost sig-doc" data-id="${d.id}" data-name="${esc(d.name)}" data-url="${esc(d.file_path)}" title="Send for signature">✍️</button>` : ""}
       <button class="btn btn-sm btn-danger del-doc" data-id="${d.id}" data-name="${esc(d.name)}">Del</button>
     </div>
   </div>`;
@@ -219,6 +224,100 @@ async function deleteDoc(id, name) {
     try { await documents.delete(id); toast("ok","Deleted"); await loadAndRender(); }
     catch(e) { toast("bad","Error",e.message); }
   });
+}
+
+function openSignModal(docId, docName, docUrl) {
+  const contactOpts = contactsList.map(c =>
+    `<option value="${c.id}">${esc(`${c.first_name||""} ${c.last_name||""}`.trim()||c.email)}</option>`
+  ).join("");
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Send for E-Signature</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="background:var(--blue-dim,rgba(30,92,255,.1));border-radius:var(--r2,8px);padding:10px 12px;font-size:13px;margin-bottom:14px">
+          📄 <strong>${esc(docName)}</strong>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Signer Email *</label>
+          <input class="form-control" id="sigEmail" type="email" placeholder="signer@example.com" autofocus/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Signer Name</label>
+          <input class="form-control" id="sigName" placeholder="Full name"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Link to CRM Contact (optional)</label>
+          <select class="form-control" id="sigContact"><option value="">— select —</option>${contactOpts}</select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Message (optional)</label>
+          <textarea class="form-control" id="sigMsg" rows="2" placeholder="Please review and sign the attached document…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="sendSigBtn">Send Request</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  // Auto-fill from contact selection
+  overlay.querySelector("#sigContact").addEventListener("change", e => {
+    const c = contactsList.find(x => x.id === e.target.value);
+    if (!c) return;
+    const email = overlay.querySelector("#sigEmail");
+    const name  = overlay.querySelector("#sigName");
+    if (!email.value) email.value = c.email || "";
+    if (!name.value) name.value = `${c.first_name||""} ${c.last_name||""}`.trim();
+  });
+
+  overlay.querySelector("#sendSigBtn").onclick = async () => {
+    const email = overlay.querySelector("#sigEmail").value.trim();
+    if (!email || !email.includes("@")) { toast("bad","Error","Valid email required"); return; }
+    const btn = overlay.querySelector("#sendSigBtn");
+    btn.disabled = true; btn.textContent = "Sending…";
+    try {
+      const req = await signatures.create({
+        document_name: docName,
+        document_url:  docUrl,
+        crm_document_id: docId,
+        signer_email: email,
+        signer_name:  overlay.querySelector("#sigName").value.trim() || null,
+        crm_contact_id: overlay.querySelector("#sigContact").value || null,
+        message: overlay.querySelector("#sigMsg").value.trim() || null,
+      });
+      const sigLink = `${location.origin}/systems/crm/portal/sign.html?token=${req.token}`;
+      overlay.remove();
+      // Show the signing link
+      const linkOverlay = document.createElement("div");
+      linkOverlay.className = "modal-overlay";
+      linkOverlay.innerHTML = `
+        <div class="modal">
+          <div class="modal-header"><h3>Signature Request Created</h3></div>
+          <div class="modal-body">
+            <p style="font-size:13px;margin-bottom:12px">Share this link with <strong>${esc(email)}</strong> to collect their signature:</p>
+            <div style="background:var(--bg2,#111827);border:1px solid var(--line2);border-radius:8px;padding:10px 12px;font-size:12px;word-break:break-all;margin-bottom:12px">${esc(sigLink)}</div>
+            <button class="btn btn-primary" style="width:100%" onclick="navigator.clipboard.writeText('${sigLink.replace(/'/g,"\\'")}').then(()=>this.textContent='✓ Copied!')">Copy Link</button>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="this.closest('.modal-overlay').remove()">Close</button>
+          </div>
+        </div>`;
+      document.body.appendChild(linkOverlay);
+      linkOverlay.addEventListener("click", e => { if (e.target === linkOverlay) linkOverlay.remove(); });
+      toast("good","Sent","Signature request created");
+    } catch(e) {
+      toast("bad","Error",e.message);
+      btn.disabled = false; btn.textContent = "Send Request";
+    }
+  };
 }
 </script>
 </body>

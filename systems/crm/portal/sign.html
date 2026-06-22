@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Sign Document — SmartCore</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Inter",sans-serif;background:#05081a;color:#e9f0ff;min-height:100vh;padding:20px;display:flex;align-items:flex-start;justify-content:center}
+    .wrap{width:100%;max-width:640px;padding-top:40px}
+    .logo{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#1e5cff,#0ea5ff);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;margin-bottom:24px}
+    .card{background:#0d1328;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:28px;margin-bottom:16px}
+    h1{font-size:22px;font-weight:800;margin-bottom:6px}
+    h2{font-size:16px;font-weight:700;margin-bottom:12px}
+    .meta{font-size:13px;color:rgba(233,240,255,.5);margin-bottom:4px}
+    .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+    .badge-pending{background:rgba(234,179,8,.15);color:#fbbf24}
+    .badge-signed{background:rgba(34,197,94,.15);color:#4ade80}
+    .badge-declined{background:rgba(239,68,68,.15);color:#fca5a5}
+    label{display:block;font-size:12px;font-weight:600;color:rgba(233,240,255,.6);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+    canvas{width:100%;height:180px;background:#111827;border:1px solid rgba(255,255,255,.1);border-radius:10px;cursor:crosshair;touch-action:none}
+    .canvas-hint{font-size:11px;color:rgba(233,240,255,.3);margin-top:6px;text-align:center}
+    button{border:none;border-radius:10px;padding:11px 20px;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .2s}
+    button:hover{opacity:.9}
+    button:disabled{opacity:.4;cursor:not-allowed}
+    .btn-primary{background:#1e5cff;color:#fff}
+    .btn-danger{background:#ef4444;color:#fff}
+    .btn-ghost{background:rgba(255,255,255,.06);color:#e9f0ff;border:1px solid rgba(255,255,255,.1)}
+    .btn-sm{padding:7px 14px;font-size:13px}
+    .actions{display:flex;gap:10px;flex-wrap:wrap}
+    .error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:12px;font-size:13px;color:#fca5a5;margin-bottom:14px;display:none}
+    .success{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:20px;font-size:14px;color:#4ade80;text-align:center}
+    textarea{width:100%;background:#111827;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 14px;color:#e9f0ff;font-size:14px;outline:none;resize:vertical;min-height:80px;font-family:inherit}
+    textarea:focus{border-color:#1e5cff}
+    .divider{border:none;border-top:1px solid rgba(255,255,255,.08);margin:20px 0}
+    .spinner{width:32px;height:32px;border:3px solid rgba(255,255,255,.1);border-top-color:#1e5cff;border-radius:50%;animation:spin .7s linear infinite;margin:40px auto}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">SC</div>
+  <div id="app"><div class="spinner"></div></div>
+</div>
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+const sb = createClient("https://hjdpcfhozhoyeqevnupm.supabase.co","eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts");
+
+const params = new URLSearchParams(location.search);
+const token  = params.get("token");
+const app    = document.getElementById("app");
+
+if (!token) {
+  app.innerHTML = `<div class="card"><p style="color:rgba(233,240,255,.5)">Invalid link — no token found.</p></div>`;
+} else {
+  await init();
+}
+
+async function init() {
+  const { data: req, error } = await sb
+    .from("crm_signature_requests")
+    .select("*")
+    .eq("token", token)
+    .limit(1)
+    .single();
+
+  if (error || !req) {
+    app.innerHTML = `<div class="card"><p style="color:rgba(233,240,255,.5)">Signature request not found or link is invalid.</p></div>`;
+    return;
+  }
+
+  if (req.status === "signed") {
+    app.innerHTML = `<div class="card"><div class="success">✓ This document has already been signed.<br><span style="font-size:12px;opacity:.7">Signed on ${new Date(req.signed_at).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</span></div></div>`;
+    return;
+  }
+  if (req.status === "declined") {
+    app.innerHTML = `<div class="card"><div class="error" style="display:block">This document was declined${req.decline_reason ? `: "${req.decline_reason}"` : ""}.</div></div>`;
+    return;
+  }
+
+  // Render signing UI
+  app.innerHTML = `
+    <div class="card">
+      <h1>${escHtml(req.document_name)}</h1>
+      <div class="meta" style="margin-bottom:12px">Requested ${new Date(req.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</div>
+      <div style="margin-bottom:12px">
+        <div class="meta">To: <strong style="color:#e9f0ff">${escHtml(req.signer_name||req.signer_email)}</strong></div>
+        <div class="meta">${escHtml(req.signer_email)}</div>
+      </div>
+      ${req.message ? `<div style="background:rgba(255,255,255,.04);border-radius:8px;padding:12px;font-size:13px;color:rgba(233,240,255,.7);margin-bottom:8px">${escHtml(req.message)}</div>` : ""}
+    </div>
+
+    ${req.document_url ? `
+    <div class="card" style="padding:0;overflow:hidden">
+      <iframe src="${escHtml(req.document_url)}" style="width:100%;height:480px;border:none;border-radius:16px"></iframe>
+    </div>` : ""}
+
+    <div class="card">
+      <div id="errBox" class="error"></div>
+      <div id="sigSection">
+        <label>Draw your signature below</label>
+        <canvas id="sigCanvas"></canvas>
+        <div class="canvas-hint">Draw with mouse or finger · <button class="btn-ghost btn-sm" style="font-size:11px;padding:3px 8px;border-radius:6px" onclick="clearCanvas()">Clear</button></div>
+        <hr class="divider"/>
+        <div class="actions">
+          <button class="btn-primary" id="signBtn" onclick="submitSign()">✍️ Sign Document</button>
+          <button class="btn-ghost" onclick="toggleDecline()">Decline</button>
+        </div>
+      </div>
+      <div id="declineSection" style="display:none">
+        <label>Reason for declining (optional)</label>
+        <textarea id="declineReason" placeholder="Please let us know why you're declining…"></textarea>
+        <div class="actions" style="margin-top:12px">
+          <button class="btn-danger" id="declineBtn" onclick="submitDecline()">Decline Document</button>
+          <button class="btn-ghost" onclick="toggleDecline()">Back</button>
+        </div>
+      </div>
+    </div>`;
+
+  initCanvas();
+}
+
+// Canvas signature pad
+let drawing = false, lastX = 0, lastY = 0;
+let canvas, ctx;
+
+function initCanvas() {
+  canvas = document.getElementById("sigCanvas");
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width  = rect.width  * dpr;
+  canvas.height = rect.height * dpr;
+  ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.strokeStyle = "#e9f0ff";
+  ctx.lineWidth   = 2.5;
+  ctx.lineCap     = "round";
+  ctx.lineJoin    = "round";
+
+  const pos = e => {
+    const r = canvas.getBoundingClientRect();
+    const pt = e.touches ? e.touches[0] : e;
+    return [pt.clientX - r.left, pt.clientY - r.top];
+  };
+  canvas.addEventListener("mousedown",  e => { drawing=true; [lastX,lastY]=pos(e); });
+  canvas.addEventListener("mousemove",  e => { if(!drawing) return; const [x,y]=pos(e); draw(x,y); });
+  canvas.addEventListener("mouseup",    () => drawing=false);
+  canvas.addEventListener("mouseleave", () => drawing=false);
+  canvas.addEventListener("touchstart", e => { e.preventDefault(); drawing=true; [lastX,lastY]=pos(e); }, {passive:false});
+  canvas.addEventListener("touchmove",  e => { e.preventDefault(); if(!drawing) return; const [x,y]=pos(e); draw(x,y); }, {passive:false});
+  canvas.addEventListener("touchend",   () => drawing=false);
+}
+
+function draw(x, y) {
+  ctx.beginPath();
+  ctx.moveTo(lastX, lastY);
+  ctx.lineTo(x, y);
+  ctx.stroke();
+  [lastX, lastY] = [x, y];
+}
+
+window.clearCanvas = () => { if(ctx) ctx.clearRect(0,0,canvas.width,canvas.height); };
+
+function isCanvasBlank() {
+  const pixels = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+  return !pixels.some(p => p !== 0);
+}
+
+window.toggleDecline = () => {
+  const s = document.getElementById("sigSection");
+  const d = document.getElementById("declineSection");
+  const sigVisible = s.style.display !== "none";
+  s.style.display = sigVisible ? "none" : "";
+  d.style.display = sigVisible ? "" : "none";
+};
+
+window.submitSign = async () => {
+  const err = document.getElementById("errBox");
+  err.style.display = "none";
+  if (!canvas || isCanvasBlank()) {
+    err.textContent = "Please draw your signature before signing.";
+    err.style.display = "block";
+    return;
+  }
+  const btn = document.getElementById("signBtn");
+  btn.disabled = true; btn.textContent = "Signing…";
+
+  const sigData = canvas.toDataURL("image/png");
+  const { error } = await sb.from("crm_signature_requests").update({
+    status: "signed",
+    signed_at: new Date().toISOString(),
+    signature_data: sigData,
+  }).eq("token", token).eq("status", "pending");
+
+  if (error) {
+    err.textContent = error.message;
+    err.style.display = "block";
+    btn.disabled = false; btn.textContent = "✍️ Sign Document";
+    return;
+  }
+  app.innerHTML = `<div class="card"><div class="success">✓ Document signed successfully!<br><span style="font-size:12px;opacity:.7">Thank you — your signature has been recorded.</span></div></div>`;
+};
+
+window.submitDecline = async () => {
+  const btn = document.getElementById("declineBtn");
+  btn.disabled = true; btn.textContent = "Declining…";
+  const reason = document.getElementById("declineReason").value.trim() || null;
+  const { error } = await sb.from("crm_signature_requests").update({
+    status: "declined",
+    decline_reason: reason,
+  }).eq("token", token).eq("status", "pending");
+
+  if (error) {
+    toast("bad","Error",error.message);
+    btn.disabled = false; btn.textContent = "Decline Document";
+    return;
+  }
+  app.innerHTML = `<div class="card"><div class="error" style="display:block">You have declined this document${reason ? `:<br>"${escHtml(reason)}"` : ""}.</div></div>`;
+};
+
+function escHtml(s) {
+  if (!s) return "";
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+</script>
+</body>
+</html>

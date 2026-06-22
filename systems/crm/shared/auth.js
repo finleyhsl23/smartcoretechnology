@@ -82,9 +82,9 @@ export function clearProfileCache() {
 // Tier feature gates
 export const TIER_FEATURES = {
   lite:         ["dashboard","companies","contacts","leads","pipeline","tasks","timeline"],
-  professional: ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields"],
-  business:     ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields","portal","multi_site","contracts","renewals","assets","workflows","advanced_permissions","support_tickets"],
-  enterprise:   ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields","portal","multi_site","contracts","renewals","assets","workflows","advanced_permissions","support_tickets","executive_dashboards","advanced_analytics","department_mgmt","branch_mgmt","api_access","audit_logs","custom_branding","custom_pipelines","data_import","priority_support"]
+  professional: ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields","esignatures"],
+  business:     ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields","esignatures","portal","messaging","projects","multi_site","contracts","renewals","assets","workflows","advanced_permissions","support_tickets"],
+  enterprise:   ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields","esignatures","portal","messaging","projects","multi_site","contracts","renewals","assets","workflows","advanced_permissions","support_tickets","executive_dashboards","advanced_analytics","department_mgmt","branch_mgmt","api_access","audit_logs","custom_branding","custom_pipelines","data_import","priority_support"]
 };
 
 export function tierHasFeature(tier, feature) {

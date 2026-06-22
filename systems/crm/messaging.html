@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Messaging — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+  <style>
+    .msg-layout { display:grid; grid-template-columns:300px 1fr; height:calc(100vh - 56px); overflow:hidden; }
+    .msg-sidebar { border-right:1px solid var(--line2); overflow-y:auto; }
+    .msg-thread  { display:flex; flex-direction:column; }
+    .msg-header  { padding:16px 20px; border-bottom:1px solid var(--line2); display:flex; align-items:center; gap:12px; }
+    .msg-body    { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:10px; }
+    .msg-input   { padding:16px 20px; border-top:1px solid var(--line2); display:flex; gap:10px; }
+    .msg-input textarea { flex:1; resize:none; height:60px; border-radius:10px; border:1px solid var(--line2); background:var(--card2); color:var(--text); padding:10px 14px; font-size:14px; font-family:inherit; outline:none; }
+    .msg-input textarea:focus { border-color:var(--blue); }
+    .contact-item { padding:12px 16px; cursor:pointer; border-bottom:1px solid var(--line2); display:flex; gap:10px; align-items:flex-start; transition:background .15s; }
+    .contact-item:hover, .contact-item.active { background:var(--blue-dim); }
+    .contact-item .unread-dot { width:8px; height:8px; border-radius:50%; background:var(--blue2); flex-shrink:0; margin-top:6px; }
+    .bubble { max-width:72%; padding:10px 14px; border-radius:14px; font-size:14px; line-height:1.5; }
+    .bubble.staff    { background:var(--blue); color:#fff; border-bottom-right-radius:4px; align-self:flex-end; }
+    .bubble.customer { background:var(--card2); border:1px solid var(--line2); border-bottom-left-radius:4px; align-self:flex-start; }
+    .bubble-wrap { display:flex; flex-direction:column; }
+    .bubble-wrap.staff    { align-items:flex-end; }
+    .bubble-wrap.customer { align-items:flex-start; }
+    .bubble-meta { font-size:11px; color:var(--text-dim); margin-top:3px; }
+    .no-thread { display:flex; align-items:center; justify-content:center; height:100%; color:var(--text-dim); font-size:14px; }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Messaging</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div id="content" style="height:calc(100vh - 56px);display:flex;align-items:center;justify-content:center">
+      <div class="spinner"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+<script type="module">
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js";
+import { contacts, messages } from "/systems/crm/shared/api.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmtDate, fmtDateTime, toast, tierGate, loading } from "/systems/crm/shared/ui.js";
+import { sb } from "/systems/crm/shared/supabase.js";
+
+initTheme();
+let profile, tier;
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("messaging", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  if (!tierHasFeature(tier, "messaging")) {
+    document.getElementById("content").innerHTML = tierGate("messaging");
+  } else {
+    await loadMessaging();
+  }
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+let allContacts = [], threadContactId = null;
+
+async function loadMessaging() {
+  const [contactsRes, allMsgs] = await Promise.all([
+    contacts.list({ limit: 500 }),
+    messages.listAll(),
+  ]);
+  allContacts = contactsRes.data;
+
+  // Find contacts that have messages, plus any with portal access
+  const contactsWithMsgs = new Set(allMsgs.map(m => m.crm_contact_id).filter(Boolean));
+  const active = allContacts.filter(c => contactsWithMsgs.has(c.id));
+  const rest   = allContacts.filter(c => !contactsWithMsgs.has(c.id));
+
+  const unreadCounts = {};
+  allMsgs.filter(m => m.sender_type === "customer" && !m.read_at).forEach(m => {
+    unreadCounts[m.crm_contact_id] = (unreadCounts[m.crm_contact_id] || 0) + 1;
+  });
+
+  document.getElementById("content").innerHTML = `
+    <div class="msg-layout">
+      <div class="msg-sidebar">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--line2)">
+          <input id="contactSearch" class="search-input" placeholder="Search contacts…" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--line2);background:var(--card2);color:var(--text);font-size:13px;outline:none"/>
+        </div>
+        <div id="contactList">
+          ${renderContactList(active, rest, unreadCounts)}
+        </div>
+      </div>
+      <div class="msg-thread" id="msgThread">
+        <div class="no-thread">Select a contact to view messages</div>
+      </div>
+    </div>`;
+
+  document.getElementById("contactSearch").addEventListener("input", e => {
+    const q = e.target.value.toLowerCase();
+    const filtered = allContacts.filter(c =>
+      (`${c.first_name} ${c.last_name}`).toLowerCase().includes(q) || (c.email||"").toLowerCase().includes(q)
+    );
+    document.getElementById("contactList").innerHTML = renderContactList(filtered.filter(c => contactsWithMsgs.has(c.id)), filtered.filter(c => !contactsWithMsgs.has(c.id)), unreadCounts);
+  });
+}
+
+function renderContactList(active, rest, unreadCounts) {
+  const items = [...active, ...rest].map(c => {
+    const name = `${c.first_name||""} ${c.last_name||""}`.trim() || c.email;
+    const unread = unreadCounts[c.id] || 0;
+    return `<div class="contact-item${threadContactId===c.id?" active":""}" onclick="openThread('${c.id}','${esc(name)}','${esc(c.email||"")}')" >
+      <div class="avatar avatar-sm" style="flex-shrink:0">${(name[0]||"?").toUpperCase()}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</div>
+        <div class="text-xs text-muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.email||"No email")}</div>
+      </div>
+      ${unread ? `<span class="badge badge-blue" style="font-size:10px">${unread}</span>` : ""}
+    </div>`;
+  });
+  return items.length ? items.join("") : `<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:13px">No contacts found</div>`;
+}
+
+window.openThread = async function(contactId, name, email) {
+  threadContactId = contactId;
+  document.getElementById("msgThread").innerHTML = `
+    <div class="msg-header">
+      <div class="avatar avatar-sm">${name[0].toUpperCase()}</div>
+      <div>
+        <div style="font-weight:700">${esc(name)}</div>
+        <div class="text-xs text-muted">${esc(email)}</div>
+      </div>
+    </div>
+    <div class="msg-body" id="msgBody"><div class="spinner" style="margin:auto"></div></div>
+    <div class="msg-input">
+      <textarea id="msgText" placeholder="Type a message…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
+      <button class="btn btn-primary" onclick="sendMsg()">Send</button>
+    </div>`;
+
+  await messages.markRead(contactId);
+  const msgs = await messages.list(contactId);
+  renderMessages(msgs);
+
+  // Realtime subscription
+  sb().channel(`msgs-${contactId}`)
+    .on("postgres_changes", { event:"INSERT", schema:"public", table:"crm_messages", filter:`crm_contact_id=eq.${contactId}` }, payload => {
+      renderMessages([...(window._currentMsgs||[]), payload.new]);
+    }).subscribe();
+};
+
+function renderMessages(msgs) {
+  window._currentMsgs = msgs;
+  const body = document.getElementById("msgBody");
+  if (!body) return;
+  if (!msgs.length) { body.innerHTML = `<div class="no-thread" style="height:auto;padding:20px">No messages yet. Start the conversation!</div>`; return; }
+  body.innerHTML = msgs.map(m => `
+    <div class="bubble-wrap ${m.sender_type}">
+      <div class="bubble ${m.sender_type}">${esc(m.body)}</div>
+      <div class="bubble-meta">${esc(m.sender_name||"Unknown")} · ${fmtDateTime(m.created_at)}</div>
+    </div>`).join("");
+  body.scrollTop = body.scrollHeight;
+}
+
+window.sendMsg = async function() {
+  const ta = document.getElementById("msgText");
+  const body = ta?.value.trim();
+  if (!body || !threadContactId) return;
+  ta.value = "";
+  try {
+    await messages.send(threadContactId, body, profile.full_name);
+    const msgs = await messages.list(threadContactId);
+    renderMessages(msgs);
+  } catch(e) { toast("bad","Error",e.message); }
+};
+</script>
+</body>
+</html>

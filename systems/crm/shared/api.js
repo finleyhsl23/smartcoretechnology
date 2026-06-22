@@ -430,3 +430,175 @@ export async function getStaff() {
   if (error) throw error;
   return data || [];
 }
+
+// ── Portal Users ───────────────────────────────────────────
+export const portalUsers = {
+  async list() {
+    const tenantId = await tid();
+    const { data, error } = await sb().from("crm_portal_users")
+      .select("*, crm_contacts(first_name, last_name, email)")
+      .eq("tenant_id", tenantId)
+      .order("invited_at", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+  async invite(email, name, contactId = null) {
+    const tenantId = await tid();
+    const { data, error } = await sb().from("crm_portal_users")
+      .upsert({ tenant_id: tenantId, email, name, crm_contact_id: contactId, status: "invited", invited_at: new Date().toISOString() }, { onConflict: "tenant_id,email" })
+      .select().single();
+    if (error) throw error;
+    return data;
+  },
+  async activate(id, authUserId) {
+    const { data, error } = await sb().from("crm_portal_users")
+      .update({ auth_user_id: authUserId, status: "active", activated_at: new Date().toISOString() })
+      .eq("id", id).select().single();
+    if (error) throw error;
+    return data;
+  },
+  async revoke(id) {
+    const { error } = await sb().from("crm_portal_users").update({ status: "suspended" }).eq("id", id);
+    if (error) throw error;
+  },
+};
+
+// ── Messages ───────────────────────────────────────────────
+export const messages = {
+  async list(contactId) {
+    const tenantId = await tid();
+    const { data, error } = await sb().from("crm_messages")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .eq("crm_contact_id", contactId)
+      .order("created_at");
+    if (error) throw error;
+    return data || [];
+  },
+  async listAll() {
+    const tenantId = await tid();
+    const { data, error } = await sb().from("crm_messages")
+      .select("*, crm_contacts(first_name, last_name, email)")
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+  async send(contactId, body, senderName) {
+    const tenantId = await tid();
+    const p = await getProfile();
+    const { data, error } = await sb().from("crm_messages").insert({
+      tenant_id: tenantId,
+      crm_contact_id: contactId,
+      sender_type: "staff",
+      sender_id: p.id,
+      sender_name: senderName || p.full_name,
+      body,
+    }).select().single();
+    if (error) throw error;
+    return data;
+  },
+  async markRead(contactId) {
+    const tenantId = await tid();
+    await sb().from("crm_messages")
+      .update({ read_at: new Date().toISOString() })
+      .eq("tenant_id", tenantId)
+      .eq("crm_contact_id", contactId)
+      .eq("sender_type", "customer")
+      .is("read_at", null);
+  },
+};
+
+// ── Projects ───────────────────────────────────────────────
+export const projects = {
+  async list({ companyId = "" } = {}) {
+    const tenantId = await tid();
+    let q = sb().from("crm_projects")
+      .select("*, crm_companies(name), crm_project_milestones(*)")
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false });
+    if (companyId) q = q.eq("crm_company_id", companyId);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+  },
+  async create(fields) {
+    const tenantId = await tid();
+    const p = await getProfile();
+    const { data, error } = await sb().from("crm_projects")
+      .insert({ ...fields, tenant_id: tenantId, created_by: p.id })
+      .select().single();
+    if (error) throw error;
+    return data;
+  },
+  async update(id, fields) {
+    const { data, error } = await sb().from("crm_projects")
+      .update({ ...fields, updated_at: new Date().toISOString() })
+      .eq("id", id).select().single();
+    if (error) throw error;
+    return data;
+  },
+  async delete(id) {
+    const { error } = await sb().from("crm_projects").delete().eq("id", id);
+    if (error) throw error;
+  },
+  async addMilestone(projectId, fields) {
+    const tenantId = await tid();
+    const { data, error } = await sb().from("crm_project_milestones")
+      .insert({ ...fields, project_id: projectId, tenant_id: tenantId })
+      .select().single();
+    if (error) throw error;
+    return data;
+  },
+  async updateMilestone(id, fields) {
+    const { data, error } = await sb().from("crm_project_milestones")
+      .update(fields).eq("id", id).select().single();
+    if (error) throw error;
+    return data;
+  },
+  async deleteMilestone(id) {
+    const { error } = await sb().from("crm_project_milestones").delete().eq("id", id);
+    if (error) throw error;
+  },
+};
+
+// ── Signatures ─────────────────────────────────────────────
+export const signatures = {
+  async list() {
+    const tenantId = await tid();
+    const { data, error } = await sb().from("crm_signature_requests")
+      .select("*, crm_contacts(first_name, last_name)")
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+  async create(fields) {
+    const tenantId = await tid();
+    const { data, error } = await sb().from("crm_signature_requests")
+      .insert({ ...fields, tenant_id: tenantId })
+      .select().single();
+    if (error) throw error;
+    return data;
+  },
+  async getByToken(token) {
+    const { data, error } = await sb().from("crm_signature_requests")
+      .select("*").eq("token", token).single();
+    if (error) throw error;
+    return data;
+  },
+  async sign(token, signatureData) {
+    const { data, error } = await sb().from("crm_signature_requests")
+      .update({ status: "signed", signature_data: signatureData, signed_at: new Date().toISOString() })
+      .eq("token", token).eq("status", "pending").select().single();
+    if (error) throw error;
+    return data;
+  },
+  async decline(token, reason) {
+    const { data, error } = await sb().from("crm_signature_requests")
+      .update({ status: "declined", decline_reason: reason, declined_at: new Date().toISOString() })
+      .eq("token", token).eq("status", "pending").select().single();
+    if (error) throw error;
+    return data;
+  },
+};

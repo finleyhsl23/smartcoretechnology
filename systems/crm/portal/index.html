@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Customer Portal — SmartCore</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Inter",sans-serif;background:#05081a;color:#e9f0ff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .card{background:#0d1328;border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:40px 36px;width:100%;max-width:420px;box-shadow:0 24px 64px rgba(0,0,0,.5)}
+    .logo{width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,#1e5cff,#0ea5ff);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:#fff;margin-bottom:22px}
+    h1{font-size:22px;font-weight:800;margin-bottom:6px}
+    p{font-size:14px;color:rgba(233,240,255,.55);margin-bottom:28px;line-height:1.6}
+    label{display:block;font-size:12px;font-weight:600;color:rgba(233,240,255,.6);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+    input{width:100%;background:#111827;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 14px;color:#e9f0ff;font-size:14px;outline:none;margin-bottom:16px;transition:border-color .2s}
+    input:focus{border-color:#1e5cff}
+    button{width:100%;background:#1e5cff;color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .2s}
+    button:hover{opacity:.9}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .success{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:16px;font-size:14px;color:#4ade80;text-align:center;display:none}
+    .error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:12px;font-size:13px;color:#fca5a5;margin-bottom:14px;display:none}
+    .hint{font-size:12px;color:rgba(233,240,255,.4);text-align:center;margin-top:20px}
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">SC</div>
+  <h1>Customer Portal</h1>
+  <p>Enter your email address and we'll send you a secure login link — no password needed.</p>
+  <div id="errBox" class="error"></div>
+  <div id="successBox" class="success">
+    ✓ Check your inbox!<br><span style="font-size:12px;color:rgba(74,222,128,.7)">We've sent a login link to your email. It expires in 1 hour.</span>
+  </div>
+  <div id="formWrap">
+    <label for="emailInput">Email address</label>
+    <input id="emailInput" type="email" placeholder="you@company.com" autofocus/>
+    <button id="sendBtn" onclick="sendMagicLink()">Send login link →</button>
+  </div>
+  <div class="hint">Contact your account manager if you haven't received an invitation.</div>
+</div>
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+const sb = createClient("https://hjdpcfhozhoyeqevnupm.supabase.co","eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts");
+
+// If already logged in with a portal session, redirect to dashboard
+const { data: { session } } = await sb.auth.getSession();
+if (session?.user) {
+  // Check they're a portal user (not a CRM staff member)
+  const { data: pu } = await sb.from("crm_portal_users").select("id").eq("auth_user_id", session.user.id).limit(1);
+  if (pu?.length) { window.location.href = "/systems/crm/portal/dashboard.html"; }
+}
+
+// Handle magic link callback (hash contains access_token)
+const hash = new URLSearchParams(window.location.hash.slice(1));
+if (hash.get("access_token")) {
+  window.location.href = "/systems/crm/portal/dashboard.html";
+}
+
+window.sendMagicLink = async function() {
+  const email = document.getElementById("emailInput").value.trim();
+  const errBox = document.getElementById("errBox");
+  errBox.style.display = "none";
+  if (!email || !email.includes("@")) { errBox.textContent = "Please enter a valid email."; errBox.style.display = "block"; return; }
+
+  // Check they've been invited
+  const { data: pu } = await sb.from("crm_portal_users").select("id,status").eq("email", email.toLowerCase()).limit(1);
+  if (!pu?.length) { errBox.textContent = "This email hasn't been invited to the portal. Contact your account manager."; errBox.style.display = "block"; return; }
+  if (pu[0].status === "suspended") { errBox.textContent = "Your portal access has been suspended. Contact your account manager."; errBox.style.display = "block"; return; }
+
+  const btn = document.getElementById("sendBtn");
+  btn.disabled = true;
+  btn.textContent = "Sending…";
+
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: `${location.origin}/systems/crm/portal/dashboard.html` }
+  });
+
+  if (error) {
+    errBox.textContent = error.message;
+    errBox.style.display = "block";
+    btn.disabled = false;
+    btn.textContent = "Send login link →";
+  } else {
+    document.getElementById("formWrap").style.display = "none";
+    document.getElementById("successBox").style.display = "block";
+  }
+};
+</script>
+</body>
+</html>
