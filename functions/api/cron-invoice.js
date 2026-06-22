@@ -231,9 +231,8 @@ function invoiceHtml(inv, o, modules) {
   <tr>
     <td style="padding:20px 36px 0">
       <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:16px 20px">
-        <div style="font-size:12px;font-weight:700;color:#0369a1;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">Payment Method</div>
-        <div style="font-size:14px;font-weight:700;color:#0c4a6e;margin-bottom:4px">PayPal</div>
-        <div style="font-size:13px;color:#0369a1">Please send payment via PayPal to <strong>support@smartcoretechnology.co.uk</strong> and use your invoice number as the reference.</div>
+        <div style="font-size:12px;font-weight:700;color:#0369a1;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">Payment</div>
+        <div style="font-size:13px;color:#0369a1">This invoice is for your records. Payment is collected automatically via your PayPal subscription — no action is required.</div>
       </div>
     </td>
   </tr>
