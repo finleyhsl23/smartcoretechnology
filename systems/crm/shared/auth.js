@@ -5,7 +5,7 @@ let _profile = null;
 export async function requireAuth() {
   const { data, error } = await sb().auth.getSession();
   if (error || !data?.session) {
-    window.location.href = "/app/index.html";
+    window.location.href = "/modules";
     throw new Error("No session");
   }
   return data.session;
