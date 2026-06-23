@@ -242,7 +242,7 @@ import { sb } from "/systems/crm/shared/supabase.js";
 
 initTheme();
 
-let profile, tier;
+let profile, tier, accessToken;
 let allCompanies = [], activeCompanyId = null;
 let companyIdsWithPortal = new Set(), unreadCounts = {};
 let knownMsgIds = new Set();
@@ -251,6 +251,8 @@ let realtimeSub = null;
 
 try {
   ({ profile, tier } = await requireCRMAccess());
+  const { data: { session } } = await sb().auth.getSession();
+  accessToken = session?.access_token || "";
   renderNav("messaging", profile, tier);
   initMobileNav();
   initTopbar(profile);
@@ -457,15 +459,20 @@ window.openThread = async function(companyId, companyName) {
 async function pollThread(companyId, gen) {
   if (gen !== pollGeneration || companyId !== activeCompanyId) return;
   try {
-    const { data: msgs } = await sb().from("crm_messages")
-      .select("*")
-      .eq("tenant_id", profile.company_id)
-      .eq("crm_company_id", companyId)
-      .order("created_at");
-    if (!msgs) return;
+    // Use POST to /api/crm/messages-poll — POST requests are never cached by mobile browsers.
+    // The worker uses the service role key so RLS is bypassed entirely.
+    const res = await fetch("/api/crm/messages-poll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
+      body: JSON.stringify({ company_id: companyId }),
+      cache: "no-store",
+    });
+    if (!res.ok) return;
+    const { ok, messages } = await res.json();
+    if (!ok || !messages) return;
     const body = document.getElementById("msgBody");
     if (!body) return;
-    for (const m of msgs) {
+    for (const m of messages) {
       if (!knownMsgIds.has(m.id)) {
         knownMsgIds.add(m.id);
         if (body.querySelector(".no-thread")) body.innerHTML = "";
