@@ -8,7 +8,7 @@
   <style>
     .msg-layout {
       display: grid;
-      grid-template-columns: 290px 1fr;
+      grid-template-columns: 220px 1fr;
       height: calc(100vh - 56px);
       overflow: hidden;
     }
@@ -311,6 +311,8 @@ async function loadMessaging() {
       </div>
     </div>`;
 
+  updateNavBadge();
+
   document.getElementById("companySearch").addEventListener("input", e => {
     const q = e.target.value.toLowerCase();
     document.getElementById("companyList").innerHTML = renderCompanyList(
@@ -318,16 +320,37 @@ async function loadMessaging() {
     );
   });
 
-  // Global realtime: listen for any new incoming customer message to update sidebar badge
+  // Global realtime: listen for ALL new messages (no column filter — filter client-side)
   sb().channel("msg-sidebar-watch")
     .on("postgres_changes",{ event:"INSERT", schema:"public", table:"crm_messages" }, payload => {
       const m = payload.new;
-      if (m.tenant_id !== profile.company_id || m.sender_type !== "customer") return;
-      if (m.crm_company_id !== activeCompanyId) {
+      if (m.tenant_id !== profile.company_id) return;
+      if (m.sender_type === "customer" && m.crm_company_id !== activeCompanyId) {
         unreadCounts[m.crm_company_id] = (unreadCounts[m.crm_company_id]||0) + 1;
         document.getElementById("companyList").innerHTML = renderCompanyList(allCompanies);
+        updateNavBadge();
       }
-    }).subscribe();
+    }).subscribe(status => {
+      if (status === "SUBSCRIBED") console.log("[realtime] sidebar channel ready");
+    });
+}
+
+function updateNavBadge() {
+  const total = Object.values(unreadCounts).reduce((s,n) => s+n, 0);
+  let badge = document.getElementById("nav-msg-badge");
+  const link = document.querySelector('a[href="/systems/crm/messaging.html"]');
+  if (!link) return;
+  if (total > 0) {
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.id = "nav-msg-badge";
+      badge.style.cssText = "margin-left:auto;background:var(--blue2);color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:20px;box-shadow:0 2px 8px rgba(14,165,255,.4)";
+      link.appendChild(badge);
+    }
+    badge.textContent = total > 99 ? "99+" : total;
+  } else {
+    badge?.remove();
+  }
 }
 
 function renderCompanyList(list) {
@@ -392,6 +415,7 @@ window.openThread = async function(companyId, companyName) {
     .then(() => {
       unreadCounts[companyId] = 0;
       document.getElementById("companyList").innerHTML = renderCompanyList(allCompanies);
+      updateNavBadge();
     });
 
   const { data: msgs, error } = await sb().from("crm_messages")
@@ -404,20 +428,25 @@ window.openThread = async function(companyId, companyName) {
   renderMessages(msgs || []);
   document.getElementById("msgText")?.focus();
 
-  // Subscribe to new messages in this thread
-  realtimeSub = sb().channel(`thread-${companyId}`)
+  // Subscribe to new messages in this thread (no column filter — filter client-side)
+  const threadChannel = `thread-${companyId}`;
+  realtimeSub = sb().channel(threadChannel)
     .on("postgres_changes",{
       event:"INSERT", schema:"public", table:"crm_messages",
-      filter:`crm_company_id=eq.${companyId}`,
     }, payload => {
+      const m = payload.new;
+      if (m.crm_company_id !== companyId || m.tenant_id !== profile.company_id) return;
       const body = document.getElementById("msgBody");
       if (!body) return;
-      appendBubble(body, payload.new);
-      // Mark as read if it's a customer message
-      if (payload.new.sender_type === "customer") {
-        sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", payload.new.id);
+      // Remove "no messages" empty state if present
+      body.querySelector(".no-thread")?.remove();
+      appendBubble(body, m);
+      if (m.sender_type === "customer") {
+        sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", m.id);
       }
-    }).subscribe();
+    }).subscribe(status => {
+      if (status === "SUBSCRIBED") console.log(`[realtime] thread-${companyId} ready`);
+    });
 };
 
 function renderMessages(msgs) {
