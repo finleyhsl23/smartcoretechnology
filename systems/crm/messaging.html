@@ -242,14 +242,30 @@ import { sb } from "/systems/crm/shared/supabase.js";
 
 initTheme();
 
-let profile, tier;
+const SB_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+
+let profile, tier, authToken;
 let allCompanies = [], activeCompanyId = null;
 let companyIdsWithPortal = new Set(), unreadCounts = {};
 let knownMsgIds = new Set();
 let pollTimer = null;
 
+// Direct REST fetch — no JS client state, works reliably on mobile
+async function dbGet(table, filters, extra = "") {
+  const qs = Object.entries(filters).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
+  const res = await fetch(`${SB_URL}/rest/v1/${table}?${qs}${extra ? "&"+extra : ""}`, {
+    headers: { apikey: SB_ANON, Authorization: `Bearer ${authToken || SB_ANON}` }
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 try {
   ({ profile, tier } = await requireCRMAccess());
+  // Grab the live session token for direct REST calls
+  const { data: { session } } = await sb().auth.getSession();
+  authToken = session?.access_token || SB_ANON;
   renderNav("messaging", profile, tier);
   initMobileNav();
   initTopbar(profile);
@@ -433,27 +449,35 @@ window.openThread = async function(companyId, companyName) {
 
 async function pollThread(companyId) {
   if (companyId !== activeCompanyId) return;
-  const { data: msgs } = await sb().from("crm_messages")
-    .select("*").eq("tenant_id", profile.company_id)
-    .eq("crm_company_id", companyId).order("created_at");
-  if (!msgs) return;
-  const body = document.getElementById("msgBody");
-  if (!body) return;
-  let hasNew = false;
-  for (const m of msgs) {
-    if (!knownMsgIds.has(m.id)) {
-      knownMsgIds.add(m.id);
-      if (body.querySelector(".no-thread")) {
-        body.innerHTML = "";
-      }
-      appendBubble(body, m, !hasNew);
-      hasNew = true;
-      if (m.sender_type === "customer") {
-        sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", m.id);
+  try {
+    const msgs = await dbGet("crm_messages",
+      { "tenant_id": `eq.${profile.company_id}`, "crm_company_id": `eq.${companyId}` },
+      "order=created_at&select=*"
+    );
+    const body = document.getElementById("msgBody");
+    if (!body) return;
+    let hasNew = false;
+    for (const m of msgs) {
+      if (!knownMsgIds.has(m.id)) {
+        knownMsgIds.add(m.id);
+        if (body.querySelector(".no-thread")) body.innerHTML = "";
+        appendBubble(body, m, true);
+        hasNew = true;
+        if (m.sender_type === "customer") {
+          sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", m.id);
+        }
       }
     }
-  }
+  } catch(e) { console.warn("poll error:", e.message); }
 }
+
+// Re-poll immediately when returning to the tab (mobile Safari background throttle)
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && activeCompanyId) pollThread(activeCompanyId);
+});
+window.addEventListener("focus", () => {
+  if (activeCompanyId) pollThread(activeCompanyId);
+});
 
 /* ── Render ── */
 function renderMessages(msgs) {
