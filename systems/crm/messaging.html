@@ -6,10 +6,12 @@
   <title>Messaging — SmartCore CRM</title>
   <link rel="stylesheet" href="/systems/crm/crm.css"/>
   <style>
+    #content { padding: 0 !important; }
     .msg-layout {
       display: grid;
       grid-template-columns: 300px 1fr;
-      height: calc(100vh - 56px);
+      width: 100%;
+      height: 100%;
       overflow: hidden;
     }
 
@@ -99,7 +101,7 @@
     }
 
     /* ── Thread ── */
-    .msg-thread { display: flex; flex-direction: column; background: var(--bg); }
+    .msg-thread { display: flex; flex-direction: column; background: var(--bg); min-height: 0; }
     .msg-header {
       padding: 16px 24px;
       border-bottom: 1px solid var(--line2);
@@ -118,7 +120,7 @@
     }
 
     .msg-body {
-      flex: 1; overflow-y: auto;
+      flex: 1; overflow-y: auto; min-height: 0;
       padding: 24px 28px;
       display: flex; flex-direction: column; gap: 2px;
     }
@@ -235,7 +237,7 @@
         <button class="topbar-btn" id="logoutBtn">🚪</button>
       </div>
     </div>
-    <div id="content" style="height:calc(100vh - 56px);display:flex;align-items:center;justify-content:center">
+    <div id="content" style="height:calc(100vh - 56px);display:flex;align-items:center;justify-content:center;padding:0;overflow:hidden">
       <div class="spinner"></div>
     </div>
   </div>
@@ -483,6 +485,30 @@ function appendBubble(body, m, scroll = true) {
   body.appendChild(group);
   if (scroll) body.scrollTop = body.scrollHeight;
 }
+
+// Mobile: reconnect realtime when returning to the tab (iOS kills WebSockets in background)
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  // Reconnect sidebar watcher
+  try { sb().removeChannel(sb().channel("msg-sidebar-watch")); } catch(_) {}
+  sb().channel("msg-sidebar-watch")
+    .on("postgres_changes",{ event:"INSERT", schema:"public", table:"crm_messages" }, payload => {
+      const m = payload.new;
+      if (m.tenant_id !== profile.company_id) return;
+      if (m.sender_type === "customer" && m.crm_company_id !== activeCompanyId) {
+        unreadCounts[m.crm_company_id] = (unreadCounts[m.crm_company_id]||0) + 1;
+        document.getElementById("companyList").innerHTML = renderCompanyList(allCompanies);
+        updateNavBadge();
+      }
+    }).subscribe();
+  // Re-fetch current thread to catch any messages received while hidden
+  if (activeCompanyId) {
+    sb().from("crm_messages")
+      .select("*").eq("tenant_id", profile.company_id)
+      .eq("crm_company_id", activeCompanyId).order("created_at")
+      .then(({ data }) => { if (data) renderMessages(data); });
+  }
+});
 
 window.sendMsg = async function() {
   const ta = document.getElementById("msgText");
