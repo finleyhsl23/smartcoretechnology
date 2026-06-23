@@ -415,25 +415,42 @@ window.openThread = async function(companyId, companyName) {
       updateNavBadge();
     });
 
-  // Initial load
-  const { data: msgs } = await sb().from("crm_messages")
-    .select("*").eq("tenant_id", profile.company_id)
-    .eq("crm_company_id", companyId).order("created_at");
+  // Poll every 2 s using raw fetch so we can append a timestamp to the URL.
+  // A unique URL on every request means no browser — including mobile Safari — can
+  // return a cached response. The Supabase JS client GET calls can be cached by
+  // mobile browsers even with cache:'no-store' on the client; a changing URL fixes it.
+  const SB_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+  const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
 
+  async function fetchMessages(cid) {
+    const { data: { session } } = await sb().auth.getSession();
+    const token = session?.access_token || SB_ANON;
+    const url = `${SB_URL}/rest/v1/crm_messages`
+      + `?tenant_id=eq.${profile.company_id}`
+      + `&crm_company_id=eq.${cid}`
+      + `&order=created_at`
+      + `&select=*`
+      + `&_t=${Date.now()}`;           // cache-buster: unique URL every call
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: { apikey: SB_ANON, Authorization: `Bearer ${token}` },
+    });
+    return res.ok ? res.json() : [];
+  }
+
+  // Initial load using the same cache-busted fetch
+  const initMsgs = await fetchMessages(companyId);
   const body = document.getElementById("msgBody");
   body.style.justifyContent = "";
   body.style.alignItems = "";
-  renderMessages(msgs || []);
+  renderMessages(Array.isArray(initMsgs) ? initMsgs : []);
   document.getElementById("msgText")?.focus();
 
-  // Poll every 2 s — fetch all messages, append any not yet shown
   pollInterval = setInterval(async () => {
     if (!activeCompanyId) return;
     try {
-      const { data } = await sb().from("crm_messages")
-        .select("*").eq("tenant_id", profile.company_id)
-        .eq("crm_company_id", activeCompanyId).order("created_at");
-      if (!data) return;
+      const data = await fetchMessages(activeCompanyId);
+      if (!Array.isArray(data)) return;
       const msgBody = document.getElementById("msgBody");
       if (!msgBody) return;
       for (const m of data) {
