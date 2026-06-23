@@ -55,7 +55,7 @@ export function renderNav(currentPage, profile, tier) {
       ${navItem(NAV_LINKS.find(l => l.id === "settings"), currentPage, tier)}
     </div>
     <div class="sidebar-footer">
-      <div class="sidebar-user" onclick="window.location.href='/app/dashboard.html'">
+      <div class="sidebar-user" onclick="window.location.href='/systems/core'">
         <div class="avatar avatar-sm">${esc(initials(userName))}</div>
         <div class="user-info">
           <div class="user-name">${esc(userName)}</div>
