@@ -242,17 +242,15 @@ import { sb } from "/systems/crm/shared/supabase.js";
 
 initTheme();
 
-let profile, tier, accessToken;
+let profile, tier;
 let allCompanies = [], activeCompanyId = null;
 let companyIdsWithPortal = new Set(), unreadCounts = {};
 let knownMsgIds = new Set();
-let pollGeneration = 0;
+let pollInterval = null;
 let realtimeSub = null;
 
 try {
   ({ profile, tier } = await requireCRMAccess());
-  const { data: { session } } = await sb().auth.getSession();
-  accessToken = session?.access_token || "";
   renderNav("messaging", profile, tier);
   initMobileNav();
   initTopbar(profile);
@@ -376,8 +374,7 @@ window.openThread = async function(companyId, companyName) {
   if (activeCompanyId === companyId) return;
   activeCompanyId = companyId;
 
-  // Stop any existing poll loop and realtime
-  const myGen = ++pollGeneration;
+  clearInterval(pollInterval);
   if (realtimeSub) { try { sb().removeChannel(realtimeSub); } catch(_){} realtimeSub = null; }
   knownMsgIds = new Set();
 
@@ -418,74 +415,39 @@ window.openThread = async function(companyId, companyName) {
       updateNavBadge();
     });
 
-  // Initial load via Worker (POST — never cached, bypasses RLS)
-  const initRes = await fetch("/api/crm/messages-poll", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
-    body: JSON.stringify({ company_id: companyId }),
-    cache: "no-store",
-  });
-  const initData = initRes.ok ? await initRes.json() : {};
-  const msgs = initData.messages || [];
+  // Initial load
+  const { data: msgs } = await sb().from("crm_messages")
+    .select("*").eq("tenant_id", profile.company_id)
+    .eq("crm_company_id", companyId).order("created_at");
 
   const body = document.getElementById("msgBody");
   body.style.justifyContent = "";
   body.style.alignItems = "";
-  renderMessages(msgs);
+  renderMessages(msgs || []);
   document.getElementById("msgText")?.focus();
 
-  // Realtime for instant desktop updates (bonus on top of polling)
-  realtimeSub = sb().channel(`thread-${companyId}`)
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "crm_messages" }, payload => {
-      const m = payload.new;
-      if (m.crm_company_id !== companyId || m.tenant_id !== profile.company_id) return;
-      if (knownMsgIds.has(m.id)) return;
-      knownMsgIds.add(m.id);
-      const body = document.getElementById("msgBody");
-      if (body?.querySelector(".no-thread")) body.innerHTML = "";
-      if (body) appendBubble(body, m, true);
-      if (m.sender_type === "customer")
-        sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", m.id);
-    }).subscribe();
-
-  // Async poll loop — more reliable than setInterval on iOS Safari
-  // Each iteration waits for the fetch to finish, then sleeps 2 s before the next
-  ;(async (gen) => {
-    while (gen === pollGeneration) {
-      await pollThread(companyId, gen);
-      if (gen !== pollGeneration) break;
-      await new Promise(r => setTimeout(r, 2000));
-    }
-  })(myGen);
-};
-
-async function pollThread(companyId, gen) {
-  if (gen !== pollGeneration || companyId !== activeCompanyId) return;
-  try {
-    // Use POST to /api/crm/messages-poll — POST requests are never cached by mobile browsers.
-    // The worker uses the service role key so RLS is bypassed entirely.
-    const res = await fetch("/api/crm/messages-poll", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
-      body: JSON.stringify({ company_id: companyId }),
-      cache: "no-store",
-    });
-    if (!res.ok) return;
-    const { ok, messages } = await res.json();
-    if (!ok || !messages) return;
-    const body = document.getElementById("msgBody");
-    if (!body) return;
-    for (const m of messages) {
-      if (!knownMsgIds.has(m.id)) {
-        knownMsgIds.add(m.id);
-        if (body.querySelector(".no-thread")) body.innerHTML = "";
-        appendBubble(body, m, true);
-        if (m.sender_type === "customer")
-          sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", m.id);
+  // Poll every 2 s — fetch all messages, append any not yet shown
+  pollInterval = setInterval(async () => {
+    if (!activeCompanyId) return;
+    try {
+      const { data } = await sb().from("crm_messages")
+        .select("*").eq("tenant_id", profile.company_id)
+        .eq("crm_company_id", activeCompanyId).order("created_at");
+      if (!data) return;
+      const msgBody = document.getElementById("msgBody");
+      if (!msgBody) return;
+      for (const m of data) {
+        if (!knownMsgIds.has(m.id)) {
+          knownMsgIds.add(m.id);
+          if (msgBody.querySelector(".no-thread")) msgBody.innerHTML = "";
+          appendBubble(msgBody, m, true);
+          if (m.sender_type === "customer")
+            sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", m.id);
+        }
       }
-    }
-  } catch(e) { console.warn("poll:", e.message); }
-}
+    } catch(e) { console.warn("poll:", e.message); }
+  }, 2000);
+};
 
 /* ── Render ── */
 function renderMessages(msgs) {
