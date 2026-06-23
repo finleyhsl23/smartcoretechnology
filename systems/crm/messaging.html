@@ -246,7 +246,7 @@ let profile, tier;
 let allCompanies = [], activeCompanyId = null;
 let companyIdsWithPortal = new Set(), unreadCounts = {};
 let knownMsgIds = new Set();
-let pollTimer = null;
+let pollGeneration = 0;
 let realtimeSub = null;
 
 try {
@@ -374,8 +374,8 @@ window.openThread = async function(companyId, companyName) {
   if (activeCompanyId === companyId) return;
   activeCompanyId = companyId;
 
-  // Stop existing poll + realtime
-  clearInterval(pollTimer);
+  // Stop any existing poll loop and realtime
+  const myGen = ++pollGeneration;
   if (realtimeSub) { try { sb().removeChannel(realtimeSub); } catch(_){} realtimeSub = null; }
   knownMsgIds = new Set();
 
@@ -429,7 +429,7 @@ window.openThread = async function(companyId, companyName) {
   renderMessages(msgs || []);
   document.getElementById("msgText")?.focus();
 
-  // Realtime for instant desktop updates
+  // Realtime for instant desktop updates (bonus on top of polling)
   realtimeSub = sb().channel(`thread-${companyId}`)
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "crm_messages" }, payload => {
       const m = payload.new;
@@ -443,22 +443,19 @@ window.openThread = async function(companyId, companyName) {
         sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", m.id);
     }).subscribe();
 
-  // Poll every 1 s as mobile fallback (realtime may not fire on iOS)
-  function startPoll(cid) {
-    clearInterval(pollTimer);
-    pollTimer = setInterval(() => pollThread(cid), 1000);
-  }
-  startPoll(companyId);
-
-  // Restart poll when returning to tab (iOS throttles timers in background)
-  const onVisible = () => { if (document.visibilityState === "visible") startPoll(companyId); };
-  document.removeEventListener("visibilitychange", window._visHandler);
-  window._visHandler = onVisible;
-  document.addEventListener("visibilitychange", onVisible);
+  // Async poll loop — more reliable than setInterval on iOS Safari
+  // Each iteration waits for the fetch to finish, then sleeps 2 s before the next
+  ;(async (gen) => {
+    while (gen === pollGeneration) {
+      await pollThread(companyId, gen);
+      if (gen !== pollGeneration) break;
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  })(myGen);
 };
 
-async function pollThread(companyId) {
-  if (companyId !== activeCompanyId) return;
+async function pollThread(companyId, gen) {
+  if (gen !== pollGeneration || companyId !== activeCompanyId) return;
   try {
     const { data: msgs } = await sb().from("crm_messages")
       .select("*")
