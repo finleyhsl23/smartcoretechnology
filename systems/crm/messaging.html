@@ -418,17 +418,20 @@ window.openThread = async function(companyId, companyName) {
       updateNavBadge();
     });
 
-  // Initial load
-  const { data: msgs, error } = await sb().from("crm_messages")
-    .select("*").eq("tenant_id", profile.company_id)
-    .eq("crm_company_id", companyId).order("created_at");
-
-  if (error) { toast("bad","Error",error.message); return; }
+  // Initial load via Worker (POST — never cached, bypasses RLS)
+  const initRes = await fetch("/api/crm/messages-poll", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
+    body: JSON.stringify({ company_id: companyId }),
+    cache: "no-store",
+  });
+  const initData = initRes.ok ? await initRes.json() : {};
+  const msgs = initData.messages || [];
 
   const body = document.getElementById("msgBody");
   body.style.justifyContent = "";
   body.style.alignItems = "";
-  renderMessages(msgs || []);
+  renderMessages(msgs);
   document.getElementById("msgText")?.focus();
 
   // Realtime for instant desktop updates (bonus on top of polling)

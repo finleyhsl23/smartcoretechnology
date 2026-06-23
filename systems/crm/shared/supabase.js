@@ -5,6 +5,13 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 let _client = null;
 export function sb() {
-  if (!_client) _client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  if (!_client) _client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: {
+      // Prevent mobile Safari from caching GET responses
+      fetch: (url, opts = {}) => fetch(url, { ...opts, cache: "no-store" }),
+    },
+  });
   return _client;
 }
+
+export { SUPABASE_URL, SUPABASE_ANON_KEY };
