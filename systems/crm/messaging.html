@@ -242,15 +242,21 @@ import { sb } from "/systems/crm/shared/supabase.js";
 
 initTheme();
 
-let profile, tier;
+let profile, tier, sbToken;
 let allCompanies = [], activeCompanyId = null;
 let companyIdsWithPortal = new Set(), unreadCounts = {};
 let knownMsgIds = new Set();
 let pollInterval = null;
 let realtimeSub = null;
+let msgOffset = 0;
+const PAGE = 150;
+const SB_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
 
 try {
   ({ profile, tier } = await requireCRMAccess());
+  const { data: { session } } = await sb().auth.getSession();
+  sbToken = session?.access_token || SB_ANON;
   renderNav("messaging", profile, tier);
   initMobileNav();
   initTopbar(profile);
@@ -415,42 +421,42 @@ window.openThread = async function(companyId, companyName) {
       updateNavBadge();
     });
 
-  // Poll every 2 s using raw fetch so we can append a timestamp to the URL.
-  // A unique URL on every request means no browser — including mobile Safari — can
-  // return a cached response. The Supabase JS client GET calls can be cached by
-  // mobile browsers even with cache:'no-store' on the client; a changing URL fixes it.
-  const SB_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
-  const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
-
-  async function fetchMessages(cid) {
-    const { data: { session } } = await sb().auth.getSession();
-    const token = session?.access_token || SB_ANON;
+  // Fetch messages via direct REST with a timestamp cache-buster.
+  // sbToken is captured at page load (session guaranteed valid then).
+  // limit/offset support pagination; poll always fetches the latest PAGE rows.
+  async function fetchMsgs(cid, limit = PAGE, offset = 0) {
     const url = `${SB_URL}/rest/v1/crm_messages`
       + `?tenant_id=eq.${profile.company_id}`
       + `&crm_company_id=eq.${cid}`
-      + `&order=created_at`
+      + `&order=created_at.desc`        // newest first so limit gives us the latest
+      + `&limit=${limit}`
+      + `&offset=${offset}`
       + `&select=*`
-      + `&_t=${Date.now()}`;           // cache-buster: unique URL every call
+      + `&_t=${Date.now()}`;
     const res = await fetch(url, {
       cache: "no-store",
-      headers: { apikey: SB_ANON, Authorization: `Bearer ${token}` },
+      headers: { apikey: SB_ANON, Authorization: `Bearer ${sbToken}` },
     });
-    return res.ok ? res.json() : [];
+    if (!res.ok) return [];
+    const rows = await res.json();
+    return Array.isArray(rows) ? rows.reverse() : []; // reverse: oldest first for display
   }
 
-  // Initial load using the same cache-busted fetch
-  const initMsgs = await fetchMessages(companyId);
+  // Initial load: most recent 150 messages
+  msgOffset = 0;
+  const initMsgs = await fetchMsgs(companyId, PAGE, 0);
   const body = document.getElementById("msgBody");
   body.style.justifyContent = "";
   body.style.alignItems = "";
-  renderMessages(Array.isArray(initMsgs) ? initMsgs : []);
+  renderMessages(initMsgs, companyId);
   document.getElementById("msgText")?.focus();
 
+  // Poll every 2 s — only look for messages newer than the last known one
   pollInterval = setInterval(async () => {
     if (!activeCompanyId) return;
     try {
-      const data = await fetchMessages(activeCompanyId);
-      if (!Array.isArray(data)) return;
+      const data = await fetchMsgs(activeCompanyId, PAGE, 0);
+      if (!data.length) return;
       const msgBody = document.getElementById("msgBody");
       if (!msgBody) return;
       for (const m of data) {
@@ -464,10 +470,13 @@ window.openThread = async function(companyId, companyName) {
       }
     } catch(e) { console.warn("poll:", e.message); }
   }, 2000);
+
+  // Expose fetchMsgs for "Load more" button
+  window._fetchMsgs = fetchMsgs;
 };
 
 /* ── Render ── */
-function renderMessages(msgs) {
+function renderMessages(msgs, cid) {
   const body = document.getElementById("msgBody");
   if (!body) return;
   knownMsgIds = new Set();
@@ -475,7 +484,7 @@ function renderMessages(msgs) {
     body.innerHTML = `<div class="no-thread"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><p>No messages yet</p></div>`;
     return;
   }
-  body.innerHTML = "";
+  body.innerHTML = `<button id="loadMoreBtn" onclick="loadMoreMsgs('${cid}')" style="align-self:center;margin-bottom:8px;font-size:12px;padding:5px 14px;border-radius:99px;border:1px solid var(--line2);background:var(--card2);color:var(--text-dim);cursor:pointer">Load older messages</button>`;
   let lastDay = null, lastSender = null;
   for (const m of msgs) {
     knownMsgIds.add(m.id);
@@ -494,16 +503,50 @@ function renderMessages(msgs) {
   body.scrollTop = body.scrollHeight;
 }
 
-function appendBubble(body, m, scroll = true, showName = true) {
+window.loadMoreMsgs = async function(cid) {
+  msgOffset += PAGE;
+  const btn = document.getElementById("loadMoreBtn");
+  if (btn) btn.textContent = "Loading…";
+  const older = await window._fetchMsgs(cid, PAGE, msgOffset);
+  const body = document.getElementById("msgBody");
+  if (!body) return;
+  if (!older.length) { if (btn) { btn.textContent = "No more messages"; btn.disabled = true; } return; }
+  // Prepend older messages before existing content
+  let lastSender = null, lastDay = null;
+  const frag = document.createDocumentFragment();
+  for (const m of older) {
+    knownMsgIds.add(m.id);
+    const day = fmtDay(m.created_at);
+    if (day !== lastDay) {
+      const chip = document.createElement("div");
+      chip.className = "day-chip";
+      chip.textContent = day;
+      frag.appendChild(chip);
+      lastDay = day; lastSender = null;
+    }
+    const row = buildBubbleEl(m, lastSender !== m.sender_name);
+    frag.appendChild(row);
+    lastSender = m.sender_name;
+  }
+  const firstChild = btn?.nextSibling || body.firstChild;
+  body.insertBefore(frag, firstChild);
+  if (btn) btn.textContent = "Load older messages";
+};
+
+function buildBubbleEl(m, showName = true) {
   const side = m.sender_type === "staff" ? "staff" : "customer";
   const row = document.createElement("div");
-  row.className = `brow ${side}${showName?" new-sender":""}`;
+  row.className = `brow ${side}${showName ? " new-sender" : ""}`;
   row.dataset.id = m.id;
   row.innerHTML = `
-    ${showName ? `<div class="bname">${esc(m.sender_name || (side==="staff"?"Staff":"Customer"))}</div>` : ""}
+    ${showName ? `<div class="bname">${esc(m.sender_name || (side === "staff" ? "Staff" : "Customer"))}</div>` : ""}
     <div class="bubble ${side}">${esc(m.body)}</div>
     <div class="btime">${fmtTime(m.created_at)}</div>`;
-  body.appendChild(row);
+  return row;
+}
+
+function appendBubble(body, m, scroll = true, showName = true) {
+  body.appendChild(buildBubbleEl(m, showName));
   if (scroll) body.scrollTop = body.scrollHeight;
 }
 
