@@ -243,14 +243,13 @@ import { sb } from "/systems/crm/shared/supabase.js";
 initTheme();
 
 const PAGE = 150;
+const POLL_LIMIT = 30; // messages fetched on each poll tick
 
 let profile, tier;
 let allCompanies = [], activeCompanyId = null;
 let companyIdsWithPortal = new Set(), unreadCounts = {};
 let knownMsgIds = new Set();
 let msgOffset = 0;
-// Timestamp of last seen message — poll only fetches rows newer than this
-let lastMsgTs = new Date(Date.now() - 5000).toISOString();
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -288,61 +287,46 @@ async function fetchMsgs(cid, limit = PAGE, offset = 0) {
   return Array.isArray(data) ? data.reverse() : [];
 }
 
-/* ── Global poll (runs from page load, handles thread + nav badge) ── */
+/* ── Global poll ── */
 async function globalPoll() {
+  if (!activeCompanyId) return;
   try {
-    // Use sb() client — handles auth refresh + proper URL encoding automatically
+    // Fetch the most recent POLL_LIMIT messages for the open thread
     const { data: msgs, error } = await sb()
       .from("crm_messages")
       .select("*")
       .eq("tenant_id", profile.company_id)
-      .gt("created_at", lastMsgTs)
-      .order("created_at", { ascending: true })
-      .limit(50);
+      .eq("crm_company_id", activeCompanyId)
+      .order("created_at", { ascending: false })
+      .limit(POLL_LIMIT);
 
-    if (error) { console.warn("globalPoll:", error.message); return; }
-    if (!msgs?.length) return;
+    if (error || !msgs?.length) return;
 
-    lastMsgTs = msgs[msgs.length - 1].created_at;
+    const msgBody = document.getElementById("msgBody");
+    if (!msgBody || msgBody.querySelector(".spinner")) return;
 
-    let sidebarDirty = false;
+    // Walk newest-first; append any we haven't seen yet
     for (const m of msgs) {
-      if (m.crm_company_id === activeCompanyId) {
-        if (!knownMsgIds.has(m.id)) {
-          knownMsgIds.add(m.id);
-          const msgBody = document.getElementById("msgBody");
-          if (msgBody && !msgBody.querySelector(".spinner") && !msgBody.querySelector(".no-thread")) {
-            appendBubble(msgBody, m, true);
-          }
-          if (m.sender_type === "customer") {
-            sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", m.id);
-          }
-        }
-      } else if (m.sender_type === "customer") {
-        unreadCounts[m.crm_company_id] = (unreadCounts[m.crm_company_id] || 0) + 1;
-        sidebarDirty = true;
+      if (!knownMsgIds.has(m.id)) {
+        knownMsgIds.add(m.id);
+        if (msgBody.querySelector(".no-thread")) msgBody.innerHTML = "";
+        appendBubble(msgBody, m, true);
+        if (m.sender_type === "customer")
+          sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", m.id);
       }
     }
-    if (sidebarDirty) { renderSidebar(allCompanies); updateNavBadge(); }
-  } catch(e) { console.warn("globalPoll:", e.message); }
+  } catch(e) { console.warn("poll:", e.message); }
 }
 
 function startGlobalPoll() {
-  // Use a real JS file path — blob: Worker URLs can be blocked by Cloudflare CSP on mobile
-  let worker;
-  try {
-    worker = new Worker("/systems/crm/shared/poll-worker.js");
-    worker.onmessage = globalPoll;
-  } catch(_) {
-    // Final fallback — main-thread setInterval (may be throttled on iOS background)
-    const id = setInterval(globalPoll, 2000);
-    worker = { terminate() { clearInterval(id); } };
-  }
-  // Immediate poll when tab becomes visible (covers screen-lock / app-switch resume)
+  // Plain setInterval — simple, always works in foreground tabs
+  setInterval(globalPoll, 3000);
+  // Also fire immediately when the user returns to the tab (screen unlock, app switch)
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") globalPoll();
   });
-  return worker;
+  // On mobile, a touch also re-fires the poll in case the interval drifted
+  document.addEventListener("touchstart", globalPoll, { passive: true });
 }
 
 /* ── Load ── */
