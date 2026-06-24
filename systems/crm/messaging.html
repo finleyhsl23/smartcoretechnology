@@ -328,18 +328,17 @@ async function globalPoll() {
 }
 
 function startGlobalPoll() {
-  // Web Worker runs on a separate OS thread — immune to iOS Safari timer throttling
+  // Use a real JS file path — blob: Worker URLs can be blocked by Cloudflare CSP on mobile
   let worker;
   try {
-    const blob = new Blob([`setInterval(()=>postMessage(1),2000);`], { type: "application/javascript" });
-    worker = new Worker(URL.createObjectURL(blob));
+    worker = new Worker("/systems/crm/shared/poll-worker.js");
     worker.onmessage = globalPoll;
   } catch(_) {
-    // Blob Worker blocked (CSP) — fall back to setInterval on main thread
+    // Final fallback — main-thread setInterval (may be throttled on iOS background)
     const id = setInterval(globalPoll, 2000);
     worker = { terminate() { clearInterval(id); } };
   }
-  // Immediate poll when tab becomes visible (covers screen-lock resume on mobile)
+  // Immediate poll when tab becomes visible (covers screen-lock / app-switch resume)
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") globalPoll();
   });
