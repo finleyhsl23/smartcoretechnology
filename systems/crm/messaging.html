@@ -432,7 +432,12 @@ window.openThread = async function(companyId, companyName) {
       + `&select=*`;
     const res = await fetch(url, {
       cache: "no-store",
-      headers: { apikey: SB_ANON, Authorization: `Bearer ${sbToken}` },
+      headers: {
+        apikey: SB_ANON,
+        Authorization: `Bearer ${sbToken}`,
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+      },
     });
     if (!res.ok) {
       console.warn("fetchMsgs", res.status, await res.text());
@@ -451,19 +456,29 @@ window.openThread = async function(companyId, companyName) {
   renderMessages(initMsgs, companyId);
   document.getElementById("msgText")?.focus();
 
-  // ── Web Worker timer ────────────────────────────────────────────────────────
-  // iOS Safari throttles setInterval on the main thread even for active tabs
-  // with no recent user interaction. Web Workers run on a separate OS thread
-  // and are not subject to this throttle — same technique used by Slack/Discord.
+  // ── Polling timer ──────────────────────────────────────────────────────────
   if (pollInterval) { try { pollInterval.terminate(); } catch(_){} }
 
-  const workerBlob = new Blob([`setInterval(() => postMessage("tick"), 2000);`],
-    { type: "application/javascript" });
-  const workerWorker = new Worker(URL.createObjectURL(workerBlob));
+  // Try Web Worker first (separate OS thread, immune to iOS Safari timer throttle).
+  // Fall back to setInterval if blob: Workers are blocked (e.g. strict CSP).
+  let workerWorker;
+  try {
+    const workerBlob = new Blob([`setInterval(() => postMessage("tick"), 2000);`],
+      { type: "application/javascript" });
+    workerWorker = new Worker(URL.createObjectURL(workerBlob));
+  } catch(_) {
+    // CSP blocked blob Worker — create a fake object that mimics the Worker API
+    workerWorker = { onmessage: null, terminate() { clearInterval(this._id); } };
+    workerWorker._id = setInterval(() => workerWorker.onmessage?.(), 2000);
+  }
 
   const doPoll = async () => {
     if (!activeCompanyId) return;
     try {
+      // Always refresh token — Supabase tokens expire after 1 hour
+      const { data: { session } } = await sb().auth.getSession();
+      if (session?.access_token) sbToken = session.access_token;
+
       const data = await fetchMsgs(activeCompanyId, PAGE, 0);
       const msgBody = document.getElementById("msgBody");
       if (!msgBody) return;
