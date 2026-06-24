@@ -242,11 +242,9 @@ import { sb } from "/systems/crm/shared/supabase.js";
 
 initTheme();
 
-const SB_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
-const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
 const PAGE = 150;
 
-let profile, tier, sbToken;
+let profile, tier;
 let allCompanies = [], activeCompanyId = null;
 let companyIdsWithPortal = new Set(), unreadCounts = {};
 let knownMsgIds = new Set();
@@ -256,8 +254,6 @@ let lastMsgTs = new Date(Date.now() - 5000).toISOString();
 
 try {
   ({ profile, tier } = await requireCRMAccess());
-  const { data: { session } } = await sb().auth.getSession();
-  sbToken = session?.access_token || SB_ANON;
   renderNav("messaging", profile, tier);
   initMobileNav();
   initTopbar(profile);
@@ -280,55 +276,38 @@ function fmtDay(d) {
 }
 
 /* ── Fetch helpers ── */
-function authHeaders() {
-  return {
-    apikey: SB_ANON,
-    Authorization: `Bearer ${sbToken}`,
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-  };
-}
-
 async function fetchMsgs(cid, limit = PAGE, offset = 0) {
-  const url = `${SB_URL}/rest/v1/crm_messages`
-    + `?tenant_id=eq.${profile.company_id}`
-    + `&crm_company_id=eq.${cid}`
-    + `&order=created_at.desc`
-    + `&limit=${limit}`
-    + `&offset=${offset}`
-    + `&select=*`;
-  const res = await fetch(url, { cache: "no-store", headers: authHeaders() });
-  if (!res.ok) { console.warn("fetchMsgs", res.status, await res.text()); return []; }
-  const rows = await res.json();
-  return Array.isArray(rows) ? rows.reverse() : [];
+  const { data, error } = await sb()
+    .from("crm_messages")
+    .select("*")
+    .eq("tenant_id", profile.company_id)
+    .eq("crm_company_id", cid)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (error) { console.warn("fetchMsgs:", error.message); return []; }
+  return Array.isArray(data) ? data.reverse() : [];
 }
 
 /* ── Global poll (runs from page load, handles thread + nav badge) ── */
 async function globalPoll() {
   try {
-    // Refresh token every poll — JWTs expire after 1 hour
-    const { data: { session } } = await sb().auth.getSession();
-    if (session?.access_token) sbToken = session.access_token;
+    // Use sb() client — handles auth refresh + proper URL encoding automatically
+    const { data: msgs, error } = await sb()
+      .from("crm_messages")
+      .select("*")
+      .eq("tenant_id", profile.company_id)
+      .gt("created_at", lastMsgTs)
+      .order("created_at", { ascending: true })
+      .limit(50);
 
-    // Fetch only messages newer than lastMsgTs — tiny payload, never miss anything
-    const url = `${SB_URL}/rest/v1/crm_messages`
-      + `?tenant_id=eq.${profile.company_id}`
-      + `&created_at=gt.${lastMsgTs}`
-      + `&order=created_at.asc`
-      + `&limit=50`
-      + `&select=*`;
-    const res = await fetch(url, { cache: "no-store", headers: authHeaders() });
-    if (!res.ok) return;
-    const msgs = await res.json();
-    if (!Array.isArray(msgs) || !msgs.length) return;
+    if (error) { console.warn("globalPoll:", error.message); return; }
+    if (!msgs?.length) return;
 
-    // Advance the cursor so next poll only fetches newer rows
     lastMsgTs = msgs[msgs.length - 1].created_at;
 
     let sidebarDirty = false;
     for (const m of msgs) {
       if (m.crm_company_id === activeCompanyId) {
-        // Append to open thread if not already shown
         if (!knownMsgIds.has(m.id)) {
           knownMsgIds.add(m.id);
           const msgBody = document.getElementById("msgBody");
@@ -340,7 +319,6 @@ async function globalPoll() {
           }
         }
       } else if (m.sender_type === "customer") {
-        // Unread from another company — bump badge
         unreadCounts[m.crm_company_id] = (unreadCounts[m.crm_company_id] || 0) + 1;
         sidebarDirty = true;
       }
