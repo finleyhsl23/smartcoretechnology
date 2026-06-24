@@ -36,6 +36,7 @@ import { companies, getStaff } from "/systems/crm/shared/api.js?v=2";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=2";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmt, fmtDate, timeAgo, toast, confirm, companyStatusBadge, loading, setInner } from "/systems/crm/shared/ui.js";
+import { triggerCommand } from "/systems/crm/shared/commands.js";
 
 initTheme();
 
@@ -256,8 +257,20 @@ function openModal(id) {
         customer_since: document.getElementById("mSince").value || null,
         notes: document.getElementById("mNotes").value.trim() || null,
       };
-      if (c) await companies.update(c.id, fields);
-      else await companies.create(fields);
+      if (c) {
+        await companies.update(c.id, fields);
+        if (fields.status && fields.status !== c.status) {
+          triggerCommand(profile.company_id, 'company_status_changed', {
+            triggerValue: fields.status,
+            ctx: { company_name: fields.name, company_email: fields.email || '', trigger_value: fields.status },
+          });
+        }
+      } else {
+        await companies.create(fields);
+        triggerCommand(profile.company_id, 'company_created', {
+          ctx: { company_name: fields.name, company_email: fields.email || '' },
+        });
+      }
       overlay.remove();
       toast("ok", c ? "Company updated" : "Company added");
       await loadAndRender();
