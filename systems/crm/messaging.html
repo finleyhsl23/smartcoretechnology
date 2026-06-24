@@ -380,7 +380,7 @@ window.openThread = async function(companyId, companyName) {
   if (activeCompanyId === companyId) return;
   activeCompanyId = companyId;
 
-  clearInterval(pollInterval);
+  if (pollInterval) { try { pollInterval.terminate(); } catch(_){} pollInterval = null; }
   if (realtimeSub) { try { sb().removeChannel(realtimeSub); } catch(_){} realtimeSub = null; }
   knownMsgIds = new Set();
 
@@ -421,9 +421,7 @@ window.openThread = async function(companyId, companyName) {
       updateNavBadge();
     });
 
-  // Fetch messages via direct REST with a timestamp cache-buster.
-  // sbToken is captured at page load (session guaranteed valid then).
-  // limit/offset support pagination; poll always fetches the latest PAGE rows.
+  // Fetch messages — always fresh, auth via sbToken captured at page load
   async function fetchMsgs(cid, limit = PAGE, offset = 0) {
     const url = `${SB_URL}/rest/v1/crm_messages`
       + `?tenant_id=eq.${profile.company_id}`
@@ -436,9 +434,12 @@ window.openThread = async function(companyId, companyName) {
       cache: "no-store",
       headers: { apikey: SB_ANON, Authorization: `Bearer ${sbToken}` },
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.warn("fetchMsgs", res.status, await res.text());
+      return [];
+    }
     const rows = await res.json();
-    return Array.isArray(rows) ? rows.reverse() : []; // reverse: oldest first for display
+    return Array.isArray(rows) ? rows.reverse() : [];
   }
 
   // Initial load: most recent 150 messages
@@ -450,12 +451,20 @@ window.openThread = async function(companyId, companyName) {
   renderMessages(initMsgs, companyId);
   document.getElementById("msgText")?.focus();
 
-  // Poll every 2 s — only look for messages newer than the last known one
-  pollInterval = setInterval(async () => {
+  // ── Web Worker timer ────────────────────────────────────────────────────────
+  // iOS Safari throttles setInterval on the main thread even for active tabs
+  // with no recent user interaction. Web Workers run on a separate OS thread
+  // and are not subject to this throttle — same technique used by Slack/Discord.
+  if (pollInterval) { try { pollInterval.terminate(); } catch(_){} }
+
+  const workerBlob = new Blob([`setInterval(() => postMessage("tick"), 2000);`],
+    { type: "application/javascript" });
+  const workerWorker = new Worker(URL.createObjectURL(workerBlob));
+
+  const doPoll = async () => {
     if (!activeCompanyId) return;
     try {
       const data = await fetchMsgs(activeCompanyId, PAGE, 0);
-      if (!data.length) return;
       const msgBody = document.getElementById("msgBody");
       if (!msgBody) return;
       for (const m of data) {
@@ -468,7 +477,16 @@ window.openThread = async function(companyId, companyName) {
         }
       }
     } catch(e) { console.warn("poll:", e.message); }
-  }, 2000);
+  };
+
+  workerWorker.onmessage = doPoll;
+
+  pollInterval = workerWorker; // stored so openThread can terminate on switch
+
+  // Poll immediately when returning to the tab (covers screen-lock resume)
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && activeCompanyId) doPoll();
+  });
 
   // Expose fetchMsgs for "Load more" button
   window._fetchMsgs = fetchMsgs;
