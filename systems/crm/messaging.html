@@ -589,15 +589,40 @@ window.sendMsg = async function() {
   if (!text || !activeCompanyId) return;
   ta.value = "";
   ta.style.height = "auto";
-  const { error } = await sb().from("crm_messages").insert({
+
+  // Show message instantly in the sender's UI (optimistic)
+  const tempId = `temp-${Date.now()}`;
+  const tempMsg = {
+    id: tempId,
+    sender_type: "staff",
+    sender_name: profile.full_name || "Staff",
+    body: text,
+    created_at: new Date().toISOString(),
+    crm_company_id: activeCompanyId,
+  };
+  const msgBody = document.getElementById("msgBody");
+  if (msgBody) { knownMsgIds.add(tempId); appendBubble(msgBody, tempMsg, true); }
+
+  const { data, error } = await sb().from("crm_messages").insert({
     tenant_id: profile.company_id,
     crm_company_id: activeCompanyId,
     sender_type: "staff",
     sender_id: profile.id,
     sender_name: profile.full_name || "Staff",
     body: text,
-  });
-  if (error) { toast("bad","Error",error.message); ta.value = text; }
+  }).select("id").single();
+
+  if (error) {
+    toast("bad","Error",error.message);
+    ta.value = text;
+    msgBody?.querySelector(`[data-id="${tempId}"]`)?.remove();
+    knownMsgIds.delete(tempId);
+  } else if (data?.id) {
+    // Swap temp ID for real DB ID so the poll skips it
+    msgBody?.querySelector(`[data-id="${tempId}"]`)?.setAttribute("data-id", data.id);
+    knownMsgIds.delete(tempId);
+    knownMsgIds.add(data.id);
+  }
 };
 </script>
 </body>
