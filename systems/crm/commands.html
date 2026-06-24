@@ -54,7 +54,7 @@
     .step-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--blue); margin: 20px 0 12px; display: flex; align-items: center; gap: 8px; }
     .step-label::after { content:""; flex:1; height:1px; background:rgba(30,92,255,.2); }
 
-    .action-section { background: var(--bg); border: 1px solid var(--line2); border-radius: 12px; padding: 16px; margin-top: 4px; }
+    .action-section { background: var(--card2, #1a1a2e); border: 1px solid var(--line2); border-radius: 12px; padding: 16px; margin-top: 4px; }
 
     .btn-primary { width: 100%; padding: 12px; background: linear-gradient(135deg,#1e5cff,#1a7aff); color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity .15s; margin-top: 8px; }
     .btn-primary:hover { opacity: .88; }
@@ -154,11 +154,6 @@ const ACTIONS = [
   { value:"notify_team",icon:"🔔", label:"Notify team",     desc:"Send an internal email to your team" },
 ];
 
-const EMAIL_TO_TYPES = [
-  { value:"company_email",  icon:"🏢", label:"Company email",          desc:"Email address on the company record" },
-  { value:"contact_email",  icon:"👤", label:"Primary contact email",  desc:"Email of the linked contact" },
-  { value:"custom",         icon:"✏️", label:"Custom email address",   desc:"Always send to a fixed email address" },
-];
 
 // ── Custom select builder ───────────────────────────────────────────────────
 function buildSelect(id, options, placeholder = "Choose…") {
@@ -223,14 +218,6 @@ document.addEventListener("click", e => {
 function updateActionFields(action) {
   document.getElementById("emailFields").style.display  = (action === "send_email" || action === "notify_team") ? "" : "none";
   document.getElementById("webhookFields").style.display = action === "webhook" ? "" : "none";
-  if (action === "notify_team") {
-    // Pre-fill to type label
-    setCsel("emailTo","custom","Custom email address","✏️");
-  }
-}
-
-function updateEmailToFields(type) {
-  document.getElementById("customEmailWrap").style.display = type === "custom" ? "" : "none";
 }
 
 // ── Main load/render ─────────────────────────────────────────────────────────
@@ -284,12 +271,9 @@ function render() {
           <div id="emailFields" style="display:none">
             <div class="action-section">
               <div class="field">
-                <label>Send email to</label>
-                ${buildSelect("emailTo", EMAIL_TO_TYPES, "Choose recipient…")}
-              </div>
-              <div class="field" id="customEmailWrap" style="display:none">
-                <label>Email address</label>
-                <input type="email" id="emailToCustom" placeholder="team@yourcompany.com"/>
+                <label>To</label>
+                <input type="text" id="emailToCustom" placeholder="e.g. team@company.com, boss@company.com"/>
+                <div class="hint">Separate multiple addresses with commas. Or use variables: {{company_email}} {{contact_email}}</div>
               </div>
               <div class="field">
                 <label>Reply-to (optional)</label>
@@ -302,7 +286,7 @@ function render() {
               </div>
               <div class="field">
                 <label>Email body</label>
-                <textarea id="emailBody" placeholder="Hi,\n\nA new lead has been added: {{company_name}}\n\nStatus: {{trigger_value}}"></textarea>
+                <textarea id="emailBody" placeholder="Hi,&#10;&#10;A new lead has been added: {{company_name}}&#10;&#10;Status: {{trigger_value}}"></textarea>
                 <div class="hint">Same variables work here too.</div>
               </div>
             </div>
@@ -401,12 +385,12 @@ window.saveCommand = async () => {
   const actionConfig = {};
 
   if (actionType === "send_email" || actionType === "notify_team") {
-    const emailToType  = document.getElementById("csel-emailTo")?.dataset.value;
+    const emailTo      = document.getElementById("emailToCustom")?.value.trim();
     const emailSubject = document.getElementById("emailSubject")?.value.trim();
-    if (!emailToType)  { toast("bad","Missing","Please choose who to send the email to."); return; }
+    if (!emailTo)      { toast("bad","Missing","Please enter at least one email address."); return; }
     if (!emailSubject) { toast("bad","Missing","Please enter an email subject."); return; }
-    actionConfig.email_to_type    = emailToType;
-    actionConfig.email_to_custom  = document.getElementById("emailToCustom")?.value.trim() || null;
+    actionConfig.email_to_type    = "custom";
+    actionConfig.email_to_custom  = emailTo;
     actionConfig.email_reply_to   = document.getElementById("emailReplyTo")?.value.trim()  || null;
     actionConfig.email_subject    = emailSubject;
     actionConfig.email_body       = document.getElementById("emailBody")?.value.trim() || null;

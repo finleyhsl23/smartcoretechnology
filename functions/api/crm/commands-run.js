@@ -136,9 +136,11 @@ export async function onRequestPost(context) {
 
       try {
         if (cmd.action_type === 'send_email') {
-          const to = cfg.email_to_type === 'custom' ? cfg.email_to_custom : triggerCtx.company_email || triggerCtx.contact_email;
-          if (to) {
-            await sendEmail(resendKey, to, cfg.email_subject || 'SmartCore Notification', buildEmailHtml(cfg, { ...triggerCtx, trigger_value }), cfg.reply_to);
+          // Resolve To — supports comma-separated addresses and {{variables}}
+          const rawTo = (cfg.email_to_custom || '').replace(/\{\{(\w+)\}\}/g, (_, k) => triggerCtx[k] || '');
+          const toAddresses = rawTo.split(',').map(s => s.trim()).filter(Boolean);
+          if (toAddresses.length) {
+            await sendEmail(resendKey, toAddresses, cfg.email_subject || 'SmartCore Notification', buildEmailHtml(cfg, { ...triggerCtx, trigger_value }), cfg.reply_to);
           }
         } else if (cmd.action_type === 'webhook') {
           if (cfg.webhook_url) {
