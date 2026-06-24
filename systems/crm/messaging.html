@@ -242,16 +242,17 @@ import { sb } from "/systems/crm/shared/supabase.js";
 
 initTheme();
 
+const SB_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+const PAGE = 150;
+
 let profile, tier, sbToken;
 let allCompanies = [], activeCompanyId = null;
 let companyIdsWithPortal = new Set(), unreadCounts = {};
 let knownMsgIds = new Set();
-let pollInterval = null;
-let realtimeSub = null;
 let msgOffset = 0;
-const PAGE = 150;
-const SB_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
-const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+// Timestamp of last seen message — poll only fetches rows newer than this
+let lastMsgTs = new Date(Date.now() - 5000).toISOString();
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -276,6 +277,95 @@ function fmtDay(d) {
   if (date.toDateString() === now.toDateString()) return "Today";
   if (date.toDateString() === new Date(now-864e5).toDateString()) return "Yesterday";
   return date.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
+}
+
+/* ── Fetch helpers ── */
+function authHeaders() {
+  return {
+    apikey: SB_ANON,
+    Authorization: `Bearer ${sbToken}`,
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+  };
+}
+
+async function fetchMsgs(cid, limit = PAGE, offset = 0) {
+  const url = `${SB_URL}/rest/v1/crm_messages`
+    + `?tenant_id=eq.${profile.company_id}`
+    + `&crm_company_id=eq.${cid}`
+    + `&order=created_at.desc`
+    + `&limit=${limit}`
+    + `&offset=${offset}`
+    + `&select=*`;
+  const res = await fetch(url, { cache: "no-store", headers: authHeaders() });
+  if (!res.ok) { console.warn("fetchMsgs", res.status, await res.text()); return []; }
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows.reverse() : [];
+}
+
+/* ── Global poll (runs from page load, handles thread + nav badge) ── */
+async function globalPoll() {
+  try {
+    // Refresh token every poll — JWTs expire after 1 hour
+    const { data: { session } } = await sb().auth.getSession();
+    if (session?.access_token) sbToken = session.access_token;
+
+    // Fetch only messages newer than lastMsgTs — tiny payload, never miss anything
+    const url = `${SB_URL}/rest/v1/crm_messages`
+      + `?tenant_id=eq.${profile.company_id}`
+      + `&created_at=gt.${lastMsgTs}`
+      + `&order=created_at.asc`
+      + `&limit=50`
+      + `&select=*`;
+    const res = await fetch(url, { cache: "no-store", headers: authHeaders() });
+    if (!res.ok) return;
+    const msgs = await res.json();
+    if (!Array.isArray(msgs) || !msgs.length) return;
+
+    // Advance the cursor so next poll only fetches newer rows
+    lastMsgTs = msgs[msgs.length - 1].created_at;
+
+    let sidebarDirty = false;
+    for (const m of msgs) {
+      if (m.crm_company_id === activeCompanyId) {
+        // Append to open thread if not already shown
+        if (!knownMsgIds.has(m.id)) {
+          knownMsgIds.add(m.id);
+          const msgBody = document.getElementById("msgBody");
+          if (msgBody && !msgBody.querySelector(".spinner") && !msgBody.querySelector(".no-thread")) {
+            appendBubble(msgBody, m, true);
+          }
+          if (m.sender_type === "customer") {
+            sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", m.id);
+          }
+        }
+      } else if (m.sender_type === "customer") {
+        // Unread from another company — bump badge
+        unreadCounts[m.crm_company_id] = (unreadCounts[m.crm_company_id] || 0) + 1;
+        sidebarDirty = true;
+      }
+    }
+    if (sidebarDirty) { renderSidebar(allCompanies); updateNavBadge(); }
+  } catch(e) { console.warn("globalPoll:", e.message); }
+}
+
+function startGlobalPoll() {
+  // Web Worker runs on a separate OS thread — immune to iOS Safari timer throttling
+  let worker;
+  try {
+    const blob = new Blob([`setInterval(()=>postMessage(1),2000);`], { type: "application/javascript" });
+    worker = new Worker(URL.createObjectURL(blob));
+    worker.onmessage = globalPoll;
+  } catch(_) {
+    // Blob Worker blocked (CSP) — fall back to setInterval on main thread
+    const id = setInterval(globalPoll, 2000);
+    worker = { terminate() { clearInterval(id); } };
+  }
+  // Immediate poll when tab becomes visible (covers screen-lock resume on mobile)
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") globalPoll();
+  });
+  return worker;
 }
 
 /* ── Load ── */
@@ -325,17 +415,8 @@ async function loadMessaging() {
     renderSidebar(allCompanies.filter(c => c.name.toLowerCase().includes(q)));
   });
 
-  // Realtime for sidebar badges (best-effort, polling is the fallback)
-  sb().channel("msg-global")
-    .on("postgres_changes",{ event:"INSERT", schema:"public", table:"crm_messages" }, payload => {
-      const m = payload.new;
-      if (m.tenant_id !== profile.company_id || m.sender_type !== "customer") return;
-      if (m.crm_company_id !== activeCompanyId) {
-        unreadCounts[m.crm_company_id] = (unreadCounts[m.crm_company_id]||0)+1;
-        renderSidebar(allCompanies);
-        updateNavBadge();
-      }
-    }).subscribe();
+  // Start the global poll immediately — keeps running regardless of which thread is open
+  startGlobalPoll();
 }
 
 function renderSidebar(list) {
@@ -379,9 +460,6 @@ function updateNavBadge() {
 window.openThread = async function(companyId, companyName) {
   if (activeCompanyId === companyId) return;
   activeCompanyId = companyId;
-
-  if (pollInterval) { try { pollInterval.terminate(); } catch(_){} pollInterval = null; }
-  if (realtimeSub) { try { sb().removeChannel(realtimeSub); } catch(_){} realtimeSub = null; }
   knownMsgIds = new Set();
 
   renderSidebar(allCompanies);
@@ -408,7 +486,7 @@ window.openThread = async function(companyId, companyName) {
       </button>
     </div>`;
 
-  // Mark read
+  // Mark all customer messages read
   sb().from("crm_messages")
     .update({ read_at: new Date().toISOString() })
     .eq("tenant_id", profile.company_id)
@@ -421,33 +499,6 @@ window.openThread = async function(companyId, companyName) {
       updateNavBadge();
     });
 
-  // Fetch messages — always fresh, auth via sbToken captured at page load
-  async function fetchMsgs(cid, limit = PAGE, offset = 0) {
-    const url = `${SB_URL}/rest/v1/crm_messages`
-      + `?tenant_id=eq.${profile.company_id}`
-      + `&crm_company_id=eq.${cid}`
-      + `&order=created_at.desc`
-      + `&limit=${limit}`
-      + `&offset=${offset}`
-      + `&select=*`;
-    const res = await fetch(url, {
-      cache: "no-store",
-      headers: {
-        apikey: SB_ANON,
-        Authorization: `Bearer ${sbToken}`,
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-      },
-    });
-    if (!res.ok) {
-      console.warn("fetchMsgs", res.status, await res.text());
-      return [];
-    }
-    const rows = await res.json();
-    return Array.isArray(rows) ? rows.reverse() : [];
-  }
-
-  // Initial load: most recent 150 messages
   msgOffset = 0;
   const initMsgs = await fetchMsgs(companyId, PAGE, 0);
   const body = document.getElementById("msgBody");
@@ -455,56 +506,6 @@ window.openThread = async function(companyId, companyName) {
   body.style.alignItems = "";
   renderMessages(initMsgs, companyId);
   document.getElementById("msgText")?.focus();
-
-  // ── Polling timer ──────────────────────────────────────────────────────────
-  if (pollInterval) { try { pollInterval.terminate(); } catch(_){} }
-
-  // Try Web Worker first (separate OS thread, immune to iOS Safari timer throttle).
-  // Fall back to setInterval if blob: Workers are blocked (e.g. strict CSP).
-  let workerWorker;
-  try {
-    const workerBlob = new Blob([`setInterval(() => postMessage("tick"), 2000);`],
-      { type: "application/javascript" });
-    workerWorker = new Worker(URL.createObjectURL(workerBlob));
-  } catch(_) {
-    // CSP blocked blob Worker — create a fake object that mimics the Worker API
-    workerWorker = { onmessage: null, terminate() { clearInterval(this._id); } };
-    workerWorker._id = setInterval(() => workerWorker.onmessage?.(), 2000);
-  }
-
-  const doPoll = async () => {
-    if (!activeCompanyId) return;
-    try {
-      // Always refresh token — Supabase tokens expire after 1 hour
-      const { data: { session } } = await sb().auth.getSession();
-      if (session?.access_token) sbToken = session.access_token;
-
-      const data = await fetchMsgs(activeCompanyId, PAGE, 0);
-      const msgBody = document.getElementById("msgBody");
-      if (!msgBody) return;
-      for (const m of data) {
-        if (!knownMsgIds.has(m.id)) {
-          knownMsgIds.add(m.id);
-          if (msgBody.querySelector(".no-thread")) msgBody.innerHTML = "";
-          appendBubble(msgBody, m, true);
-          if (m.sender_type === "customer")
-            sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", m.id);
-        }
-      }
-    } catch(e) { console.warn("poll:", e.message); }
-  };
-
-  workerWorker.onmessage = doPoll;
-
-  pollInterval = workerWorker; // stored so openThread can terminate on switch
-
-  // Poll immediately when returning to the tab (covers screen-lock resume)
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && activeCompanyId) doPoll();
-  });
-
-  // Expose fetchMsgs for "Load more" button
-  window._fetchMsgs = fetchMsgs;
 };
 
 /* ── Render ── */
@@ -539,11 +540,10 @@ window.loadMoreMsgs = async function(cid) {
   msgOffset += PAGE;
   const btn = document.getElementById("loadMoreBtn");
   if (btn) btn.textContent = "Loading…";
-  const older = await window._fetchMsgs(cid, PAGE, msgOffset);
+  const older = await fetchMsgs(cid, PAGE, msgOffset);
   const body = document.getElementById("msgBody");
   if (!body) return;
   if (!older.length) { if (btn) { btn.textContent = "No more messages"; btn.disabled = true; } return; }
-  // Prepend older messages before existing content
   let lastSender = null, lastDay = null;
   const frag = document.createDocumentFragment();
   for (const m of older) {
