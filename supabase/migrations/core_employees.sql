@@ -1,5 +1,5 @@
 -- SmartCore Core: People Management Tables
--- Run these in Supabase SQL editor in order
+-- Run these in Supabase SQL editor in order 
 
 CREATE TABLE IF NOT EXISTS core_departments (
   id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
