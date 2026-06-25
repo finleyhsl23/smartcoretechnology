@@ -260,19 +260,37 @@ function render() {
             <div class="hint">Leave blank to fire on any value. Use the exact status/tag text.</div>
           </div>
           <div class="field">
-            <label>Company filter (optional)</label>
-            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0;font-weight:500">
-                <input type="radio" name="companyScope" value="all" checked style="accent-color:var(--blue)"/> All companies
-              </label>
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0;font-weight:500">
-                <input type="radio" name="companyScope" value="specific" style="accent-color:var(--blue)"/> Specific companies
-              </label>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <button type="button" id="companyFilterBtn" style="background:rgba(255,255,255,.06);border:1px solid var(--line2);border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer">Use Company Filter?</button>
+              <span id="companyFilterBadge" style="display:none;background:rgba(91,143,255,.15);color:#5b8fff;border:1px solid rgba(91,143,255,.3);border-radius:6px;padding:3px 10px;font-size:12px;font-weight:600"></span>
+              <button type="button" id="companyFilterInfo" title="What is company filter?" style="background:none;border:1px solid var(--line2);border-radius:50%;width:20px;height:20px;font-size:11px;font-weight:700;color:var(--text-dim);cursor:pointer;flex-shrink:0;line-height:1">i</button>
             </div>
-            <div id="companyFilterWrap" style="display:none">
+            <input type="hidden" id="companyScope" value="all"/>
+            <div id="companyFilterWrap" style="display:none;margin-top:8px">
               <div id="companyCheckboxes" style="max-height:160px;overflow-y:auto;background:var(--bg);border:1px solid var(--line2);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px">
                 <div style="font-size:12px;color:var(--text-dim)">Loading companies…</div>
               </div>
+            </div>
+          </div>
+
+          <!-- Company filter modal -->
+          <div id="companyFilterModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:none;align-items:center;justify-content:center">
+            <div style="background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px;max-width:380px;width:90%;box-shadow:0 24px 60px rgba(0,0,0,.5)">
+              <h3 style="font-size:16px;font-weight:700;margin-bottom:10px">Company Filter</h3>
+              <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:20px">Should this command run for <strong style="color:var(--text)">all companies</strong>, or only for <strong style="color:var(--text)">specific ones</strong> you choose?</p>
+              <div style="display:flex;gap:10px">
+                <button id="cfmAll" style="flex:1;padding:11px;border-radius:10px;border:1px solid var(--line2);background:var(--card2);font-size:13px;font-weight:600;color:var(--text);cursor:pointer">All companies</button>
+                <button id="cfmSpecific" style="flex:1;padding:11px;border-radius:10px;border:1px solid var(--line2);background:var(--card2);font-size:13px;font-weight:600;color:var(--text);cursor:pointer">Specific companies</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Company filter info tooltip modal -->
+          <div id="companyInfoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+            <div style="background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px;max-width:360px;width:90%;box-shadow:0 24px 60px rgba(0,0,0,.5)">
+              <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">About Company Filter</h3>
+              <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin-bottom:20px">By default, this command fires whenever the trigger happens for <em>any</em> company. If you only want it to run for certain companies — for example, only VIP clients or a specific account — you can select specific companies and it will be ignored for everyone else.</p>
+              <button id="companyInfoClose" style="width:100%;padding:10px;border-radius:10px;background:var(--blue);color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer">Got it</button>
             </div>
           </div>
 
@@ -390,13 +408,44 @@ function render() {
     document.getElementById("customEmailWrap").style.display = e.target.checked ? "" : "none";
   });
 
-  // Radio toggle for company scope
-  document.querySelectorAll('input[name="companyScope"]').forEach(r => {
-    r.addEventListener("change", async () => {
-      const specific = document.querySelector('input[name="companyScope"]:checked')?.value === "specific";
-      document.getElementById("companyFilterWrap").style.display = specific ? "" : "none";
-      if (specific) loadCompanyCheckboxes();
-    });
+  // Company filter button
+  document.getElementById("companyFilterBtn").addEventListener("click", () => {
+    const modal = document.getElementById("companyFilterModal");
+    modal.style.display = "flex";
+  });
+
+  document.getElementById("cfmAll").addEventListener("click", () => {
+    document.getElementById("companyScope").value = "all";
+    document.getElementById("companyFilterWrap").style.display = "none";
+    document.getElementById("companyFilterBadge").style.display = "none";
+    document.getElementById("companyFilterBtn").textContent = "Use Company Filter?";
+    document.getElementById("companyFilterModal").style.display = "none";
+  });
+
+  document.getElementById("cfmSpecific").addEventListener("click", () => {
+    document.getElementById("companyScope").value = "specific";
+    document.getElementById("companyFilterWrap").style.display = "";
+    document.getElementById("companyFilterBadge").style.display = "";
+    document.getElementById("companyFilterBadge").textContent = "Specific companies";
+    document.getElementById("companyFilterBtn").textContent = "Change Filter";
+    document.getElementById("companyFilterModal").style.display = "none";
+    loadCompanyCheckboxes();
+  });
+
+  document.getElementById("companyFilterModal").addEventListener("click", e => {
+    if (e.target === document.getElementById("companyFilterModal")) document.getElementById("companyFilterModal").style.display = "none";
+  });
+
+  document.getElementById("companyFilterInfo").addEventListener("click", () => {
+    document.getElementById("companyInfoModal").style.display = "flex";
+  });
+
+  document.getElementById("companyInfoClose").addEventListener("click", () => {
+    document.getElementById("companyInfoModal").style.display = "none";
+  });
+
+  document.getElementById("companyInfoModal").addEventListener("click", e => {
+    if (e.target === document.getElementById("companyInfoModal")) document.getElementById("companyInfoModal").style.display = "none";
   });
 }
 
@@ -459,7 +508,7 @@ window.saveCommand = async () => {
   const btn = document.getElementById("saveCmd");
   btn.disabled = true; btn.textContent = "Saving…";
 
-  const companyScope = document.querySelector('input[name="companyScope"]:checked')?.value;
+  const companyScope = document.getElementById("companyScope")?.value || "all";
   let companyIds = null;
   if (companyScope === "specific") {
     companyIds = [...document.querySelectorAll('#companyCheckboxes input[type="checkbox"]:checked')].map(c => c.value);
