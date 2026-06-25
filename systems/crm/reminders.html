@@ -9,17 +9,16 @@
     .rem-grid { display: grid; grid-template-columns: 380px 1fr; gap: 28px; }
     @media (max-width: 900px) { .rem-grid { grid-template-columns: 1fr; } }
 
-    /* ── Form card ── */
     .rem-form-card { background: var(--card); border: 1px solid var(--line2); border-radius: 18px; padding: 28px; position: sticky; top: 24px; height: fit-content; }
     .rem-form-card h2 { font-size: 15px; font-weight: 700; margin-bottom: 20px; }
 
     .field { margin-bottom: 16px; }
     .field label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text-dim); margin-bottom: 7px; }
-    .field input, .field textarea { width: 100%; background: var(--bg); border: 1px solid var(--line2); border-radius: 10px; padding: 10px 13px; color: var(--text); font-size: 14px; font-family: inherit; outline: none; transition: border-color .2s; }
-    .field input:focus, .field textarea:focus { border-color: var(--blue); }
+    .field input, .field textarea, .field select { width: 100%; background: var(--bg); border: 1px solid var(--line2); border-radius: 10px; padding: 10px 13px; color: var(--text); font-size: 14px; font-family: inherit; outline: none; transition: border-color .2s; }
+    .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--blue); }
     .field textarea { resize: vertical; min-height: 80px; }
+    .field select option { background: var(--card); }
 
-    /* Quick shortcuts */
     .shortcuts { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 16px; }
     .shortcut-btn { background: var(--card2); border: 1px solid var(--line2); border-radius: 8px; padding: 5px 12px; font-size: 12px; font-weight: 600; color: var(--text-dim); cursor: pointer; transition: all .15s; }
     .shortcut-btn:hover { border-color: var(--blue); color: var(--blue); background: rgba(30,92,255,.06); }
@@ -27,8 +26,9 @@
     .btn-primary { width: 100%; padding: 12px; background: linear-gradient(135deg,#1e5cff,#1a7aff); color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity .15s; margin-top: 4px; }
     .btn-primary:hover { opacity: .88; }
     .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-cancel { width: 100%; padding: 10px; background: none; border: 1px solid var(--line2); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--text-dim); cursor: pointer; margin-top: 8px; transition: all .15s; }
+    .btn-cancel:hover { border-color: var(--blue); color: var(--blue); }
 
-    /* ── List ── */
     .rem-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
     .rem-list-header h2 { font-size: 16px; font-weight: 700; }
 
@@ -39,6 +39,7 @@
     .rem-item { background: var(--card); border: 1px solid var(--line2); border-radius: 14px; padding: 18px 20px; margin-bottom: 10px; display: flex; align-items: flex-start; gap: 16px; transition: border-color .2s; }
     .rem-item:hover { border-color: rgba(30,92,255,.3); }
     .rem-item.sent { opacity: .55; }
+    .rem-item.editing { border-color: var(--blue); }
 
     .rem-icon { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
     .rem-icon.upcoming { background: rgba(30,92,255,.12); }
@@ -53,8 +54,11 @@
     .rem-badge.overdue { background: rgba(255,69,58,.15); color: #ff453a; border: 1px solid rgba(255,69,58,.2); }
     .rem-badge.today   { background: rgba(255,159,10,.15); color: #ff9f0a; border: 1px solid rgba(255,159,10,.2); }
     .rem-badge.sent    { background: rgba(52,199,89,.12); color: #34c759; border: 1px solid rgba(52,199,89,.2); }
+    .rem-badge.repeat  { background: rgba(30,92,255,.1); color: #5b8fff; border: 1px solid rgba(30,92,255,.2); }
 
     .rem-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .rem-edit { background: rgba(30,92,255,.1); border: 1px solid rgba(30,92,255,.2); color: #5b8fff; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; }
+    .rem-edit:hover { background: rgba(30,92,255,.2); }
     .rem-del { background: rgba(255,69,58,.1); border: 1px solid rgba(255,69,58,.2); color: #ff453a; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; }
     .rem-del:hover { background: rgba(255,69,58,.2); }
 
@@ -92,7 +96,7 @@ import { sb } from "/systems/crm/shared/supabase.js";
 
 initTheme();
 
-let profile, tier, reminders = [], activeTab = "upcoming";
+let profile, tier, reminders = [], activeTab = "upcoming", editingId = null;
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -121,34 +125,48 @@ function render() {
              : activeTab === "sent"     ? sent
              : reminders;
 
+  const editing = editingId ? reminders.find(r => r.id === editingId) : null;
+  const defaultDate = () => { const d = new Date(); d.setDate(d.getDate()+1); d.setHours(9,0,0,0); return d.toISOString().slice(0,16); };
+
   document.getElementById("content").innerHTML = `
     <div class="rem-grid">
       <div>
         <div class="rem-form-card">
-          <h2>🔔 New Reminder</h2>
+          <h2>${editing ? "✏️ Edit Reminder" : "🔔 New Reminder"}</h2>
 
-          <div class="field">
+          ${!editing ? `<div class="field">
             <label>Quick shortcuts</label>
             <div class="shortcuts">
               ${[["Today","d",0],["Tomorrow","d",1],["In 3 days","d",3],["In 1 week","d",7],["In 2 weeks","d",14],["In 1 month","m",1],["In 3 months","m",3]].map(([l,t,a])=>
                 `<button class="shortcut-btn" onclick="setShortcut('${t}',${a})">${l}</button>`
               ).join("")}
             </div>
-          </div>
+          </div>` : ""}
 
           <div class="field">
             <label>Remind me on</label>
-            <input type="datetime-local" id="remDate"/>
+            <input type="datetime-local" id="remDate" value="${editing ? new Date(editing.remind_at).toISOString().slice(0,16) : defaultDate()}"/>
           </div>
           <div class="field">
             <label>Subject</label>
-            <input type="text" id="remSubject" placeholder="e.g. Follow up with Acme Ltd"/>
+            <input type="text" id="remSubject" value="${editing ? esc(editing.subject) : ""}" placeholder="e.g. Follow up with Acme Ltd"/>
           </div>
           <div class="field">
             <label>Notes (optional)</label>
-            <textarea id="remNotes" placeholder="Any additional details…"></textarea>
+            <textarea id="remNotes" placeholder="Any additional details…">${editing ? esc(editing.notes || "") : ""}</textarea>
           </div>
-          <button class="btn-primary" id="saveBtn" onclick="saveReminder()">Set Reminder</button>
+          <div class="field">
+            <label>Repeat</label>
+            <select id="remRepeat">
+              <option value="none" ${(!editing||editing.repeat_interval==="none"||!editing.repeat_interval)?"selected":""}>No repeat</option>
+              <option value="daily"   ${editing?.repeat_interval==="daily"  ?"selected":""}>Daily</option>
+              <option value="weekly"  ${editing?.repeat_interval==="weekly" ?"selected":""}>Weekly</option>
+              <option value="monthly" ${editing?.repeat_interval==="monthly"?"selected":""}>Monthly</option>
+              <option value="yearly"  ${editing?.repeat_interval==="yearly" ?"selected":""}>Yearly</option>
+            </select>
+          </div>
+          <button class="btn-primary" id="saveBtn" onclick="saveReminder()">${editing ? "Save Changes" : "Set Reminder"}</button>
+          ${editing ? `<button class="btn-cancel" onclick="cancelEdit()">Cancel</button>` : ""}
         </div>
       </div>
 
@@ -165,20 +183,24 @@ function render() {
         ${list.length === 0 ? `<div class="empty-state"><span class="emoji">🔔</span><p>${activeTab==="sent"?"No reminders sent yet.":"No upcoming reminders. Create one!"}</p></div>` :
           list.map(r => {
             const date = new Date(r.remind_at);
-            const isOverdue = !r.sent_at && date < new Date();
-            const isToday = !r.sent_at && date.toDateString() === new Date().toDateString();
+            const isOverdue = !r.sent_at && date < now;
+            const isToday = !r.sent_at && date.toDateString() === now.toDateString();
+            const isEditing = r.id === editingId;
             const badge = r.sent_at ? `<span class="rem-badge sent">Sent</span>`
                         : isOverdue ? `<span class="rem-badge overdue">Overdue</span>`
                         : isToday   ? `<span class="rem-badge today">Today</span>`
                         : "";
-            return `<div class="rem-item${r.sent_at?" sent":""}">
+            const repeatBadge = r.repeat_interval && r.repeat_interval !== "none"
+              ? `<span class="rem-badge repeat">↻ ${r.repeat_interval}</span>` : "";
+            return `<div class="rem-item${r.sent_at?" sent":""}${isEditing?" editing":""}">
               <div class="rem-icon ${r.sent_at?"sent-bg":isOverdue?"overdue":"upcoming"}">${r.sent_at?"✅":isOverdue?"⏰":"🔔"}</div>
               <div class="rem-info">
-                <div class="rem-subject">${esc(r.subject)}${badge}</div>
+                <div class="rem-subject">${esc(r.subject)}${badge}${repeatBadge}</div>
                 <div class="rem-date">${date.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} at ${date.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</div>
                 ${r.notes ? `<div class="rem-notes">${esc(r.notes.slice(0,120))}${r.notes.length>120?"…":""}</div>` : ""}
               </div>
               <div class="rem-actions">
+                ${!r.sent_at ? `<button class="rem-edit" onclick="editReminder('${r.id}')">Edit</button>` : ""}
                 <button class="rem-del" onclick="deleteReminder('${r.id}')">Delete</button>
               </div>
             </div>`;
@@ -186,20 +208,22 @@ function render() {
         }
       </div>
     </div>`;
-
-  // Set default date to tomorrow 9am
-  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate()+1); tomorrow.setHours(9,0,0,0);
-  const el = document.getElementById("remDate");
-  if (el && !el.value) el.value = tomorrow.toISOString().slice(0,16);
 }
 
 window.switchTab = (tab) => { activeTab = tab; render(); };
+window.cancelEdit = () => { editingId = null; render(); };
+
+window.editReminder = (id) => {
+  editingId = id;
+  activeTab = "upcoming";
+  render();
+  document.querySelector(".rem-form-card")?.scrollIntoView({ behavior: "smooth" });
+};
 
 window.setShortcut = (type, amount) => {
   const d = new Date();
   if (type === 'm') { d.setMonth(d.getMonth() + amount); }
-  else if (amount === 0) { /* today, no date change */ }
-  else { d.setDate(d.getDate() + amount); }
+  else if (amount > 0) { d.setDate(d.getDate() + amount); }
   d.setHours(9, 0, 0, 0);
   document.getElementById("remDate").value = d.toISOString().slice(0,16);
 };
@@ -208,27 +232,39 @@ window.saveReminder = async () => {
   const date    = document.getElementById("remDate").value;
   const subject = document.getElementById("remSubject").value.trim();
   const notes   = document.getElementById("remNotes").value.trim();
+  const repeat  = document.getElementById("remRepeat").value;
   if (!date) { toast("bad","Missing","Please choose a date and time."); return; }
   if (!subject) { toast("bad","Missing","Please enter a subject."); return; }
 
   const btn = document.getElementById("saveBtn");
   btn.disabled = true; btn.textContent = "Saving…";
 
-  const { data: { user } } = await sb().auth.getUser();
-  const { error } = await sb().from("crm_reminders").insert({
-    tenant_id:    profile.company_id,
-    auth_user_id: user.id,
-    user_email:   user.email,
-    user_name:    profile.full_name || user.email,
-    subject, notes: notes || null,
+  const fields = {
+    subject,
+    notes: notes || null,
     remind_at: new Date(date).toISOString(),
-  });
+    repeat_interval: repeat || "none",
+    sent_at: null,
+  };
 
-  btn.disabled = false; btn.textContent = "Set Reminder";
+  let error;
+  if (editingId) {
+    ({ error } = await sb().from("crm_reminders").update(fields).eq("id", editingId));
+  } else {
+    const { data: { user } } = await sb().auth.getUser();
+    ({ error } = await sb().from("crm_reminders").insert({
+      tenant_id:    profile.company_id,
+      auth_user_id: user.id,
+      user_email:   user.email,
+      user_name:    profile.full_name || user.email,
+      ...fields,
+    }));
+  }
+
+  btn.disabled = false; btn.textContent = editingId ? "Save Changes" : "Set Reminder";
   if (error) { toast("bad","Error", error.message); return; }
-  toast("ok","Reminder set","You'll get an email on the date you chose.");
-  document.getElementById("remSubject").value = "";
-  document.getElementById("remNotes").value = "";
+  toast("ok", editingId ? "Reminder updated" : "Reminder set", editingId ? "Changes saved." : "You'll get an email on the date you chose.");
+  editingId = null;
   await load();
 };
 
@@ -236,6 +272,7 @@ window.deleteReminder = async (id) => {
   if (!confirm("Delete this reminder?")) return;
   const { error } = await sb().from("crm_reminders").delete().eq("id", id);
   if (error) { toast("bad","Error", error.message); return; }
+  if (editingId === id) editingId = null;
   toast("ok","Deleted","Reminder removed.");
   await load();
 };

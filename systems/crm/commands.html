@@ -259,6 +259,22 @@ function render() {
             <input type="text" id="triggerValue" placeholder="e.g. Won, Cold, Qualified…"/>
             <div class="hint">Leave blank to fire on any value. Use the exact status/tag text.</div>
           </div>
+          <div class="field">
+            <label>Company filter (optional)</label>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0;font-weight:500">
+                <input type="radio" name="companyScope" value="all" checked style="accent-color:var(--blue)"/> All companies
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0;font-weight:500">
+                <input type="radio" name="companyScope" value="specific" style="accent-color:var(--blue)"/> Specific companies
+              </label>
+            </div>
+            <div id="companyFilterWrap" style="display:none">
+              <div id="companyCheckboxes" style="max-height:160px;overflow-y:auto;background:var(--bg);border:1px solid var(--line2);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px">
+                <div style="font-size:12px;color:var(--text-dim)">Loading companies…</div>
+              </div>
+            </div>
+          </div>
 
           <div class="step-label">2 · Do this (action)</div>
           <div class="field">
@@ -270,9 +286,22 @@ function render() {
           <div id="emailFields" style="display:none">
             <div class="action-section">
               <div class="field">
-                <label>To</label>
-                <input type="text" id="emailToCustom" placeholder="e.g. team@company.com, boss@company.com"/>
-                <div class="hint">Separate multiple addresses with commas. Or use variables: {{company_email}} {{contact_email}}</div>
+                <label>Send to</label>
+                <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px">
+                  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:500;color:var(--text);text-transform:none;letter-spacing:0">
+                    <input type="checkbox" id="sendToCustom" style="width:auto;accent-color:var(--blue)"/> Specific email addresses
+                  </label>
+                  <div id="customEmailWrap" style="display:none;padding-left:24px">
+                    <input type="text" id="emailToCustom" placeholder="e.g. team@company.com, boss@company.com"/>
+                    <div class="hint" style="margin-top:5px">Separate multiple addresses with commas</div>
+                  </div>
+                  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:500;color:var(--text);text-transform:none;letter-spacing:0">
+                    <input type="checkbox" id="sendToTeam" style="width:auto;accent-color:var(--blue)"/> Your team (all staff members)
+                  </label>
+                  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:500;color:var(--text);text-transform:none;letter-spacing:0">
+                    <input type="checkbox" id="sendToCustomer" style="width:auto;accent-color:var(--blue)"/> The customer (company / contact email)
+                  </label>
+                </div>
               </div>
               <div class="field">
                 <label>Reply-to (optional)</label>
@@ -356,8 +385,30 @@ function render() {
   document.getElementById("emailFields").style.display = "none";
   document.getElementById("webhookFields").style.display = "none";
 
-  // Show trigger value input when trigger uses status
-  document.getElementById("csel-trigger")?.addEventListener("click", () => {}, { passive:true });
+  // Checkbox toggle for specific email addresses
+  document.getElementById("sendToCustom")?.addEventListener("change", e => {
+    document.getElementById("customEmailWrap").style.display = e.target.checked ? "" : "none";
+  });
+
+  // Radio toggle for company scope
+  document.querySelectorAll('input[name="companyScope"]').forEach(r => {
+    r.addEventListener("change", async () => {
+      const specific = document.querySelector('input[name="companyScope"]:checked')?.value === "specific";
+      document.getElementById("companyFilterWrap").style.display = specific ? "" : "none";
+      if (specific) loadCompanyCheckboxes();
+    });
+  });
+}
+
+async function loadCompanyCheckboxes() {
+  const box = document.getElementById("companyCheckboxes");
+  if (!box) return;
+  const { data } = await sb().from("crm_companies").select("id,name").eq("tenant_id", profile.company_id).order("name");
+  if (!data?.length) { box.innerHTML = `<div style="font-size:12px;color:var(--text-dim)">No companies found</div>`; return; }
+  box.innerHTML = data.map(c => `
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text)">
+      <input type="checkbox" value="${c.id}" style="accent-color:var(--blue)"/> ${esc(c.name)}
+    </label>`).join("");
 }
 
 // Show trigger value field for status/tag triggers
@@ -383,13 +434,17 @@ window.saveCommand = async () => {
   const actionConfig = {};
 
   if (actionType === "send_email" || actionType === "notify_team") {
-    const emailTo      = document.getElementById("emailToCustom")?.value.trim();
-    const emailSubject = document.getElementById("emailSubject")?.value.trim();
-    if (!emailTo)      { toast("bad","Missing","Please enter at least one email address."); return; }
+    const sendToCustom   = document.getElementById("sendToCustom")?.checked;
+    const sendToTeam     = document.getElementById("sendToTeam")?.checked;
+    const sendToCustomer = document.getElementById("sendToCustomer")?.checked;
+    const emailSubject   = document.getElementById("emailSubject")?.value.trim();
+    if (!sendToCustom && !sendToTeam && !sendToCustomer) { toast("bad","Missing","Please select at least one recipient."); return; }
     if (!emailSubject) { toast("bad","Missing","Please enter an email subject."); return; }
-    actionConfig.email_to_type    = "custom";
-    actionConfig.email_to_custom  = emailTo;
-    actionConfig.email_reply_to   = document.getElementById("emailReplyTo")?.value.trim()  || null;
+    actionConfig.send_to_custom   = sendToCustom;
+    actionConfig.send_to_team     = sendToTeam;
+    actionConfig.send_to_customer = sendToCustomer;
+    actionConfig.email_to_custom  = sendToCustom ? (document.getElementById("emailToCustom")?.value.trim() || null) : null;
+    actionConfig.email_reply_to   = document.getElementById("emailReplyTo")?.value.trim() || null;
     actionConfig.email_subject    = emailSubject;
     actionConfig.email_body       = document.getElementById("emailBody")?.value.trim() || null;
   }
@@ -404,6 +459,13 @@ window.saveCommand = async () => {
   const btn = document.getElementById("saveCmd");
   btn.disabled = true; btn.textContent = "Saving…";
 
+  const companyScope = document.querySelector('input[name="companyScope"]:checked')?.value;
+  let companyIds = null;
+  if (companyScope === "specific") {
+    companyIds = [...document.querySelectorAll('#companyCheckboxes input[type="checkbox"]:checked')].map(c => c.value);
+    if (!companyIds.length) { toast("bad","Missing","Select at least one company or choose 'All companies'."); return; }
+  }
+
   const { data: { user } } = await sb().auth.getUser();
   const { error } = await sb().from("crm_commands").insert({
     tenant_id:     profile.company_id,
@@ -413,6 +475,7 @@ window.saveCommand = async () => {
     trigger_value: triggerValue || null,
     action_type:   actionType,
     action_config: actionConfig,
+    company_ids:   companyIds,
     is_active:     true,
   });
 

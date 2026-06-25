@@ -131,16 +131,43 @@ export async function onRequestPost(context) {
       if (cmd.trigger_value && trigger_value && cmd.trigger_value !== trigger_value) continue;
       if (cmd.trigger_field && trigger_field && cmd.trigger_field !== trigger_field) continue;
 
+      // Check company filter (if set)
+      if (cmd.company_ids?.length && triggerCtx.company_id) {
+        if (!cmd.company_ids.includes(triggerCtx.company_id)) continue;
+      }
+
       const cfg = cmd.action_config || {};
       let status = 'success', error = null;
 
       try {
-        if (cmd.action_type === 'send_email') {
-          // Resolve To — supports comma-separated addresses and {{variables}}
-          const rawTo = (cfg.email_to_custom || '').replace(/\{\{(\w+)\}\}/g, (_, k) => triggerCtx[k] || '');
-          const toAddresses = rawTo.split(',').map(s => s.trim()).filter(Boolean);
-          if (toAddresses.length) {
-            await sendEmail(resendKey, toAddresses, cfg.email_subject || 'SmartCore Notification', buildEmailHtml(cfg, { ...triggerCtx, trigger_value }), cfg.reply_to);
+        if (cmd.action_type === 'send_email' || cmd.action_type === 'notify_team') {
+          const ctx = { ...triggerCtx, trigger_value };
+          function fill(s) { return (s||'').replace(/\{\{(\w+)\}\}/g, (_, k) => esc(ctx[k] ?? '')); }
+
+          // Collect all recipient addresses
+          const toAddresses = new Set();
+
+          // Specific custom addresses
+          if (cfg.send_to_custom && cfg.email_to_custom) {
+            cfg.email_to_custom.split(',').map(s => s.trim()).filter(Boolean).forEach(a => toAddresses.add(a));
+          }
+
+          // Customer email from context
+          if (cfg.send_to_customer) {
+            const customerEmail = triggerCtx.company_email || triggerCtx.contact_email;
+            if (customerEmail) toAddresses.add(customerEmail);
+          }
+
+          // Team emails — fetch from DB
+          if (cfg.send_to_team) {
+            const teamRes = await fetch(`${SUPABASE_URL}/rest/v1/core_employees?company_id=eq.${tenant_id}&select=work_email&limit=50`, { headers: svcHdr });
+            const team = await teamRes.json().catch(() => []);
+            if (Array.isArray(team)) team.forEach(t => { if (t.work_email) toAddresses.add(t.work_email); });
+          }
+
+          const recipients = [...toAddresses].filter(Boolean);
+          if (recipients.length) {
+            await sendEmail(resendKey, recipients, cfg.email_subject || 'SmartCore Notification', buildEmailHtml(cfg, ctx), cfg.email_reply_to);
           }
         } else if (cmd.action_type === 'webhook') {
           if (cfg.webhook_url) {
