@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Commands — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+  <style>
+    /* ── Custom Select ── */
+    .csel { position: relative; user-select: none; }
+    .csel-trigger {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      background: var(--bg); border: 1px solid var(--line2); border-radius: 10px;
+      padding: 10px 13px; cursor: pointer; transition: border-color .2s;
+      font-size: 14px; color: var(--text); min-height: 42px;
+    }
+    .csel-trigger:hover, .csel.open .csel-trigger { border-color: var(--blue); }
+    .csel-arrow { font-size: 10px; color: var(--text-dim); transition: transform .2s; flex-shrink: 0; }
+    .csel.open .csel-arrow { transform: rotate(180deg); }
+    .csel-val { flex: 1; display: flex; align-items: center; gap: 8px; }
+    .csel-val .icon { font-size: 15px; }
+    .csel-dropdown {
+      position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 200;
+      background: var(--card); border: 1px solid var(--line2); border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.5); overflow: hidden;
+      animation: dropIn .12s ease;
+    }
+    @keyframes dropIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+    .csel-option {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 11px 14px; cursor: pointer; transition: background .1s;
+    }
+    .csel-option:hover { background: rgba(255,255,255,.04); }
+    .csel-option.selected { background: rgba(30,92,255,.08); }
+    .csel-option .icon { font-size: 16px; margin-top: 1px; flex-shrink: 0; }
+    .csel-option .opt-label { font-size: 13px; font-weight: 600; color: var(--text); }
+    .csel-option .opt-desc { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
+    .csel-group-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); padding: 10px 14px 4px; }
+
+    /* ── Layout ── */
+    .cmd-grid { display: grid; grid-template-columns: 420px 1fr; gap: 28px; }
+    @media (max-width: 960px) { .cmd-grid { grid-template-columns: 1fr; } }
+
+    .cmd-form-card { background: var(--card); border: 1px solid var(--line2); border-radius: 18px; padding: 28px; position: sticky; top: 24px; height: fit-content; }
+    .cmd-form-card h2 { font-size: 15px; font-weight: 700; margin-bottom: 20px; }
+
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text-dim); margin-bottom: 7px; }
+    .field input, .field textarea { width: 100%; background: var(--bg); border: 1px solid var(--line2); border-radius: 10px; padding: 10px 13px; color: var(--text); font-size: 14px; font-family: inherit; outline: none; transition: border-color .2s; }
+    .field input:focus, .field textarea:focus { border-color: var(--blue); }
+    .field textarea { resize: vertical; min-height: 90px; }
+    .field .hint { font-size: 11px; color: var(--text-dim); margin-top: 5px; }
+
+    .step-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--blue); margin: 20px 0 12px; display: flex; align-items: center; gap: 8px; }
+    .step-label::after { content:""; flex:1; height:1px; background:rgba(30,92,255,.2); }
+
+    .action-section { background: var(--card2, #1a1a2e); border: 1px solid var(--line2); border-radius: 12px; padding: 16px; margin-top: 4px; }
+
+    .btn-primary { width: 100%; padding: 12px; background: linear-gradient(135deg,#1e5cff,#1a7aff); color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity .15s; margin-top: 8px; }
+    .btn-primary:hover { opacity: .88; }
+    .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+
+    /* ── Command list ── */
+    .cmd-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+    .cmd-list-header h2 { font-size: 16px; font-weight: 700; }
+
+    .cmd-card { background: var(--card); border: 1px solid var(--line2); border-radius: 14px; padding: 18px 20px; margin-bottom: 10px; transition: border-color .2s; }
+    .cmd-card:hover { border-color: rgba(30,92,255,.3); }
+    .cmd-card.inactive { opacity: .55; }
+
+    .cmd-top { display: flex; align-items: flex-start; gap: 14px; }
+    .cmd-icon { width: 40px; height: 40px; border-radius: 11px; background: rgba(30,92,255,.1); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+    .cmd-info { flex: 1; min-width: 0; }
+    .cmd-name { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 3px; }
+    .cmd-desc { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+    .cmd-meta { font-size: 11px; color: var(--text-dim); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line2); display: flex; gap: 16px; }
+    .cmd-meta span { display: flex; align-items: center; gap: 4px; }
+
+    .cmd-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .toggle-btn { background: var(--card2); border: 1px solid var(--line2); border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--text-dim); transition: all .15s; }
+    .toggle-btn:hover { border-color: var(--blue); color: var(--blue); }
+    .toggle-btn.on { background: rgba(52,199,89,.1); border-color: rgba(52,199,89,.3); color: #34c759; }
+    .del-btn { background: rgba(255,69,58,.08); border: 1px solid rgba(255,69,58,.18); color: #ff453a; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; }
+    .del-btn:hover { background: rgba(255,69,58,.18); }
+
+    .pill { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 99px; }
+    .pill-blue { background: rgba(30,92,255,.12); color: #5b8fff; border: 1px solid rgba(30,92,255,.2); }
+    .pill-green { background: rgba(52,199,89,.1); color: #34c759; border: 1px solid rgba(52,199,89,.2); }
+    .pill-amber { background: rgba(255,159,10,.1); color: #ff9f0a; border: 1px solid rgba(255,159,10,.2); }
+
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+    .empty-state .emoji { font-size: 40px; display: block; margin-bottom: 12px; opacity: .4; }
+    .empty-state p { font-size: 13px; }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Commands</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess } from "/systems/crm/shared/auth.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=2";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, toast } from "/systems/crm/shared/ui.js";
+import { sb } from "/systems/crm/shared/supabase.js";
+
+initTheme();
+
+let profile, tier, commands = [];
+
+// ── Option definitions ──────────────────────────────────────────────────────
+const TRIGGERS = [
+  { group: "Company" },
+  { value:"company_status_changed", icon:"🏢", label:"Company status changed",       desc:"Fires when a company's status is updated" },
+  { value:"company_created",        icon:"➕", label:"Company created",              desc:"Fires when a new company is added" },
+  { value:"company_tag_added",      icon:"🏷️", label:"Company tag added",            desc:"Fires when a tag is added to a company" },
+  { group: "Contact" },
+  { value:"contact_created",        icon:"👤", label:"Contact created",              desc:"Fires when a new contact is added" },
+  { value:"contact_status_changed", icon:"👥", label:"Contact status changed",       desc:"Fires when a contact's status is updated" },
+  { group: "Lead / Pipeline" },
+  { value:"lead_status_changed",    icon:"🎯", label:"Lead status changed",          desc:"Fires when a lead moves to a new status" },
+  { value:"lead_created",           icon:"✨", label:"New lead created",             desc:"Fires when a new lead is added" },
+  { value:"deal_stage_changed",     icon:"📋", label:"Pipeline deal stage changed",  desc:"Fires when a deal moves to a new pipeline stage" },
+  { group: "Tasks & Projects" },
+  { value:"task_completed",         icon:"✅", label:"Task completed",               desc:"Fires when a task is marked complete" },
+  { value:"task_overdue",           icon:"⏰", label:"Task becomes overdue",         desc:"Fires when a task passes its due date" },
+  { value:"project_status_changed", icon:"📁", label:"Project status changed",       desc:"Fires when a project's status changes" },
+  { group: "Messages" },
+  { value:"new_customer_message",   icon:"💬", label:"New customer message received",desc:"Fires when a portal customer sends a message" },
+  { group: "Quotes" },
+  { value:"quote_sent",             icon:"💰", label:"Quote sent",                   desc:"Fires when a quote is emailed to a customer" },
+  { value:"quote_accepted",         icon:"🎉", label:"Quote accepted",               desc:"Fires when a customer accepts a quote" },
+];
+
+const ACTIONS = [
+  { value:"send_email", icon:"📧", label:"Send an email",   desc:"Send a fully-branded HTML email via Resend" },
+  { value:"webhook",    icon:"🔗", label:"Call a webhook",  desc:"Send a POST/GET request to any URL" },
+  { value:"notify_team",icon:"🔔", label:"Notify team",     desc:"Send an internal email to your team" },
+];
+
+
+// ── Custom select builder ───────────────────────────────────────────────────
+function buildSelect(id, options, placeholder = "Choose…") {
+  const sel = { value: null, label: placeholder, icon: null };
+
+  const html = `<div class="csel" id="csel-${id}" data-value="">
+    <div class="csel-trigger" onclick="toggleCsel('${id}')">
+      <div class="csel-val">
+        <span class="icon" id="csel-icon-${id}" style="display:none"></span>
+        <span id="csel-label-${id}" style="color:var(--text-dim)">${esc(placeholder)}</span>
+      </div>
+      <span class="csel-arrow">▼</span>
+    </div>
+    <div class="csel-dropdown" id="csel-drop-${id}" style="display:none">
+      ${options.map(o => o.group
+        ? `<div class="csel-group-label">${esc(o.group)}</div>`
+        : `<div class="csel-option" onclick="setCsel('${id}','${o.value}','${esc(o.label)}','${o.icon||''}')">
+            <span class="icon">${o.icon||''}</span>
+            <div><div class="opt-label">${esc(o.label)}</div><div class="opt-desc">${esc(o.desc||'')}</div></div>
+           </div>`
+      ).join('')}
+    </div>
+  </div>`;
+  return html;
+}
+
+window.toggleCsel = (id) => {
+  const el = document.getElementById(`csel-${id}`);
+  const drop = document.getElementById(`csel-drop-${id}`);
+  const isOpen = el.classList.contains("open");
+  // Close all others
+  document.querySelectorAll(".csel.open").forEach(c => { c.classList.remove("open"); c.querySelector(".csel-dropdown").style.display = "none"; });
+  if (!isOpen) { el.classList.add("open"); drop.style.display = "block"; }
+};
+
+window.setCsel = (id, value, label, icon) => {
+  const el = document.getElementById(`csel-${id}`);
+  el.dataset.value = value;
+  el.classList.remove("open");
+  const drop = document.getElementById(`csel-drop-${id}`);
+  drop.style.display = "none";
+  document.getElementById(`csel-label-${id}`).textContent = label;
+  document.getElementById(`csel-label-${id}`).style.color = "";
+  const iconEl = document.getElementById(`csel-icon-${id}`);
+  if (icon) { iconEl.textContent = icon; iconEl.style.display = ""; }
+  else { iconEl.style.display = "none"; }
+  // Highlight selected
+  drop.querySelectorAll(".csel-option").forEach(o => o.classList.remove("selected"));
+  drop.querySelector(`[onclick*="'${value}'"]`)?.classList.add("selected");
+  // Show/hide dynamic sections
+  if (id === "action") updateActionFields(value);
+};
+
+// Close dropdowns when clicking outside
+document.addEventListener("click", e => {
+  if (!e.target.closest(".csel")) {
+    document.querySelectorAll(".csel.open").forEach(c => { c.classList.remove("open"); c.querySelector(".csel-dropdown").style.display = "none"; });
+  }
+});
+
+function updateActionFields(action) {
+  document.getElementById("emailFields").style.display  = (action === "send_email" || action === "notify_team") ? "" : "none";
+  document.getElementById("webhookFields").style.display = action === "webhook" ? "" : "none";
+}
+
+// ── Main load/render ─────────────────────────────────────────────────────────
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("commands", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  await loadCommands();
+} catch(e) { if (!e.message?.includes("CRM not enabled")) toast("bad","Error",e.message); }
+
+async function loadCommands() {
+  const { data, error } = await sb().from("crm_commands").select("*")
+    .eq("tenant_id", profile.company_id)
+    .order("created_at", { ascending: false });
+  if (error) { toast("bad","Load error", error.message); return; }
+  commands = data || [];
+  render();
+}
+
+function render() {
+  document.getElementById("content").innerHTML = `
+    <div class="cmd-grid">
+      <div>
+        <div class="cmd-form-card">
+          <h2>⚡ New Command</h2>
+
+          <div class="field">
+            <label>Command name</label>
+            <input type="text" id="cmdName" placeholder="e.g. Email team on new lead"/>
+          </div>
+
+          <div class="step-label">1 · When this happens (trigger)</div>
+          <div class="field">
+            <label>Trigger event</label>
+            ${buildSelect("trigger", TRIGGERS, "Choose a trigger…")}
+          </div>
+          <div class="field" id="triggerValueWrap" style="display:none">
+            <label>Only when value equals (optional)</label>
+            <input type="text" id="triggerValue" placeholder="e.g. Won, Cold, Qualified…"/>
+            <div class="hint">Leave blank to fire on any value. Use the exact status/tag text.</div>
+          </div>
+          <div class="field">
+            <label>Company filter (optional)</label>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0;font-weight:500">
+                <input type="radio" name="companyScope" value="all" checked style="accent-color:var(--blue)"/> All companies
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0;font-weight:500">
+                <input type="radio" name="companyScope" value="specific" style="accent-color:var(--blue)"/> Specific companies
+              </label>
+            </div>
+            <div id="companyFilterWrap" style="display:none">
+              <div id="companyCheckboxes" style="max-height:160px;overflow-y:auto;background:var(--bg);border:1px solid var(--line2);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px">
+                <div style="font-size:12px;color:var(--text-dim)">Loading companies…</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-label">2 · Do this (action)</div>
+          <div class="field">
+            <label>Action type</label>
+            ${buildSelect("action", ACTIONS, "Choose an action…")}
+          </div>
+
+          <!-- Email fields -->
+          <div id="emailFields" style="display:none">
+            <div class="action-section">
+              <div class="field">
+                <label>Send to</label>
+                <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px">
+                  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:500;color:var(--text);text-transform:none;letter-spacing:0">
+                    <input type="checkbox" id="sendToCustom" style="width:auto;accent-color:var(--blue)"/> Specific email addresses
+                  </label>
+                  <div id="customEmailWrap" style="display:none;padding-left:24px">
+                    <input type="text" id="emailToCustom" placeholder="e.g. team@company.com, boss@company.com"/>
+                    <div class="hint" style="margin-top:5px">Separate multiple addresses with commas</div>
+                  </div>
+                  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:500;color:var(--text);text-transform:none;letter-spacing:0">
+                    <input type="checkbox" id="sendToTeam" style="width:auto;accent-color:var(--blue)"/> Your team (all staff members)
+                  </label>
+                  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:500;color:var(--text);text-transform:none;letter-spacing:0">
+                    <input type="checkbox" id="sendToCustomer" style="width:auto;accent-color:var(--blue)"/> The customer (company / contact email)
+                  </label>
+                </div>
+              </div>
+              <div class="field">
+                <label>Reply-to (optional)</label>
+                <input type="email" id="emailReplyTo" placeholder="your@email.com"/>
+              </div>
+              <div class="field">
+                <label>Subject line</label>
+                <input type="text" id="emailSubject" placeholder="e.g. New lead: {{company_name}}"/>
+                <div class="hint">Variables: {{company_name}} {{contact_name}} {{trigger_value}} {{company_email}}</div>
+              </div>
+              <div class="field">
+                <label>Email body</label>
+                <textarea id="emailBody" placeholder="Hi,&#10;&#10;A new lead has been added: {{company_name}}&#10;&#10;Status: {{trigger_value}}"></textarea>
+                <div class="hint">Same variables work here too.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Webhook fields -->
+          <div id="webhookFields" style="display:none">
+            <div class="action-section">
+              <div class="field">
+                <label>Webhook URL</label>
+                <input type="url" id="webhookUrl" placeholder="https://…"/>
+              </div>
+              <div class="field">
+                <label>Method</label>
+                ${buildSelect("webhookMethod", [
+                  { value:"POST", icon:"📤", label:"POST", desc:"Send data in the request body (most common)" },
+                  { value:"GET",  icon:"📥", label:"GET",  desc:"Send data as URL parameters" },
+                ], "POST")}
+              </div>
+            </div>
+          </div>
+
+          <button class="btn-primary" id="saveCmd" onclick="saveCommand()">Create Command</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="cmd-list-header">
+          <h2>Your Commands <span style="color:var(--text-dim);font-weight:400;font-size:13px">(${commands.length})</span></h2>
+        </div>
+
+        ${commands.length === 0 ? `<div class="empty-state"><span class="emoji">⚡</span><p>No commands yet. Create your first automation above.</p></div>` :
+          commands.map(c => {
+            const trig = TRIGGERS.find(t => t.value === c.trigger_type) || {};
+            const act  = ACTIONS.find(a => a.value === c.action_type)   || {};
+            const cfg  = c.action_config || {};
+            return `<div class="cmd-card${c.is_active?"":" inactive"}">
+              <div class="cmd-top">
+                <div class="cmd-icon">${trig.icon||"⚡"}</div>
+                <div class="cmd-info">
+                  <div class="cmd-name">${esc(c.name)}</div>
+                  <div class="cmd-desc">
+                    <span class="pill pill-blue">${trig.label||c.trigger_type}</span>
+                    ${c.trigger_value ? `<span class="pill pill-amber" style="margin-left:4px">= ${esc(c.trigger_value)}</span>` : ""}
+                    <span style="color:var(--text-dim);margin:0 6px">→</span>
+                    <span class="pill pill-green">${act.icon||""} ${act.label||c.action_type}</span>
+                    ${cfg.email_subject ? `<div style="margin-top:5px;font-size:11px;color:var(--text-dim)">Subject: ${esc(cfg.email_subject)}</div>` : ""}
+                  </div>
+                </div>
+                <div class="cmd-actions">
+                  <button class="toggle-btn${c.is_active?" on":""}" onclick="toggleCommand('${c.id}',${!c.is_active})">${c.is_active?"On":"Off"}</button>
+                  <button class="del-btn" onclick="deleteCommand('${c.id}')">Delete</button>
+                </div>
+              </div>
+              <div class="cmd-meta">
+                <span>🔄 Ran ${c.run_count||0} time${c.run_count===1?'':'s'}</span>
+                ${c.last_run_at ? `<span>⏱ Last run ${new Date(c.last_run_at).toLocaleDateString("en-GB")}</span>` : ""}
+                <span>📅 Created ${new Date(c.created_at).toLocaleDateString("en-GB")}</span>
+              </div>
+            </div>`;
+          }).join("")
+        }
+      </div>
+    </div>`;
+
+  // Init all dropdowns hidden
+  document.getElementById("triggerValueWrap").style.display = "none";
+  document.getElementById("emailFields").style.display = "none";
+  document.getElementById("webhookFields").style.display = "none";
+
+  // Checkbox toggle for specific email addresses
+  document.getElementById("sendToCustom")?.addEventListener("change", e => {
+    document.getElementById("customEmailWrap").style.display = e.target.checked ? "" : "none";
+  });
+
+  // Radio toggle for company scope
+  document.querySelectorAll('input[name="companyScope"]').forEach(r => {
+    r.addEventListener("change", async () => {
+      const specific = document.querySelector('input[name="companyScope"]:checked')?.value === "specific";
+      document.getElementById("companyFilterWrap").style.display = specific ? "" : "none";
+      if (specific) loadCompanyCheckboxes();
+    });
+  });
+}
+
+async function loadCompanyCheckboxes() {
+  const box = document.getElementById("companyCheckboxes");
+  if (!box) return;
+  const { data } = await sb().from("crm_companies").select("id,name").eq("tenant_id", profile.company_id).order("name");
+  if (!data?.length) { box.innerHTML = `<div style="font-size:12px;color:var(--text-dim)">No companies found</div>`; return; }
+  box.innerHTML = data.map(c => `
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text)">
+      <input type="checkbox" value="${c.id}" style="accent-color:var(--blue)"/> ${esc(c.name)}
+    </label>`).join("");
+}
+
+// Show trigger value field for status/tag triggers
+const STATUS_TRIGGERS = new Set(["company_status_changed","contact_status_changed","lead_status_changed","deal_stage_changed","company_tag_added","project_status_changed"]);
+const _origSetCsel = window.setCsel.bind(window);
+window.setCsel = (id, value, label, icon) => {
+  _origSetCsel(id, value, label, icon);
+  if (id === "trigger") {
+    document.getElementById("triggerValueWrap").style.display = STATUS_TRIGGERS.has(value) ? "" : "none";
+  }
+};
+
+window.saveCommand = async () => {
+  const name         = document.getElementById("cmdName")?.value.trim();
+  const triggerType  = document.getElementById("csel-trigger")?.dataset.value;
+  const triggerValue = document.getElementById("triggerValue")?.value.trim();
+  const actionType   = document.getElementById("csel-action")?.dataset.value;
+
+  if (!name)        { toast("bad","Missing","Please give this command a name."); return; }
+  if (!triggerType) { toast("bad","Missing","Please choose a trigger event."); return; }
+  if (!actionType)  { toast("bad","Missing","Please choose an action."); return; }
+
+  const actionConfig = {};
+
+  if (actionType === "send_email" || actionType === "notify_team") {
+    const sendToCustom   = document.getElementById("sendToCustom")?.checked;
+    const sendToTeam     = document.getElementById("sendToTeam")?.checked;
+    const sendToCustomer = document.getElementById("sendToCustomer")?.checked;
+    const emailSubject   = document.getElementById("emailSubject")?.value.trim();
+    if (!sendToCustom && !sendToTeam && !sendToCustomer) { toast("bad","Missing","Please select at least one recipient."); return; }
+    if (!emailSubject) { toast("bad","Missing","Please enter an email subject."); return; }
+    actionConfig.send_to_custom   = sendToCustom;
+    actionConfig.send_to_team     = sendToTeam;
+    actionConfig.send_to_customer = sendToCustomer;
+    actionConfig.email_to_custom  = sendToCustom ? (document.getElementById("emailToCustom")?.value.trim() || null) : null;
+    actionConfig.email_reply_to   = document.getElementById("emailReplyTo")?.value.trim() || null;
+    actionConfig.email_subject    = emailSubject;
+    actionConfig.email_body       = document.getElementById("emailBody")?.value.trim() || null;
+  }
+
+  if (actionType === "webhook") {
+    const url = document.getElementById("webhookUrl")?.value.trim();
+    if (!url) { toast("bad","Missing","Please enter a webhook URL."); return; }
+    actionConfig.webhook_url    = url;
+    actionConfig.webhook_method = document.getElementById("csel-webhookMethod")?.dataset.value || "POST";
+  }
+
+  const btn = document.getElementById("saveCmd");
+  btn.disabled = true; btn.textContent = "Saving…";
+
+  const companyScope = document.querySelector('input[name="companyScope"]:checked')?.value;
+  let companyIds = null;
+  if (companyScope === "specific") {
+    companyIds = [...document.querySelectorAll('#companyCheckboxes input[type="checkbox"]:checked')].map(c => c.value);
+    if (!companyIds.length) { toast("bad","Missing","Select at least one company or choose 'All companies'."); return; }
+  }
+
+  const { data: { user } } = await sb().auth.getUser();
+  const { error } = await sb().from("crm_commands").insert({
+    tenant_id:     profile.company_id,
+    created_by:    user.id,
+    name,
+    trigger_type:  triggerType,
+    trigger_value: triggerValue || null,
+    action_type:   actionType,
+    action_config: actionConfig,
+    company_ids:   companyIds,
+    is_active:     true,
+  });
+
+  btn.disabled = false; btn.textContent = "Create Command";
+  if (error) { toast("bad","Error", error.message); return; }
+  toast("ok","Command created","Your automation is now active.");
+  await loadCommands();
+};
+
+window.toggleCommand = async (id, active) => {
+  const { error } = await sb().from("crm_commands").update({ is_active: active }).eq("id", id);
+  if (error) { toast("bad","Error", error.message); return; }
+  toast("ok", active ? "Command enabled" : "Command disabled");
+  await loadCommands();
+};
+
+window.deleteCommand = async (id) => {
+  if (!confirm("Delete this command? It cannot be undone.")) return;
+  const { error } = await sb().from("crm_commands").delete().eq("id", id);
+  if (error) { toast("bad","Error", error.message); return; }
+  toast("ok","Deleted","Command removed.");
+  await loadCommands();
+};
+</script>
+</body>
+</html>

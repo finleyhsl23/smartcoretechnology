@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Messaging — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+  <style>
+    #content { padding: 0 !important; overflow: hidden !important; }
+
+    .msg-layout {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ── Company panel ── */
+    .msg-sidebar {
+      border-right: 1px solid var(--line2);
+      display: flex;
+      flex-direction: column;
+      background: var(--card);
+      overflow: hidden;
+    }
+    .msg-sidebar-top {
+      padding: 14px 14px 10px;
+      border-bottom: 1px solid var(--line2);
+      flex-shrink: 0;
+    }
+    .msg-sidebar-top p {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+    .search-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg);
+      border: 1px solid var(--line2);
+      border-radius: 8px;
+      padding: 6px 10px;
+    }
+    .search-box svg { flex-shrink: 0; opacity: .4; }
+    .search-box input {
+      flex: 1; background: none; border: none; outline: none;
+      color: var(--text); font-size: 13px;
+    }
+    #companyList { overflow-y: auto; flex: 1; }
+
+    .co-item {
+      padding: 11px 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      transition: background .1s;
+      position: relative;
+      border-bottom: 1px solid var(--line2);
+    }
+    .co-item:hover { background: rgba(255,255,255,.03); }
+    .co-item.active { background: rgba(30,92,255,.08); }
+    .co-item.active::before {
+      content: "";
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      background: var(--blue2);
+    }
+    .co-av {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg,#1e5cff,#0ea5ff);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 800; color: #fff;
+      flex-shrink: 0;
+    }
+    .co-av.dim {
+      background: var(--card2);
+      color: var(--text-dim);
+    }
+    .co-name {
+      flex: 1; font-size: 13px; font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .co-unread {
+      background: #1e5cff;
+      color: #fff;
+      font-size: 10px; font-weight: 700;
+      min-width: 18px; height: 18px;
+      padding: 0 5px;
+      border-radius: 99px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* ── Thread panel ── */
+    .msg-thread {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: var(--bg);
+    }
+    .msg-thread-header {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--line2);
+      display: flex; align-items: center; gap: 12px;
+      flex-shrink: 0;
+      background: var(--card);
+    }
+    .msg-thread-name { font-size: 15px; font-weight: 700; }
+    .msg-thread-sub  { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
+
+    .msg-body {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    /* date chip */
+    .day-chip {
+      align-self: center;
+      font-size: 11px;
+      color: var(--text-dim);
+      background: var(--card2);
+      border: 1px solid var(--line2);
+      border-radius: 99px;
+      padding: 3px 12px;
+      margin: 12px 0 4px;
+    }
+
+    /* bubbles */
+    .brow { display: flex; flex-direction: column; margin-bottom: 2px; }
+    .brow.staff    { align-items: flex-end; }
+    .brow.customer { align-items: flex-start; }
+    .brow + .brow.staff.new-sender,
+    .brow + .brow.customer.new-sender { margin-top: 10px; }
+
+    .bname {
+      font-size: 10px; color: var(--text-dim);
+      padding: 0 12px; margin-bottom: 3px;
+    }
+
+    .bubble {
+      max-width: 65%;
+      padding: 9px 14px;
+      font-size: 14px; line-height: 1.55;
+      border-radius: 16px;
+      word-break: break-word;
+    }
+    .bubble.staff {
+      background: linear-gradient(135deg,#1e5cff,#1a7aff);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .bubble.customer {
+      background: var(--card2);
+      border: 1px solid var(--line2);
+      color: var(--text);
+      border-bottom-left-radius: 4px;
+    }
+    .btime {
+      font-size: 10px; color: var(--text-dim);
+      padding: 0 4px; margin-top: 3px;
+    }
+
+    /* input */
+    .msg-input-bar {
+      padding: 12px 20px;
+      border-top: 1px solid var(--line2);
+      background: var(--card);
+      flex-shrink: 0;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+    .msg-input-bar textarea {
+      flex: 1; resize: none; max-height: 100px; min-height: 20px;
+      background: var(--bg);
+      border: 1px solid var(--line2);
+      border-radius: 10px;
+      padding: 9px 12px;
+      color: var(--text); font-size: 14px; font-family: inherit;
+      line-height: 1.5; outline: none;
+      transition: border-color .2s;
+    }
+    .msg-input-bar textarea:focus { border-color: var(--blue); }
+    .send-btn {
+      background: linear-gradient(135deg,#1e5cff,#1a7aff);
+      border: none; border-radius: 10px;
+      width: 38px; height: 38px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+    .send-btn:hover  { opacity: .85; }
+    .send-btn:active { transform: scale(.94); }
+
+    /* empty state */
+    .no-thread {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 100%; gap: 10px; color: var(--text-dim);
+      text-align: center;
+    }
+    .no-thread svg { opacity: .12; }
+    .no-thread p   { font-size: 13px; }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Messaging</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div id="content" style="height:calc(100vh - 56px);display:flex;align-items:center;justify-content:center">
+      <div class="spinner"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+<script type="module">
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=2";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, toast, tierGate } from "/systems/crm/shared/ui.js";
+import { sb } from "/systems/crm/shared/supabase.js";
+
+initTheme();
+
+const PAGE = 150;
+const POLL_LIMIT = 30; // messages fetched on each poll tick
+
+let profile, tier;
+let allCompanies = [], activeCompanyId = null;
+let companyIdsWithPortal = new Set(), unreadCounts = {};
+let knownMsgIds = new Set();
+let msgOffset = 0;
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("messaging", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  if (!tierHasFeature(tier, "messaging")) {
+    document.getElementById("content").innerHTML = tierGate("messaging");
+  } else {
+    await loadMessaging();
+  }
+} catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session")) toast("bad","Error",e.message); }
+
+/* ── Helpers ── */
+function fmtTime(d) {
+  return new Date(d).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
+}
+function fmtDay(d) {
+  const now = new Date(), date = new Date(d);
+  if (date.toDateString() === now.toDateString()) return "Today";
+  if (date.toDateString() === new Date(now-864e5).toDateString()) return "Yesterday";
+  return date.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
+}
+
+/* ── Fetch helpers ── */
+async function fetchMsgs(cid, limit = PAGE, offset = 0) {
+  const { data, error } = await sb()
+    .from("crm_messages")
+    .select("*")
+    .eq("tenant_id", profile.company_id)
+    .eq("crm_company_id", cid)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (error) { console.warn("fetchMsgs:", error.message); return []; }
+  return Array.isArray(data) ? data.reverse() : [];
+}
+
+/* ── Global poll ── */
+async function globalPoll() {
+  if (!activeCompanyId) return;
+  try {
+    // Fetch the most recent POLL_LIMIT messages for the open thread
+    const { data: msgs, error } = await sb()
+      .from("crm_messages")
+      .select("*")
+      .eq("tenant_id", profile.company_id)
+      .eq("crm_company_id", activeCompanyId)
+      .order("created_at", { ascending: false })
+      .limit(POLL_LIMIT);
+
+    if (error || !msgs?.length) return;
+
+    const msgBody = document.getElementById("msgBody");
+    if (!msgBody || msgBody.querySelector(".spinner")) return;
+
+    // Walk newest-first; append any we haven't seen yet
+    for (const m of msgs) {
+      if (!knownMsgIds.has(m.id)) {
+        knownMsgIds.add(m.id);
+        if (msgBody.querySelector(".no-thread")) msgBody.innerHTML = "";
+        appendBubble(msgBody, m, true);
+        if (m.sender_type === "customer")
+          sb().from("crm_messages").update({ read_at: new Date().toISOString() }).eq("id", m.id);
+      }
+    }
+  } catch(e) { console.warn("poll:", e.message); }
+}
+
+function startGlobalPoll() {
+  // Plain setInterval — simple, always works in foreground tabs
+  setInterval(globalPoll, 3000);
+  // Also fire immediately when the user returns to the tab (screen unlock, app switch)
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") globalPoll();
+  });
+  // On mobile, a touch also re-fires the poll in case the interval drifted
+  document.addEventListener("touchstart", globalPoll, { passive: true });
+}
+
+/* ── Load ── */
+async function loadMessaging() {
+  const [{ data: cos }, { data: puRows }, { data: unreadRows }] = await Promise.all([
+    sb().from("crm_companies").select("id,name").eq("tenant_id", profile.company_id).order("name"),
+    sb().from("crm_portal_users").select("crm_company_id").eq("tenant_id", profile.company_id).not("crm_company_id","is",null),
+    sb().from("crm_messages").select("crm_company_id").eq("tenant_id", profile.company_id).eq("sender_type","customer").is("read_at",null),
+  ]);
+
+  allCompanies = cos || [];
+  companyIdsWithPortal = new Set((puRows||[]).map(u => u.crm_company_id));
+  unreadCounts = {};
+  (unreadRows||[]).forEach(m => { unreadCounts[m.crm_company_id] = (unreadCounts[m.crm_company_id]||0)+1; });
+
+  allCompanies.sort((a,b) => {
+    const pa = companyIdsWithPortal.has(a.id) ? 0 : 1;
+    const pb = companyIdsWithPortal.has(b.id) ? 0 : 1;
+    return pa - pb || a.name.localeCompare(b.name);
+  });
+
+  document.getElementById("content").innerHTML = `
+    <div class="msg-layout">
+      <div class="msg-sidebar">
+        <div class="msg-sidebar-top">
+          <p>Companies</p>
+          <div class="search-box">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input id="coSearch" placeholder="Search…"/>
+          </div>
+        </div>
+        <div id="companyList"></div>
+      </div>
+      <div class="msg-thread" id="msgThread">
+        <div class="no-thread">
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <p>Select a company to view messages</p>
+        </div>
+      </div>
+    </div>`;
+
+  renderSidebar(allCompanies);
+  updateNavBadge();
+
+  document.getElementById("coSearch").addEventListener("input", e => {
+    const q = e.target.value.toLowerCase();
+    renderSidebar(allCompanies.filter(c => c.name.toLowerCase().includes(q)));
+  });
+
+  // Start the global poll immediately — keeps running regardless of which thread is open
+  startGlobalPoll();
+}
+
+function renderSidebar(list) {
+  const el = document.getElementById("companyList");
+  if (!el) return;
+  if (!list.length) {
+    el.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:13px">No companies found</div>`;
+    return;
+  }
+  el.innerHTML = list.map(c => {
+    const unread = unreadCounts[c.id] || 0;
+    const hasPortal = companyIdsWithPortal.has(c.id);
+    const init = (c.name[0]||"?").toUpperCase();
+    return `<div class="co-item${activeCompanyId===c.id?" active":""}" onclick="openThread('${c.id}','${esc(c.name).replace(/'/g,"\\'")}')">
+      <div class="co-av${hasPortal?"":" dim"}">${init}</div>
+      <span class="co-name">${esc(c.name)}</span>
+      ${unread ? `<span class="co-unread">${unread}</span>` : ""}
+    </div>`;
+  }).join("");
+}
+
+function updateNavBadge() {
+  const total = Object.values(unreadCounts).reduce((s,n)=>s+n,0);
+  let badge = document.getElementById("nav-msg-badge");
+  const link = document.querySelector('a[href="/systems/crm/messaging.html"]');
+  if (!link) return;
+  if (total > 0) {
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.id = "nav-msg-badge";
+      badge.style.cssText = "margin-left:auto;background:#1e5cff;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:99px";
+      link.appendChild(badge);
+    }
+    badge.textContent = total > 99 ? "99+" : total;
+  } else {
+    badge?.remove();
+  }
+}
+
+/* ── Thread ── */
+window.openThread = async function(companyId, companyName) {
+  if (activeCompanyId === companyId) return;
+  activeCompanyId = companyId;
+  knownMsgIds = new Set();
+
+  renderSidebar(allCompanies);
+
+  document.getElementById("msgThread").innerHTML = `
+    <div class="msg-thread-header">
+      <div class="co-av">${(companyName[0]||"?").toUpperCase()}</div>
+      <div style="flex:1;min-width:0">
+        <div class="msg-thread-name">${esc(companyName)}</div>
+        <div class="msg-thread-sub">Customer portal messages</div>
+      </div>
+      <button onclick="globalPoll()" title="Refresh messages" style="background:rgba(255,255,255,.07);border:1px solid var(--line2);border-radius:8px;padding:6px 10px;color:var(--text-dim);font-size:12px;cursor:pointer;flex-shrink:0">↻ Refresh</button>
+    </div>
+    <div class="msg-body" id="msgBody" style="justify-content:center;align-items:center">
+      <div class="spinner"></div>
+    </div>
+    <div class="msg-input-bar">
+      <textarea id="msgText" rows="1" placeholder="Message ${esc(companyName)}…"
+        oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
+      <button class="send-btn" onclick="sendMsg()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>`;
+
+  // Mark all customer messages read
+  sb().from("crm_messages")
+    .update({ read_at: new Date().toISOString() })
+    .eq("tenant_id", profile.company_id)
+    .eq("crm_company_id", companyId)
+    .eq("sender_type","customer")
+    .is("read_at",null)
+    .then(() => {
+      unreadCounts[companyId] = 0;
+      renderSidebar(allCompanies);
+      updateNavBadge();
+    });
+
+  msgOffset = 0;
+  const initMsgs = await fetchMsgs(companyId, PAGE, 0);
+  const body = document.getElementById("msgBody");
+  body.style.justifyContent = "";
+  body.style.alignItems = "";
+  renderMessages(initMsgs, companyId);
+  document.getElementById("msgText")?.focus();
+};
+
+/* ── Render ── */
+function renderMessages(msgs, cid) {
+  const body = document.getElementById("msgBody");
+  if (!body) return;
+  knownMsgIds = new Set();
+  if (!msgs.length) {
+    body.innerHTML = `<div class="no-thread"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><p>No messages yet</p></div>`;
+    return;
+  }
+  body.innerHTML = `<button id="loadMoreBtn" onclick="loadMoreMsgs('${cid}')" style="align-self:center;margin-bottom:8px;font-size:12px;padding:5px 14px;border-radius:99px;border:1px solid var(--line2);background:var(--card2);color:var(--text-dim);cursor:pointer">Load older messages</button>`;
+  let lastDay = null, lastSender = null;
+  for (const m of msgs) {
+    knownMsgIds.add(m.id);
+    const day = fmtDay(m.created_at);
+    if (day !== lastDay) {
+      const chip = document.createElement("div");
+      chip.className = "day-chip";
+      chip.textContent = day;
+      body.appendChild(chip);
+      lastDay = day;
+      lastSender = null;
+    }
+    appendBubble(body, m, false, lastSender !== m.sender_name);
+    lastSender = m.sender_name;
+  }
+  body.scrollTop = body.scrollHeight;
+}
+
+window.loadMoreMsgs = async function(cid) {
+  msgOffset += PAGE;
+  const btn = document.getElementById("loadMoreBtn");
+  if (btn) btn.textContent = "Loading…";
+  const older = await fetchMsgs(cid, PAGE, msgOffset);
+  const body = document.getElementById("msgBody");
+  if (!body) return;
+  if (!older.length) { if (btn) { btn.textContent = "No more messages"; btn.disabled = true; } return; }
+  let lastSender = null, lastDay = null;
+  const frag = document.createDocumentFragment();
+  for (const m of older) {
+    knownMsgIds.add(m.id);
+    const day = fmtDay(m.created_at);
+    if (day !== lastDay) {
+      const chip = document.createElement("div");
+      chip.className = "day-chip";
+      chip.textContent = day;
+      frag.appendChild(chip);
+      lastDay = day; lastSender = null;
+    }
+    const row = buildBubbleEl(m, lastSender !== m.sender_name);
+    frag.appendChild(row);
+    lastSender = m.sender_name;
+  }
+  const firstChild = btn?.nextSibling || body.firstChild;
+  body.insertBefore(frag, firstChild);
+  if (btn) btn.textContent = "Load older messages";
+};
+
+function buildBubbleEl(m, showName = true) {
+  const side = m.sender_type === "staff" ? "staff" : "customer";
+  const row = document.createElement("div");
+  row.className = `brow ${side}${showName ? " new-sender" : ""}`;
+  row.dataset.id = m.id;
+  row.innerHTML = `
+    ${showName ? `<div class="bname">${esc(m.sender_name || (side === "staff" ? "Staff" : "Customer"))}</div>` : ""}
+    <div class="bubble ${side}">${esc(m.body)}</div>
+    <div class="btime">${fmtTime(m.created_at)}</div>`;
+  return row;
+}
+
+function appendBubble(body, m, scroll = true, showName = true) {
+  body.appendChild(buildBubbleEl(m, showName));
+  if (scroll) body.scrollTop = body.scrollHeight;
+}
+
+/* ── Send ── */
+window.sendMsg = async function() {
+  const ta = document.getElementById("msgText");
+  const text = ta?.value.trim();
+  if (!text || !activeCompanyId) return;
+  ta.value = "";
+  ta.style.height = "auto";
+
+  // Show message instantly in the sender's UI (optimistic)
+  const tempId = `temp-${Date.now()}`;
+  const tempMsg = {
+    id: tempId,
+    sender_type: "staff",
+    sender_name: profile.full_name || "Staff",
+    body: text,
+    created_at: new Date().toISOString(),
+    crm_company_id: activeCompanyId,
+  };
+  const msgBody = document.getElementById("msgBody");
+  if (msgBody) { knownMsgIds.add(tempId); appendBubble(msgBody, tempMsg, true); }
+
+  const { data, error } = await sb().from("crm_messages").insert({
+    tenant_id: profile.company_id,
+    crm_company_id: activeCompanyId,
+    sender_type: "staff",
+    sender_id: profile.id,
+    sender_name: profile.full_name || "Staff",
+    body: text,
+  }).select("id").single();
+
+  if (error) {
+    toast("bad","Error",error.message);
+    ta.value = text;
+    msgBody?.querySelector(`[data-id="${tempId}"]`)?.remove();
+    knownMsgIds.delete(tempId);
+  } else if (data?.id) {
+    // Swap temp ID for real DB ID so the poll skips it
+    msgBody?.querySelector(`[data-id="${tempId}"]`)?.setAttribute("data-id", data.id);
+    knownMsgIds.delete(tempId);
+    knownMsgIds.add(data.id);
+  }
+};
+</script>
+</body>
+</html>
