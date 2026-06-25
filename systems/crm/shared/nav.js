@@ -188,7 +188,7 @@ function openSupport() {
     document.getElementById("supportPicker").style.display = "none";
     const chat = document.getElementById("supportChat");
     chat.style.display = "flex";
-    if (supportMessages.length === 0) appendBubble("assistant", "Hi! I'm the SmartCore CRM assistant. Ask me anything about how to use the CRM and I'll do my best to help.");
+    if (supportMessages.length === 0) appendBubble("assistant", "Hi! I'm the SmartCore CRM assistant. Ask me anything about the CRM and I'll help you out.");
     document.getElementById("supportInput").focus();
   };
 
