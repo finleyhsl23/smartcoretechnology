@@ -22,6 +22,24 @@ const FROM         = 'SmartCore Billing <noreply@smartcoretechnology.co.uk>';
 const FROM_BILLING = 'SmartCore Billing <noreply@smartcoretechnology.co.uk>';
 const SITE         = 'https://smartcoretechnology.co.uk';
 
+const SIZE_TIERS = [
+  { id: 'micro',      label: 'Micro',      range: '1–10',        multiplier: 1.00,  maxEmployees: 10   },
+  { id: 'small',      label: 'Small',      range: '11–15',       multiplier: 0.71,  maxEmployees: 15   },
+  { id: 'growing',    label: 'Growing',    range: '16–50',       multiplier: 1.43,  maxEmployees: 50   },
+  { id: 'medium',     label: 'Medium',     range: '51–100',      multiplier: 2.86,  maxEmployees: 100  },
+  { id: 'large',      label: 'Large',      range: '101–250',     multiplier: 6.72,  maxEmployees: 250  },
+  { id: 'corporate',  label: 'Corporate',  range: '251–500',     multiplier: 14.44, maxEmployees: 500  },
+  { id: 'enterprise', label: 'Enterprise', range: '501–999',     multiplier: 28.92, maxEmployees: 999  },
+  { id: 'global',     label: 'Global',     range: '1,000–1,500', multiplier: 38.57, maxEmployees: 1500 },
+];
+
+const CRM_SLUGS = [
+  'smartcore-crm-lite',
+  'smartcore-crm-professional',
+  'smartcore-crm-business',
+  'smartcore-crm-enterprise',
+];
+
 export async function onRequestPost(context) {
   const { request, env } = context;
 
@@ -125,10 +143,27 @@ async function handlePaymentCompleted(env, event) {
   const subscriptionId = resource.billing_agreement_id || resource.id;
   if (!subscriptionId) return;
 
-  const order = await findOrderBySubscription(env, subscriptionId);
+  let order = await findOrderBySubscription(env, subscriptionId);
   if (!order) { console.warn(`No order for subscription ${subscriptionId}`); return; }
 
   const today = new Date().toISOString().slice(0, 10);
+
+  // Apply any queued plan change before generating the invoice
+  const pending = order.pending_plan_change
+    ? (typeof order.pending_plan_change === 'string'
+        ? (() => { try { return JSON.parse(order.pending_plan_change); } catch { return null; } })()
+        : order.pending_plan_change)
+    : null;
+
+  if (pending) {
+    try {
+      order = await applyPendingPlanChange(env, order, pending);
+      console.log(`Applied pending plan change (${pending.type}) for order ${order.id}`);
+    } catch (e) {
+      console.error(`Failed to apply pending plan change for order ${order.id}:`, e);
+      // Non-fatal — continue with current plan, leave pending in place to retry next cycle
+    }
+  }
 
   // If order was payment_overdue, restore it
   if (order.status === 'payment_overdue') {
@@ -293,6 +328,118 @@ async function handleActivated(env, event) {
 }
 
 // ---------------------------------------------------------------------------
+// Apply a queued pending_plan_change — returns the updated order object
+// ---------------------------------------------------------------------------
+async function applyPendingPlanChange(env, order, pending) {
+  const allModules = await dbGet(env, `/marketplace_modules?select=*`);
+  const moduleMap  = Object.fromEntries((allModules || []).map(m => [m.slug, m]));
+
+  // Get the company for this order
+  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=*&limit=1`);
+  const company   = companies?.[0] || null;
+
+  let patchFields = { pending_plan_change: null };
+  let updatedOrder = { ...order, pending_plan_change: null };
+
+  if (pending.type === 'change_size') {
+    const tier = SIZE_TIERS.find(t => t.id === pending.new_tier_id);
+    if (!tier) throw new Error(`Unknown tier: ${pending.new_tier_id}`);
+
+    const modules = parseModules(order.modules);
+    const { subtotal, discount, total } = calcTotalForModules(modules, moduleMap, tier.multiplier, order.billing_type, order.discount_percent || 0);
+
+    patchFields = {
+      ...patchFields,
+      size_tier:       tier.id,
+      size_multiplier: tier.multiplier,
+      subtotal,
+      total,
+      discount_amount: discount,
+    };
+    updatedOrder = { ...updatedOrder, size_tier: tier.id, size_multiplier: tier.multiplier, total, subtotal };
+
+    if (company?.id) {
+      await dbPatch(env, `/smartcore_core_companies?id=eq.${enc(company.id)}`, {
+        employee_limit: tier.maxEmployees,
+      });
+    }
+
+    // Send confirmation email
+    try {
+      await sendEmail(env, {
+        to:      order.email,
+        subject: `Plan Updated — Switched to ${tier.label} tier | SmartCore`,
+        html:    planChangedHtml(order, `Company size tier changed to <strong>${tier.label}</strong> (${tier.range} employees).`, total),
+      });
+    } catch (e) { console.error('plan changed email error:', e); }
+
+  } else if (pending.type === 'change_crm_tier') {
+    const newMod = moduleMap[pending.new_crm_slug];
+    if (!newMod) throw new Error(`Unknown CRM module: ${pending.new_crm_slug}`);
+
+    const modules    = parseModules(order.modules);
+    const nonCrm     = modules.filter(m => !CRM_SLUGS.includes(m.slug));
+    const newModules = [...nonCrm, { slug: newMod.slug, name: newMod.name, monthly_price: newMod.monthly_price, yearly_price: newMod.yearly_price, price: newMod.monthly_price }];
+    const multiplier = order.size_multiplier || 1;
+    const { subtotal, discount, total } = calcTotalForModules(newModules, moduleMap, multiplier, order.billing_type, order.discount_percent || 0);
+
+    patchFields = {
+      ...patchFields,
+      modules:         JSON.stringify(newModules),
+      subtotal,
+      total,
+      discount_amount: discount,
+    };
+    updatedOrder = { ...updatedOrder, modules: newModules, total, subtotal };
+
+    // Update purchased_modules
+    if (company?.id) {
+      for (const slug of CRM_SLUGS) {
+        try { await dbDelete(env, `/smartcore_core_purchased_modules?company_id=eq.${enc(company.id)}&module_slug=eq.${enc(slug)}`); } catch (_) {}
+      }
+      await dbPost(env, '/smartcore_core_purchased_modules', {
+        company_id:   company.id,
+        order_id:     order.id,
+        module_slug:  newMod.slug,
+        module_name:  newMod.name,
+        billing_type: order.billing_type,
+        price:        order.billing_type === 'yearly' ? (newMod.yearly_price || newMod.monthly_price) : newMod.monthly_price,
+        status:       'active',
+        activated_at: new Date().toISOString(),
+      });
+    }
+
+    // Send confirmation email
+    try {
+      const tierName = newMod.name.replace('SmartCore CRM ', '');
+      await sendEmail(env, {
+        to:      order.email,
+        subject: `Plan Updated — CRM switched to ${tierName} | SmartCore`,
+        html:    planChangedHtml(order, `CRM tier changed to <strong>${esc(newMod.name)}</strong>.`, total),
+      });
+    } catch (e) { console.error('plan changed email error:', e); }
+  }
+
+  await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, patchFields);
+  return updatedOrder;
+}
+
+function calcTotalForModules(modules, moduleMap, sizeMultiplier, billingType, discountPct) {
+  let subtotal = 0;
+  for (const m of modules) {
+    if (m.slug === 'smartcore-core') continue;
+    const dbMod = moduleMap[m.slug] || m;
+    const isCrm = CRM_SLUGS.includes(m.slug);
+    const base  = billingType === 'yearly'
+      ? (dbMod.yearly_price || dbMod.monthly_price || m.yearly_price || m.monthly_price || 0)
+      : (dbMod.monthly_price || m.monthly_price || 0);
+    subtotal += isCrm ? base : base * sizeMultiplier;
+  }
+  const discount = subtotal * (discountPct || 0) / 100;
+  return { subtotal, discount, total: Math.max(0, subtotal - discount) };
+}
+
+// ---------------------------------------------------------------------------
 // DB helpers
 // ---------------------------------------------------------------------------
 function enc(v) { return encodeURIComponent(v); }
@@ -332,6 +479,18 @@ async function dbPost(env, path, body, returning = false) {
   });
   if (!r.ok) throw new Error(await r.text());
   if (returning) return r.json();
+}
+
+async function dbDelete(env, path) {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
+    method: 'DELETE',
+    headers: {
+      apikey:        env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      Prefer:        'return=minimal',
+    },
+  });
+  if (!r.ok) throw new Error(await r.text());
 }
 
 async function findOrderBySubscription(env, subscriptionId) {
@@ -475,6 +634,25 @@ function serviceRestoredHtml(o) {
     <br>
     <p>Thank you for resolving the payment. If you have any questions about your account, please don't hesitate to get in touch.</p>
     <a href="${SITE}/hq" class="btn">Log in to SmartCore →</a>`
+  );
+}
+
+function planChangedHtml(o, changeDesc, newTotal) {
+  const period = o.billing_type === 'yearly' ? '/yr' : '/mo';
+  return shell(
+    `Your SmartCore plan has been updated — ${o.order_reference}`,
+    `<span class="tag tag-green">✓ Plan Updated</span>
+    <h1>Your Plan Has Been Updated</h1>
+    <p>Hi ${esc(o.contact_name)},</p>
+    <p>Your scheduled plan change has been applied as of your latest billing date.</p>
+    <div class="ref">${esc(o.order_reference)}</div>
+    <div class="row"><span>Company</span><span>${esc(o.company_name)}</span></div>
+    <div class="row"><span>Change Applied</span><span>${changeDesc}</span></div>
+    <div class="row"><span>New Total</span><span style="font-weight:700">${fmt(newTotal)}${period}</span></div>
+    <br>
+    <p>This change is now live on your account. Your invoice for this billing period reflects the updated plan.</p>
+    <a href="${SITE}/shop/manage-plan.html" class="btn">View Your Plan →</a>
+    <p>If you have any questions, contact us at <a href="mailto:support@smartcoretechnology.co.uk" style="color:#3b82f6">support@smartcoretechnology.co.uk</a></p>`
   );
 }
 
