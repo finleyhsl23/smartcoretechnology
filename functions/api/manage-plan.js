@@ -110,6 +110,11 @@ export async function onRequestGet(context) {
       purchased_modules = await dbGet(env, `/smartcore_core_purchased_modules?company_id=eq.${enc(company.id)}&select=*`);
     }
 
+    // Parse pending_plan_change if stored as a string
+    if (order.pending_plan_change && typeof order.pending_plan_change === 'string') {
+      try { order.pending_plan_change = JSON.parse(order.pending_plan_change); } catch (_) {}
+    }
+
     return json({ order, modules: modules || [], employee_count, company, purchased_modules: purchased_modules || [] }, 200, CORS);
   } catch (err) {
     console.error('manage-plan GET:', err);
@@ -138,8 +143,9 @@ export async function onRequestPatch(context) {
     if (resolved.error) return json({ error: resolved.error }, resolved.status, CORS);
     const order = resolved.order;
 
-    if (action === 'change_size')     return handleChangeSize(env, order, body);
-    if (action === 'change_crm_tier') return handleChangeCrmTier(env, order, body);
+    if (action === 'change_size')          return handleChangeSize(env, order, body);
+    if (action === 'change_crm_tier')      return handleChangeCrmTier(env, order, body);
+    if (action === 'cancel_pending_change') return handleCancelPendingChange(env, order);
 
     return json({ error: `Unknown action: ${action}` }, 400, CORS);
   } catch (err) {
@@ -157,10 +163,18 @@ export async function onRequestOptions() {
 }
 
 // ---------------------------------------------------------------------------
+// Action: cancel_pending_change
+// ---------------------------------------------------------------------------
+async function handleCancelPendingChange(env, order) {
+  await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, { pending_plan_change: null });
+  return json({ success: true }, 200, CORS);
+}
+
+// ---------------------------------------------------------------------------
 // Action: change_size
 // ---------------------------------------------------------------------------
 async function handleChangeSize(env, order, body) {
-  const { new_tier_id } = body;
+  const { new_tier_id, apply_immediately = true } = body;
   const tier = SIZE_TIERS.find(t => t.id === new_tier_id);
   if (!tier) return json({ error: `Invalid tier: ${new_tier_id}` }, 400, CORS);
 
@@ -173,7 +187,7 @@ async function handleChangeSize(env, order, body) {
     employee_count = empRows?.length || 0;
   }
 
-  // Enforce employee limit
+  // Enforce employee limit (applies regardless of timing)
   if (employee_count > tier.maxEmployees) {
     return json({
       error:             'employee_limit',
@@ -192,13 +206,27 @@ async function handleChangeSize(env, order, body) {
   // Recalculate totals with new multiplier
   const { subtotal, discount, total } = calcTotal(modules, moduleMap, tier.multiplier, order.billing_type, order.discount_percent || 0);
 
-  // Update order
+  if (!apply_immediately) {
+    // Queue the change — store it on the order, don't touch pricing or PayPal yet
+    await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, {
+      pending_plan_change: JSON.stringify({
+        type:        'change_size',
+        new_tier_id: tier.id,
+        new_total:   total,
+        queued_at:   new Date().toISOString(),
+      }),
+    });
+    return json({ success: true, scheduled: true, new_total: total, new_tier: tier }, 200, CORS);
+  }
+
+  // Apply immediately
   await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, {
-    size_tier:       tier.id,
-    size_multiplier: tier.multiplier,
+    size_tier:           tier.id,
+    size_multiplier:     tier.multiplier,
     subtotal,
     total,
-    discount_amount: discount,
+    discount_amount:     discount,
+    pending_plan_change: null,
   });
 
   // Update company employee_limit
@@ -218,14 +246,14 @@ async function handleChangeSize(env, order, body) {
     }
   }
 
-  return json({ success: true, new_total: total, new_tier: tier }, 200, CORS);
+  return json({ success: true, scheduled: false, new_total: total, new_tier: tier }, 200, CORS);
 }
 
 // ---------------------------------------------------------------------------
 // Action: change_crm_tier
 // ---------------------------------------------------------------------------
 async function handleChangeCrmTier(env, order, body) {
-  const { new_crm_slug } = body;
+  const { new_crm_slug, apply_immediately = true } = body;
   if (!CRM_SLUGS.includes(new_crm_slug)) {
     return json({ error: `Invalid CRM slug: ${new_crm_slug}` }, 400, CORS);
   }
@@ -235,37 +263,50 @@ async function handleChangeCrmTier(env, order, body) {
   if (!newModRows?.[0]) return json({ error: 'CRM module not found' }, 404, CORS);
   const newMod = newModRows[0];
 
-  // Update modules array: remove old CRM, add new one
-  const modules    = parseModules(order.modules);
-  const nonCrm     = modules.filter(m => !CRM_SLUGS.includes(m.slug));
-  const newModules = [...nonCrm, { slug: newMod.slug, name: newMod.name, monthly_price: newMod.monthly_price, yearly_price: newMod.yearly_price, price: newMod.monthly_price }];
-
   // Fetch all module DB records for pricing
   const allModules = await dbGet(env, `/marketplace_modules?select=*`);
   const moduleMap  = Object.fromEntries((allModules || []).map(m => [m.slug, m]));
   const multiplier = order.size_multiplier || 1;
 
+  // Update modules array: remove old CRM, add new one
+  const modules    = parseModules(order.modules);
+  const nonCrm     = modules.filter(m => !CRM_SLUGS.includes(m.slug));
+  const newModules = [...nonCrm, { slug: newMod.slug, name: newMod.name, monthly_price: newMod.monthly_price, yearly_price: newMod.yearly_price, price: newMod.monthly_price }];
+
   const { subtotal, discount, total } = calcTotal(newModules, moduleMap, multiplier, order.billing_type, order.discount_percent || 0);
 
-  // Update order
+  if (!apply_immediately) {
+    // Queue the change
+    await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, {
+      pending_plan_change: JSON.stringify({
+        type:         'change_crm_tier',
+        new_crm_slug: newMod.slug,
+        new_crm_name: newMod.name,
+        new_total:    total,
+        queued_at:    new Date().toISOString(),
+      }),
+    });
+    return json({ success: true, scheduled: true, new_total: total, new_module: newMod }, 200, CORS);
+  }
+
+  // Apply immediately
   await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, {
-    modules:  JSON.stringify(newModules),
+    modules:             JSON.stringify(newModules),
     subtotal,
     total,
-    discount_amount: discount,
+    discount_amount:     discount,
+    pending_plan_change: null,
   });
 
   // Update purchased_modules: delete old CRM row(s), insert new
   const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=id&limit=1`);
   const company   = companies?.[0];
   if (company?.id) {
-    // Delete old CRM module rows
     for (const slug of CRM_SLUGS) {
       try {
         await dbDelete(env, `/smartcore_core_purchased_modules?company_id=eq.${enc(company.id)}&module_slug=eq.${enc(slug)}`);
       } catch (_) { /* ignore if not present */ }
     }
-    // Insert new CRM module row
     await dbPost(env, '/smartcore_core_purchased_modules', {
       company_id:   company.id,
       order_id:     order.id,
@@ -287,7 +328,7 @@ async function handleChangeCrmTier(env, order, body) {
     }
   }
 
-  return json({ success: true, new_total: total, new_module: newMod }, 200, CORS);
+  return json({ success: true, scheduled: false, new_total: total, new_module: newMod }, 200, CORS);
 }
 
 // ---------------------------------------------------------------------------

@@ -158,6 +158,14 @@
     .crm-opt:not(.crm-active) .crm-opt-name{color:var(--muted)}
     .crm-opt-price{font-size:14px;font-weight:800}
 
+    /* pending change banner */
+    .pending-banner{background:var(--amber-soft);border:1px solid var(--amber-border);border-radius:var(--r2);padding:14px 18px;margin-bottom:20px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+    .pending-banner-left{}
+    .pending-banner-title{font-size:13px;font-weight:700;color:var(--amber);margin-bottom:4px;display:flex;align-items:center;gap:6px}
+    .pending-banner-body{font-size:13px;color:var(--muted);line-height:1.55}
+    .pending-banner-cancel{flex-shrink:0;font-size:12px;font-weight:700;color:var(--amber);background:none;border:1px solid var(--amber-border);border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;transition:background .15s}
+    .pending-banner-cancel:hover{background:var(--amber-soft)}
+
     /* confirm dialog */
     .overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);z-index:100;display:none;align-items:flex-start;justify-content:center;padding:40px 24px;overflow-y:auto}
     .overlay.show{display:flex}
@@ -171,6 +179,13 @@
     .price-new.going-down{color:var(--green)}
     .price-new.going-up{color:var(--amber)}
     .dialog-note{font-size:12px;color:var(--muted2);line-height:1.65;margin-bottom:20px}
+    /* two-button timing choice */
+    .timing-btns{display:flex;gap:8px;margin-bottom:12px}
+    .timing-btn{flex:1;border:1px solid var(--border);border-radius:var(--r2);padding:13px 14px;cursor:pointer;font-family:inherit;background:var(--surface);transition:border-color .15s,background .15s;text-align:left}
+    .timing-btn:hover{border-color:var(--accent-border);background:var(--accent-soft)}
+    .timing-btn.selected{border-color:var(--accent);background:var(--accent-soft)}
+    .timing-btn-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px}
+    .timing-btn-sub{font-size:11px;color:var(--muted);line-height:1.4}
 
     /* breakdown dropdown */
     .breakdown{border:1px solid var(--border2);border-radius:var(--r2);overflow:hidden;margin-bottom:20px}
@@ -271,6 +286,15 @@
     <span id="billingTypeLabel" style="display:none"></span>
     <span id="nextTotal" style="display:none"></span>
 
+    <!-- Pending change banner (shown when a scheduled change is queued) -->
+    <div id="pendingBanner" style="display:none" class="pending-banner">
+      <div class="pending-banner-left">
+        <div class="pending-banner-title">⏳ Scheduled plan change</div>
+        <div class="pending-banner-body" id="pendingBannerBody"></div>
+      </div>
+      <button class="pending-banner-cancel" onclick="cancelPendingChange()">Cancel change</button>
+    </div>
+
     <!-- Company Size -->
     <div class="section">
       <div class="section-head">
@@ -342,6 +366,18 @@
       <div class="breakdown-body" id="breakdownBody"></div>
     </div>
 
+    <!-- Timing choice -->
+    <div class="timing-btns" id="timingBtns">
+      <button class="timing-btn selected" id="timingNow" onclick="selectTiming('now')">
+        <div class="timing-btn-title">Pay now &amp; change immediately</div>
+        <div class="timing-btn-sub">Your plan updates right away and your billing amount changes from the next payment</div>
+      </button>
+      <button class="timing-btn" id="timingRenewal" onclick="selectTiming('renewal')">
+        <div class="timing-btn-title">Update on next renewal</div>
+        <div class="timing-btn-sub" id="timingRenewalSub">Keep your current plan until your next billing date</div>
+      </button>
+    </div>
+
     <p class="dialog-note" id="confirmNote"></p>
 
     <div class="dialog-btns">
@@ -406,6 +442,7 @@
     order: null, modules: [], employee_count: 0,
     company: null, purchased_modules: [], pendingAction: null,
   };
+  let selectedTiming = 'now'; // 'now' | 'renewal'
 
   // ── Init ────────────────────────────────────────────────────────────────────
   async function init() {
@@ -450,12 +487,31 @@
     document.getElementById('billingTypeLabel').textContent = isYearly ? 'Annual' : 'Monthly';
     document.getElementById('nextTotal').textContent   = fmt(o.total) + period;
 
+    renderPendingBanner();
     renderTierSelect();
     renderSizeInfo();
     renderModules();
 
     document.getElementById('loadingState').style.display = 'none';
     document.getElementById('pageContent').style.display  = 'block';
+  }
+
+  function renderPendingBanner() {
+    const pending = state.order?.pending_plan_change;
+    const banner  = document.getElementById('pendingBanner');
+    if (!pending) { banner.style.display = 'none'; return; }
+
+    const nextDate = state.order.next_billing_date ? fmtDate(state.order.next_billing_date) : 'your next billing date';
+    let desc = '';
+    if (pending.type === 'change_size') {
+      const tier = SIZE_TIERS.find(t => t.id === pending.new_tier_id);
+      desc = `Switching to <strong>${tier?.label || pending.new_tier_id}</strong> tier on <strong>${nextDate}</strong>. New total will be <strong>${fmt(pending.new_total)}</strong>${state.order.billing_type === 'yearly' ? '/yr' : '/mo'}.`;
+    } else if (pending.type === 'change_crm_tier') {
+      desc = `Switching CRM to <strong>${esc(pending.new_crm_name || pending.new_crm_slug)}</strong> on <strong>${nextDate}</strong>. New total will be <strong>${fmt(pending.new_total)}</strong>${state.order.billing_type === 'yearly' ? '/yr' : '/mo'}.`;
+    }
+
+    document.getElementById('pendingBannerBody').innerHTML = desc;
+    banner.style.display = 'flex';
   }
 
   function renderTierSelect() {
@@ -673,15 +729,7 @@
     // Breakdown dropdown
     buildBreakdown(modules, moduleMap, tier, oldTier, period);
 
-    // Note
-    document.getElementById('confirmNote').innerHTML = o.next_billing_date
-      ? `Price change takes effect on your next invoice date of <strong>${fmtDate(o.next_billing_date)}</strong>.`
-      : 'Price change takes effect on your next invoice date.';
-
-    document.getElementById('dialogErr').classList.remove('show');
-    document.getElementById('confirmBtn').innerHTML = 'Confirm Change';
-    closeBreakdown();
-    document.getElementById('confirmOverlay').classList.add('show');
+    openDialog();
   }
 
   function buildBreakdown(modules, moduleMap, newTier, oldTier, period) {
@@ -790,13 +838,7 @@
     </div>`;
     document.getElementById('breakdownBody').innerHTML = bdHtml;
 
-    document.getElementById('confirmNote').innerHTML = o.next_billing_date
-      ? `Price change takes effect on your next invoice date of <strong>${fmtDate(o.next_billing_date)}</strong>.`
-      : 'Price change takes effect on your next invoice date.';
-
-    document.getElementById('dialogErr').classList.remove('show');
-    closeBreakdown();
-    document.getElementById('confirmOverlay').classList.add('show');
+    openDialog();
   }
 
   // ── Confirm ─────────────────────────────────────────────────────────────────
@@ -811,10 +853,11 @@
     errEl.classList.remove('show');
 
     try {
+      const applyNow = selectedTiming === 'now';
       const res  = await fetch(buildApiUrl('/api/manage-plan'), {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body:    JSON.stringify(pending.payload),
+        body:    JSON.stringify({ ...pending.payload, apply_immediately: applyNow }),
       });
       const data = await res.json();
 
@@ -829,22 +872,41 @@
         throw new Error(data.error || 'Request failed');
       }
 
-      if (pending.type === 'change_size') {
-        const tier = SIZE_TIERS.find(t => t.id === pending.payload.new_tier_id);
-        state.order.size_tier       = tier.id;
-        state.order.size_multiplier = tier.multiplier;
-        state.order.total           = data.new_total;
-      } else if (pending.type === 'change_crm_tier') {
-        const moduleMap  = Object.fromEntries(state.modules.map(m => [m.slug, m]));
-        const newMod     = moduleMap[pending.payload.new_crm_slug];
-        const modules    = parseModules(state.order.modules);
-        const nonCrm     = modules.filter(m => !CRM_SLUGS.includes(m.slug));
-        state.order.modules = [...nonCrm, { slug: newMod.slug, name: newMod.name, monthly_price: newMod.monthly_price, yearly_price: newMod.yearly_price }];
-        state.order.total   = data.new_total;
+      if (data.scheduled) {
+        // Queued for next renewal — update pending_plan_change in local state
+        if (pending.type === 'change_size') {
+          const tier = SIZE_TIERS.find(t => t.id === pending.payload.new_tier_id);
+          state.order.pending_plan_change = { type: 'change_size', new_tier_id: tier.id, new_total: data.new_total };
+        } else if (pending.type === 'change_crm_tier') {
+          const moduleMap = Object.fromEntries(state.modules.map(m => [m.slug, m]));
+          const newMod    = moduleMap[pending.payload.new_crm_slug];
+          state.order.pending_plan_change = { type: 'change_crm_tier', new_crm_slug: newMod.slug, new_crm_name: newMod.name, new_total: data.new_total };
+        }
+        closeDialog();
+        showToast('success', 'Change scheduled for your next renewal');
+      } else {
+        // Applied immediately — update local state
+        if (pending.type === 'change_size') {
+          const tier = SIZE_TIERS.find(t => t.id === pending.payload.new_tier_id);
+          state.order.size_tier           = tier.id;
+          state.order.size_multiplier     = tier.multiplier;
+          state.order.total               = data.new_total;
+          state.order.pending_plan_change = null;
+        } else if (pending.type === 'change_crm_tier') {
+          const moduleMap  = Object.fromEntries(state.modules.map(m => [m.slug, m]));
+          const newMod     = moduleMap[pending.payload.new_crm_slug];
+          const modules    = parseModules(state.order.modules);
+          const nonCrm     = modules.filter(m => !CRM_SLUGS.includes(m.slug));
+          state.order.modules             = [...nonCrm, { slug: newMod.slug, name: newMod.name, monthly_price: newMod.monthly_price, yearly_price: newMod.yearly_price }];
+          state.order.total               = data.new_total;
+          state.order.pending_plan_change = null;
+          // Also update purchased_modules so getActiveSlugs() reflects the change immediately
+          state.purchased_modules = state.purchased_modules.filter(p => !CRM_SLUGS.includes(p.module_slug));
+          state.purchased_modules.push({ module_slug: newMod.slug });
+        }
+        closeDialog();
+        showToast('success', 'Plan updated successfully');
       }
-
-      closeDialog();
-      showToast('success', 'Plan updated successfully');
 
       // Re-render
       document.getElementById('currentTotal').textContent = fmt(state.order.total);
@@ -852,6 +914,7 @@
       document.getElementById('nextTotal').textContent    = fmt(state.order.total) + period;
       document.getElementById('headerSub').textContent    =
         (state.order.size_tier ? cap(state.order.size_tier) + ' tier' : '') + (state.employee_count ? ` · ${state.employee_count} employees` : '');
+      renderPendingBanner();
       renderTierSelect();
       renderSizeInfo();
       renderModules();
@@ -863,6 +926,35 @@
     }
   }
 
+  function selectTiming(choice) {
+    selectedTiming = choice;
+    document.getElementById('timingNow').classList.toggle('selected', choice === 'now');
+    document.getElementById('timingRenewal').classList.toggle('selected', choice === 'renewal');
+    const note = document.getElementById('confirmNote');
+    const o    = state.order;
+    if (choice === 'now') {
+      note.innerHTML = 'Your plan updates immediately. Your billing amount changes from the next payment.';
+    } else {
+      note.innerHTML = o.next_billing_date
+        ? `Your current plan stays active until <strong>${fmtDate(o.next_billing_date)}</strong>, when the new plan will take effect.`
+        : 'Your current plan stays active until your next billing date, when the new plan will take effect.';
+    }
+  }
+
+  function openDialog() {
+    selectedTiming = 'now';
+    document.getElementById('timingNow').classList.add('selected');
+    document.getElementById('timingRenewal').classList.remove('selected');
+    const o = state.order;
+    document.getElementById('timingRenewalSub').textContent = o.next_billing_date
+      ? `Keep your current plan until ${fmtDate(o.next_billing_date)}`
+      : 'Keep your current plan until your next billing date';
+    document.getElementById('dialogErr').classList.remove('show');
+    document.getElementById('confirmBtn').innerHTML = 'Confirm Change';
+    closeBreakdown();
+    document.getElementById('confirmOverlay').classList.add('show');
+  }
+
   function closeDialog() {
     document.getElementById('confirmOverlay').classList.remove('show');
     state.pendingAction = null;
@@ -871,6 +963,22 @@
   document.getElementById('confirmOverlay').addEventListener('click', function(e) {
     if (e.target === this) closeDialog();
   });
+
+  async function cancelPendingChange() {
+    try {
+      const res  = await fetch(buildApiUrl('/api/manage-plan'), {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body:    JSON.stringify({ action: 'cancel_pending_change' }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed'); }
+      state.order.pending_plan_change = null;
+      renderPendingBanner();
+      showToast('success', 'Scheduled change cancelled');
+    } catch (e) {
+      showToast('error', 'Could not cancel: ' + e.message);
+    }
+  }
 
   // ── Toast ────────────────────────────────────────────────────────────────────
   let toastTimer = null;
