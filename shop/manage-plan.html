@@ -120,12 +120,19 @@
     .crm-tiers:last-child{border-bottom:none;padding-bottom:0}
     .crm-opt{
       flex:1;min-width:100px;background:rgba(255,255,255,.03);border:1px solid var(--border2);
-      border-radius:var(--r3);padding:10px 12px;cursor:pointer;transition:border-color .15s,background .15s;
+      border-radius:var(--r3);padding:12px 14px;cursor:pointer;transition:border-color .15s,background .15s,box-shadow .15s;
     }
-    .crm-opt:hover:not(.crm-active){border-color:var(--accent-border);background:var(--accent-soft)}
-    .crm-opt.crm-active{border-color:var(--accent-border);background:var(--accent-soft);cursor:default}
-    .crm-opt-name{font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px}
-    .crm-opt-price{font-size:13px;font-weight:800}
+    .crm-opt:hover:not(.crm-active){border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.06)}
+    .crm-opt.crm-active{
+      border-color:var(--accent);background:rgba(91,143,255,.18);cursor:default;
+      box-shadow:0 0 0 1px var(--accent-border),0 4px 16px rgba(91,143,255,.15);
+    }
+    .crm-opt-badge{font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:5px;display:flex;align-items:center;gap:4px}
+    .crm-opt-badge::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+    .crm-opt-name{font-size:12px;font-weight:700;margin-bottom:4px}
+    .crm-opt.crm-active .crm-opt-name{color:var(--text)}
+    .crm-opt:not(.crm-active) .crm-opt-name{color:var(--muted)}
+    .crm-opt-price{font-size:14px;font-weight:800}
 
     /* confirm dialog */
     .overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);z-index:100;display:none;align-items:flex-start;justify-content:center;padding:40px 24px;overflow-y:auto}
@@ -513,9 +520,10 @@
       allCrm.forEach(m => {
         const isActive = crmActive && m.slug === crmActive.slug;
         const base = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price || 0) : (m.monthly_price || 0);
+        const tierName = m.name.replace('SmartCore CRM ', '');
         html += `<div class="crm-opt${isActive ? ' crm-active' : ''}" ${isActive ? '' : `onclick="onCrmClick('${m.slug}')"`}>
-          ${isActive ? `<div style="font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:3px">✓ Active</div>` : ''}
-          <div class="crm-opt-name">${esc(m.name.replace('SmartCore CRM ', ''))}</div>
+          ${isActive ? `<div class="crm-opt-badge">Current plan</div>` : ''}
+          <div class="crm-opt-name">${esc(tierName)}</div>
           <div class="crm-opt-price">${fmt(base)}<span style="font-size:10px;font-weight:500;color:var(--muted)">${period}</span></div>
         </div>`;
       });
@@ -657,14 +665,16 @@
     const newModules = [...nonCrm, { slug: newMod.slug, name: newMod.name, monthly_price: newMod.monthly_price, yearly_price: newMod.yearly_price }];
     const newTotal   = calcTotal(newModules, moduleMap, o.size_multiplier || 1, o.billing_type, o.discount_percent || 0).total;
     const oldTotal   = o.total;
-    const crmPurchased = modules.find(m => CRM_SLUGS.includes(m.slug));
+    const crmPurchased    = modules.find(m => CRM_SLUGS.includes(m.slug));
+    const currentFullName = crmPurchased ? (moduleMap[crmPurchased.slug]?.name || crmPurchased.name) : null;
+    const currentTierName = currentFullName ? currentFullName.replace('SmartCore CRM ', '') : 'current plan';
+    const newTierName     = newMod.name.replace('SmartCore CRM ', '');
 
     state.pendingAction = { type: 'change_crm_tier', payload: { action: 'change_crm_tier', new_crm_slug: slug }, newTotal, oldTotal };
 
-    const tierName = newMod.name.replace('SmartCore CRM ', '');
-    document.getElementById('confirmTitle').textContent = `Switch to CRM ${tierName}`;
+    document.getElementById('confirmTitle').textContent = `Switch CRM from ${currentTierName} to ${newTierName}`;
     document.getElementById('confirmDesc').textContent  =
-      `You're switching your CRM from ${crmPurchased ? crmPurchased.name.replace('SmartCore CRM ','') : 'current'} to ${newMod.name}. CRM pricing is flat rate — it doesn't change with your company size.`;
+      `Are you sure you want to change your CRM tier from ${currentTierName} to ${newTierName}? CRM pricing is flat rate — it doesn't change with your company size.`;
 
     document.getElementById('confirmOldPrice').textContent = fmt(oldTotal) + period;
     const newPriceEl = document.getElementById('confirmNewPrice');
@@ -675,8 +685,9 @@
     document.getElementById('confirmBtn').disabled   = false;
     document.getElementById('confirmBtn').innerHTML  = 'Confirm Change';
 
-    // Simple breakdown for CRM
-    const oldCrmBase = o.billing_type === 'yearly' ? (crmPurchased?.yearly_price || crmPurchased?.monthly_price || 0) : (crmPurchased?.monthly_price || 0);
+    // Simple breakdown for CRM — look up pricing from moduleMap, not from order modules (which may lack pricing)
+    const oldCrmMod  = crmPurchased ? moduleMap[crmPurchased.slug] || crmPurchased : null;
+    const oldCrmBase = oldCrmMod ? (o.billing_type === 'yearly' ? (oldCrmMod.yearly_price || oldCrmMod.monthly_price || 0) : (oldCrmMod.monthly_price || 0)) : 0;
     const newCrmBase = o.billing_type === 'yearly' ? (newMod.yearly_price || newMod.monthly_price || 0) : (newMod.monthly_price || 0);
     document.getElementById('breakdownBody').innerHTML =
       `<div class="breakdown-row highlight">
