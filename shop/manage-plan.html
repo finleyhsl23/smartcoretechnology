@@ -74,17 +74,41 @@
     .section-sub{font-size:13px;color:var(--muted);margin-top:3px}
     .card{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:20px 24px}
 
-    /* size selector */
-    .size-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-    .size-select-wrap{flex:1;min-width:200px;max-width:320px;position:relative}
-    .size-select{
-      width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r2);
-      color:var(--text);font-family:inherit;font-size:14px;font-weight:600;
-      padding:11px 36px 11px 14px;appearance:none;-webkit-appearance:none;cursor:pointer;outline:none;
+    /* size selector — custom dropdown */
+    .size-row{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
+    .cdd{position:relative;flex:1;min-width:220px;max-width:340px;user-select:none}
+    .cdd-trigger{
+      display:flex;align-items:center;justify-content:space-between;gap:8px;
+      background:var(--surface2);border:1px solid var(--border);border-radius:var(--r2);
+      padding:11px 14px;cursor:pointer;transition:border-color .15s;
     }
-    .size-select:focus{border-color:var(--accent-border);box-shadow:0 0 0 3px var(--accent-soft)}
-    .size-select-wrap::after{content:'▾';position:absolute;right:13px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;font-size:13px}
-    .size-info{font-size:13px;color:var(--muted);line-height:1.6;flex:1}
+    .cdd-trigger:hover,.cdd.open .cdd-trigger{border-color:var(--accent-border)}
+    .cdd.open .cdd-trigger{border-bottom-left-radius:0;border-bottom-right-radius:0;border-bottom-color:transparent}
+    .cdd-label{font-size:14px;font-weight:700}
+    .cdd-sub{font-size:11px;color:var(--muted);margin-top:1px}
+    .cdd-chevron{color:var(--muted);font-size:11px;flex-shrink:0;transition:transform .2s}
+    .cdd.open .cdd-chevron{transform:rotate(180deg)}
+    .cdd-menu{
+      position:absolute;top:100%;left:0;right:0;z-index:60;
+      background:#0d0d1e;border:1px solid var(--accent-border);border-top:none;
+      border-bottom-left-radius:var(--r2);border-bottom-right-radius:var(--r2);
+      max-height:320px;overflow-y:auto;display:none;
+    }
+    .cdd.open .cdd-menu{display:block}
+    .cdd-item{
+      display:flex;align-items:center;justify-content:space-between;gap:12px;
+      padding:11px 14px;cursor:pointer;transition:background .1s;border-bottom:1px solid var(--border2);
+    }
+    .cdd-item:last-child{border-bottom:none}
+    .cdd-item:hover:not(.cdd-current){background:var(--surface2)}
+    .cdd-item.cdd-current{background:var(--accent-soft);cursor:default}
+    .cdd-item-left{}
+    .cdd-item-name{font-size:13px;font-weight:700}
+    .cdd-item-range{font-size:11px;color:var(--muted);margin-top:1px}
+    .cdd-item-right{text-align:right;flex-shrink:0}
+    .cdd-item-price{font-size:13px;font-weight:800}
+    .cdd-item-badge{font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--accent);margin-top:2px}
+    .size-info{font-size:13px;color:var(--muted);line-height:1.6;flex:1;padding-top:2px}
     .size-info strong{color:var(--text)}
 
     /* modules */
@@ -255,8 +279,15 @@
       </div>
       <div class="card">
         <div class="size-row">
-          <div class="size-select-wrap">
-            <select class="size-select" id="tierSelect" onchange="onTierChange(this.value)"></select>
+          <div class="cdd" id="tierCdd">
+            <div class="cdd-trigger" onclick="toggleCdd()">
+              <div>
+                <div class="cdd-label" id="cddLabel">Loading…</div>
+                <div class="cdd-sub" id="cddSub"></div>
+              </div>
+              <span class="cdd-chevron">▾</span>
+            </div>
+            <div class="cdd-menu" id="cddMenu"></div>
           </div>
           <div class="size-info" id="sizeInfo"></div>
         </div>
@@ -428,20 +459,52 @@
   }
 
   function renderTierSelect() {
-    const o  = state.order;
-    const sel = document.getElementById('tierSelect');
-    const modules   = parseModules(o.modules);
+    const o         = state.order;
+    const activeSlugs = getActiveSlugs();
+    // Use purchased_modules slugs to build modules list for price calc
+    const modulesList = [...activeSlugs].map(s => {
+      const m = state.modules.find(x => x.slug === s);
+      return m || { slug: s };
+    });
     const moduleMap = Object.fromEntries(state.modules.map(m => [m.slug, m]));
+    const period    = o.billing_type === 'yearly' ? '/yr' : '/mo';
+    const currentTier = SIZE_TIERS.find(t => t.id === o.size_tier);
 
-    sel.innerHTML = SIZE_TIERS.map(tier => {
-      const price   = calcTotal(modules, moduleMap, tier.multiplier, o.billing_type, o.discount_percent || 0).total;
-      const period  = o.billing_type === 'yearly' ? '/yr' : '/mo';
-      const current = tier.id === o.size_tier ? ' (current)' : '';
-      return `<option value="${tier.id}" ${tier.id === o.size_tier ? 'selected' : ''}>
-        ${tier.label}${current} — ${tier.range} staff — ${fmt(price)}${period}
-      </option>`;
+    // Update trigger label
+    document.getElementById('cddLabel').textContent = currentTier
+      ? `${currentTier.label} — ${currentTier.range} staff`
+      : 'Select tier';
+    document.getElementById('cddSub').textContent = currentTier
+      ? `${fmt(calcTotal(modulesList, moduleMap, currentTier.multiplier, o.billing_type, o.discount_percent || 0).total)}${period}`
+      : '';
+
+    // Build menu items
+    document.getElementById('cddMenu').innerHTML = SIZE_TIERS.map(tier => {
+      const price    = calcTotal(modulesList, moduleMap, tier.multiplier, o.billing_type, o.discount_percent || 0).total;
+      const isCurrent = tier.id === o.size_tier;
+      return `<div class="cdd-item${isCurrent ? ' cdd-current' : ''}" ${isCurrent ? '' : `onclick="closeCdd();onTierChange('${tier.id}')"`}>
+        <div class="cdd-item-left">
+          <div class="cdd-item-name">${tier.label}</div>
+          <div class="cdd-item-range">${tier.range} employees</div>
+        </div>
+        <div class="cdd-item-right">
+          <div class="cdd-item-price">${fmt(price)}<span style="font-size:10px;font-weight:500;color:var(--muted)">${period}</span></div>
+          ${isCurrent ? `<div class="cdd-item-badge">● Current</div>` : ''}
+        </div>
+      </div>`;
     }).join('');
   }
+
+  function toggleCdd() {
+    document.getElementById('tierCdd').classList.toggle('open');
+  }
+  function closeCdd() {
+    document.getElementById('tierCdd').classList.remove('open');
+  }
+  // Close on outside click
+  document.addEventListener('click', e => {
+    if (!document.getElementById('tierCdd')?.contains(e.target)) closeCdd();
+  });
 
   function renderSizeInfo() {
     const o    = state.order;
@@ -455,25 +518,38 @@
       (pct >= 80 ? ` <span style="color:var(--amber)">You're at ${pct}% capacity.</span>` : '');
   }
 
+  // Build the canonical active-module slug set from purchased_modules (source of truth)
+  // Falls back to order.modules JSON if purchased_modules is empty
+  function getActiveSlugs() {
+    if (state.purchased_modules?.length) {
+      return new Set(state.purchased_modules.map(p => p.module_slug));
+    }
+    return new Set(parseModules(state.order.modules).map(m => m.slug));
+  }
+
   function renderModules() {
     const o         = state.order;
-    const modules   = parseModules(o.modules);
     const moduleMap = Object.fromEntries(state.modules.map(m => [m.slug, m]));
     const period    = o.billing_type === 'yearly' ? '/yr' : '/mo';
     const mult      = o.size_multiplier || 1;
 
-    // Build purchased set
-    const purchasedSlugs = new Set(modules.map(m => m.slug));
+    // Use purchased_modules as source of truth for what's active
+    const activeSlugs = getActiveSlugs();
 
-    // Group: core, size-affected, flat-rate (non-CRM), CRM
-    const purchased   = modules.filter(m => m.slug !== 'smartcore-core' && !CRM_SLUGS.includes(m.slug));
-    const crmPurchased = modules.filter(m => CRM_SLUGS.includes(m.slug));
-    const crmActive   = crmPurchased[0] || null;
-    const allCrm      = state.modules.filter(m => CRM_SLUGS.includes(m.slug));
+    // Find active CRM from purchased_modules
+    const activeCrmSlug = [...activeSlugs].find(s => CRM_SLUGS.includes(s)) || null;
+    const crmActive     = activeCrmSlug ? moduleMap[activeCrmSlug] : null;
+    const allCrm        = state.modules.filter(m => CRM_SLUGS.includes(m.slug));
+
+    // Non-CRM, non-core active modules
+    const activeNonCrm = [...activeSlugs]
+      .filter(s => s !== 'smartcore-core' && !CRM_SLUGS.includes(s))
+      .map(s => moduleMap[s])
+      .filter(Boolean);
 
     let html = '';
 
-    // SmartCore Core — always first
+    // SmartCore Core
     html += modRow({
       dot: 'dot-free', name: 'SmartCore Core',
       desc: 'HR platform, employee management & more',
@@ -481,30 +557,30 @@
       priceHtml: `<div class="mod-price price-free">Free</div>`,
     });
 
-    // Purchased non-CRM modules
-    for (const m of purchased) {
-      const dbMod  = moduleMap[m.slug] || m;
-      const isCrm  = CRM_SLUGS.includes(m.slug);
-      const base   = o.billing_type === 'yearly'
+    // Size-scaled modules
+    for (const dbMod of activeNonCrm) {
+      const base  = o.billing_type === 'yearly'
         ? (dbMod.yearly_price || dbMod.monthly_price || 0)
         : (dbMod.monthly_price || 0);
-      const price  = base * mult;
+      const price = base * mult;
       html += modRow({
-        dot: 'dot-active', name: esc(m.name),
+        dot: 'dot-active', name: esc(dbMod.name),
         desc: dbMod.description || '',
         tags: [`<span class="tag tag-size">↕ Scales with size</span>`],
         priceHtml: `<div class="mod-price price-active">${fmt(price)}<span style="font-size:11px;font-weight:500;color:var(--muted)">${period}</span></div><a href="https://smartcoretechnology.co.uk/shop/" target="_blank" class="store-btn">View on store</a>`,
       });
     }
 
-    // CRM section
+    // CRM section — show all CRM tiers, highlight the active one
     if (allCrm.length) {
-      const crmBase = crmActive && (o.billing_type === 'yearly' ? (crmActive.yearly_price || crmActive.monthly_price || 0) : (crmActive.monthly_price || 0));
+      const crmBase = crmActive
+        ? (o.billing_type === 'yearly' ? (crmActive.yearly_price || crmActive.monthly_price || 0) : (crmActive.monthly_price || 0))
+        : 0;
       html += `<div class="crm-header">
         <div>
-          <div class="mod-name">CRM Module
-            ${crmActive ? `<span style="font-size:12px;font-weight:600;color:var(--muted);margin-left:8px">— currently on <span style="color:var(--accent)">${esc(crmActive.name.replace('SmartCore CRM ',''))}</span></span>` : ''}
-          </div>
+          <div class="mod-name">CRM Module${crmActive
+            ? ` <span style="font-size:12px;font-weight:600;color:var(--muted);margin-left:6px">— <span style="color:var(--accent)">${esc(crmActive.name.replace('SmartCore CRM ',''))}</span> active</span>`
+            : ''}</div>
           <div class="mod-meta">
             <span class="tag tag-flat">▪ Flat rate</span>
             <span style="font-size:12px;color:var(--muted)">Doesn't change with company size · click a tier to switch</span>
@@ -518,7 +594,7 @@
       <div class="crm-tiers">`;
 
       allCrm.forEach(m => {
-        const isActive = crmActive && m.slug === crmActive.slug;
+        const isActive = m.slug === activeCrmSlug;
         const base = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price || 0) : (m.monthly_price || 0);
         const tierName = m.name.replace('SmartCore CRM ', '');
         html += `<div class="crm-opt${isActive ? ' crm-active' : ''}" ${isActive ? '' : `onclick="onCrmClick('${m.slug}')"`}>
@@ -665,9 +741,10 @@
     const newModules = [...nonCrm, { slug: newMod.slug, name: newMod.name, monthly_price: newMod.monthly_price, yearly_price: newMod.yearly_price }];
     const newTotal   = calcTotal(newModules, moduleMap, o.size_multiplier || 1, o.billing_type, o.discount_percent || 0).total;
     const oldTotal   = o.total;
-    const crmPurchased    = modules.find(m => CRM_SLUGS.includes(m.slug));
-    const currentFullName = crmPurchased ? (moduleMap[crmPurchased.slug]?.name || crmPurchased.name) : null;
-    const currentTierName = currentFullName ? currentFullName.replace('SmartCore CRM ', '') : 'current plan';
+    const activeSlugs     = getActiveSlugs();
+    const activeCrmSlug   = [...activeSlugs].find(s => CRM_SLUGS.includes(s)) || null;
+    const currentCrmMod   = activeCrmSlug ? moduleMap[activeCrmSlug] : null;
+    const currentTierName = currentCrmMod ? currentCrmMod.name.replace('SmartCore CRM ', '') : 'current plan';
     const newTierName     = newMod.name.replace('SmartCore CRM ', '');
 
     state.pendingAction = { type: 'change_crm_tier', payload: { action: 'change_crm_tier', new_crm_slug: slug }, newTotal, oldTotal };
@@ -685,9 +762,8 @@
     document.getElementById('confirmBtn').disabled   = false;
     document.getElementById('confirmBtn').innerHTML  = 'Confirm Change';
 
-    // Simple breakdown for CRM — look up pricing from moduleMap, not from order modules (which may lack pricing)
-    const oldCrmMod  = crmPurchased ? moduleMap[crmPurchased.slug] || crmPurchased : null;
-    const oldCrmBase = oldCrmMod ? (o.billing_type === 'yearly' ? (oldCrmMod.yearly_price || oldCrmMod.monthly_price || 0) : (oldCrmMod.monthly_price || 0)) : 0;
+    // Simple breakdown for CRM — use current active CRM from purchased_modules
+    const oldCrmBase = currentCrmMod ? (o.billing_type === 'yearly' ? (currentCrmMod.yearly_price || currentCrmMod.monthly_price || 0) : (currentCrmMod.monthly_price || 0)) : 0;
     const newCrmBase = o.billing_type === 'yearly' ? (newMod.yearly_price || newMod.monthly_price || 0) : (newMod.monthly_price || 0);
     document.getElementById('breakdownBody').innerHTML =
       `<div class="breakdown-row highlight">
@@ -777,7 +853,6 @@
 
   function closeDialog() {
     document.getElementById('confirmOverlay').classList.remove('show');
-    document.getElementById('tierSelect').value = state.order?.size_tier || '';
     state.pendingAction = null;
   }
 
