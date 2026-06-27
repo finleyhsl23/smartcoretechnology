@@ -103,8 +103,10 @@
     .tag-flat{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-border)}
     .tag-free{background:var(--green-soft);color:var(--green);border:1px solid var(--green-border)}
     .tag-inactive{background:rgba(255,255,255,.05);color:var(--muted);border:1px solid var(--border2)}
-    .mod-price-col{text-align:right;flex-shrink:0;min-width:80px}
+    .mod-price-col{text-align:right;flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
     .mod-price{font-size:14px;font-weight:700;white-space:nowrap}
+    .store-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;color:var(--muted);border:1px solid var(--border2);background:var(--surface2);text-decoration:none;white-space:nowrap;transition:color .15s,border-color .15s}
+    .store-btn:hover{color:var(--text);border-color:var(--border)}
     .price-active{color:var(--text)}
     .price-free{color:var(--green)}
     .price-inactive{color:var(--muted)}
@@ -484,21 +486,27 @@
         dot: 'dot-active', name: esc(m.name),
         desc: dbMod.description || '',
         tags: [`<span class="tag tag-size">↕ Scales with size</span>`],
-        priceHtml: `<div class="mod-price price-active">${fmt(price)}<span style="font-size:11px;font-weight:500;color:var(--muted)">${period}</span></div>`,
+        priceHtml: `<div class="mod-price price-active">${fmt(price)}<span style="font-size:11px;font-weight:500;color:var(--muted)">${period}</span></div><a href="https://smartcoretechnology.co.uk/shop/" target="_blank" class="store-btn">View on store</a>`,
       });
     }
 
     // CRM section
     if (allCrm.length) {
+      const crmBase = crmActive && (o.billing_type === 'yearly' ? (crmActive.yearly_price || crmActive.monthly_price || 0) : (crmActive.monthly_price || 0));
       html += `<div class="crm-header">
         <div>
-          <div class="mod-name">CRM Module</div>
+          <div class="mod-name">CRM Module
+            ${crmActive ? `<span style="font-size:12px;font-weight:600;color:var(--muted);margin-left:8px">— currently on <span style="color:var(--accent)">${esc(crmActive.name.replace('SmartCore CRM ',''))}</span></span>` : ''}
+          </div>
           <div class="mod-meta">
             <span class="tag tag-flat">▪ Flat rate</span>
-            <span style="font-size:12px;color:var(--muted);margin-left:2px">Price doesn't change with company size — click a tier below to switch</span>
+            <span style="font-size:12px;color:var(--muted)">Doesn't change with company size · click a tier to switch</span>
           </div>
         </div>
-        ${crmActive ? `<div class="mod-price price-active" style="font-size:13px">${fmt(o.billing_type==='yearly'?(crmActive.yearly_price||crmActive.monthly_price||0):(crmActive.monthly_price||0))}<span style="font-size:10px;font-weight:500;color:var(--muted)">${period}</span></div>` : ''}
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+          ${crmActive ? `<div class="mod-price price-active" style="font-size:13px">${fmt(crmBase)}<span style="font-size:10px;font-weight:500;color:var(--muted)">${period}</span></div>` : ''}
+          <a href="https://smartcoretechnology.co.uk/shop/" target="_blank" class="store-btn">View on store</a>
+        </div>
       </div>
       <div class="crm-tiers">`;
 
@@ -506,7 +514,7 @@
         const isActive = crmActive && m.slug === crmActive.slug;
         const base = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price || 0) : (m.monthly_price || 0);
         html += `<div class="crm-opt${isActive ? ' crm-active' : ''}" ${isActive ? '' : `onclick="onCrmClick('${m.slug}')"`}>
-          ${isActive ? `<div style="font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:3px">Active</div>` : ''}
+          ${isActive ? `<div style="font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:3px">✓ Active</div>` : ''}
           <div class="crm-opt-name">${esc(m.name.replace('SmartCore CRM ', ''))}</div>
           <div class="crm-opt-price">${fmt(base)}<span style="font-size:10px;font-weight:500;color:var(--muted)">${period}</span></div>
         </div>`;
