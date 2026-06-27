@@ -731,21 +731,24 @@
   // ── CRM tier change ─────────────────────────────────────────────────────────
   function onCrmClick(slug) {
     const o         = state.order;
-    const modules   = parseModules(o.modules);
     const moduleMap = Object.fromEntries(state.modules.map(m => [m.slug, m]));
     const newMod    = moduleMap[slug];
     const period    = o.billing_type === 'yearly' ? '/yr' : '/mo';
     if (!newMod) return;
 
-    const nonCrm     = modules.filter(m => !CRM_SLUGS.includes(m.slug));
-    const newModules = [...nonCrm, { slug: newMod.slug, name: newMod.name, monthly_price: newMod.monthly_price, yearly_price: newMod.yearly_price }];
-    const newTotal   = calcTotal(newModules, moduleMap, o.size_multiplier || 1, o.billing_type, o.discount_percent || 0).total;
-    const oldTotal   = o.total;
+    // Use purchased_modules as source of truth for current active set
     const activeSlugs     = getActiveSlugs();
     const activeCrmSlug   = [...activeSlugs].find(s => CRM_SLUGS.includes(s)) || null;
     const currentCrmMod   = activeCrmSlug ? moduleMap[activeCrmSlug] : null;
     const currentTierName = currentCrmMod ? currentCrmMod.name.replace('SmartCore CRM ', '') : 'current plan';
     const newTierName     = newMod.name.replace('SmartCore CRM ', '');
+
+    // Build full active module list from purchased_modules for accurate totals
+    const allActiveModules = [...activeSlugs].map(s => moduleMap[s]).filter(Boolean);
+    const nonCrmModules    = allActiveModules.filter(m => !CRM_SLUGS.includes(m.slug));
+
+    const oldTotal = calcTotal(allActiveModules, moduleMap, o.size_multiplier || 1, o.billing_type, o.discount_percent || 0).total;
+    const newTotal = calcTotal([...nonCrmModules, newMod], moduleMap, o.size_multiplier || 1, o.billing_type, o.discount_percent || 0).total;
 
     state.pendingAction = { type: 'change_crm_tier', payload: { action: 'change_crm_tier', new_crm_slug: slug }, newTotal, oldTotal };
 
@@ -762,21 +765,30 @@
     document.getElementById('confirmBtn').disabled   = false;
     document.getElementById('confirmBtn').innerHTML  = 'Confirm Change';
 
-    // Simple breakdown for CRM — use current active CRM from purchased_modules
-    const oldCrmBase = currentCrmMod ? (o.billing_type === 'yearly' ? (currentCrmMod.yearly_price || currentCrmMod.monthly_price || 0) : (currentCrmMod.monthly_price || 0)) : 0;
-    const newCrmBase = o.billing_type === 'yearly' ? (newMod.yearly_price || newMod.monthly_price || 0) : (newMod.monthly_price || 0);
-    document.getElementById('breakdownBody').innerHTML =
-      `<div class="breakdown-row highlight">
-        <span class="label">CRM Module</span>
+    // Full breakdown showing all active modules, highlighting the CRM change
+    const mult = o.size_multiplier || 1;
+    let bdHtml = '';
+    for (const m of allActiveModules) {
+      if (m.slug === 'smartcore-core') continue;
+      const isCrm   = CRM_SLUGS.includes(m.slug);
+      const base     = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price || 0) : (m.monthly_price || 0);
+      const oldPrice = isCrm ? base : base * mult;
+      const newBase  = isCrm ? (o.billing_type === 'yearly' ? (newMod.yearly_price || newMod.monthly_price || 0) : (newMod.monthly_price || 0)) : null;
+      const newPrice = isCrm ? newBase : oldPrice;
+      const changed  = isCrm && Math.abs((newBase || 0) - base) > 0.001;
+      bdHtml += `<div class="breakdown-row${changed ? ' highlight' : ''}">
+        <span class="label">${esc(m.name)}${isCrm ? ` <span style="font-size:10px;opacity:.6">(flat rate)</span>` : ''}</span>
         <div style="display:flex;align-items:center;gap:4px">
-          <span class="old-val">${fmt(oldCrmBase)}${period}</span>
-          <span class="val">${fmt(newCrmBase)}${period}</span>
+          ${changed ? `<span class="old-val">${fmt(oldPrice)}${period}</span>` : ''}
+          <span class="val">${fmt(newPrice)}${period}</span>
         </div>
-      </div>
-      <div class="breakdown-row" style="border-top:1px solid var(--border);background:rgba(255,255,255,.02)">
-        <span class="label" style="font-weight:600;color:var(--text)">New total</span>
-        <span class="val" style="font-size:15px">${fmt(newTotal)}${period}</span>
       </div>`;
+    }
+    bdHtml += `<div class="breakdown-row" style="border-top:1px solid var(--border);background:rgba(255,255,255,.02)">
+      <span class="label" style="font-weight:600;color:var(--text)">New total</span>
+      <span class="val" style="font-size:15px">${fmt(newTotal)}${period}</span>
+    </div>`;
+    document.getElementById('breakdownBody').innerHTML = bdHtml;
 
     document.getElementById('confirmNote').innerHTML = o.next_billing_date
       ? `Price change takes effect on your next invoice date of <strong>${fmtDate(o.next_billing_date)}</strong>.`
