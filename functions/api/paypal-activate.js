@@ -19,6 +19,17 @@ const FROM          = 'SmartCore <noreply@smartcoretechnology.co.uk>';
 const FROM_BILLING  = 'SmartCore Billing <noreply@smartcoretechnology.co.uk>';
 const SITE          = 'https://smartcoretechnology.co.uk';
 
+const SIZE_TIERS = [
+  { id: 'micro',      multiplier: 1.00,  maxEmployees: 10   },
+  { id: 'small',      multiplier: 0.71,  maxEmployees: 15   },
+  { id: 'growing',    multiplier: 1.43,  maxEmployees: 50   },
+  { id: 'medium',     multiplier: 2.86,  maxEmployees: 100  },
+  { id: 'large',      multiplier: 6.72,  maxEmployees: 250  },
+  { id: 'corporate',  multiplier: 14.44, maxEmployees: 500  },
+  { id: 'enterprise', multiplier: 28.92, maxEmployees: 999  },
+  { id: 'global',     multiplier: 38.57, maxEmployees: 1500 },
+];
+
 export async function onRequestPost(context) {
   const { request, env } = context;
 
@@ -69,15 +80,24 @@ export async function onRequestPost(context) {
       next_billing_date:      nextBilling,
     });
 
+    // Generate manage_token
+    const tokenArr    = new Uint8Array(16);
+    crypto.getRandomValues(tokenArr);
+    const manageToken = Array.from(tokenArr).map(b => b.toString(16).padStart(2, '0')).join('');
+    try {
+      await dbPatch(env, `/marketplace_orders?id=eq.${enc(order_id)}`, { manage_token: manageToken });
+    } catch (e) { console.error('manage_token save error:', e); }
+
     // Provision SmartCore Core (best-effort)
     try { await provisionCore(env, o); } catch (e) { console.error('provision error:', e); }
 
     // Send emails + first invoice (best-effort)
-    const modules = parseModules(o.modules);
-    const oFull   = { ...o, subscription_start_date: today, next_billing_date: nextBilling };
+    const modules       = parseModules(o.modules);
+    const managePlanUrl = `${SITE}/shop/manage-plan.html?token=${manageToken}`;
+    const oFull         = { ...o, subscription_start_date: today, next_billing_date: nextBilling };
     try {
       await Promise.all([
-        sendEmail(env, { from: FROM, to: o.email,     subject: `Payment Confirmed — ${o.order_reference} | SmartCore`, html: customerHtml(oFull, modules) }),
+        sendEmail(env, { from: FROM, to: o.email,     subject: `Payment Confirmed — ${o.order_reference} | SmartCore`, html: customerHtml(oFull, modules, managePlanUrl) }),
         sendEmail(env, { from: FROM, to: ADMIN_EMAIL,  subject: `Payment Received (PayPal) — ${o.order_reference} | ${o.company_name}`, html: adminHtml(oFull, modules) }),
         sendFirstInvoice(env, oFull, modules, today),
       ]);
@@ -109,12 +129,16 @@ async function provisionCore(env, o) {
   const existing = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
   if (existing?.length) return;
 
+  const sizeTier      = SIZE_TIERS.find(t => t.id === o.size_tier);
+  const employeeLimit = sizeTier ? sizeTier.maxEmployees : null;
+
   const rows = await dbPost(env, '/smartcore_core_companies', {
     order_id:       o.id,
     company_name:   o.company_name,
     company_email:  o.email,
     company_phone:  o.phone || null,
     staff_count:    o.staff_count || null,
+    employee_limit: employeeLimit,
     status:         'active',
     provisioned_at: new Date().toISOString(),
   }, true);
@@ -306,15 +330,24 @@ p{font-size:14px;line-height:1.7;color:#334155;margin:0 0 14px}
 </div></body></html>`;
 }
 
-function customerHtml(o, modules) {
+function customerHtml(o, modules, managePlanUrl) {
   const regular = modules.filter(m => m.slug !== 'smartcore-core');
   const date    = new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const period  = o.billing_type === 'yearly' ? '/yr' : '/mo';
   const modRows = [
     `<div class="row"><span>SmartCore Core</span><span style="color:#22c55e;font-weight:600">Included free</span></div>`,
-    ...regular.map(m => `<div class="row"><span>${esc(m.name)}</span><span style="font-weight:600">${fmt(m.price)}/mo</span></div>`),
+    ...regular.map(m => `<div class="row"><span>${esc(m.name)}</span><span style="font-weight:600">${fmt(m.price || 0)}${period}</span></div>`),
   ].join('');
   const discounts = [];
   if (o.discount_amount > 0) discounts.push(`<div class="row"><span style="color:#64748b">Package discount</span><span style="color:#22c55e;font-weight:600">−${fmt(o.discount_amount)}</span></div>`);
+
+  const manageSection = managePlanUrl
+    ? `<div style="background:#eff6ff;border-radius:10px;padding:16px 20px;margin:16px 0">
+        <div style="font-size:12px;font-weight:700;color:#1d4ed8;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px">Manage Your Plan</div>
+        <p style="margin:0 0 10px;font-size:13px;color:#1e40af">You can change your company size tier or CRM tier at any time using your secure manage plan link:</p>
+        <a href="${esc(managePlanUrl)}" style="color:#2563eb;font-weight:700;word-break:break-all;font-size:13px">${esc(managePlanUrl)}</a>
+      </div>`
+    : '';
 
   return shell(
     `Payment confirmed! Your SmartCore order ${o.order_reference} is now active.`,
@@ -325,9 +358,10 @@ function customerHtml(o, modules) {
     <p style="font-size:13px;color:#64748b;margin-bottom:16px">Order placed ${date} &bull; ${o.billing_type === 'yearly' ? 'Annual' : 'Monthly'} billing via PayPal</p>
     ${modRows}
     ${discounts.join('')}
-    <div class="total"><span>Total</span><span>${fmt(o.total)}/${o.billing_type === 'yearly' ? 'yr' : 'mo'}</span></div>
+    <div class="total"><span>Total</span><span>${fmt(o.total)}${period}</span></div>
     <br>
     <p>Your SmartCore Core workspace has been provisioned and is ready. We'll be in touch shortly with your login details.</p>
+    ${manageSection}
     <p>Questions? Reply to this email or contact <a href="mailto:support@smartcoretechnology.co.uk" style="color:#3b82f6">support@smartcoretechnology.co.uk</a></p>`
   );
 }
