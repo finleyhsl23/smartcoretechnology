@@ -2416,30 +2416,12 @@ function setupModals(){
   document.getElementById('settingsShiftsBtn').onclick=openShifts;
   document.getElementById('settingsOnboardingBtn').onclick=openOnboarding;
 
-  // Billing buttons
-  async function getBillingToken() {
-    if (!profile?.company_id) throw new Error('No company linked to your account');
-    const { data: co } = await sb.from('smartcore_core_companies').select('order_id').eq('id', profile.company_id).maybeSingle();
-    if (!co?.order_id) throw new Error('No active subscription found');
-    const { data: order } = await sb.from('marketplace_orders').select('manage_token').eq('id', co.order_id).maybeSingle();
-    if (!order?.manage_token) throw new Error('Manage token not found. Please contact support.');
-    return order.manage_token;
-  }
-  document.getElementById('managePlanBtn').onclick=async()=>{
-    const err=document.getElementById('billingLinkErr');
-    err.style.display='none';
-    try {
-      const token=await getBillingToken();
-      window.open(`https://smartcoretechnology.co.uk/shop/manage-plan.html?token=${token}`,'_blank');
-    } catch(e) { err.textContent=e.message; err.style.display='block'; }
+  // Billing buttons — manage-plan page reads the Supabase session directly
+  document.getElementById('managePlanBtn').onclick=()=>{
+    window.open('https://smartcoretechnology.co.uk/shop/manage-plan.html','_blank');
   };
-  document.getElementById('cancelSubBtn').onclick=async()=>{
-    const err=document.getElementById('billingLinkErr');
-    err.style.display='none';
-    try {
-      const token=await getBillingToken();
-      window.open(`https://smartcoretechnology.co.uk/shop/paypal-cancel.html?token=${token}`,'_blank');
-    } catch(e) { err.textContent=e.message; err.style.display='block'; }
+  document.getElementById('cancelSubBtn').onclick=()=>{
+    window.open('https://smartcoretechnology.co.uk/shop/manage-plan.html','_blank');
   };
 
   // Close modals on backdrop click

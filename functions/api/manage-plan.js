@@ -42,20 +42,53 @@ const CRM_SLUGS = [
 ];
 
 // ---------------------------------------------------------------------------
+// Resolve order from either manage_token param or Bearer JWT
+// ---------------------------------------------------------------------------
+async function resolveOrder(env, request, url) {
+  const token = url.searchParams.get('token');
+  if (token) {
+    const orders = await dbGet(env, `/marketplace_orders?manage_token=eq.${enc(token)}&select=*&limit=1`);
+    if (!orders?.[0]) return { error: 'Invalid or expired link', status: 404 };
+    return { order: orders[0] };
+  }
+  // Fall back to Bearer JWT auth
+  const jwt = (request.headers.get('Authorization') || '').replace('Bearer ', '').trim();
+  if (!jwt) return { error: 'token or Authorization required', status: 401 };
+  // Verify JWT with Supabase
+  const userRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+    headers: { Authorization: `Bearer ${jwt}`, apikey: env.SUPABASE_SERVICE_KEY },
+  });
+  if (!userRes.ok) return { error: 'Unauthorised', status: 401 };
+  const user = await userRes.json();
+  // Find company via smartcore_core_employees or core_employees
+  let companyId = null;
+  const empRows = await dbGet(env, `/smartcore_core_employees?user_id=eq.${enc(user.id)}&select=company_id&limit=1`);
+  if (empRows?.[0]?.company_id) {
+    companyId = empRows[0].company_id;
+  } else {
+    const hrRows = await dbGet(env, `/core_employees?auth_user_id=eq.${enc(user.id)}&select=company_id&limit=1`);
+    if (hrRows?.[0]?.company_id) companyId = hrRows[0].company_id;
+  }
+  if (!companyId) return { error: 'No company found for this user', status: 404 };
+  const coRows = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(companyId)}&select=order_id&limit=1`);
+  const orderId = coRows?.[0]?.order_id;
+  if (!orderId) return { error: 'No active subscription found', status: 404 };
+  const orders = await dbGet(env, `/marketplace_orders?id=eq.${enc(orderId)}&select=*&limit=1`);
+  if (!orders?.[0]) return { error: 'Order not found', status: 404 };
+  return { order: orders[0] };
+}
+
+// ---------------------------------------------------------------------------
 // GET
 // ---------------------------------------------------------------------------
 export async function onRequestGet(context) {
   const { request, env } = context;
-  const url   = new URL(request.url);
-  const token = url.searchParams.get('token');
-
-  if (!token) return json({ error: 'token required' }, 400, CORS);
+  const url = new URL(request.url);
 
   try {
-    // Find order by manage_token
-    const orders = await dbGet(env, `/marketplace_orders?manage_token=eq.${enc(token)}&select=*&limit=1`);
-    if (!orders?.[0]) return json({ error: 'Invalid or expired link' }, 404, CORS);
-    const order = orders[0];
+    const resolved = await resolveOrder(env, request, url);
+    if (resolved.error) return json({ error: resolved.error }, resolved.status, CORS);
+    const order = resolved.order;
 
     // Get company
     const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=*&limit=1`);
@@ -101,12 +134,9 @@ export async function onRequestPatch(context) {
       return handleGenerateToken(env, request, body);
     }
 
-    if (!token) return json({ error: 'token required' }, 400, CORS);
-
-    // Find order by token
-    const orders = await dbGet(env, `/marketplace_orders?manage_token=eq.${enc(token)}&select=*&limit=1`);
-    if (!orders?.[0]) return json({ error: 'Invalid or expired link' }, 404, CORS);
-    const order = orders[0];
+    const resolved = await resolveOrder(env, request, url);
+    if (resolved.error) return json({ error: resolved.error }, resolved.status, CORS);
+    const order = resolved.order;
 
     if (action === 'change_size')     return handleChangeSize(env, order, body);
     if (action === 'change_crm_tier') return handleChangeCrmTier(env, order, body);

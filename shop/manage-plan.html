@@ -337,6 +337,28 @@
   const params = new URLSearchParams(location.search);
   const TOKEN  = params.get('token');
 
+  // Resolve auth headers: prefer manage_token param, fall back to Supabase session JWT
+  function getAuthHeaders() {
+    if (TOKEN) return {};
+    // Supabase stores session in localStorage under sb-<project>-auth-token or similar
+    let jwt = null;
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.includes('supabase') || key.includes('sb-')) && key.includes('auth')) {
+        try {
+          const val = JSON.parse(localStorage.getItem(key));
+          jwt = val?.access_token || val?.currentSession?.access_token || null;
+          if (jwt) break;
+        } catch {}
+      }
+    }
+    return jwt ? { Authorization: `Bearer ${jwt}` } : {};
+  }
+
+  function buildApiUrl(base) {
+    return TOKEN ? `${base}?token=${encodeURIComponent(TOKEN)}` : base;
+  }
+
   let state = {
     order:            null,
     modules:          [],     // all available from DB
@@ -350,10 +372,14 @@
   // Init
   // ---------------------------------------------------------------------------
   async function init() {
-    if (!TOKEN) { showError(); return; }
+    if (!TOKEN) {
+      // Check we can get auth headers — if not, show error
+      const h = getAuthHeaders();
+      if (!h.Authorization) { showError('No valid session found. Please sign in to SmartCore Core first.'); return; }
+    }
 
     try {
-      const res  = await fetch(`/api/manage-plan?token=${encodeURIComponent(TOKEN)}`);
+      const res  = await fetch(buildApiUrl('/api/manage-plan'), { headers: getAuthHeaders() });
       const data = await res.json();
       if (!res.ok) { showError(); return; }
 
@@ -625,9 +651,9 @@
     errEl.classList.remove('show');
 
     try {
-      const res  = await fetch(`/api/manage-plan?token=${encodeURIComponent(TOKEN)}`, {
+      const res  = await fetch(buildApiUrl('/api/manage-plan'), {
         method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body:    JSON.stringify(pending.payload),
       });
       const data = await res.json();
