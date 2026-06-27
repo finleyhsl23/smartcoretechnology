@@ -682,28 +682,24 @@
   function onTierChange(tierId) {
     const o         = state.order;
     const tier      = SIZE_TIERS.find(t => t.id === tierId);
-    if (!tier || tier.id === o.size_tier) {
-      // Reset select if same
-      document.getElementById('tierSelect').value = o.size_tier;
-      return;
-    }
-    const modules   = parseModules(o.modules);
-    const moduleMap = Object.fromEntries(state.modules.map(m => [m.slug, m]));
-    const period    = o.billing_type === 'yearly' ? '/yr' : '/mo';
-    const oldTier   = SIZE_TIERS.find(t => t.id === o.size_tier);
+    if (!tier || tier.id === o.size_tier) return;
 
-    const newTotal = calcTotal(modules, moduleMap, tier.multiplier, o.billing_type, o.discount_percent || 0).total;
-    const oldTotal = o.total;
-    const isDown   = tier.maxEmployees < (oldTier?.maxEmployees || 9999);
+    const moduleMap     = Object.fromEntries(state.modules.map(m => [m.slug, m]));
+    const activeSlugs   = getActiveSlugs();
+    const allActiveMods = [...activeSlugs].map(s => moduleMap[s]).filter(Boolean);
+    const period        = o.billing_type === 'yearly' ? '/yr' : '/mo';
+    const oldTier       = SIZE_TIERS.find(t => t.id === o.size_tier);
+    const isDown        = tier.maxEmployees < (oldTier?.maxEmployees || 9999);
+
+    const oldTotal = calcTotal(allActiveMods, moduleMap, o.size_multiplier || 1, o.billing_type, o.discount_percent || 0).total;
+    const newTotal = calcTotal(allActiveMods, moduleMap, tier.multiplier,        o.billing_type, o.discount_percent || 0).total;
 
     state.pendingAction = { type: 'change_size', payload: { action: 'change_size', new_tier_id: tierId }, newTotal, oldTotal };
 
-    // Titles
     document.getElementById('confirmTitle').textContent = `Switch to ${tier.label} tier`;
     document.getElementById('confirmDesc').textContent  =
       `You're changing your company size from ${oldTier?.label || 'current'} to ${tier.label} (${tier.range} employees).`;
 
-    // Price change
     document.getElementById('confirmOldPrice').textContent = fmt(oldTotal) + period;
     const newPriceEl = document.getElementById('confirmNewPrice');
     newPriceEl.textContent = fmt(newTotal) + period;
@@ -726,41 +722,33 @@
       document.getElementById('confirmBtn').disabled = false;
     }
 
-    // Breakdown dropdown
-    buildBreakdown(modules, moduleMap, tier, oldTier, period);
+    // Full breakdown showing every active module with old → new price
+    buildSizeBreakdown(allActiveMods, moduleMap, o.size_multiplier || 1, tier.multiplier, period, newTotal);
 
     openDialog();
   }
 
-  function buildBreakdown(modules, moduleMap, newTier, oldTier, period) {
-    const o    = state.order;
-    const mult = newTier.multiplier;
-    const rows = modules.map(m => {
-      if (m.slug === 'smartcore-core') return null;
-      const dbMod  = moduleMap[m.slug] || m;
-      const isCrm  = CRM_SLUGS.includes(m.slug);
-      const base   = o.billing_type === 'yearly'
-        ? (dbMod.yearly_price || dbMod.monthly_price || 0)
-        : (dbMod.monthly_price || 0);
-      const oldPrice = isCrm ? base : base * (o.size_multiplier || 1);
-      const newPrice = isCrm ? base : base * mult;
-      const changed  = Math.abs(newPrice - oldPrice) > 0.001;
-      return { name: m.name, oldPrice, newPrice, isCrm, changed };
-    }).filter(Boolean);
-
+  function buildSizeBreakdown(allActiveMods, moduleMap, oldMult, newMult, period, newTotal) {
+    const o = state.order;
     let html = '';
-    for (const r of rows) {
-      const sameHtml = `<span class="val">${fmt(r.newPrice)}${period}</span>`;
-      const changedHtml = `<span class="old-val">${fmt(r.oldPrice)}${period}</span><span class="val">${fmt(r.newPrice)}${period}</span>`;
-      html += `<div class="breakdown-row${r.changed ? ' highlight' : ''}">
-        <span class="label">${esc(r.name)}${r.isCrm ? ' <span style="font-size:10px;opacity:.6">(flat rate)</span>' : ''}</span>
-        <div style="display:flex;align-items:center;gap:4px">${r.changed ? changedHtml : sameHtml}</div>
+    for (const m of allActiveMods) {
+      if (m.slug === 'smartcore-core') continue;
+      const isCrm   = CRM_SLUGS.includes(m.slug);
+      const base     = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price || 0) : (m.monthly_price || 0);
+      const oldPrice = isCrm ? base : base * oldMult;
+      const newPrice = isCrm ? base : base * newMult;
+      const changed  = !isCrm && Math.abs(newPrice - oldPrice) > 0.001;
+      html += `<div class="breakdown-row${changed ? ' highlight' : ''}">
+        <span class="label">${esc(m.name)}${isCrm ? ' <span style="font-size:10px;opacity:.6">(flat rate)</span>' : ''}</span>
+        <div style="display:flex;align-items:center;gap:4px">
+          ${changed ? `<span class="old-val">${fmt(oldPrice)}${period}</span>` : ''}
+          <span class="val">${fmt(newPrice)}${period}</span>
+        </div>
       </div>`;
     }
-    // Total row
     html += `<div class="breakdown-row" style="border-top:1px solid var(--border);background:rgba(255,255,255,.02)">
       <span class="label" style="font-weight:600;color:var(--text)">New total</span>
-      <span class="val" style="font-size:15px">${fmt(state.pendingAction.newTotal)}${period}</span>
+      <span class="val" style="font-size:15px">${fmt(newTotal)}${period}</span>
     </div>`;
     document.getElementById('breakdownBody').innerHTML = html;
   }
