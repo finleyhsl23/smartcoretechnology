@@ -185,11 +185,42 @@ function openSupport() {
   };
 
   document.getElementById("supportAiBtn").onclick = () => {
-    document.getElementById("supportPicker").style.display = "none";
-    const chat = document.getElementById("supportChat");
-    chat.style.display = "flex";
-    if (supportMessages.length === 0) appendBubble("assistant", "Hi! I'm the SmartCore CRM assistant. Ask me anything about the CRM and I'll help you out.");
-    document.getElementById("supportInput").focus();
+    // Show loading screen
+    const picker = document.getElementById("supportPicker");
+    picker.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 20px;gap:20px">
+        <div id="supportOrb" style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#1e5cff,#7b5fff,#1a7aff);position:relative;animation:orbPulse 1.8s ease-in-out infinite">
+          <div style="position:absolute;inset:0;border-radius:50%;background:linear-gradient(135deg,#1e5cff,#7b5fff);filter:blur(12px);opacity:.6;animation:orbGlow 1.8s ease-in-out infinite"></div>
+          <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:26px">🤖</span>
+        </div>
+        <div style="text-align:center">
+          <div style="font-weight:700;font-size:14px;color:var(--text,#f5f5f7);margin-bottom:6px">Starting AI Support</div>
+          <div id="supportLoadingDots" style="font-size:12px;color:var(--text-dim,#7070a0)">Connecting<span id="loadDot">.</span></div>
+        </div>
+      </div>
+      <style>
+        @keyframes orbPulse { 0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(30,92,255,.4)} 50%{transform:scale(1.08);box-shadow:0 0 0 14px rgba(30,92,255,0)} }
+        @keyframes orbGlow { 0%,100%{opacity:.4} 50%{opacity:.8} }
+      </style>`;
+
+    // Animate the dots
+    const dots = ['.','..',  '...'];
+    let di = 0;
+    const dotInterval = setInterval(() => {
+      const el = document.getElementById("loadDot");
+      if (el) { di = (di + 1) % dots.length; el.textContent = dots[di]; }
+      else clearInterval(dotInterval);
+    }, 400);
+
+    // After 1.4s transition to chat
+    setTimeout(() => {
+      clearInterval(dotInterval);
+      picker.style.display = "none";
+      const chat = document.getElementById("supportChat");
+      chat.style.display = "flex";
+      if (supportMessages.length === 0) appendBubble("assistant", "Hi! I'm the SmartCore CRM assistant. Ask me anything about the CRM and I'll help you out.");
+      document.getElementById("supportInput").focus();
+    }, 1400);
   };
 
   document.getElementById("supportSend").onclick = sendSupportMessage;
@@ -205,7 +236,7 @@ async function sendSupportMessage() {
   supportMessages.push({ role: "user", content: text });
   appendBubble("user", text);
 
-  const thinking = appendBubble("assistant", "…", true);
+  const thinking = appendTyping();
 
   try {
     const { data: { session } } = await sb().auth.getSession();
@@ -226,6 +257,25 @@ async function sendSupportMessage() {
     thinking?.remove();
     appendBubble("assistant", "Sorry, something went wrong. Please try emailing support@smartcoretechnology.co.uk.");
   }
+}
+
+function appendTyping() {
+  const wrap = document.getElementById("supportMessages");
+  if (!wrap) return null;
+  const div = document.createElement("div");
+  div.style.cssText = "display:flex;justify-content:flex-start";
+  div.innerHTML = `
+    <div style="padding:10px 14px;border-radius:14px 14px 14px 4px;background:rgba(255,255,255,.07)">
+      <div style="display:flex;gap:5px;align-items:center;height:16px">
+        <span style="width:7px;height:7px;border-radius:50%;background:#5b8fff;display:block;animation:typingBounce 1.2s ease-in-out infinite"></span>
+        <span style="width:7px;height:7px;border-radius:50%;background:#5b8fff;display:block;animation:typingBounce 1.2s ease-in-out .2s infinite"></span>
+        <span style="width:7px;height:7px;border-radius:50%;background:#5b8fff;display:block;animation:typingBounce 1.2s ease-in-out .4s infinite"></span>
+      </div>
+    </div>
+    <style>@keyframes typingBounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}</style>`;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+  return div;
 }
 
 function appendBubble(role, text, isTemp = false) {
