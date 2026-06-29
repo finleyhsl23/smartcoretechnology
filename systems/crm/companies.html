@@ -135,27 +135,56 @@ function renderTable(rows) {
   document.getElementById("addBtn").onclick = () => openModal();
   document.getElementById("searchInput").addEventListener("input", debounce(e => loadAndRender(e.target.value, _statusFilter), 300));
 
-  // Custom status dropdown
-  const dropBtn  = document.getElementById("statusDropdownBtn");
-  const dropMenu = document.getElementById("statusDropdownMenu");
-  const dropLabel = document.getElementById("statusDropdownLabel");
-  dropBtn.addEventListener("click", e => { e.stopPropagation(); dropMenu.classList.toggle("open"); });
-  document.addEventListener("click", () => dropMenu.classList.remove("open"), { once: false });
-  dropMenu.querySelectorAll(".custom-select-option").forEach(opt => {
-    opt.addEventListener("click", () => {
-      const val = opt.dataset.value;
-      dropMenu.querySelectorAll(".custom-select-option").forEach(o => o.classList.remove("selected"));
-      opt.classList.add("selected");
-      dropLabel.textContent = opt.textContent.trim();
-      dropMenu.classList.remove("open");
-      loadAndRender(_search, val);
-    });
-  });
+  initStatusDropdown();
 
   document.querySelectorAll(".view-btn").forEach(btn => btn.addEventListener("click", () => viewCompany(btn.dataset.id)));
   document.querySelectorAll(".edit-btn").forEach(btn => btn.addEventListener("click", () => openModal(btn.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(btn => btn.addEventListener("click", () => deleteCompany(btn.dataset.id, btn.dataset.name)));
   initBulkActions();
+}
+
+// Single document listener — stored once, not per render
+let _dropOutsideHandler = null;
+function initStatusDropdown() {
+  const wrap  = document.getElementById("statusDropdown");
+  const btn   = document.getElementById("statusDropdownBtn");
+  const menu  = document.getElementById("statusDropdownMenu");
+  const label = document.getElementById("statusDropdownLabel");
+  if (!wrap || !btn || !menu) return;
+
+  // Remove old outside-click handler if it exists
+  if (_dropOutsideHandler) document.removeEventListener("click", _dropOutsideHandler);
+
+  function openMenu() {
+    menu.classList.add("open");
+    btn.classList.add("active");
+  }
+  function closeMenu() {
+    menu.classList.remove("open");
+    btn.classList.remove("active");
+  }
+
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    menu.classList.contains("open") ? closeMenu() : openMenu();
+  });
+
+  menu.querySelectorAll(".custom-select-option").forEach(opt => {
+    opt.addEventListener("click", e => {
+      e.stopPropagation();
+      const val = opt.dataset.value;
+      menu.querySelectorAll(".custom-select-option").forEach(o => o.classList.remove("selected"));
+      opt.classList.add("selected");
+      label.textContent = opt.textContent.trim();
+      closeMenu();
+      loadAndRender(_search, val);
+    });
+  });
+
+  _dropOutsideHandler = e => {
+    if (!wrap.contains(e.target)) closeMenu();
+  };
+  document.addEventListener("click", _dropOutsideHandler);
 }
 
 function getSelectedIds() {
