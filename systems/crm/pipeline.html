@@ -32,18 +32,13 @@ import { leads } from "/systems/crm/shared/api.js?v=2";
 import { renderNav, initMobileNav, initTopbar, initSupport } from "/systems/crm/shared/nav.js?v=5";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmt, fmtDate, toast } from "/systems/crm/shared/ui.js";
+import { loadStatusLabels, getLeadLabel } from "/systems/crm/shared/statusLabels.js";
 
 initTheme();
 
-const STAGES = [
-  { id: "new",           label: "New",           color: "#6366f1" },
-  { id: "contacted",     label: "Contacted",      color: "#f59e0b" },
-  { id: "qualified",     label: "Qualified",      color: "#3b82f6" },
-  { id: "proposal_sent", label: "Proposal Sent",  color: "#8b5cf6" },
-  { id: "negotiation",   label: "Negotiation",    color: "#ec4899" },
-  { id: "won",           label: "Won",            color: "#10b981" },
-  { id: "lost",          label: "Lost",           color: "#ef4444" },
-];
+const STAGE_COLORS = { new:"#6366f1", contacted:"#f59e0b", qualified:"#3b82f6", proposal_sent:"#8b5cf6", negotiation:"#ec4899", won:"#10b981", lost:"#ef4444" };
+const STAGE_IDS = ["new","contacted","qualified","proposal_sent","negotiation","won","lost"];
+function stages() { return STAGE_IDS.map(id => ({ id, label: getLeadLabel(id), color: STAGE_COLORS[id] })); }
 
 let profile, tier, allLeads = [];
 let draggedId = null;
@@ -54,6 +49,7 @@ try {
   initMobileNav();
   initSupport(tier);
   initTopbar(profile);
+  await loadStatusLabels(profile.company_id);
   await load();
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
@@ -72,7 +68,7 @@ function renderBoard() {
   board.className = "kanban-board";
   board.id = "kanbanBoard";
 
-  for (const stage of STAGES) {
+  for (const stage of stages()) {
     const stageLeads = allLeads.filter(l => l.pipeline_stage === stage.id || l.status === stage.id);
     const stageValue = stageLeads.reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
 
@@ -152,7 +148,7 @@ function initDragDrop() {
       if (!draggedId || !newStage) return;
       try {
         await leads.updateStage(draggedId, newStage);
-        toast("ok", "Lead moved", `Moved to ${STAGES.find(s=>s.id===newStage)?.label}`);
+        toast("ok", "Lead moved", `Moved to ${getLeadLabel(newStage)}`);
         await load();
       } catch(err) { toast("bad","Error",err.message); }
     });

@@ -1,4 +1,5 @@
 // UI helpers for SmartCore CRM
+import { getLeadLabel, getCompanyLabel } from "./statusLabels.js";
 
 export function toast(type, title, msg = "") {
   let wrap = document.getElementById("toastwrap");
@@ -74,27 +75,27 @@ export function initials(name) {
 
 export function leadBadge(status) {
   const map = {
-    new:           ["badge-blue",   "New"],
-    contacted:     ["badge-yellow", "Contacted"],
-    qualified:     ["badge-purple", "Qualified"],
-    proposal_sent: ["badge-blue",   "Proposal Sent"],
-    negotiation:   ["badge-pink",   "Negotiation"],
-    won:           ["badge-green",  "Won"],
-    lost:          ["badge-red",    "Lost"],
+    new:           "badge-blue",
+    contacted:     "badge-yellow",
+    qualified:     "badge-purple",
+    proposal_sent: "badge-blue",
+    negotiation:   "badge-pink",
+    won:           "badge-green",
+    lost:          "badge-red",
   };
-  const [cls, label] = map[status] || ["badge-grey", status];
-  return `<span class="badge ${cls}">${label}</span>`;
+  const cls = map[status] || "badge-grey";
+  return `<span class="badge ${cls}">${esc(getLeadLabel(status))}</span>`;
 }
 
 export function companyStatusBadge(status) {
   const map = {
-    prospect: ["badge-yellow", "Prospect"],
-    active:   ["badge-green",  "Active"],
-    inactive: ["badge-grey",   "Inactive"],
-    churned:  ["badge-red",    "Churned"],
+    prospect: "badge-yellow",
+    active:   "badge-green",
+    inactive: "badge-grey",
+    churned:  "badge-red",
   };
-  const [cls, label] = map[status] || ["badge-grey", status];
-  return `<span class="badge ${cls}">${label}</span>`;
+  const cls = map[status] || "badge-grey";
+  return `<span class="badge ${cls}">${esc(getCompanyLabel(status))}</span>`;
 }
 
 export function taskPriorityBadge(priority) {

@@ -86,6 +86,7 @@ function renderSettings() {
       <button class="tab active" data-tab="general">General</button>
       <button class="tab" data-tab="plan">Plan & Features</button>
       <button class="tab" data-tab="pipeline">Pipeline Stages</button>
+      ${["business","enterprise"].includes(tier) ? '<button class="tab" data-tab="customisation">Customisation</button>' : ""}
       ${tierHasFeature(tier,"email_templates") ? '<button class="tab" data-tab="templates">Email Templates</button>' : ""}
       <button class="tab" data-tab="appearance">Appearance</button>
     </div>
@@ -169,6 +170,44 @@ function renderSettings() {
       </div>
     </div>
 
+    <!-- Customisation Tab (Business+) -->
+    ${["business","enterprise"].includes(tier) ? `
+    <div id="tab-customisation" class="hidden">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <h2>Company Status Labels</h2>
+          <button class="btn btn-sm btn-primary" id="saveCompanyLabels">Save</button>
+        </div>
+        <div class="card-body">
+          <p style="color:var(--text-dim);font-size:13px;margin-bottom:16px">Rename the company status labels to match your business workflow. The underlying values stay the same — only the display name changes.</p>
+          <div style="display:grid;gap:12px;max-width:440px">
+            ${["prospect","active","inactive","churned"].map(key => `
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="width:90px;font-size:13px;color:var(--text-dim);flex-shrink:0;text-transform:capitalize">${key}</span>
+              <input class="form-control company-label-input" data-key="${key}" value="${esc(settings?.status_labels?.company?.[key] || ({"prospect":"Prospect","active":"Active","inactive":"Inactive","churned":"Churned"}[key]))}" style="flex:1" placeholder="${{"prospect":"Prospect","active":"Active","inactive":"Inactive","churned":"Churned"}[key]}"/>
+            </div>`).join("")}
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Lead Status Labels</h2>
+          <button class="btn btn-sm btn-primary" id="saveLeadLabels">Save</button>
+        </div>
+        <div class="card-body">
+          <p style="color:var(--text-dim);font-size:13px;margin-bottom:16px">Rename the lead pipeline stage labels to fit your sales process.</p>
+          <div style="display:grid;gap:12px;max-width:440px">
+            ${[["new","New"],["contacted","Contacted"],["qualified","Qualified"],["proposal_sent","Proposal Sent"],["negotiation","Negotiation"],["won","Won"],["lost","Lost"]].map(([key,def]) => `
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="width:110px;font-size:13px;color:var(--text-dim);flex-shrink:0">${def}</span>
+              <input class="form-control lead-label-input" data-key="${key}" value="${esc(settings?.status_labels?.lead?.[key] || def)}" style="flex:1" placeholder="${def}"/>
+            </div>`).join("")}
+          </div>
+        </div>
+      </div>
+    </div>` : ""}
+
     <!-- Templates Tab -->
     ${tierHasFeature(tier,"email_templates") ? `
     <div id="tab-templates" class="hidden">
@@ -211,11 +250,48 @@ function renderSettings() {
     tab.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
-      ["general","plan","pipeline","templates","appearance"].forEach(t => {
+      ["general","plan","pipeline","customisation","templates","appearance"].forEach(t => {
         const el = document.getElementById(`tab-${t}`);
         if (el) el.classList.toggle("hidden", t !== tab.dataset.tab);
       });
     });
+  });
+
+  // Customisation tab — save handlers
+  document.getElementById("saveCompanyLabels")?.addEventListener("click", async () => {
+    const btn = document.getElementById("saveCompanyLabels");
+    btn.disabled = true;
+    try {
+      const companyLabels = {};
+      document.querySelectorAll(".company-label-input").forEach(inp => {
+        const val = inp.value.trim();
+        if (val) companyLabels[inp.dataset.key] = val;
+      });
+      const existing = settings?.status_labels || {};
+      const merged = { ...existing, company: companyLabels };
+      await sb().from("crm_settings").upsert({ tenant_id: profile.company_id, tier, status_labels: merged }, { onConflict: "tenant_id" });
+      settings = { ...settings, status_labels: merged };
+      toast("ok", "Company labels saved");
+    } catch(e) { toast("bad", "Error", e.message); }
+    btn.disabled = false;
+  });
+
+  document.getElementById("saveLeadLabels")?.addEventListener("click", async () => {
+    const btn = document.getElementById("saveLeadLabels");
+    btn.disabled = true;
+    try {
+      const leadLabels = {};
+      document.querySelectorAll(".lead-label-input").forEach(inp => {
+        const val = inp.value.trim();
+        if (val) leadLabels[inp.dataset.key] = val;
+      });
+      const existing = settings?.status_labels || {};
+      const merged = { ...existing, lead: leadLabels };
+      await sb().from("crm_settings").upsert({ tenant_id: profile.company_id, tier, status_labels: merged }, { onConflict: "tenant_id" });
+      settings = { ...settings, status_labels: merged };
+      toast("ok", "Lead labels saved");
+    } catch(e) { toast("bad", "Error", e.message); }
+    btn.disabled = false;
   });
 
   document.getElementById("signOutBtn")?.addEventListener("click", () => {

@@ -36,6 +36,7 @@ import { leads, companies, contacts, getStaff } from "/systems/crm/shared/api.js
 import { renderNav, initMobileNav, initTopbar, initSupport } from "/systems/crm/shared/nav.js?v=5";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmt, fmtDate, toast, confirm, leadBadge, loading, setInner } from "/systems/crm/shared/ui.js";
+import { loadStatusLabels, getLeadLabel } from "/systems/crm/shared/statusLabels.js";
 
 initTheme();
 
@@ -50,7 +51,8 @@ try {
   [companiesList, contactsList, staffList] = await Promise.all([
     companies.list({ limit: 500 }).then(r => r.data),
     contacts.list({ limit: 500 }).then(r => r.data),
-    getStaff()
+    getStaff(),
+    loadStatusLabels(profile.company_id),
   ]);
   await loadAndRender();
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
@@ -90,13 +92,13 @@ function renderTable(rows) {
       </div>
       <select class="filter-select" id="statusFilter">
         <option value="">All Statuses</option>
-        <option value="new">New</option>
-        <option value="contacted">Contacted</option>
-        <option value="qualified">Qualified</option>
-        <option value="proposal_sent">Proposal Sent</option>
-        <option value="negotiation">Negotiation</option>
-        <option value="won">Won</option>
-        <option value="lost">Lost</option>
+        <option value="new">${esc(getLeadLabel('new'))}</option>
+        <option value="contacted">${esc(getLeadLabel('contacted'))}</option>
+        <option value="qualified">${esc(getLeadLabel('qualified'))}</option>
+        <option value="proposal_sent">${esc(getLeadLabel('proposal_sent'))}</option>
+        <option value="negotiation">${esc(getLeadLabel('negotiation'))}</option>
+        <option value="won">${esc(getLeadLabel('won'))}</option>
+        <option value="lost">${esc(getLeadLabel('lost'))}</option>
       </select>
     </div>
 
@@ -132,11 +134,11 @@ function renderTable(rows) {
       <div style="flex:1"></div>
       <span style="font-size:12px;color:var(--text-dim)">Change Status:</span>
       <select id="bulkStatusSel" class="filter-select" style="font-size:12px;padding:6px 10px">
-        <option value="new">New</option>
-        <option value="contacted">Contacted</option>
-        <option value="qualified">Qualified</option>
-        <option value="won">Won</option>
-        <option value="lost">Lost</option>
+        <option value="new">${esc(getLeadLabel('new'))}</option>
+        <option value="contacted">${esc(getLeadLabel('contacted'))}</option>
+        <option value="qualified">${esc(getLeadLabel('qualified'))}</option>
+        <option value="won">${esc(getLeadLabel('won'))}</option>
+        <option value="lost">${esc(getLeadLabel('lost'))}</option>
       </select>
       <button class="btn btn-sm" id="bulkStatusBtn">Apply</button>
       <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">Delete</button>
@@ -314,13 +316,13 @@ function openModal(id) {
           <div class="form-group">
             <label class="form-label">Status</label>
             <select class="form-control" id="mStatus">
-              <option value="new" ${l?.status==="new"||!l?"selected":""}>New</option>
-              <option value="contacted" ${l?.status==="contacted"?"selected":""}>Contacted</option>
-              <option value="qualified" ${l?.status==="qualified"?"selected":""}>Qualified</option>
-              <option value="proposal_sent" ${l?.status==="proposal_sent"?"selected":""}>Proposal Sent</option>
-              <option value="negotiation" ${l?.status==="negotiation"?"selected":""}>Negotiation</option>
-              <option value="won" ${l?.status==="won"?"selected":""}>Won</option>
-              <option value="lost" ${l?.status==="lost"?"selected":""}>Lost</option>
+              <option value="new" ${l?.status==="new"||!l?"selected":""}>${esc(getLeadLabel('new'))}</option>
+              <option value="contacted" ${l?.status==="contacted"?"selected":""}>${esc(getLeadLabel('contacted'))}</option>
+              <option value="qualified" ${l?.status==="qualified"?"selected":""}>${esc(getLeadLabel('qualified'))}</option>
+              <option value="proposal_sent" ${l?.status==="proposal_sent"?"selected":""}>${esc(getLeadLabel('proposal_sent'))}</option>
+              <option value="negotiation" ${l?.status==="negotiation"?"selected":""}>${esc(getLeadLabel('negotiation'))}</option>
+              <option value="won" ${l?.status==="won"?"selected":""}>${esc(getLeadLabel('won'))}</option>
+              <option value="lost" ${l?.status==="lost"?"selected":""}>${esc(getLeadLabel('lost'))}</option>
             </select>
           </div>
           <div class="form-group">

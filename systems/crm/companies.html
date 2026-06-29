@@ -37,6 +37,7 @@ import { renderNav, initMobileNav, initTopbar, initSupport } from "/systems/crm/
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmt, fmtDate, timeAgo, toast, confirm, companyStatusBadge, loading, setInner } from "/systems/crm/shared/ui.js";
 import { triggerCommand } from "/systems/crm/shared/commands.js";
+import { loadStatusLabels, getCompanyLabel } from "/systems/crm/shared/statusLabels.js";
 
 initTheme();
 
@@ -49,7 +50,7 @@ try {
   initMobileNav();
   initSupport(tier);
   initTopbar(profile);
-  [staffList] = await Promise.all([getStaff()]);
+  [staffList] = await Promise.all([getStaff(), loadStatusLabels(profile.company_id)]);
   await loadAndRender();
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
@@ -83,12 +84,12 @@ function renderTable(rows) {
       </div>
       <div style="position:relative;display:inline-block" id="statusDropdown">
         <button id="statusDropdownBtn" type="button" style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#0d1535;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e9f0ff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;min-width:140px;justify-content:space-between;white-space:nowrap">
-          <span id="statusDropdownLabel">${_statusFilter ? _statusFilter.charAt(0).toUpperCase()+_statusFilter.slice(1) : 'All Statuses'}</span>
+          <span id="statusDropdownLabel">${_statusFilter ? esc(getCompanyLabel(_statusFilter)) : 'All Statuses'}</span>
           <svg id="statusChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" style="transition:transform 0.2s;flex-shrink:0;opacity:0.6"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div id="statusDropdownMenu" style="display:none;position:absolute;top:calc(100% + 6px);right:0;min-width:160px;background:#0d1535;border:1px solid rgba(30,92,255,0.35);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,0.6);z-index:9999;overflow:hidden">
-          ${[['','All Statuses'],['prospect','Prospect'],['active','Active'],['inactive','Inactive'],['churned','Churned']].map(([val,label])=>`
-            <div data-value="${val}" style="padding:10px 16px;font-size:13px;cursor:pointer;color:${_statusFilter===val?'#1e5cff':'rgba(233,240,255,0.7)'};font-weight:${_statusFilter===val?'600':'400'};background:${_statusFilter===val?'rgba(30,92,255,0.1)':'transparent'};transition:background 0.1s,color 0.1s" class="sd-opt">${label}</div>
+          ${[['','All Statuses'],['prospect',getCompanyLabel('prospect')],['active',getCompanyLabel('active')],['inactive',getCompanyLabel('inactive')],['churned',getCompanyLabel('churned')]].map(([val,label])=>`
+            <div data-value="${val}" style="padding:10px 16px;font-size:13px;cursor:pointer;color:${_statusFilter===val?'#1e5cff':'rgba(233,240,255,0.7)'};font-weight:${_statusFilter===val?'600':'400'};background:${_statusFilter===val?'rgba(30,92,255,0.1)':'transparent'};transition:background 0.1s,color 0.1s" class="sd-opt">${esc(label)}</div>
           `).join('')}
         </div>
       </div>
@@ -123,10 +124,10 @@ function renderTable(rows) {
       <div style="flex:1"></div>
       <span style="font-size:12px;color:var(--text-dim)">Change Status:</span>
       <select id="bulkStatusSel" class="filter-select" style="font-size:12px;padding:6px 10px">
-        <option value="prospect">Prospect</option>
-        <option value="active">Active</option>
-        <option value="inactive">Inactive</option>
-        <option value="churned">Churned</option>
+        <option value="prospect">${esc(getCompanyLabel('prospect'))}</option>
+        <option value="active">${esc(getCompanyLabel('active'))}</option>
+        <option value="inactive">${esc(getCompanyLabel('inactive'))}</option>
+        <option value="churned">${esc(getCompanyLabel('churned'))}</option>
       </select>
       <button class="btn btn-sm" id="bulkStatusBtn">Apply</button>
       <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">Delete</button>
@@ -313,10 +314,10 @@ function openModal(id) {
           <div class="form-group">
             <label class="form-label">Status</label>
             <select class="form-control" id="mStatus">
-              <option value="prospect" ${c?.status==="prospect"||!c?"selected":""}>Prospect</option>
-              <option value="active" ${c?.status==="active"?"selected":""}>Active</option>
-              <option value="inactive" ${c?.status==="inactive"?"selected":""}>Inactive</option>
-              <option value="churned" ${c?.status==="churned"?"selected":""}>Churned</option>
+              <option value="prospect" ${c?.status==="prospect"||!c?"selected":""}>${esc(getCompanyLabel('prospect'))}</option>
+              <option value="active" ${c?.status==="active"?"selected":""}>${esc(getCompanyLabel('active'))}</option>
+              <option value="inactive" ${c?.status==="inactive"?"selected":""}>${esc(getCompanyLabel('inactive'))}</option>
+              <option value="churned" ${c?.status==="churned"?"selected":""}>${esc(getCompanyLabel('churned'))}</option>
             </select>
           </div>
         </div>
