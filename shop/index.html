@@ -334,6 +334,30 @@
     }
     @keyframes shimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}
 
+    /* Feature rows with info tooltip */
+    .feat-row{display:flex;align-items:center;gap:8px;position:relative}
+    .feat-label{font-size:14px;color:var(--muted);letter-spacing:-.01em;line-height:1.4;flex:1}
+    .feat-info{
+      flex-shrink:0;width:16px;height:16px;border-radius:50%;
+      background:rgba(91,143,255,.15);border:1px solid rgba(91,143,255,.3);
+      color:var(--accent);font-size:9px;font-weight:800;cursor:pointer;
+      display:flex;align-items:center;justify-content:center;
+      font-family:Georgia,serif;font-style:italic;line-height:1;
+      transition:background .15s;padding:0;
+    }
+    .feat-info:hover{background:rgba(91,143,255,.28)}
+    .feat-tip{
+      position:absolute;left:0;bottom:calc(100% + 8px);z-index:300;
+      background:#1a1a2e;border:1px solid rgba(91,143,255,.3);
+      border-radius:10px;padding:10px 13px;
+      font-size:12px;color:rgba(255,255,255,.8);line-height:1.55;
+      max-width:240px;box-shadow:0 8px 32px rgba(0,0,0,.5);
+      opacity:0;transform:translateY(4px);transition:opacity .15s,transform .15s;
+      pointer-events:none;white-space:normal;
+    }
+    .feat-tip.visible{opacity:1;transform:translateY(0)}
+    .card-feature.feat-row .feat-label{font-size:12px}
+
     /* No results */
     .no-results{
       grid-column:1/-1;text-align:center;padding:80px 0;
@@ -812,6 +836,41 @@ function fmt(n)   { return '£' + (+n||0).toFixed(2); }
 function fmtMo(n, forceYr) { return fmt(n) + (forceYr || (typeof forceYr === 'undefined' && state.billing === 'yearly') ? '/yr' : '/mo'); }
 function $id(id)  { return document.getElementById(id); }
 
+// Feature objects can be {name,desc} or plain strings
+function featName(f) { return typeof f === 'object' ? f.name : f; }
+function featDesc(f) { return typeof f === 'object' ? f.desc : null; }
+
+// Render a feature row with optional ℹ️ tooltip
+let _tipOpen = null;
+function renderFeat(f, accentColor) {
+  const name = featName(f);
+  const desc = featDesc(f);
+  const dot  = accentColor
+    ? `<div class="card-feature-dot" style="background:${accentColor}"></div>`
+    : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:2px"><path d="M5 13l4 4L19 7" stroke="#30d158" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const tip = desc
+    ? `<button class="feat-info" onclick="event.stopPropagation();toggleTip(this,'${esc(desc).replace(/'/g,'&#39;')}')" aria-label="More info">i</button>`
+    : '';
+  return `<div class="feat-row">${dot}<span class="feat-label">${esc(name)}</span>${tip}</div>`;
+}
+
+function toggleTip(btn, desc) {
+  if (_tipOpen && _tipOpen !== btn) closeTip(_tipOpen);
+  if (btn._tipEl) { closeTip(btn); return; }
+  const tip = document.createElement('div');
+  tip.className = 'feat-tip';
+  tip.textContent = desc;
+  btn.parentNode.appendChild(tip);
+  btn._tipEl = tip;
+  _tipOpen = btn;
+  setTimeout(() => tip.classList.add('visible'), 10);
+}
+function closeTip(btn) {
+  if (btn._tipEl) { btn._tipEl.remove(); btn._tipEl = null; }
+  if (_tipOpen === btn) _tipOpen = null;
+}
+document.addEventListener('click', () => { if (_tipOpen) closeTip(_tipOpen); });
+
 function modulePrice(m) {
   const base = state.billing === 'yearly'
     ? (m.yearly_price || +(m.monthly_price * 0.92).toFixed(2))
@@ -1007,7 +1066,7 @@ function renderGrid() {
             <div class="card-name">${esc(m.name)}</div>
             <div class="card-desc">${esc(m.short_description||'')}</div>
             ${features.length ? `<div class="card-features">
-              ${features.map(f=>`<div class="card-feature"><div class="card-feature-dot" style="background:${accent}"></div><span>${esc(f)}</span></div>`).join('')}
+              ${features.map(f=>`<div class="card-feature feat-row"><div class="card-feature-dot" style="background:${accent}"></div><span class="feat-label" style="font-size:12px">${esc(featName(f))}</span></div>`).join('')}
             </div>` : ''}
           </div>
           <div class="card-footer">
@@ -1047,7 +1106,7 @@ function renderGrid() {
           <div class="card-name">${esc(m.name)}</div>
           <div class="card-desc">${esc(m.short_description||'')}</div>
           ${features.length ? `<div class="card-features">
-            ${features.map(f=>`<div class="card-feature"><div class="card-feature-dot" style="background:${accent}"></div><span>${esc(f)}</span></div>`).join('')}
+            ${features.map(f=>`<div class="card-feature feat-row"><div class="card-feature-dot" style="background:${accent}"></div><span class="feat-label" style="font-size:12px">${esc(featName(f))}</span></div>`).join('')}
           </div>` : ''}
         </div>
         <div class="card-footer">
@@ -1142,13 +1201,18 @@ function _renderGroupDetail(item) {
               </tr>
             </thead>
             <tbody>
-              ${[...new Set(versions.flatMap(v => v.features || []))].map(feat => `
-                <tr>
-                  <td style="padding:9px 12px;color:var(--muted);border-bottom:1px solid var(--border2)">${esc(feat)}</td>
-                  ${versions.map(v => `<td style="padding:9px 12px;text-align:center;border-bottom:1px solid var(--border2)">
-                    ${(v.features||[]).includes(feat) ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#30d158" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>` : `<span style="color:var(--muted2)">—</span>`}
-                  </td>`).join('')}
-                </tr>`).join('')}
+              ${[...new Set(versions.flatMap(v => (v.features||[]).map(f => featName(f))))].map(featN => {
+                const featObj = versions.flatMap(v => v.features||[]).find(f => featName(f) === featN);
+                return `<tr>
+                  <td style="padding:9px 12px;border-bottom:1px solid var(--border2)">${renderFeat(featObj || featN)}</td>
+                  ${versions.map(v => {
+                    const has = (v.features||[]).some(f => featName(f) === featN);
+                    return `<td style="padding:9px 12px;text-align:center;border-bottom:1px solid var(--border2)">
+                      ${has ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#30d158" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>` : `<span style="color:var(--muted2)">—</span>`}
+                    </td>`;
+                  }).join('')}
+                </tr>`;
+              }).join('')}
             </tbody>
           </table>
         </div>
@@ -1189,6 +1253,15 @@ function _renderGroupDetail(item) {
           }).join('')}
         </div>
       </div>
+
+      <!-- What's included in selected tier -->
+      ${Array.isArray(selVer.features) && selVer.features.length ? `
+      <div style="margin-bottom:20px">
+        <div class="detail-section-title">What's included</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${selVer.features.map(f => renderFeat(f)).join('')}
+        </div>
+      </div>` : ''}
 
       <!-- Pricing card -->
       <div class="pricing-card">
@@ -1312,11 +1385,8 @@ function openDetail(id) {
       ${features.length ? `
         <div class="detail-section">
           <div class="detail-section-title">Features</div>
-          <div class="feat-grid">
-            ${features.map(f=>`<div class="feat-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:2px"><path d="M5 13l4 4L19 7" stroke="#30d158" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              <span>${esc(f)}</span>
-            </div>`).join('')}
+          <div class="features-grid">
+            ${features.map(f=>`<div class="feature-item">${renderFeat(f)}</div>`).join('')}
           </div>
         </div>` : ''}
 
