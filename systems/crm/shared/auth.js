@@ -115,7 +115,7 @@ export const TIER_FEATURES = {
     "goals_targets","email_templates",
     "messaging","portal","projects",
     "reminders","commands",
-    "ai_support","audit_logs","custom_branding","data_import","api_access","priority_support",
+    "ai_support","audit_logs","data_import","priority_support",
   ],
 };
 
