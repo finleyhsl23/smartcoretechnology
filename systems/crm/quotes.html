@@ -14,6 +14,10 @@
     <div class="crm-topbar">
       <button class="hamburger" id="hamburger">☰</button>
       <div class="topbar-title">Quotes</div>
+      <div class="topbar-search">
+        <span class="search-icon">🔍</span>
+        <input type="text" placeholder="Search…" id="globalSearch"/>
+      </div>
       <div class="topbar-actions">
         <button class="topbar-btn" id="themeToggle">☀️</button>
         <button class="topbar-btn" id="logoutBtn">🚪</button>
@@ -29,7 +33,7 @@
 <script type="module">
 import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js";
 import { quotes, companies, leads } from "/systems/crm/shared/api.js?v=2";
-import { renderNav, initMobileNav, initTopbar, initSupport } from "/systems/crm/shared/nav.js?v=4";
+import { renderNav, initMobileNav, initTopbar, initSupport } from "/systems/crm/shared/nav.js?v=5";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmt, fmtDate, toast, confirm, quoteBadge, tierGate, loading, setInner } from "/systems/crm/shared/ui.js";
 
@@ -119,6 +123,12 @@ function renderPage(rows, selStatus) {
   document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteQuote(b.dataset.id)));
   document.querySelectorAll(".status-btn").forEach(b => b.addEventListener("click", () => updateStatus(b.dataset.id, b.dataset.status)));
+  document.querySelectorAll(".share-btn").forEach(b => b.addEventListener("click", () => copyShareLink(b.dataset.token)));
+}
+
+function copyShareLink(token) {
+  const url = `https://smartcoretechnology.co.uk/systems/crm/quote-accept.html?token=${token}`;
+  navigator.clipboard.writeText(url).then(() => toast("ok","Link copied","Share URL copied to clipboard")).catch(() => toast("bad","Error","Could not copy link"));
 }
 
 function quoteRow(q) {
@@ -135,6 +145,7 @@ function quoteRow(q) {
     <td>
       <div class="tbl-actions">
         <button class="btn btn-sm edit-btn" data-id="${q.id}">Edit</button>
+        ${q.accept_token ? `<button class="btn btn-sm share-btn" data-token="${esc(q.accept_token)}" title="Copy share link">🔗 Share</button>` : ""}
         ${q.status === "draft" ? `<button class="btn btn-sm status-btn" data-id="${q.id}" data-status="sent">Send</button>` : ""}
         ${q.status === "sent" ? `<button class="btn btn-sm status-btn badge-green" data-id="${q.id}" data-status="accepted">Accept</button>` : ""}
         <button class="btn btn-sm btn-danger del-btn" data-id="${q.id}">Del</button>

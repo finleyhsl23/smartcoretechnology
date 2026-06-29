@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Quote — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+  <style>
+    body { background: var(--bg, #0d0d1a); min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 40px 16px; }
+    .quote-shell { width: 100%; max-width: 680px; }
+    .quote-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+    .quote-logo .logo-dot { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, #1e5cff, #7b5fff); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; color: #fff; flex-shrink: 0; }
+    .quote-card { background: var(--card, #111); border: 1px solid var(--line, rgba(255,255,255,.1)); border-radius: 18px; padding: 32px; margin-bottom: 16px; }
+    .quote-header { border-bottom: 2px solid var(--line, rgba(255,255,255,.1)); padding-bottom: 20px; margin-bottom: 24px; }
+    .quote-number { font-size: 12px; color: var(--text-dim, #7070a0); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
+    .quote-title-h { font-size: 22px; font-weight: 800; color: var(--text, #f5f5f7); }
+    .line-items-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .line-items-table th { text-align: left; padding: 8px 12px; color: var(--text-dim, #7070a0); border-bottom: 1px solid var(--line2, rgba(255,255,255,.06)); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    .line-items-table td { padding: 10px 12px; border-bottom: 1px solid var(--line2, rgba(255,255,255,.06)); color: var(--text, #f5f5f7); }
+    .totals { display: flex; justify-content: flex-end; margin-top: 16px; }
+    .totals-box { min-width: 220px; font-size: 13px; }
+    .totals-row { display: flex; justify-content: space-between; padding: 5px 0; color: var(--text-dim, #7070a0); }
+    .totals-row.grand { font-size: 18px; font-weight: 800; color: var(--text, #f5f5f7); border-top: 2px solid var(--line, rgba(255,255,255,.1)); padding-top: 10px; margin-top: 6px; }
+    .action-btns { display: flex; gap: 14px; margin-top: 24px; }
+    .btn-accept { flex: 1; padding: 16px; background: #10b981; border: none; border-radius: 12px; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; transition: opacity .15s; }
+    .btn-accept:hover { opacity: .88; }
+    .btn-decline { flex: 1; padding: 16px; background: rgba(239,68,68,.15); border: 1px solid #ef4444; border-radius: 12px; color: #ef4444; font-size: 16px; font-weight: 700; cursor: pointer; transition: opacity .15s; }
+    .btn-decline:hover { opacity: .8; }
+    .decline-box { display: none; margin-top: 16px; }
+    .decline-box textarea { width: 100%; background: rgba(255,255,255,.05); border: 1px solid var(--line, rgba(255,255,255,.12)); border-radius: 10px; padding: 12px; font-size: 13px; color: var(--text, #f5f5f7); resize: vertical; box-sizing: border-box; }
+    .confirmation { text-align: center; padding: 48px 24px; }
+    .confirmation .big-icon { font-size: 64px; margin-bottom: 16px; }
+    .confirmation h2 { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+    .confirmation p { color: var(--text-dim, #7070a0); font-size: 14px; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; font-size: 13px; }
+    .info-label { color: var(--text-dim, #7070a0); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px; }
+    .info-value { font-weight: 600; color: var(--text, #f5f5f7); }
+    #errorMsg { text-align: center; padding: 60px 24px; color: var(--text-dim, #7070a0); }
+    .spinner-wrap { text-align: center; padding: 60px 24px; }
+  </style>
+</head>
+<body>
+<div class="quote-shell">
+  <div class="quote-logo">
+    <div class="logo-dot">SC</div>
+    <div>
+      <div style="font-weight:800;font-size:16px;color:var(--text,#f5f5f7)">SmartCore Technology</div>
+      <div style="font-size:12px;color:var(--text-dim,#7070a0)">Quote for your review</div>
+    </div>
+  </div>
+  <div id="quoteWrap">
+    <div class="spinner-wrap"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<script type="module">
+const params = new URLSearchParams(location.search);
+const token = params.get("token");
+const wrap = document.getElementById("quoteWrap");
+
+function esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function fmt(n) { return "£" + Number(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmtDate(d) { if (!d) return "—"; return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }); }
+
+if (!token) {
+  wrap.innerHTML = `<div id="errorMsg"><div style="font-size:48px;margin-bottom:16px">⚠️</div><h2 style="color:var(--text,#f5f5f7)">Invalid Link</h2><p>No quote token was provided.</p></div>`;
+} else {
+  loadQuote();
+}
+
+async function loadQuote() {
+  try {
+    const res = await fetch(`/api/crm/quote-view?token=${encodeURIComponent(token)}`);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || "Quote not found");
+    renderQuote(json.quote);
+  } catch(e) {
+    wrap.innerHTML = `<div id="errorMsg"><div style="font-size:48px;margin-bottom:16px">❌</div><h2 style="color:var(--text,#f5f5f7)">Quote Not Found</h2><p>${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderQuote(q) {
+  if (q.accepted_at || q.declined_at) {
+    const accepted = !!q.accepted_at;
+    wrap.innerHTML = `
+      <div class="quote-card">
+        <div class="confirmation">
+          <div class="big-icon">${accepted ? "✅" : "❌"}</div>
+          <h2 style="color:${accepted ? "#10b981" : "#ef4444"}">${accepted ? "Quote Accepted" : "Quote Declined"}</h2>
+          <p>${accepted ? "Thank you! This quote has already been accepted." : "This quote has been declined."} ${q.decline_reason ? `<br>Reason: ${esc(q.decline_reason)}` : ""}</p>
+        </div>
+      </div>`;
+    return;
+  }
+
+  const lineItems = q.line_items || [];
+  const subtotal = lineItems.reduce((s, l) => s + ((l.qty || 0) * (l.unit_price || 0)), 0);
+  const discount = Number(q.discount_amount) || 0;
+  const total = Number(q.total) || Math.max(0, subtotal - discount);
+  const vatAmount = total * 0.2;
+
+  const co = q.crm_companies;
+
+  wrap.innerHTML = `
+    <div class="quote-card">
+      <div class="quote-header">
+        <div class="quote-number">Quote ${esc(q.quote_number || "")}</div>
+        <div class="quote-title-h">${q.title ? esc(q.title) : "Service Quote"}</div>
+        ${co?.name ? `<div style="margin-top:8px;color:var(--text-dim,#7070a0);font-size:13px">Prepared for <strong style="color:var(--text,#f5f5f7)">${esc(co.name)}</strong></div>` : ""}
+      </div>
+
+      <div class="info-grid">
+        <div>
+          <div class="info-label">Date Issued</div>
+          <div class="info-value">${fmtDate(q.date_issued)}</div>
+        </div>
+        <div>
+          <div class="info-label">Valid Until</div>
+          <div class="info-value">${fmtDate(q.expiry_date)}</div>
+        </div>
+        ${co?.email ? `<div><div class="info-label">Company Email</div><div class="info-value">${esc(co.email)}</div></div>` : ""}
+        ${co?.phone ? `<div><div class="info-label">Phone</div><div class="info-value">${esc(co.phone)}</div></div>` : ""}
+      </div>
+
+      <table class="line-items-table">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th style="text-align:right">Qty</th>
+            <th style="text-align:right">Unit Price</th>
+            <th style="text-align:right">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lineItems.map(li => `<tr>
+            <td>${esc(li.description || "")}</td>
+            <td style="text-align:right">${li.qty || 0}</td>
+            <td style="text-align:right">${fmt(li.unit_price || 0)}</td>
+            <td style="text-align:right;font-weight:600">${fmt((li.qty || 0) * (li.unit_price || 0))}</td>
+          </tr>`).join("") || `<tr><td colspan="4" style="color:var(--text-dim)">No line items</td></tr>`}
+        </tbody>
+      </table>
+
+      <div class="totals">
+        <div class="totals-box">
+          <div class="totals-row"><span>Subtotal</span><span>${fmt(subtotal)}</span></div>
+          ${discount > 0 ? `<div class="totals-row"><span>Discount</span><span style="color:#10b981">-${fmt(discount)}</span></div>` : ""}
+          <div class="totals-row"><span>VAT (20%)</span><span>${fmt(vatAmount)}</span></div>
+          <div class="totals-row grand"><span>Total (inc. VAT)</span><span>${fmt(total + vatAmount)}</span></div>
+        </div>
+      </div>
+
+      ${q.notes ? `<div style="margin-top:20px;padding:14px;background:rgba(255,255,255,.04);border-radius:10px;font-size:13px;color:var(--text-dim)"><strong style="color:var(--text)">Notes</strong><br>${esc(q.notes)}</div>` : ""}
+      ${q.terms ? `<div style="margin-top:10px;font-size:12px;color:var(--text-dim)">${esc(q.terms)}</div>` : ""}
+    </div>
+
+    <div class="quote-card" id="actionCard">
+      <h3 style="font-size:16px;font-weight:700;margin-bottom:16px;color:var(--text)">Your Response</h3>
+      <div class="action-btns">
+        <button class="btn-accept" id="acceptBtn">✓ Accept Quote</button>
+        <button class="btn-decline" id="declineBtn">✗ Decline Quote</button>
+      </div>
+      <div class="decline-box" id="declineBox">
+        <textarea id="declineReason" rows="3" placeholder="Please let us know why you're declining (optional)…"></textarea>
+        <button class="btn btn-danger" id="confirmDeclineBtn" style="margin-top:10px;width:100%;padding:12px;font-size:14px">Confirm Decline</button>
+      </div>
+    </div>`;
+
+  document.getElementById("acceptBtn").onclick = () => respond("accept");
+  document.getElementById("declineBtn").onclick = () => {
+    const box = document.getElementById("declineBox");
+    box.style.display = box.style.display === "block" ? "none" : "block";
+  };
+  document.getElementById("confirmDeclineBtn").onclick = () => {
+    const reason = document.getElementById("declineReason").value.trim();
+    respond("decline", reason);
+  };
+}
+
+async function respond(action, reason) {
+  const btns = document.querySelectorAll("#actionCard button");
+  btns.forEach(b => b.disabled = true);
+  try {
+    const res = await fetch("/api/crm/quote-respond", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, action, reason }),
+    });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || "Failed to respond");
+    const accepted = action === "accept";
+    document.getElementById("actionCard").innerHTML = `
+      <div class="confirmation">
+        <div class="big-icon">${accepted ? "🎉" : "👋"}</div>
+        <h2 style="color:${accepted ? "#10b981" : "#ef4444"}">${accepted ? "Quote Accepted!" : "Quote Declined"}</h2>
+        <p>${accepted ? "Thank you for accepting. We'll be in touch shortly to proceed." : "Thank you for letting us know. We're sorry it didn't work out this time."}</p>
+      </div>`;
+  } catch(e) {
+    btns.forEach(b => b.disabled = false);
+    alert("Error: " + e.message);
+  }
+}
+</script>
+</body>
+</html>

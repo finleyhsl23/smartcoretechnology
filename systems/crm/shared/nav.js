@@ -116,6 +116,83 @@ export function initTopbar(profile) {
   if (logoutBtn) logoutBtn.addEventListener("click", () => {
     if (confirm("Sign out of SmartCore CRM?")) logout();
   });
+
+  initGlobalSearch();
+}
+
+export function initGlobalSearch() {
+  const input = document.getElementById("globalSearch");
+  if (!input) return;
+
+  // Create dropdown
+  const drop = document.createElement("div");
+  drop.id = "globalSearchDrop";
+  drop.style.cssText = "display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--card,#111);border:1px solid var(--line,rgba(255,255,255,.12));border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.6);z-index:9000;max-height:420px;overflow-y:auto;min-width:340px";
+  const wrap = input.closest(".topbar-search");
+  if (wrap) { wrap.style.position = "relative"; wrap.appendChild(drop); }
+  else { document.body.appendChild(drop); }
+
+  let timer;
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (!q) { drop.style.display = "none"; return; }
+    timer = setTimeout(() => runSearch(q, drop), 300);
+  });
+
+  input.addEventListener("keydown", e => { if (e.key === "Escape") { drop.style.display = "none"; input.value = ""; } });
+
+  document.addEventListener("click", e => {
+    if (!wrap?.contains(e.target) && !drop.contains(e.target)) drop.style.display = "none";
+  });
+}
+
+async function runSearch(q, drop) {
+  drop.style.display = "block";
+  drop.innerHTML = `<div style="padding:14px 16px;color:var(--text-dim,#7070a0);font-size:13px">Searching…</div>`;
+
+  try {
+    const client = sb();
+    const ql = `%${q}%`;
+    const [companies, contacts, leadsRes, tasks] = await Promise.all([
+      client.from("crm_companies").select("id,name,status").ilike("name", ql).limit(4),
+      client.from("crm_contacts").select("id,first_name,last_name,email").or(`first_name.ilike.${ql},last_name.ilike.${ql},email.ilike.${ql}`).limit(4),
+      client.from("crm_leads").select("id,title,status").ilike("title", ql).limit(4),
+      client.from("crm_tasks").select("id,title,status").ilike("title", ql).limit(4),
+    ]);
+
+    const sections = [
+      { label: "Companies", icon: "🏢", items: companies.data || [], href: r => `/systems/crm/company-detail.html?id=${r.id}`, name: r => r.name, sub: r => r.status },
+      { label: "Contacts",  icon: "👥", items: contacts.data  || [], href: r => `/systems/crm/contacts.html?search=${encodeURIComponent(r.first_name+" "+r.last_name)}`, name: r => r.first_name+" "+r.last_name, sub: r => r.email },
+      { label: "Leads",     icon: "🎯", items: leadsRes.data  || [], href: r => `/systems/crm/leads.html?search=${encodeURIComponent(r.title)}`, name: r => r.title, sub: r => r.status },
+      { label: "Tasks",     icon: "✅", items: tasks.data     || [], href: r => `/systems/crm/tasks.html?search=${encodeURIComponent(r.title)}`, name: r => r.title, sub: r => r.status },
+    ].filter(s => s.items.length > 0);
+
+    if (!sections.length) {
+      drop.innerHTML = `<div style="padding:20px 16px;text-align:center;color:var(--text-dim,#7070a0);font-size:13px">No results for "${esc(q)}"</div>`;
+      return;
+    }
+
+    drop.innerHTML = sections.map(s => `
+      <div style="padding:10px 14px 4px;font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--text-dim,#7070a0);text-transform:uppercase">${s.icon} ${esc(s.label)}</div>
+      ${s.items.map(r => `
+        <a href="${esc(s.href(r))}" style="display:flex;align-items:center;gap:10px;padding:9px 14px;text-decoration:none;transition:background .12s;border-radius:8px;margin:0 4px" class="gsearch-item">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;color:var(--text,#f5f5f7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.name(r))}</div>
+            ${s.sub(r) ? `<div style="font-size:11px;color:var(--text-dim,#7070a0)">${esc(s.sub(r))}</div>` : ""}
+          </div>
+          <span style="font-size:11px;color:var(--text-dim,#7070a0)">→</span>
+        </a>`).join("")}
+    `).join("<div style='height:1px;background:var(--line,rgba(255,255,255,.08));margin:4px 14px'></div>");
+
+    // Hover styles
+    drop.querySelectorAll(".gsearch-item").forEach(a => {
+      a.addEventListener("mouseenter", () => a.style.background = "rgba(255,255,255,.05)");
+      a.addEventListener("mouseleave", () => a.style.background = "");
+    });
+  } catch(e) {
+    drop.innerHTML = `<div style="padding:14px 16px;color:var(--bad,#ef4444);font-size:13px">Search error: ${esc(e.message)}</div>`;
+  }
 }
 
 // ── Support modal ────────────────────────────────────────────────────────────

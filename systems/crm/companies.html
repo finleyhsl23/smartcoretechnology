@@ -33,7 +33,7 @@
 <script type="module">
 import { requireCRMAccess } from "/systems/crm/shared/auth.js";
 import { companies, getStaff } from "/systems/crm/shared/api.js?v=2";
-import { renderNav, initMobileNav, initTopbar, initSupport } from "/systems/crm/shared/nav.js?v=4";
+import { renderNav, initMobileNav, initTopbar, initSupport } from "/systems/crm/shared/nav.js?v=5";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmt, fmtDate, timeAgo, toast, confirm, companyStatusBadge, loading, setInner } from "/systems/crm/shared/ui.js";
 import { triggerCommand } from "/systems/crm/shared/commands.js";
@@ -93,6 +93,7 @@ function renderTable(rows) {
         <table class="tbl">
           <thead>
             <tr>
+              <th style="width:36px"><input type="checkbox" id="selectAll" title="Select all"/></th>
               <th>Company</th>
               <th>Industry</th>
               <th>Status</th>
@@ -104,11 +105,25 @@ function renderTable(rows) {
           </thead>
           <tbody id="tblBody">
             ${rows.length === 0
-              ? `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🏢</div><h3>No companies yet</h3><p>Add your first company to get started.</p></div></td></tr>`
+              ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">🏢</div><h3>No companies yet</h3><p>Add your first company to get started.</p></div></td></tr>`
               : rows.map(c => companyRow(c)).join("")}
           </tbody>
         </table>
       </div>
+    </div>
+    <div id="bulkBar" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--card,#1a1a2e);border:1px solid var(--line,rgba(255,255,255,.15));border-radius:14px;padding:12px 20px;display:none;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);z-index:1000;min-width:420px">
+      <span id="bulkCount" style="font-size:13px;font-weight:600;color:var(--text-dim)">0 selected</span>
+      <div style="flex:1"></div>
+      <span style="font-size:12px;color:var(--text-dim)">Change Status:</span>
+      <select id="bulkStatusSel" class="filter-select" style="font-size:12px;padding:6px 10px">
+        <option value="prospect">Prospect</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+        <option value="churned">Churned</option>
+      </select>
+      <button class="btn btn-sm" id="bulkStatusBtn">Apply</button>
+      <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">Delete</button>
+      <button class="btn btn-sm btn-ghost" id="bulkCancelBtn">✕</button>
     </div>`;
 
   document.getElementById("addBtn").onclick = () => openModal();
@@ -117,11 +132,68 @@ function renderTable(rows) {
   document.querySelectorAll(".view-btn").forEach(btn => btn.addEventListener("click", () => viewCompany(btn.dataset.id)));
   document.querySelectorAll(".edit-btn").forEach(btn => btn.addEventListener("click", () => openModal(btn.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(btn => btn.addEventListener("click", () => deleteCompany(btn.dataset.id, btn.dataset.name)));
+  initBulkActions();
+}
+
+function getSelectedIds() {
+  return [...document.querySelectorAll(".row-cb:checked")].map(cb => cb.dataset.id);
+}
+
+function updateBulkBar() {
+  const ids = getSelectedIds();
+  const bar = document.getElementById("bulkBar");
+  if (!bar) return;
+  if (ids.length > 0) {
+    bar.style.display = "flex";
+    document.getElementById("bulkCount").textContent = `${ids.length} selected`;
+  } else {
+    bar.style.display = "none";
+  }
+}
+
+function initBulkActions() {
+  document.getElementById("selectAll")?.addEventListener("change", e => {
+    document.querySelectorAll(".row-cb").forEach(cb => cb.checked = e.target.checked);
+    updateBulkBar();
+  });
+  document.querySelectorAll(".row-cb").forEach(cb => cb.addEventListener("change", updateBulkBar));
+
+  document.getElementById("bulkCancelBtn")?.addEventListener("click", () => {
+    document.querySelectorAll(".row-cb").forEach(cb => cb.checked = false);
+    const sa = document.getElementById("selectAll"); if (sa) sa.checked = false;
+    updateBulkBar();
+  });
+
+  document.getElementById("bulkStatusBtn")?.addEventListener("click", async () => {
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    const status = document.getElementById("bulkStatusSel").value;
+    try {
+      const { sb } = await import("/systems/crm/shared/supabase.js");
+      await sb().from("crm_companies").update({ status }).in("id", ids);
+      toast("ok", `${ids.length} companies updated`);
+      await loadAndRender();
+    } catch(e) { toast("bad","Error",e.message); }
+  });
+
+  document.getElementById("bulkDeleteBtn")?.addEventListener("click", () => {
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    confirm("Delete Companies", `Delete ${ids.length} company records? This cannot be undone.`, async () => {
+      try {
+        const { sb } = await import("/systems/crm/shared/supabase.js");
+        await sb().from("crm_companies").delete().in("id", ids);
+        toast("ok", `${ids.length} companies deleted`);
+        await loadAndRender();
+      } catch(e) { toast("bad","Error",e.message); }
+    });
+  });
 }
 
 function companyRow(c) {
   const staff = staffList.find(s => s.id === c.assigned_to);
-  return `<tr>
+  return `<tr data-id="${c.id}">
+    <td><input type="checkbox" class="row-cb" data-id="${c.id}"/></td>
     <td>
       <div style="font-weight:600;cursor:pointer" class="tbl-link view-btn" data-id="${c.id}">${esc(c.name)}</div>
       ${c.email ? `<div class="tbl-muted">${esc(c.email)}</div>` : ""}
