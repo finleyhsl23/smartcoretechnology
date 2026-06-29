@@ -13,10 +13,20 @@ IMPORTANT FORMATTING RULES:
 - If listing results, use numbered lines like "1. Item name — detail" on separate lines.
 - Keep answers short and to the point.
 
-DATA ACCESS:
-You have tools to search the live CRM database. Use them whenever someone asks about specific records. When someone mentions a person's name in relation to records (e.g. "quotes added by Finley" or "tasks assigned to Sarah"), use the find_staff_member tool first to resolve their name to an ID, then use that ID in the relevant search tool.
+DATA ACCESS AND CREATION:
+You have tools to search AND create records in the live CRM database. Use them whenever someone asks about specific records or asks you to create something.
 
-Always try to answer data questions using the tools. Never say you cannot search by a field if a tool supports it — check the tool definitions carefully first.
+SEARCH RULES: When someone mentions a person's name (e.g. "quotes added by Finley"), use find_staff_member first to resolve their name to an ID, then pass that ID to the relevant search tool.
+
+CREATE RULES:
+- When asked to create a company, contact, lead, task, or reminder — use the appropriate create tool directly.
+- If a record needs to be linked to a company (e.g. a contact or lead), use resolve_company first to get the company ID from its name.
+- If a record needs to be assigned to a staff member, use find_staff_member first to get their ID.
+- After creating, confirm what was created with the key details.
+- If required fields are missing (e.g. no name given for a company), ask the user before proceeding.
+- Never invent data — only use what the user has told you.
+
+Always try to answer data questions and action requests using the tools.
 
 ABOUT SMARTCORE CRM:
 SmartCore CRM is a full business CRM system built by SmartCore Technology.
@@ -192,6 +202,103 @@ const TOOLS = [
     input_schema: {
       type: 'object',
       properties: {},
+    },
+  },
+  {
+    name: 'resolve_company',
+    description: 'Look up a company by name and return its ID. Use this before creating contacts, leads, tasks or events that need to be linked to a company.',
+    input_schema: {
+      type: 'object',
+      required: ['name'],
+      properties: {
+        name: { type: 'string', description: 'Company name (partial match)' },
+      },
+    },
+  },
+  {
+    name: 'create_company',
+    description: 'Create a new company in the CRM. Only required field is name.',
+    input_schema: {
+      type: 'object',
+      required: ['name'],
+      properties: {
+        name: { type: 'string' },
+        industry: { type: 'string' },
+        email: { type: 'string' },
+        phone: { type: 'string' },
+        website: { type: 'string' },
+        status: { type: 'string', description: 'prospect, active, inactive, or churned. Default: prospect' },
+        city: { type: 'string' },
+        postcode: { type: 'string' },
+        company_value: { type: 'number', description: 'Estimated company value in £' },
+        notes: { type: 'string' },
+        assigned_to_id: { type: 'string', description: 'Staff member ID to assign to' },
+      },
+    },
+  },
+  {
+    name: 'create_contact',
+    description: 'Create a new contact in the CRM. First and last name are required.',
+    input_schema: {
+      type: 'object',
+      required: ['first_name', 'last_name'],
+      properties: {
+        first_name: { type: 'string' },
+        last_name: { type: 'string' },
+        email: { type: 'string' },
+        phone: { type: 'string' },
+        job_title: { type: 'string' },
+        company_id: { type: 'string', description: 'Company ID to link this contact to (use resolve_company first)' },
+      },
+    },
+  },
+  {
+    name: 'create_lead',
+    description: 'Create a new lead/opportunity in the CRM. Title is required.',
+    input_schema: {
+      type: 'object',
+      required: ['title'],
+      properties: {
+        title: { type: 'string' },
+        status: { type: 'string', description: 'new, contacted, qualified, proposal, won, or lost. Default: new' },
+        estimated_value: { type: 'number', description: 'Estimated value in £' },
+        probability: { type: 'number', description: 'Probability of closing as a percentage (0-100)' },
+        source: { type: 'string', description: 'Where the lead came from' },
+        notes: { type: 'string' },
+        expected_close_date: { type: 'string', description: 'ISO date string e.g. 2025-12-31' },
+        company_id: { type: 'string', description: 'Company ID to link this lead to (use resolve_company first)' },
+        assigned_to_id: { type: 'string', description: 'Staff member ID to assign to (use find_staff_member first)' },
+      },
+    },
+  },
+  {
+    name: 'create_task',
+    description: 'Create a new task in the CRM. Title is required.',
+    input_schema: {
+      type: 'object',
+      required: ['title'],
+      properties: {
+        title: { type: 'string' },
+        description: { type: 'string' },
+        priority: { type: 'string', description: 'low, medium, high, or urgent. Default: medium' },
+        due_date: { type: 'string', description: 'ISO date string e.g. 2025-12-31' },
+        company_id: { type: 'string', description: 'Company ID to link this task to (use resolve_company first)' },
+        assigned_to_id: { type: 'string', description: 'Staff member ID to assign to (use find_staff_member first)' },
+      },
+    },
+  },
+  {
+    name: 'create_reminder',
+    description: 'Create a new reminder in the CRM. Subject and remind_at are required.',
+    input_schema: {
+      type: 'object',
+      required: ['subject', 'remind_at'],
+      properties: {
+        subject: { type: 'string' },
+        notes: { type: 'string' },
+        remind_at: { type: 'string', description: 'ISO datetime string e.g. 2025-12-31T09:00:00' },
+        repeat_interval: { type: 'string', description: 'none, daily, weekly, monthly, or yearly. Default: none' },
+      },
     },
   },
   {
@@ -401,6 +508,134 @@ async function runTool(toolName, input, tenantId, svcHdr) {
       ).join('\n');
     }
 
+    // ── Resolve company by name ────────────────────────────────────────────
+    if (toolName === 'resolve_company') {
+      const data = await q(
+        `${base}/crm_companies?tenant_id=eq.${tenantId}&name=ilike.*${enc(input.name)}*&select=id,name&limit=5`,
+        svcHdr
+      );
+      if (!data.length) return `No company found matching "${input.name}".`;
+      if (data.length === 1) return `Company found: ID:${data[0].id} | ${data[0].name}`;
+      return `Multiple matches:\n` + data.map((c, i) => `${i+1}. ID:${c.id} | ${c.name}`).join('\n') + `\nPlease clarify which company.`;
+    }
+
+    // ── Create company ─────────────────────────────────────────────────────
+    if (toolName === 'create_company') {
+      const body = {
+        tenant_id: tenantId,
+        name: input.name,
+        status: input.status || 'prospect',
+        ...(input.industry && { industry: input.industry }),
+        ...(input.email && { email: input.email }),
+        ...(input.phone && { phone: input.phone }),
+        ...(input.website && { website: input.website }),
+        ...(input.city && { city: input.city }),
+        ...(input.postcode && { postcode: input.postcode }),
+        ...(input.company_value != null && { company_value: input.company_value }),
+        ...(input.notes && { notes: input.notes }),
+        ...(input.assigned_to_id && { assigned_to: input.assigned_to_id }),
+      };
+      const res = await fetch(`${base}/crm_companies`, {
+        method: 'POST',
+        headers: { ...svcHdr, Prefer: 'return=representation' },
+        body: JSON.stringify(body),
+      });
+      const result = await res.json();
+      if (!res.ok) return `Failed to create company: ${JSON.stringify(result)}`;
+      const created = Array.isArray(result) ? result[0] : result;
+      return `Company created: ${created.name} (ID: ${created.id}, status: ${created.status})`;
+    }
+
+    // ── Create contact ─────────────────────────────────────────────────────
+    if (toolName === 'create_contact') {
+      const body = {
+        tenant_id: tenantId,
+        first_name: input.first_name,
+        last_name: input.last_name,
+        ...(input.email && { email: input.email }),
+        ...(input.phone && { phone: input.phone }),
+        ...(input.job_title && { job_title: input.job_title }),
+        ...(input.company_id && { company_id: input.company_id }),
+      };
+      const res = await fetch(`${base}/crm_contacts`, {
+        method: 'POST',
+        headers: { ...svcHdr, Prefer: 'return=representation' },
+        body: JSON.stringify(body),
+      });
+      const result = await res.json();
+      if (!res.ok) return `Failed to create contact: ${JSON.stringify(result)}`;
+      const created = Array.isArray(result) ? result[0] : result;
+      return `Contact created: ${created.first_name} ${created.last_name} (ID: ${created.id})`;
+    }
+
+    // ── Create lead ────────────────────────────────────────────────────────
+    if (toolName === 'create_lead') {
+      const body = {
+        tenant_id: tenantId,
+        title: input.title,
+        status: input.status || 'new',
+        ...(input.estimated_value != null && { estimated_value: input.estimated_value }),
+        ...(input.probability != null && { probability: input.probability }),
+        ...(input.source && { source: input.source }),
+        ...(input.notes && { notes: input.notes }),
+        ...(input.expected_close_date && { expected_close_date: input.expected_close_date }),
+        ...(input.company_id && { company_id: input.company_id }),
+        ...(input.assigned_to_id && { assigned_to: input.assigned_to_id }),
+      };
+      const res = await fetch(`${base}/crm_leads`, {
+        method: 'POST',
+        headers: { ...svcHdr, Prefer: 'return=representation' },
+        body: JSON.stringify(body),
+      });
+      const result = await res.json();
+      if (!res.ok) return `Failed to create lead: ${JSON.stringify(result)}`;
+      const created = Array.isArray(result) ? result[0] : result;
+      return `Lead created: "${created.title}" (ID: ${created.id}, status: ${created.status}${created.estimated_value ? `, value £${created.estimated_value}` : ''})`;
+    }
+
+    // ── Create task ────────────────────────────────────────────────────────
+    if (toolName === 'create_task') {
+      const body = {
+        tenant_id: tenantId,
+        title: input.title,
+        status: 'todo',
+        priority: input.priority || 'medium',
+        ...(input.description && { description: input.description }),
+        ...(input.due_date && { due_date: input.due_date }),
+        ...(input.company_id && { company_id: input.company_id }),
+        ...(input.assigned_to_id && { assigned_to: input.assigned_to_id }),
+      };
+      const res = await fetch(`${base}/crm_tasks`, {
+        method: 'POST',
+        headers: { ...svcHdr, Prefer: 'return=representation' },
+        body: JSON.stringify(body),
+      });
+      const result = await res.json();
+      if (!res.ok) return `Failed to create task: ${JSON.stringify(result)}`;
+      const created = Array.isArray(result) ? result[0] : result;
+      return `Task created: "${created.title}" (ID: ${created.id}, priority: ${created.priority}${created.due_date ? `, due ${created.due_date.slice(0,10)}` : ''})`;
+    }
+
+    // ── Create reminder ────────────────────────────────────────────────────
+    if (toolName === 'create_reminder') {
+      const body = {
+        tenant_id: tenantId,
+        subject: input.subject,
+        remind_at: input.remind_at,
+        repeat_interval: input.repeat_interval || 'none',
+        ...(input.notes && { notes: input.notes }),
+      };
+      const res = await fetch(`${base}/crm_reminders`, {
+        method: 'POST',
+        headers: { ...svcHdr, Prefer: 'return=representation' },
+        body: JSON.stringify(body),
+      });
+      const result = await res.json();
+      if (!res.ok) return `Failed to create reminder: ${JSON.stringify(result)}`;
+      const created = Array.isArray(result) ? result[0] : result;
+      return `Reminder created: "${created.subject}" at ${created.remind_at?.slice(0,16).replace('T',' ')}${created.repeat_interval !== 'none' ? `, repeating ${created.repeat_interval}` : ''}`;
+    }
+
     return 'Unknown tool.';
   } catch (e) {
     return `Search error: ${e.message}`;
@@ -446,11 +681,11 @@ export async function onRequestPost(context) {
     const apiKey = env.ANTHROPIC_API_KEY;
     if (!apiKey) return json({ ok: false, error: 'AI not configured' }, 500);
 
-    // Agentic loop — Claude can call tools up to 8 times per response
+    // Agentic loop — up to 12 iterations to allow chained create flows
     let currentMessages = [...messages];
     let reply = '';
 
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 12; i++) {
       const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
