@@ -47,7 +47,7 @@ try {
   ({ profile, tier } = await requireCRMAccess());
   renderNav("companies", profile, tier);
   initMobileNav();
-  initSupport();
+  initSupport(tier);
   initTopbar(profile);
   [staffList] = await Promise.all([getStaff()]);
   await loadAndRender();
@@ -99,7 +99,7 @@ function renderTable(rows) {
         <table class="tbl">
           <thead>
             <tr>
-              <th style="width:36px"><input type="checkbox" id="selectAll" title="Select all"/></th>
+              ${["business","enterprise"].includes(tier) ? `<th style="width:36px"><input type="checkbox" id="selectAll" title="Select all"/></th>` : ""}
               <th>Company</th>
               <th>Industry</th>
               <th>Status</th>
@@ -111,13 +111,14 @@ function renderTable(rows) {
           </thead>
           <tbody id="tblBody">
             ${rows.length === 0
-              ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">🏢</div><h3>No companies yet</h3><p>Add your first company to get started.</p></div></td></tr>`
+              ? `<tr><td colspan="${["business","enterprise"].includes(tier) ? 8 : 7}"><div class="empty-state"><div class="empty-icon">🏢</div><h3>No companies yet</h3><p>Add your first company to get started.</p></div></td></tr>`
               : rows.map(c => companyRow(c)).join("")}
           </tbody>
         </table>
       </div>
     </div>
-    <div id="bulkBar" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--card,#1a1a2e);border:1px solid var(--line,rgba(255,255,255,.15));border-radius:14px;padding:12px 20px;display:none;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);z-index:1000;min-width:420px">
+    ${["business","enterprise"].includes(tier) ? `
+    <div id="bulkBar" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--card,#1a1a2e);border:1px solid var(--line,rgba(255,255,255,.15));border-radius:14px;padding:12px 20px;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);z-index:1000;min-width:420px">
       <span id="bulkCount" style="font-size:13px;font-weight:600;color:var(--text-dim)">0 selected</span>
       <div style="flex:1"></div>
       <span style="font-size:12px;color:var(--text-dim)">Change Status:</span>
@@ -130,7 +131,7 @@ function renderTable(rows) {
       <button class="btn btn-sm" id="bulkStatusBtn">Apply</button>
       <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">Delete</button>
       <button class="btn btn-sm btn-ghost" id="bulkCancelBtn">✕</button>
-    </div>`;
+    </div>` : ""}`;
 
   document.getElementById("addBtn").onclick = () => openModal();
   document.getElementById("searchInput").addEventListener("input", debounce(e => loadAndRender(e.target.value, _statusFilter), 300));
@@ -140,7 +141,7 @@ function renderTable(rows) {
   document.querySelectorAll(".view-btn").forEach(btn => btn.addEventListener("click", () => viewCompany(btn.dataset.id)));
   document.querySelectorAll(".edit-btn").forEach(btn => btn.addEventListener("click", () => openModal(btn.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(btn => btn.addEventListener("click", () => deleteCompany(btn.dataset.id, btn.dataset.name)));
-  initBulkActions();
+  if (["business","enterprise"].includes(tier)) initBulkActions();
 }
 
 function initStatusDropdown() {
@@ -245,8 +246,9 @@ function initBulkActions() {
 
 function companyRow(c) {
   const staff = staffList.find(s => s.id === c.assigned_to);
+  const hasBusiness = ["business","enterprise"].includes(tier);
   return `<tr data-id="${c.id}">
-    <td><input type="checkbox" class="row-cb" data-id="${c.id}"/></td>
+    ${hasBusiness ? `<td><input type="checkbox" class="row-cb" data-id="${c.id}"/></td>` : ""}
     <td>
       <div style="font-weight:600;cursor:pointer" class="tbl-link view-btn" data-id="${c.id}">${esc(c.name)}</div>
       ${c.email ? `<div class="tbl-muted">${esc(c.email)}</div>` : ""}

@@ -45,7 +45,7 @@ try {
   ({ profile, tier } = await requireCRMAccess());
   renderNav("leads", profile, tier);
   initMobileNav();
-  initSupport();
+  initSupport(tier);
   initTopbar(profile);
   [companiesList, contactsList, staffList] = await Promise.all([
     companies.list({ limit: 500 }).then(r => r.data),
@@ -67,12 +67,15 @@ async function loadAndRender(search="", status="") {
 function renderTable(rows) {
   const totalValue = rows.filter(l => !["won","lost"].includes(l.status)).reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
   const forecast = rows.filter(l => !["won","lost"].includes(l.status)).reduce((s,l) => s + (Number(l.estimated_value)||0)*((l.probability||0)/100), 0);
+  const hasPro = ["professional","business","enterprise"].includes(tier);
+  const hasBusiness = ["business","enterprise"].includes(tier);
+  const colSpan = 9 + (hasBusiness ? 1 : 0) + (hasPro ? 1 : 0);
 
   document.getElementById("content").innerHTML = `
     <div class="page-header">
       <div class="page-header-left">
         <h1>Leads</h1>
-        <p>${rows.length} lead${rows.length !== 1 ? "s" : ""} · Pipeline: ${fmt(totalValue)} · Forecast: ${fmt(forecast)}</p>
+        <p>${rows.length} lead${rows.length !== 1 ? "s" : ""} · Pipeline: ${fmt(totalValue)}${hasPro ? ` · Forecast: ${fmt(forecast)}` : ""}</p>
       </div>
       <div class="page-header-actions">
         <button class="btn" onclick="window.location.href='/systems/crm/pipeline.html'">📋 Pipeline View</button>
@@ -102,11 +105,11 @@ function renderTable(rows) {
         <table class="tbl">
           <thead>
             <tr>
-              <th style="width:36px"><input type="checkbox" id="selectAll" title="Select all"/></th>
+              ${hasBusiness ? `<th style="width:36px"><input type="checkbox" id="selectAll" title="Select all"/></th>` : ""}
               <th>Lead</th>
               <th>Company</th>
               <th>Status</th>
-              <th style="cursor:pointer" id="scoreHeader">Score ↕</th>
+              ${hasPro ? `<th style="cursor:pointer" id="scoreHeader">Score ↕</th>` : ""}
               <th>Value</th>
               <th>Probability</th>
               <th>Source</th>
@@ -117,12 +120,13 @@ function renderTable(rows) {
           </thead>
           <tbody id="leadsBody">
             ${rows.length === 0
-              ? `<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">🎯</div><h3>No leads yet</h3><p>Create your first lead to start tracking opportunities.</p></div></td></tr>`
-              : rows.map(l => leadRow(l)).join("")}
+              ? `<tr><td colspan="${colSpan}"><div class="empty-state"><div class="empty-icon">🎯</div><h3>No leads yet</h3><p>Create your first lead to start tracking opportunities.</p></div></td></tr>`
+              : rows.map(l => leadRow(l, hasBusiness, hasPro)).join("")}
           </tbody>
         </table>
       </div>
     </div>
+    ${hasBusiness ? `
     <div id="bulkBar" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--card,#1a1a2e);border:1px solid var(--line,rgba(255,255,255,.15));border-radius:14px;padding:12px 20px;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);z-index:1000;min-width:420px">
       <span id="bulkCount" style="font-size:13px;font-weight:600;color:var(--text-dim)">0 selected</span>
       <div style="flex:1"></div>
@@ -137,15 +141,15 @@ function renderTable(rows) {
       <button class="btn btn-sm" id="bulkStatusBtn">Apply</button>
       <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">Delete</button>
       <button class="btn btn-sm btn-ghost" id="bulkCancelBtn">✕</button>
-    </div>`;
+    </div>` : ""}`;
 
   document.getElementById("addBtn").onclick = () => openModal();
   document.getElementById("searchInput").addEventListener("input", debounce(e => loadAndRender(e.target.value, document.getElementById("statusFilter").value), 300));
   document.getElementById("statusFilter").addEventListener("change", e => loadAndRender(document.getElementById("searchInput").value, e.target.value));
   document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteLead(b.dataset.id)));
-  initBulkActions();
-  initScoreSort(rows);
+  if (hasBusiness) initBulkActions();
+  if (hasPro) initScoreSort(rows);
 }
 
 let scoreSortDir = -1; // -1 desc, 1 asc
@@ -243,19 +247,19 @@ function initBulkActions() {
   });
 }
 
-function leadRow(l) {
+function leadRow(l, hasBusiness, hasPro) {
   const co = l.crm_companies?.name;
   const staff = staffList.find(s => s.id === l.assigned_to);
   const probColor = l.probability >= 70 ? "var(--good)" : l.probability >= 40 ? "var(--warn)" : "var(--bad)";
   const score = leadScore(l);
   return `<tr data-id="${l.id}">
-    <td><input type="checkbox" class="row-cb" data-id="${l.id}"/></td>
+    ${hasBusiness ? `<td><input type="checkbox" class="row-cb" data-id="${l.id}"/></td>` : ""}
     <td>
       <div style="font-weight:600">${esc(l.title)}</div>
     </td>
     <td>${co ? esc(co) : '<span class="text-dim">—</span>'}</td>
     <td>${leadBadge(l.status)}</td>
-    <td>${scoreBadge(score)}</td>
+    ${hasPro ? `<td>${scoreBadge(score)}</td>` : ""}
     <td>${l.estimated_value ? `<strong>${fmt(l.estimated_value)}</strong>` : '<span class="text-dim">—</span>'}</td>
     <td>
       <div style="display:flex;align-items:center;gap:8px">

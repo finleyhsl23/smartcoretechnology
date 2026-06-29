@@ -54,13 +54,14 @@ try {
   _profile = profile;
   renderNav("dashboard", profile, tier);
   initMobileNav();
-  initSupport();
+  initSupport(tier);
   initTopbar(profile);
 
   const stats = await dashboardStats();
   _stats = stats;
   render(stats, tier, profile);
-  await renderGoals(stats);
+  if (["professional","business","enterprise"].includes(tier)) await renderGoals(stats);
+  else renderLockedGoals();
 } catch(e) {
   if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) {
     document.getElementById("content").innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Error loading dashboard</h3><p>${esc(e.message)}</p></div>`;
@@ -101,12 +102,19 @@ function render(s, tier, profile) {
         <div class="stat-label">Pipeline Value</div>
         <div class="stat-change up text-good">Active opportunities</div>
       </div>
+      ${(["professional","business","enterprise"].includes(tier)) ? `
       <div class="stat-card" style="--stat-color:var(--blue2);--stat-dim:rgba(14,165,255,.12)">
         <div class="stat-icon">📈</div>
         <div class="stat-value">${fmt(s.forecast)}</div>
         <div class="stat-label">Revenue Forecast</div>
         <div class="stat-change">Probability-weighted</div>
-      </div>
+      </div>` : `
+      <div class="stat-card" style="--stat-color:var(--blue2);--stat-dim:rgba(14,165,255,.12);opacity:.45">
+        <div class="stat-icon">📈</div>
+        <div class="stat-value">—</div>
+        <div class="stat-label">Revenue Forecast</div>
+        <div class="stat-change"><a href="/shop/index.html" style="color:inherit;text-decoration:underline">Professional+ ↑</a></div>
+      </div>`}
       <div class="stat-card" style="--stat-color:var(--warn);--stat-dim:var(--warn-dim)">
         <div class="stat-icon">✅</div>
         <div class="stat-value">${s.todayTasks}</div>
@@ -376,6 +384,25 @@ function initCharts(s) {
       }
     });
   }
+}
+
+function renderLockedGoals() {
+  const goalsCard = document.createElement("div");
+  goalsCard.className = "card";
+  goalsCard.style.cssText = "margin-bottom:16px;opacity:.55";
+  goalsCard.innerHTML = `
+    <div class="card-header">
+      <h2>Goals &amp; Targets</h2>
+      <span style="font-size:12px;color:var(--text-dim);background:rgba(255,255,255,.06);padding:3px 10px;border-radius:99px">Professional+ ↑</span>
+    </div>
+    <div class="card-body">
+      <p style="color:var(--text-dim);font-size:13px">Upgrade to Professional to set revenue goals, track lead targets, and monitor your team's performance over time.</p>
+      <a href="/shop/index.html" class="btn btn-sm btn-primary" style="margin-top:10px;display:inline-block">View Plans →</a>
+    </div>`;
+  const content = document.getElementById("content");
+  const statsGrid = content.querySelector(".stats-grid");
+  if (statsGrid) statsGrid.insertAdjacentElement("afterend", goalsCard);
+  else content.appendChild(goalsCard);
 }
 </script>
 </body>

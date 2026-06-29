@@ -42,14 +42,14 @@ initTheme();
 const params = new URLSearchParams(location.search);
 const companyId = params.get("id");
 
-let profile, company, authorName;
+let profile, tier, company, authorName;
 
 try {
-  ({ profile } = await requireCRMAccess());
+  ({ profile, tier } = await requireCRMAccess());
   authorName = profile.full_name || profile.email || "Unknown";
-  renderNav("companies", profile, null);
+  renderNav("companies", profile, tier);
   initMobileNav();
-  initSupport();
+  initSupport(tier);
   initTopbar(profile);
 
   if (!companyId) throw new Error("No company ID specified.");
@@ -71,10 +71,10 @@ async function loadCompany() {
   if (compRes.error) throw new Error(compRes.error.message);
   company = compRes.data;
 
-  renderPage(company, notesRes.data || [], activitiesRes.data || [], contactsRes.data || [], leadsRes.data || []);
+  renderPage(company, notesRes.data || [], activitiesRes.data || [], contactsRes.data || [], leadsRes.data || [], tier);
 }
 
-function renderPage(c, teamNotes, activities, contacts, openLeads) {
+function renderPage(c, teamNotes, activities, contacts, openLeads, tier) {
   const content = document.getElementById("content");
   content.innerHTML = `
     <div class="page-header">
@@ -111,7 +111,8 @@ function renderPage(c, teamNotes, activities, contacts, openLeads) {
       </div>
     </div>
 
-    <!-- Team Notes -->
+    <!-- Team Notes (Business+) -->
+    ${(["business","enterprise"].includes(tier)) ? `
     <div class="card" style="margin-bottom:16px">
       <div class="card-header"><h2>Team Notes</h2></div>
       <div class="card-body">
@@ -125,7 +126,11 @@ function renderPage(c, teamNotes, activities, contacts, openLeads) {
           <button class="btn btn-primary" id="addNoteBtn">Post</button>
         </div>
       </div>
-    </div>
+    </div>` : `
+    <div class="card" style="margin-bottom:16px;opacity:.55">
+      <div class="card-header"><h2>Team Notes</h2><span style="font-size:12px;color:var(--text-dim);background:rgba(255,255,255,.06);padding:3px 10px;border-radius:99px">Business+ ↑</span></div>
+      <div class="card-body"><p style="color:var(--text-dim);font-size:13px">Upgrade to Business to collaborate with your team using shared notes on each company.</p></div>
+    </div>`}
 
     <!-- Linked contacts and open leads -->
     <div class="grid-2" style="gap:16px;margin-bottom:16px">

@@ -1,6 +1,6 @@
 import { initials, esc } from "./ui.js";
 import { toggleTheme } from "./theme.js";
-import { logout } from "./auth.js";
+import { logout, tierHasFeature } from "./auth.js";
 import { sb } from "./supabase.js";
 
 const NAV_LINKS = [
@@ -199,13 +199,13 @@ async function runSearch(q, drop) {
 
 let supportMessages = []; // [{role, content}]
 
-export function initSupport() {
+export function initSupport(tier) {
   const btn = document.getElementById("supportBtn");
   if (!btn) return;
-  btn.addEventListener("click", openSupport);
+  btn.addEventListener("click", () => openSupport(tier));
 }
 
-function openSupport() {
+function openSupport(tier) {
   if (document.getElementById("supportModal")) return;
 
   const modal = document.createElement("div");
@@ -226,13 +226,21 @@ function openSupport() {
 
       <!-- Mode picker -->
       <div id="supportPicker" style="padding:20px;display:flex;flex-direction:column;gap:12px">
+        ${tierHasFeature(tier || "lite", "ai_support") ? `
         <button id="supportAiBtn" style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:rgba(91,143,255,.1);border:1px solid rgba(91,143,255,.25);border-radius:12px;cursor:pointer;text-align:left;width:100%">
           <span style="font-size:24px">🤖</span>
           <div>
             <div style="font-weight:700;font-size:13px;color:var(--text,#f5f5f7)">Chat with AI Support</div>
             <div style="font-size:12px;color:var(--text-dim,#7070a0);margin-top:2px">Instant answers about SmartCore CRM</div>
           </div>
-        </button>
+        </button>` : `
+        <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:12px;opacity:.5;cursor:not-allowed">
+          <span style="font-size:24px">🤖</span>
+          <div>
+            <div style="font-weight:700;font-size:13px;color:var(--text,#f5f5f7)">Chat with AI Support</div>
+            <div style="font-size:12px;color:var(--text-dim,#7070a0);margin-top:2px">Enterprise plan required ↑</div>
+          </div>
+        </div>`}
         <button id="supportEmailBtn" style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:12px;cursor:pointer;text-align:left;width:100%">
           <span style="font-size:24px">✉️</span>
           <div>
@@ -261,7 +269,7 @@ function openSupport() {
     window.location.href = "mailto:support@smartcoretechnology.co.uk?subject=SmartCore CRM Support";
   };
 
-  document.getElementById("supportAiBtn").onclick = () => {
+  document.getElementById("supportAiBtn")?.addEventListener("click", () => {
     // Show loading screen
     const picker = document.getElementById("supportPicker");
     picker.innerHTML = `
@@ -298,7 +306,7 @@ function openSupport() {
       if (supportMessages.length === 0) appendBubble("assistant", "Hi! I'm the SmartCore CRM assistant. Ask me anything about the CRM and I'll help you out.");
       document.getElementById("supportInput").focus();
     }, 1400);
-  };
+  });
 
   document.getElementById("supportSend").onclick = sendSupportMessage;
   document.getElementById("supportInput").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendSupportMessage(); } });
