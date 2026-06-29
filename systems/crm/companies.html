@@ -81,14 +81,14 @@ function renderTable(rows) {
         <span class="search-icon">🔍</span>
         <input class="search-input" type="text" placeholder="Search companies…" id="searchInput" value="${esc(_search)}"/>
       </div>
-      <div class="custom-select" id="statusDropdown">
-        <button class="custom-select-btn" id="statusDropdownBtn" type="button">
+      <div style="position:relative;display:inline-block" id="statusDropdown">
+        <button id="statusDropdownBtn" type="button" style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#0d1535;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e9f0ff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;min-width:140px;justify-content:space-between;white-space:nowrap">
           <span id="statusDropdownLabel">${_statusFilter ? _statusFilter.charAt(0).toUpperCase()+_statusFilter.slice(1) : 'All Statuses'}</span>
-          <svg class="custom-select-chevron" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg id="statusChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" style="transition:transform 0.2s;flex-shrink:0;opacity:0.6"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <div class="custom-select-menu" id="statusDropdownMenu">
+        <div id="statusDropdownMenu" style="display:none;position:absolute;top:calc(100% + 6px);right:0;min-width:160px;background:#0d1535;border:1px solid rgba(30,92,255,0.35);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,0.6);z-index:9999;overflow:hidden">
           ${[['','All Statuses'],['prospect','Prospect'],['active','Active'],['inactive','Inactive'],['churned','Churned']].map(([val,label])=>`
-            <div class="custom-select-option${_statusFilter===val?' selected':''}" data-value="${val}">${label}</div>
+            <div data-value="${val}" style="padding:10px 16px;font-size:13px;cursor:pointer;color:${_statusFilter===val?'#1e5cff':'rgba(233,240,255,0.7)'};font-weight:${_statusFilter===val?'600':'400'};background:${_statusFilter===val?'rgba(30,92,255,0.1)':'transparent'};transition:background 0.1s,color 0.1s" class="sd-opt">${label}</div>
           `).join('')}
         </div>
       </div>
@@ -144,47 +144,47 @@ function renderTable(rows) {
 }
 
 function initStatusDropdown() {
-  const wrap  = document.getElementById("statusDropdown");
-  const btn   = document.getElementById("statusDropdownBtn");
-  const menu  = document.getElementById("statusDropdownMenu");
-  const label = document.getElementById("statusDropdownLabel");
-  if (!wrap || !btn || !menu) return;
+  const wrap    = document.getElementById("statusDropdown");
+  const btn     = document.getElementById("statusDropdownBtn");
+  const menu    = document.getElementById("statusDropdownMenu");
+  const label   = document.getElementById("statusDropdownLabel");
+  const chevron = document.getElementById("statusChevron");
+  if (!btn || !menu) return;
 
   if (_dropOutsideHandler) document.removeEventListener("click", _dropOutsideHandler);
 
-  function openMenu() {
-    menu.classList.remove("closing");
-    menu.classList.add("open");
-    btn.classList.add("active");
-  }
-
-  function closeMenu() {
-    if (!menu.classList.contains("open")) return;
-    menu.classList.add("closing");
-    btn.classList.remove("active");
-    menu.addEventListener("animationend", () => {
-      menu.classList.remove("open", "closing");
-    }, { once: true });
-  }
-
   btn.addEventListener("click", e => {
     e.stopPropagation();
-    menu.classList.contains("open") ? closeMenu() : openMenu();
+    const open = menu.style.display !== "none";
+    menu.style.display = open ? "none" : "block";
+    chevron.style.transform = open ? "" : "rotate(180deg)";
+    btn.style.borderColor = open ? "rgba(255,255,255,0.12)" : "#1e5cff";
   });
 
-  menu.querySelectorAll(".custom-select-option").forEach(opt => {
+  menu.querySelectorAll(".sd-opt").forEach(opt => {
+    opt.addEventListener("mouseenter", () => { opt.style.background = "rgba(255,255,255,0.06)"; opt.style.color = "#e9f0ff"; });
+    opt.addEventListener("mouseleave", () => {
+      const sel = opt.dataset.value === _statusFilter;
+      opt.style.background = sel ? "rgba(30,92,255,0.1)" : "transparent";
+      opt.style.color = sel ? "#1e5cff" : "rgba(233,240,255,0.7)";
+    });
     opt.addEventListener("click", e => {
       e.stopPropagation();
-      const val = opt.dataset.value;
-      menu.querySelectorAll(".custom-select-option").forEach(o => o.classList.remove("selected"));
-      opt.classList.add("selected");
       label.textContent = opt.textContent.trim();
-      closeMenu();
-      loadAndRender(_search, val);
+      menu.style.display = "none";
+      chevron.style.transform = "";
+      btn.style.borderColor = "rgba(255,255,255,0.12)";
+      loadAndRender(_search, opt.dataset.value);
     });
   });
 
-  _dropOutsideHandler = e => { if (!wrap.contains(e.target)) closeMenu(); };
+  _dropOutsideHandler = e => {
+    if (wrap && !wrap.contains(e.target)) {
+      menu.style.display = "none";
+      chevron.style.transform = "";
+      btn.style.borderColor = "rgba(255,255,255,0.12)";
+    }
+  };
   document.addEventListener("click", _dropOutsideHandler);
 }
 
