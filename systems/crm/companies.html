@@ -84,7 +84,7 @@ function renderTable(rows) {
       <div class="custom-select" id="statusDropdown">
         <button class="custom-select-btn" id="statusDropdownBtn" type="button">
           <span id="statusDropdownLabel">${_statusFilter ? _statusFilter.charAt(0).toUpperCase()+_statusFilter.slice(1) : 'All Statuses'}</span>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg class="custom-select-chevron" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="custom-select-menu" id="statusDropdownMenu">
           ${[['','All Statuses'],['prospect','Prospect'],['active','Active'],['inactive','Inactive'],['churned','Churned']].map(([val,label])=>`
@@ -150,16 +150,21 @@ function initStatusDropdown() {
   const label = document.getElementById("statusDropdownLabel");
   if (!wrap || !btn || !menu) return;
 
-  // Remove old outside-click handler if it exists
   if (_dropOutsideHandler) document.removeEventListener("click", _dropOutsideHandler);
 
   function openMenu() {
+    menu.classList.remove("closing");
     menu.classList.add("open");
     btn.classList.add("active");
   }
+
   function closeMenu() {
-    menu.classList.remove("open");
+    if (!menu.classList.contains("open")) return;
+    menu.classList.add("closing");
     btn.classList.remove("active");
+    menu.addEventListener("animationend", () => {
+      menu.classList.remove("open", "closing");
+    }, { once: true });
   }
 
   btn.addEventListener("click", e => {
@@ -179,9 +184,7 @@ function initStatusDropdown() {
     });
   });
 
-  _dropOutsideHandler = e => {
-    if (!wrap.contains(e.target)) closeMenu();
-  };
+  _dropOutsideHandler = e => { if (!wrap.contains(e.target)) closeMenu(); };
   document.addEventListener("click", _dropOutsideHandler);
 }
 
