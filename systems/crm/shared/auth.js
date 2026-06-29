@@ -79,12 +79,44 @@ export function clearProfileCache() {
   _profile = null;
 }
 
-// Tier feature gates
+// Tier feature gates — only includes features that are actually built
 export const TIER_FEATURES = {
-  lite:         ["dashboard","companies","contacts","leads","pipeline","tasks","timeline"],
-  professional: ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields","esignatures"],
-  business:     ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields","esignatures","portal","messaging","projects","multi_site","contracts","renewals","assets","workflows","advanced_permissions","support_tickets"],
-  enterprise:   ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields","esignatures","portal","messaging","projects","multi_site","contracts","renewals","assets","workflows","advanced_permissions","support_tickets","executive_dashboards","advanced_analytics","department_mgmt","branch_mgmt","api_access","audit_logs","custom_branding","custom_pipelines","data_import","priority_support"]
+  lite: [
+    "dashboard","global_search",
+    "companies","company_detail","contacts",
+    "leads","pipeline","tasks",
+    "reminders","commands",
+  ],
+  professional: [
+    "dashboard","global_search",
+    "companies","company_detail","contacts",
+    "leads","lead_scoring","pipeline","tasks",
+    "calendar","quotes","quote_acceptance",
+    "documents","reports","forecasting",
+    "goals_targets","email_templates",
+    "reminders","commands",
+  ],
+  business: [
+    "dashboard","global_search",
+    "companies","company_detail","company_team_notes","bulk_actions","contacts",
+    "leads","lead_scoring","pipeline","tasks",
+    "calendar","quotes","quote_acceptance",
+    "documents","reports","forecasting",
+    "goals_targets","email_templates",
+    "messaging","portal","projects",
+    "reminders","commands",
+  ],
+  enterprise: [
+    "dashboard","global_search",
+    "companies","company_detail","company_team_notes","bulk_actions","contacts",
+    "leads","lead_scoring","pipeline","tasks",
+    "calendar","quotes","quote_acceptance",
+    "documents","reports","forecasting",
+    "goals_targets","email_templates",
+    "messaging","portal","projects",
+    "reminders","commands",
+    "ai_support","audit_logs","custom_branding","data_import","api_access","priority_support",
+  ],
 };
 
 export function tierHasFeature(tier, feature) {
