@@ -64,12 +64,30 @@ function showSpeakOverlay(on) {
   document.getElementById("speakOverlay")?.classList.toggle("active", on);
 }
 
-// ── Switch from welcome → chat ─────────────────────────────────────────────
+// ── Standby / chat switching ───────────────────────────────────────────────
+let standbyTimer = null;
+
+function resetStandbyTimer() {
+  clearTimeout(standbyTimer);
+  standbyTimer = setTimeout(enterStandby, 30000);
+}
+
+function enterStandby() {
+  if (!chatStarted) return;
+  chatStarted = false;
+  document.getElementById("welcome")?.classList.remove("hidden");
+  document.getElementById("chatArea")?.classList.remove("active");
+  stopSpeaking();
+  setStatus("idle");
+  // Keep messages/session in memory — chat resumes seamlessly
+}
+
 function enterChat() {
-  if (chatStarted) return;
+  if (chatStarted) { resetStandbyTimer(); return; }
   chatStarted = true;
   document.getElementById("welcome")?.classList.add("hidden");
   document.getElementById("chatArea")?.classList.add("active");
+  resetStandbyTimer();
 }
 
 // ── Chat rendering ─────────────────────────────────────────────────────────
@@ -166,22 +184,34 @@ async function saveMessage(role, content, metadata = {}) {
 }
 
 // ── TTS ────────────────────────────────────────────────────────────────────
+function pickVoice() {
+  const voices = synth.getVoices();
+  // Prefer premium/neural en-GB, then any en-GB, then premium en-US, then any English
+  return voices.find(v => v.lang === "en-GB" && /samantha|serena|kate|neural|enhanced|natural|premium/i.test(v.name))
+    || voices.find(v => v.lang === "en-GB")
+    || voices.find(v => /^en/.test(v.lang) && /neural|enhanced|natural|premium|samantha/i.test(v.name))
+    || voices.find(v => /^en/.test(v.lang));
+}
+
 function speak(text) {
   if (muteOn || !synth) return;
   synth.cancel();
-  const clean = text.replace(/[\u{1F300}-\u{1F9FF}]/gu,"").replace(/[*_#`]/g,"").replace(/\s+/g," ").trim().slice(0,600);
+  const clean = text
+    .replace(/[\u{1F300}-\u{1F9FF}]/gu, "")
+    .replace(/[*_#`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 700);
   if (!clean) return;
   utterance = new SpeechSynthesisUtterance(clean);
-  utterance.rate = 1.1; utterance.pitch = 1.0; utterance.lang = "en-GB";
-  const voices = synth.getVoices();
-  const pick = voices.find(v => v.lang==="en-GB" && /neural|enhanced|natural|premium/i.test(v.name))
-    || voices.find(v => v.lang==="en-GB" && /female|serena|kate/i.test(v.name))
-    || voices.find(v => v.lang==="en-GB")
-    || voices.find(v => v.lang.startsWith("en") && /neural|enhanced/i.test(v.name))
-    || voices.find(v => v.lang.startsWith("en"));
-  if (pick) utterance.voice = pick;
-  utterance.onstart = () => { setStatus("speaking"); showSpeakOverlay(true); };
-  utterance.onend   = () => { setStatus("idle"); showSpeakOverlay(false); };
+  utterance.lang  = "en-GB";
+  utterance.rate  = 0.92;
+  utterance.pitch = 1.05;
+  utterance.volume = 1;
+  const voice = pickVoice();
+  if (voice) utterance.voice = voice;
+  utterance.onstart = () => { setStatus("speaking"); showSpeakOverlay(true); resetStandbyTimer(); };
+  utterance.onend   = () => { setStatus("idle"); showSpeakOverlay(false); resetStandbyTimer(); };
   utterance.onerror = () => { setStatus("idle"); showSpeakOverlay(false); };
   setStatus("speaking");
   showSpeakOverlay(true);
@@ -417,6 +447,7 @@ function initTextarea() {
     ta.style.height = "22px";
     ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
     if (btn) btn.disabled = !ta.value.trim();
+    if (chatStarted) resetStandbyTimer();
   });
   ta.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
