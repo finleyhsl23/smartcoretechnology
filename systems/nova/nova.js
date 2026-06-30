@@ -44,6 +44,13 @@ function setGreeting() {
   if (el) el.textContent = greet;
 }
 
+function setGreetingNoAuth() {
+  const h = new Date().getHours();
+  const period = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+  const el = document.getElementById("greetingText");
+  if (el) el.textContent = `Good ${period}.`;
+}
+
 // ── State management ───────────────────────────────────────────────────────
 function setStatus(state) {
   const pill  = document.getElementById("statusPill");
@@ -420,21 +427,10 @@ function initTextarea() {
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 async function boot() {
+  // Set up UI immediately — don't gate on auth
   updateClock();
-  setInterval(updateClock, 30000);
-
-  try {
-    await requireAuth();
-  } catch (e) {
-    toast("warn", "Please sign in to use Nova");
-    return;
-  }
-
-  setGreeting();
-
-  if (synth && synth.getVoices().length === 0) {
-    synth.addEventListener("voiceschanged", () => {}, { once: true });
-  }
+  setInterval(updateClock, 60000);
+  setGreetingNoAuth();
 
   initTextarea();
   initVoice();
@@ -452,10 +448,21 @@ async function boot() {
     });
   }
 
-  // Dismiss speak overlay on click
   document.getElementById("speakOverlay")?.addEventListener("click", stopSpeaking);
 
+  if (synth && synth.getVoices().length === 0) {
+    synth.addEventListener("voiceschanged", () => {}, { once: true });
+  }
+
   setStatus("idle");
+
+  // Auth in background — update greeting with name once loaded
+  try {
+    await requireAuth();
+    setGreeting();
+  } catch (e) {
+    toast("warn", "Please sign in to use Nova");
+  }
 }
 
 boot();
