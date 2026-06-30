@@ -46,7 +46,7 @@ export async function onRequestPost(ctx) {
       model: 'gpt-4o-mini-tts',
       voice: 'onyx',
       input: text,
-      speed: 1.75,
+      speed: 1.25,
     }),
   });
 
