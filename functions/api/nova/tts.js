@@ -43,10 +43,10 @@ export async function onRequestPost(ctx) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'tts-1-hd',
+      model: 'gpt-4o-mini-tts',
       voice: 'onyx',
       input: text,
-      speed: 0.95,
+      speed: 1.75,
     }),
   });
 
