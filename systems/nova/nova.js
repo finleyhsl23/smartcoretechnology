@@ -83,7 +83,7 @@ async function requireAuth() {
   const client = sb();
   const { data, error } = await client.auth.getSession();
   if (error || !data?.session) {
-    window.location.href = "/app/index.html";
+    window.location.href = "/modules";
     throw new Error("Not authenticated");
   }
   session = data.session;
@@ -95,7 +95,7 @@ async function requireAuth() {
     .maybeSingle();
 
   if (profErr || !prof) {
-    window.location.href = "/app/index.html";
+    window.location.href = "/modules";
     throw new Error("No profile");
   }
   profile = prof;
@@ -959,7 +959,7 @@ async function boot() {
   document.getElementById("logoutBtn")?.addEventListener("click", async () => {
     const client = sb();
     await client.auth.signOut();
-    window.location.href = "/app/index.html";
+    window.location.href = "/modules";
   });
 }
 
