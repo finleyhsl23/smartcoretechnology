@@ -184,27 +184,26 @@ async function saveMessage(role, content, metadata = {}) {
 }
 
 // ── Captions ───────────────────────────────────────────────────────────────
-let captionTimers = [];
-
 function clearCaption() {
-  captionTimers.forEach(clearTimeout);
-  captionTimers = [];
   const el = document.getElementById("speakCaption");
   if (el) el.innerHTML = "";
 }
 
-function showCaption(text, durationMs) {
-  clearCaption();
+function mountCaption(text) {
   const el = document.getElementById("speakCaption");
   if (!el) return;
   const words = text.split(/\s+/).filter(Boolean);
-  if (!words.length) return;
   el.innerHTML = words.map((w, i) => `<span class="word" id="cw${i}">${w}</span>`).join(" ");
-  const msPerWord = Math.max(60, durationMs / words.length);
-  words.forEach((_, i) => {
-    captionTimers.push(setTimeout(() => {
+  return words.length;
+}
+
+function syncCaption(audio, wordCount) {
+  audio.addEventListener("timeupdate", () => {
+    if (!audio.duration || !isFinite(audio.duration)) return;
+    const idx = Math.floor((audio.currentTime / audio.duration) * wordCount);
+    for (let i = 0; i <= Math.min(idx, wordCount - 1); i++) {
       document.getElementById(`cw${i}`)?.classList.add("lit");
-    }, i * msPerWord));
+    }
   });
 }
 
@@ -212,15 +211,64 @@ function showCaption(text, durationMs) {
 let currentAudio = null;
 
 function stopSpeakingAudio() {
-  if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; currentAudio = null; }
+  if (currentAudio) { try { currentAudio.pause(); } catch {} currentAudio.src = ""; currentAudio = null; }
   clearCaption();
   setStatus("idle");
   showSpeakOverlay(false);
 }
 
-async function speakOpenAI(text) {
+function stopSpeaking() {
+  stopSpeakingAudio();
+  synth?.cancel();
+}
+
+// Stream audio via MediaSource so playback starts on first chunk
+function playStream(stream, clean) {
+  return new Promise((resolve) => {
+    const mime = "audio/mpeg";
+    if (typeof MediaSource === "undefined" || !MediaSource.isTypeSupported(mime)) {
+      resolve(null); return;
+    }
+    const ms = new MediaSource();
+    const url = URL.createObjectURL(ms);
+    const audio = new Audio(url);
+
+    ms.addEventListener("sourceopen", async () => {
+      let sb;
+      try { sb = ms.addSourceBuffer(mime); }
+      catch { URL.revokeObjectURL(url); resolve(null); return; }
+
+      const reader = stream.getReader();
+      const pump = async () => {
+        const { done, value } = await reader.read().catch(() => ({ done: true }));
+        if (done) {
+          if (ms.readyState === "open") {
+            if (sb.updating) sb.addEventListener("updateend", () => { if (ms.readyState === "open") ms.endOfStream(); }, { once: true });
+            else ms.endOfStream();
+          }
+          return;
+        }
+        if (sb.updating) await new Promise(r => sb.addEventListener("updateend", r, { once: true }));
+        try { sb.appendBuffer(value); } catch {}
+        await new Promise(r => sb.addEventListener("updateend", r, { once: true }));
+        pump();
+      };
+      pump();
+      audio._msUrl = url;
+      resolve(audio);
+    });
+
+    setTimeout(() => resolve(null), 3000); // fallback if sourceopen never fires
+  });
+}
+
+async function speak(text) {
+  if (muteOn) return;
+  stopSpeakingAudio();
+  synth?.cancel();
+
   const clean = text.replace(/[*_#`]/g, "").replace(/\s+/g, " ").trim().slice(0, 700);
-  if (!clean) return false;
+  if (!clean) return;
 
   let res;
   try {
@@ -230,93 +278,54 @@ async function speakOpenAI(text) {
       body: JSON.stringify({ text: clean }),
     });
   } catch (e) {
-    console.error("[Nova TTS] fetch failed:", e);
-    toast("warn", "TTS fetch failed — using browser voice");
-    return false;
+    console.error("[TTS] fetch:", e);
+    return;
   }
 
   if (!res.ok) {
-    const detail = await res.text().catch(() => res.status);
-    console.error("[Nova TTS] API error:", res.status, detail);
-    toast("warn", `TTS error ${res.status} — using browser voice`);
-    return false;
+    const err = await res.text().catch(() => "");
+    console.error("[TTS] error", res.status, err);
+    toast("warn", `TTS error ${res.status}`);
+    return;
   }
 
-  const contentType = res.headers.get("Content-Type") || "";
-  if (!contentType.includes("audio")) {
-    const body = await res.text().catch(() => "");
-    console.error("[Nova TTS] Expected audio, got:", contentType, body);
-    toast("warn", "TTS returned non-audio — using browser voice");
-    return false;
+  const wordCount = mountCaption(clean);
+
+  // Try streaming first, fall back to blob
+  let audio = await playStream(res.body, clean);
+  if (!audio) {
+    const blob = await res.blob().catch(() => null);
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    audio = new Audio(url);
+    audio._blobUrl = url;
   }
 
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
   currentAudio = audio;
+  syncCaption(audio, wordCount);
 
-  audio.onloadedmetadata = () => showCaption(clean, audio.duration * 1000);
-  audio.onplay  = () => { setStatus("speaking"); showSpeakOverlay(true); resetStandbyTimer(); };
-  audio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; stopSpeakingAudio(); resetStandbyTimer(); };
-  audio.onerror = (e) => { console.error("[Nova TTS] audio error:", e); URL.revokeObjectURL(url); currentAudio = null; stopSpeakingAudio(); };
+  return new Promise((resolve) => {
+    audio.addEventListener("ended", () => {
+      if (audio._msUrl)   URL.revokeObjectURL(audio._msUrl);
+      if (audio._blobUrl) URL.revokeObjectURL(audio._blobUrl);
+      currentAudio = null;
+      stopSpeakingAudio();
+      resetStandbyTimer();
+      resolve();
+    });
+    audio.addEventListener("error", () => {
+      if (audio._msUrl)   URL.revokeObjectURL(audio._msUrl);
+      if (audio._blobUrl) URL.revokeObjectURL(audio._blobUrl);
+      currentAudio = null;
+      stopSpeakingAudio();
+      resolve();
+    });
 
-  setStatus("speaking");
-  showSpeakOverlay(true);
-  try {
-    await audio.play();
-    return true;
-  } catch (e) {
-    console.error("[Nova TTS] play() failed:", e);
-    stopSpeakingAudio();
-    return false;
-  }
-}
-
-function pickVoice() {
-  const voices = synth.getVoices();
-  return voices.find(v => v.lang === "en-GB" && /samantha|serena|kate|neural|enhanced|natural|premium/i.test(v.name))
-    || voices.find(v => v.lang === "en-GB")
-    || voices.find(v => /^en/.test(v.lang) && /neural|enhanced|natural|premium|samantha/i.test(v.name))
-    || voices.find(v => /^en/.test(v.lang));
-}
-
-function speakFallback(text) {
-  if (!synth) return;
-  synth.cancel();
-  const clean = text.replace(/[*_#`]/g, "").replace(/\s+/g, " ").trim().slice(0, 700);
-  if (!clean) return;
-  utterance = new SpeechSynthesisUtterance(clean);
-  utterance.lang = "en-GB"; utterance.rate = 0.92; utterance.pitch = 1.05; utterance.volume = 1;
-  const voice = pickVoice();
-  if (voice) utterance.voice = voice;
-  // Word-by-word captions via boundary events
-  const words = clean.split(/\s+/);
-  let wordIdx = 0;
-  showCaption(clean, (clean.length / 14) * 1000);
-  utterance.onboundary = (e) => {
-    if (e.name !== "word") return;
-    const el = document.getElementById(`cw${wordIdx}`);
-    if (el) el.classList.add("lit");
-    wordIdx++;
-  };
-  utterance.onstart = () => { setStatus("speaking"); showSpeakOverlay(true); resetStandbyTimer(); };
-  utterance.onend   = () => { clearCaption(); setStatus("idle"); showSpeakOverlay(false); resetStandbyTimer(); };
-  utterance.onerror = () => { clearCaption(); setStatus("idle"); showSpeakOverlay(false); };
-  setStatus("speaking"); showSpeakOverlay(true);
-  synth.speak(utterance);
-}
-
-async function speak(text) {
-  if (muteOn) return;
-  stopSpeakingAudio();
-  synth?.cancel();
-  const ok = await speakOpenAI(text);
-  if (!ok) speakFallback(text);
-}
-
-function stopSpeaking() {
-  stopSpeakingAudio();
-  synth?.cancel();
+    setStatus("speaking");
+    showSpeakOverlay(true);
+    resetStandbyTimer();
+    audio.play().catch((e) => { console.error("[TTS] play:", e); stopSpeakingAudio(); resolve(); });
+  });
 }
 
 // ── Voice recognition ──────────────────────────────────────────────────────
@@ -423,9 +432,9 @@ async function sendMessage() {
 
     messages.push({ role: "assistant", content: data.reply });
     saveMessage("assistant", data.reply, { cards: data.cards || [] });
-    renderNovaMsg(data.reply, data.cards || []);
     setStatus("idle");
-    speak(data.reply);
+    await speak(data.reply);
+    renderNovaMsg(data.reply, data.cards || []);
 
   } catch (e) {
     hideTyping();
