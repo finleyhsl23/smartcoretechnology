@@ -16,6 +16,7 @@ let synth        = window.speechSynthesis;
 let utterance    = null;
 let chatStarted  = false;
 let ownerMode    = false;
+let convMode     = false;
 
 // ── Clock ──────────────────────────────────────────────────────────────────
 function updateClock() {
@@ -79,6 +80,7 @@ function enterStandby() {
   document.getElementById("welcome")?.classList.remove("hidden");
   document.getElementById("chatArea")?.classList.remove("active");
   stopSpeaking();
+  setConvMode(false);
   setStatus("idle");
   // Keep messages/session in memory — chat resumes seamlessly
 }
@@ -356,7 +358,7 @@ function initVoice() {
   recognition.onend = () => {
     isListening = false;
     micBtn?.classList.remove("active");
-    setStatus("idle");
+    if (!convMode) setStatus("idle");
     if (tbar) tbar.classList.remove("active");
     const t = ttext?.textContent?.trim();
     if (t && ta) { ta.value = t; setTimeout(() => sendMessage(), 100); }
@@ -383,6 +385,46 @@ function toggleVoice() {
     recognition.start(); isListening = true;
     micBtn?.classList.add("active"); setStatus("listening");
   } catch (e) { toast("warn", "Could not start microphone"); }
+}
+
+// ── Conversation mode ───────────────────────────────────────────────────────
+function setConvMode(active) {
+  convMode = active;
+  const btn = document.getElementById("convBtn");
+  if (active) {
+    btn?.classList.add("active");
+    btn && (btn.title = "Stop conversation");
+  } else {
+    btn?.classList.remove("active");
+    btn && (btn.title = "Conversation mode");
+    if (isListening) { recognition?.stop(); }
+  }
+}
+
+function toggleConvMode() {
+  if (convMode) {
+    setConvMode(false);
+    stopSpeaking();
+    toast("info", "Conversation mode off");
+  } else {
+    if (!recognition) { toast("warn", "Microphone not available"); return; }
+    setConvMode(true);
+    toast("info", "Conversation mode on — listening…");
+    startConvListen();
+  }
+}
+
+function startConvListen() {
+  if (!convMode || isListening) return;
+  stopSpeaking();
+  try {
+    recognition.start();
+    isListening = true;
+    document.getElementById("micBtn")?.classList.add("active");
+    setStatus("listening");
+  } catch (e) {
+    // recognition may already be running; ignore
+  }
 }
 
 // ── Send ────────────────────────────────────────────────────────────────────
@@ -413,6 +455,7 @@ async function sendMessage() {
       messages.push({ role: "assistant", content: replyText });
       await speak(replyText);
       renderNovaMsg(replyText);
+      if (convMode) setTimeout(() => startConvListen(), 400);
       if (sendBtn) sendBtn.disabled = false;
       ta?.focus();
       return;
@@ -462,6 +505,7 @@ async function sendMessage() {
     setStatus("idle");
     await speak(data.reply);
     renderNovaMsg(data.reply, data.cards || []);
+    if (convMode) setTimeout(() => startConvListen(), 400);
 
   } catch (e) {
     hideTyping();
@@ -596,6 +640,7 @@ async function boot() {
   initVoice();
 
   document.getElementById("micBtn")?.addEventListener("click", toggleVoice);
+  document.getElementById("convBtn")?.addEventListener("click", toggleConvMode);
   document.getElementById("sendBtn")?.addEventListener("click", sendMessage);
 
   const muteBtn = document.getElementById("muteBtn");
