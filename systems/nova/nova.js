@@ -183,45 +183,120 @@ async function saveMessage(role, content, metadata = {}) {
   await sb().from("nova_messages").insert({ conversation_id: activeConvId, role, content, metadata });
 }
 
+// ── Captions ───────────────────────────────────────────────────────────────
+let captionTimers = [];
+
+function clearCaption() {
+  captionTimers.forEach(clearTimeout);
+  captionTimers = [];
+  const el = document.getElementById("speakCaption");
+  if (el) el.innerHTML = "";
+}
+
+function showCaption(text, durationMs) {
+  clearCaption();
+  const el = document.getElementById("speakCaption");
+  if (!el) return;
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length) return;
+  el.innerHTML = words.map((w, i) => `<span class="word" id="cw${i}">${w}</span>`).join(" ");
+  const msPerWord = Math.max(60, durationMs / words.length);
+  words.forEach((_, i) => {
+    captionTimers.push(setTimeout(() => {
+      document.getElementById(`cw${i}`)?.classList.add("lit");
+    }, i * msPerWord));
+  });
+}
+
 // ── TTS ────────────────────────────────────────────────────────────────────
+let currentAudio = null;
+
+function stopSpeakingAudio() {
+  if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; currentAudio = null; }
+  clearCaption();
+  setStatus("idle");
+  showSpeakOverlay(false);
+}
+
+async function speakElevenLabs(text) {
+  const clean = text.replace(/[*_#`]/g, "").replace(/\s+/g, " ").trim().slice(0, 700);
+  if (!clean) return false;
+
+  let res;
+  try {
+    res = await fetch("/api/nova/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ text: clean }),
+    });
+  } catch { return false; }
+
+  if (!res.ok) return false;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  currentAudio = audio;
+
+  audio.onloadedmetadata = () => {
+    showCaption(clean, audio.duration * 1000);
+  };
+
+  audio.onplay  = () => { setStatus("speaking"); showSpeakOverlay(true); resetStandbyTimer(); };
+  audio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; stopSpeakingAudio(); resetStandbyTimer(); };
+  audio.onerror = () => { URL.revokeObjectURL(url); currentAudio = null; stopSpeakingAudio(); };
+
+  setStatus("speaking");
+  showSpeakOverlay(true);
+  await audio.play().catch(() => stopSpeakingAudio());
+  return true;
+}
+
 function pickVoice() {
   const voices = synth.getVoices();
-  // Prefer premium/neural en-GB, then any en-GB, then premium en-US, then any English
   return voices.find(v => v.lang === "en-GB" && /samantha|serena|kate|neural|enhanced|natural|premium/i.test(v.name))
     || voices.find(v => v.lang === "en-GB")
     || voices.find(v => /^en/.test(v.lang) && /neural|enhanced|natural|premium|samantha/i.test(v.name))
     || voices.find(v => /^en/.test(v.lang));
 }
 
-function speak(text) {
-  if (muteOn || !synth) return;
+function speakFallback(text) {
+  if (!synth) return;
   synth.cancel();
-  const clean = text
-    .replace(/[\u{1F300}-\u{1F9FF}]/gu, "")
-    .replace(/[*_#`]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 700);
+  const clean = text.replace(/[*_#`]/g, "").replace(/\s+/g, " ").trim().slice(0, 700);
   if (!clean) return;
   utterance = new SpeechSynthesisUtterance(clean);
-  utterance.lang  = "en-GB";
-  utterance.rate  = 0.92;
-  utterance.pitch = 1.05;
-  utterance.volume = 1;
+  utterance.lang = "en-GB"; utterance.rate = 0.92; utterance.pitch = 1.05; utterance.volume = 1;
   const voice = pickVoice();
   if (voice) utterance.voice = voice;
+  // Word-by-word captions via boundary events
+  const words = clean.split(/\s+/);
+  let wordIdx = 0;
+  showCaption(clean, (clean.length / 14) * 1000);
+  utterance.onboundary = (e) => {
+    if (e.name !== "word") return;
+    const el = document.getElementById(`cw${wordIdx}`);
+    if (el) el.classList.add("lit");
+    wordIdx++;
+  };
   utterance.onstart = () => { setStatus("speaking"); showSpeakOverlay(true); resetStandbyTimer(); };
-  utterance.onend   = () => { setStatus("idle"); showSpeakOverlay(false); resetStandbyTimer(); };
-  utterance.onerror = () => { setStatus("idle"); showSpeakOverlay(false); };
-  setStatus("speaking");
-  showSpeakOverlay(true);
+  utterance.onend   = () => { clearCaption(); setStatus("idle"); showSpeakOverlay(false); resetStandbyTimer(); };
+  utterance.onerror = () => { clearCaption(); setStatus("idle"); showSpeakOverlay(false); };
+  setStatus("speaking"); showSpeakOverlay(true);
   synth.speak(utterance);
 }
 
-function stopSpeaking() {
+async function speak(text) {
+  if (muteOn) return;
+  stopSpeakingAudio();
   synth?.cancel();
-  setStatus("idle");
-  showSpeakOverlay(false);
+  const ok = await speakElevenLabs(text);
+  if (!ok) speakFallback(text);
+}
+
+function stopSpeaking() {
+  stopSpeakingAudio();
+  synth?.cancel();
 }
 
 // ── Voice recognition ──────────────────────────────────────────────────────
