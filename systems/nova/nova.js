@@ -44,22 +44,24 @@ function toast(type, msg) {
 
 // ── Orb / Status ──────────────────────────────────────────────────────────
 function setOrbState(state) {
-  const orb = document.getElementById("novaOrb");
-  const rings = document.getElementById("orbRings");
-  const badge = document.getElementById("statusBadge");
+  const orb        = document.getElementById("novaOrb");
+  const rings      = document.getElementById("orbRings");
+  const dotSidebar = document.getElementById("statusDot");
+  const dotTop     = document.getElementById("statusDotTop");
+  const label      = document.getElementById("statusLabel");
+  const topbar     = document.getElementById("topbarStatus");
   if (!orb) return;
 
-  orb.className = "nova-orb" + (state !== "idle" ? ` ${state}` : "");
+  orb.className   = "nova-orb" + (state !== "idle" ? ` ${state}` : "");
   rings.className = "nova-orb-rings" + (["listening","thinking"].includes(state) ? " active" : "");
 
-  const labels = {
-    idle:      "Ready",
-    listening: "Listening…",
-    thinking:  "Thinking…",
-    speaking:  "Speaking…",
-  };
-  badge.textContent = labels[state] || "Ready";
-  badge.className   = `nova-status-badge ${state !== "idle" ? state : ""}`;
+  const dotClass = state !== "idle" ? `nova-status-dot ${state}` : "nova-status-dot";
+  if (dotSidebar) dotSidebar.className = dotClass;
+  if (dotTop)     dotTop.className     = dotClass;
+  if (topbar)     topbar.className     = `topbar-status ${state !== "idle" ? state : ""}`;
+
+  const labels = { idle: "Ready", listening: "Listening…", thinking: "Thinking…", speaking: "Speaking…" };
+  if (label) label.textContent = labels[state] || "Ready";
 }
 
 // ── Sidebar toggle ─────────────────────────────────────────────────────────
@@ -573,26 +575,28 @@ function speak(text) {
   synth.cancel();
 
   const clean = text
-    .replace(/\d+\./g, "")
     .replace(/[\u{1F300}-\u{1F9FF}]/gu, "")
+    .replace(/[*_#`]/g, "")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 500);
+    .slice(0, 600);
 
   if (!clean) return;
 
   utterance = new SpeechSynthesisUtterance(clean);
-  utterance.rate  = 0.95;
-  utterance.pitch = 1.05;
+  utterance.rate  = 1.1;
+  utterance.pitch = 1.0;
   utterance.lang  = "en-GB";
 
-  // Prefer a British English voice
   const voices = synth.getVoices();
-  const britishVoice = voices.find(v =>
-    (v.lang === "en-GB" || v.lang.startsWith("en-GB")) && v.name.toLowerCase().includes("female")
-  ) || voices.find(v => v.lang === "en-GB") || voices.find(v => v.lang.startsWith("en"));
-
-  if (britishVoice) utterance.voice = britishVoice;
+  const pick = (
+    voices.find(v => v.lang === "en-GB" && /neural|enhanced|natural|premium/i.test(v.name)) ||
+    voices.find(v => v.lang === "en-GB" && /female|samantha|serena|kate/i.test(v.name)) ||
+    voices.find(v => v.lang === "en-GB") ||
+    voices.find(v => v.lang.startsWith("en") && /neural|enhanced/i.test(v.name)) ||
+    voices.find(v => v.lang.startsWith("en"))
+  );
+  if (pick) utterance.voice = pick;
 
   utterance.onstart = () => setOrbState("speaking");
   utterance.onend   = () => setOrbState("idle");
@@ -935,15 +939,37 @@ async function boot() {
 
   await loadConversations();
 
-  // TTS toggle
+  // TTS toggle (sidebar button)
   const ttsBtn = document.getElementById("ttsBtn");
   if (ttsBtn) {
     ttsBtn.addEventListener("click", () => {
       ttsEnabled = !ttsEnabled;
       ttsBtn.textContent = ttsEnabled ? "🔊" : "🔇";
       if (!ttsEnabled) stopSpeaking();
+      syncMuteBtn();
       toast("ok", ttsEnabled ? "Voice responses on" : "Voice responses off");
     });
+  }
+
+  // Mute button (input bar)
+  const muteBtn = document.getElementById("muteBtn");
+  if (muteBtn) {
+    muteBtn.addEventListener("click", () => {
+      ttsEnabled = !ttsEnabled;
+      if (!ttsEnabled) stopSpeaking();
+      syncMuteBtn();
+    });
+  }
+
+  function syncMuteBtn() {
+    const btn = document.getElementById("muteBtn");
+    const ttsB = document.getElementById("ttsBtn");
+    if (btn) {
+      btn.textContent = ttsEnabled ? "🔊" : "🔇";
+      btn.classList.toggle("muted", !ttsEnabled);
+      btn.title = ttsEnabled ? "Mute voice responses" : "Unmute voice responses";
+    }
+    if (ttsB) ttsB.textContent = ttsEnabled ? "🔊" : "🔇";
   }
 
   document.getElementById("themeBtn")?.addEventListener("click", toggleTheme);
