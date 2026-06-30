@@ -44,7 +44,7 @@ export async function onRequestPost(ctx) {
     },
     body: JSON.stringify({
       model: 'tts-1-hd',
-      voice: 'nova',
+      voice: 'onyx',
       input: text,
       speed: 0.95,
     }),
