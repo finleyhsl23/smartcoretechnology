@@ -82,10 +82,7 @@ function initMobileNav() {
 async function requireAuth() {
   const client = sb();
   const { data, error } = await client.auth.getSession();
-  if (error || !data?.session) {
-    window.location.href = "/modules";
-    throw new Error("Not authenticated");
-  }
+  if (error || !data?.session) throw new Error("Not authenticated");
   session = data.session;
 
   const { data: prof, error: profErr } = await client
@@ -94,10 +91,7 @@ async function requireAuth() {
     .eq("user_id", session.user.id)
     .maybeSingle();
 
-  if (profErr || !prof) {
-    window.location.href = "/modules";
-    throw new Error("No profile");
-  }
+  if (profErr || !prof) throw new Error("No profile");
   profile = prof;
 }
 
@@ -959,7 +953,6 @@ async function boot() {
   document.getElementById("logoutBtn")?.addEventListener("click", async () => {
     const client = sb();
     await client.auth.signOut();
-    window.location.href = "/modules";
   });
 }
 
