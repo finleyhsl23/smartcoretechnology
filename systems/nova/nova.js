@@ -52,8 +52,8 @@ function setOrbState(state) {
   const topbar     = document.getElementById("topbarStatus");
   if (!orb) return;
 
-  orb.className   = "nova-orb" + (state !== "idle" ? ` ${state}` : "");
-  rings.className = "nova-orb-rings" + (["listening","thinking"].includes(state) ? " active" : "");
+  orb.className = "nova-orb" + (state !== "idle" ? ` ${state}` : "");
+  if (rings) rings.className = "nova-orb-rings" + (["listening","thinking"].includes(state) ? " active" : "");
 
   const dotClass = state !== "idle" ? `nova-status-dot ${state}` : "nova-status-dot";
   if (dotSidebar) dotSidebar.className = dotClass;
@@ -204,21 +204,12 @@ function renderTopbarTitle() {
 
 function renderEmpty() {
   const chat = document.getElementById("novaChat");
+  const name = profile?.full_name?.split(" ")[0] || "";
   chat.innerHTML = `
-    <div class="nova-empty">
-      <div class="nova-empty-orb"></div>
-      <h2>Hi${profile ? `, ${profile.full_name?.split(" ")[0]}` : ""}! I'm Nova.</h2>
-      <p>Your personal AI assistant. I can manage your calendar, tasks, contacts, reminders, notes, find locations, draft emails, and access your CRM — all by voice or text.</p>
-      <div class="suggestion-chips">
-        <div class="suggestion-chip" onclick="window._suggest(this)">📅 What's on today?</div>
-        <div class="suggestion-chip" onclick="window._suggest(this)">📝 Create a task</div>
-        <div class="suggestion-chip" onclick="window._suggest(this)">👤 Add a contact</div>
-        <div class="suggestion-chip" onclick="window._suggest(this)">🗺️ Find a location</div>
-        <div class="suggestion-chip" onclick="window._suggest(this)">📧 Draft an email</div>
-        <div class="suggestion-chip" onclick="window._suggest(this)">⏰ Set a reminder</div>
-        <div class="suggestion-chip" onclick="window._suggest(this)">📋 Show my tasks</div>
-        <div class="suggestion-chip" onclick="window._suggest(this)">🔍 Search my CRM</div>
-      </div>
+    <div class="nova-empty" id="novaEmpty">
+      <div class="empty-orb-wrap"><div class="empty-orb"></div></div>
+      <h2>${name ? `Good to see you, ${name}.` : "Hello. I'm Nova."}</h2>
+      <p>Calendar · Tasks · Contacts · Notes · Email · CRM</p>
     </div>
   `;
 }
@@ -710,8 +701,7 @@ async function sendMessage() {
   }
 
   // Remove empty state
-  const emptyEl = document.querySelector(".nova-empty");
-  if (emptyEl) emptyEl.closest(".chat-inner")?.remove();
+  document.getElementById("novaEmpty")?.remove();
 
   // Render user bubble
   renderUserMsg(userInput);
@@ -842,23 +832,19 @@ function startNewChat() {
 
 // ── Quick actions ──────────────────────────────────────────────────────────
 const QUICK_ACTIONS = [
-  { label: "📅 Today", prompt: "Give me my daily briefing — what's on today?" },
-  { label: "✅ Tasks",  prompt: "Show me my current tasks and to-dos." },
-  { label: "📝 Note",   prompt: "I'd like to take a note." },
-  { label: "⏰ Remind", prompt: "Set a reminder for me." },
-  { label: "👤 Contact",prompt: "I need to add a contact." },
-  { label: "🗺️ Map",    prompt: "I need to find a location." },
-  { label: "✉️ Email",  prompt: "Draft an email for me." },
-  { label: "📊 CRM",    prompt: "Search my CRM data." },
+  { label: "Today",   prompt: "Give me my daily briefing — what's on today?" },
+  { label: "Tasks",   prompt: "Show me my current tasks." },
+  { label: "Note",    prompt: "I'd like to take a note." },
+  { label: "Remind",  prompt: "Set a reminder for me." },
+  { label: "Email",   prompt: "Draft an email for me." },
+  { label: "CRM",     prompt: "Search my CRM data." },
 ];
 
 function renderQuickActions() {
   const el = document.getElementById("quickGrid");
   if (!el) return;
   el.innerHTML = QUICK_ACTIONS.map(q => `
-    <button class="quick-btn" onclick="window._quickAction('${esc(q.prompt)}')">
-      <span>${q.label.split(" ")[0]}</span>${q.label.split(" ").slice(1).join(" ")}
-    </button>
+    <button class="quick-btn" onclick="window._quickAction('${esc(q.prompt)}')">${q.label}</button>
   `).join("");
 }
 
