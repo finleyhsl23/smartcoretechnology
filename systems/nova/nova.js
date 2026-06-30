@@ -218,7 +218,7 @@ function stopSpeakingAudio() {
   showSpeakOverlay(false);
 }
 
-async function speakElevenLabs(text) {
+async function speakOpenAI(text) {
   const clean = text.replace(/[*_#`]/g, "").replace(/\s+/g, " ").trim().slice(0, 700);
   if (!clean) return false;
 
@@ -229,27 +229,47 @@ async function speakElevenLabs(text) {
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
       body: JSON.stringify({ text: clean }),
     });
-  } catch { return false; }
+  } catch (e) {
+    console.error("[Nova TTS] fetch failed:", e);
+    toast("warn", "TTS fetch failed — using browser voice");
+    return false;
+  }
 
-  if (!res.ok) return false;
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.status);
+    console.error("[Nova TTS] API error:", res.status, detail);
+    toast("warn", `TTS error ${res.status} — using browser voice`);
+    return false;
+  }
+
+  const contentType = res.headers.get("Content-Type") || "";
+  if (!contentType.includes("audio")) {
+    const body = await res.text().catch(() => "");
+    console.error("[Nova TTS] Expected audio, got:", contentType, body);
+    toast("warn", "TTS returned non-audio — using browser voice");
+    return false;
+  }
 
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const audio = new Audio(url);
   currentAudio = audio;
 
-  audio.onloadedmetadata = () => {
-    showCaption(clean, audio.duration * 1000);
-  };
-
+  audio.onloadedmetadata = () => showCaption(clean, audio.duration * 1000);
   audio.onplay  = () => { setStatus("speaking"); showSpeakOverlay(true); resetStandbyTimer(); };
   audio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; stopSpeakingAudio(); resetStandbyTimer(); };
-  audio.onerror = () => { URL.revokeObjectURL(url); currentAudio = null; stopSpeakingAudio(); };
+  audio.onerror = (e) => { console.error("[Nova TTS] audio error:", e); URL.revokeObjectURL(url); currentAudio = null; stopSpeakingAudio(); };
 
   setStatus("speaking");
   showSpeakOverlay(true);
-  await audio.play().catch(() => stopSpeakingAudio());
-  return true;
+  try {
+    await audio.play();
+    return true;
+  } catch (e) {
+    console.error("[Nova TTS] play() failed:", e);
+    stopSpeakingAudio();
+    return false;
+  }
 }
 
 function pickVoice() {
@@ -290,7 +310,7 @@ async function speak(text) {
   if (muteOn) return;
   stopSpeakingAudio();
   synth?.cancel();
-  const ok = await speakElevenLabs(text);
+  const ok = await speakOpenAI(text);
   if (!ok) speakFallback(text);
 }
 
