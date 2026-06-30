@@ -15,6 +15,7 @@ let isListening  = false;
 let synth        = window.speechSynthesis;
 let utterance    = null;
 let chatStarted  = false;
+let ownerMode    = false;
 
 // ── Clock ──────────────────────────────────────────────────────────────────
 function updateClock() {
@@ -392,6 +393,32 @@ async function sendMessage() {
   if (!input) return;
   if (!session) { toast("bad", "Not signed in"); return; }
 
+  // Check for owner unlock
+  const inputLower = input.toLowerCase();
+  if (inputLower.includes('finley hassall') && inputLower.includes('2304')) {
+    ownerMode = true;
+  }
+
+  // Owner "say" shortcut — bypass AI entirely
+  if (ownerMode) {
+    const sayMatch = input.match(/^(?:say|speak)\s+(.+)$/i);
+    if (sayMatch) {
+      stopSpeaking();
+      ta.value = ""; ta.style.height = "22px";
+      enterChat();
+      const sayText = sayMatch[1].trim();
+      renderUserMsg(input);
+      const replyText = sayText;
+      messages.push({ role: "user", content: input });
+      messages.push({ role: "assistant", content: replyText });
+      await speak(replyText);
+      renderNovaMsg(replyText);
+      if (sendBtn) sendBtn.disabled = false;
+      ta?.focus();
+      return;
+    }
+  }
+
   stopSpeaking();
   ta.value = ""; ta.style.height = "22px";
   if (sendBtn) sendBtn.disabled = true;
@@ -416,7 +443,7 @@ async function sendMessage() {
     const res = await fetch("/api/nova/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
-      body: JSON.stringify({ messages: messages.slice(-20), conversation_id: activeConvId }),
+      body: JSON.stringify({ messages: messages.slice(-20), conversation_id: activeConvId, owner_mode: ownerMode }),
     });
 
     const data = await res.json().catch(() => ({}));
