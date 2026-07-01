@@ -276,10 +276,33 @@ function unlockAudio() {
   audioUnlocked = true;
   const silent = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
   silent.play().catch(() => {});
+  document.getElementById("tapHearBtn")?.remove();
 }
 document.addEventListener("click", unlockAudio, { once: true });
 document.addEventListener("touchstart", unlockAudio, { once: true });
 document.addEventListener("keydown", unlockAudio, { once: true });
+
+function showTapToHear(onTap) {
+  let btn = document.getElementById("tapHearBtn");
+  if (btn) { btn.remove(); }
+  btn = document.createElement("button");
+  btn.id = "tapHearBtn";
+  btn.textContent = "🔊 Tap to hear Nova";
+  Object.assign(btn.style, {
+    position:"fixed", bottom:"90px", left:"50%", transform:"translateX(-50%)",
+    background:"rgba(6,182,212,0.15)", border:"1px solid rgba(6,182,212,0.4)",
+    color:"#06b6d4", borderRadius:"12px", padding:"10px 20px", fontSize:"14px",
+    fontFamily:"inherit", cursor:"pointer", zIndex:"9999",
+    backdropFilter:"blur(8px)", transition:"opacity 0.2s",
+  });
+  btn.addEventListener("click", () => {
+    unlockAudio();
+    btn.remove();
+    onTap();
+  }, { once: true });
+  document.body.appendChild(btn);
+  setTimeout(() => btn?.remove(), 8000);
+}
 
 async function speak(text) {
   if (muteOn) return;
@@ -337,7 +360,19 @@ async function speak(text) {
     setStatus("speaking");
     showSpeakOverlay(true);
     resetStandbyTimer();
-    audio.play().catch((e) => { console.error("[TTS] play:", e); stopSpeakingAudio(); resolve(); });
+    audio.play().catch((e) => {
+      console.error("[TTS] play:", e);
+      if (e.name === "NotAllowedError") {
+        // Browser blocked autoplay — show tap button so user can unlock
+        showTapToHear(() => {
+          if (currentAudio === audio) {
+            audio.play().catch(() => { stopSpeakingAudio(); resolve(); });
+          }
+        });
+      } else {
+        stopSpeakingAudio(); resolve();
+      }
+    });
   });
 }
 
@@ -403,10 +438,20 @@ function toggleVoice() {
   }
   pauseWakeWord();
   stopSpeaking();
-  try {
-    recognition.start(); isListening = true;
-    micBtn?.classList.add("active"); setStatus("listening");
-  } catch (e) { toast("warn", "Could not start microphone"); }
+  // Small delay lets wakeRecognition fully stop before starting main recognition
+  setTimeout(() => {
+    try {
+      recognition.start(); isListening = true;
+      micBtn?.classList.add("active"); setStatus("listening");
+    } catch (e) {
+      setTimeout(() => {
+        try {
+          recognition.start(); isListening = true;
+          micBtn?.classList.add("active"); setStatus("listening");
+        } catch (e2) { toast("warn", "Could not start microphone"); }
+      }, 400);
+    }
+  }, 200);
 }
 
 // ── Conversation mode ───────────────────────────────────────────────────────
@@ -501,6 +546,10 @@ function initWakeWord() {
             speak(greeting).then(() => {
               if (!isListening && !convMode) toggleVoice();
             });
+            // Fallback: if audio was blocked/instant-fail, still open mic after short wait
+            setTimeout(() => {
+              if (!isListening && !convMode && !currentAudio) toggleVoice();
+            }, 1200);
           }
           return;
         }
