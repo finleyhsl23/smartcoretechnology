@@ -372,6 +372,8 @@ async function speak(text) {
     showSpeakOverlay(true);
     resetStandbyTimer();
     setTimeout(() => {
+      // Guard: if stopSpeaking was called during the delay, abort
+      if (currentAudio !== audio) { resolve(); return; }
       audio.play().catch((e) => { console.error("[TTS] play:", e); stopSpeakingAudio(); resolve(); });
     }, 800);
   });
@@ -424,7 +426,7 @@ function initVoice() {
     if (!convMode) setStatus("idle");
     if (tbar) tbar.classList.remove("active");
     lastTranscript = "";
-    if (e.error !== "no-speech") toast("warn", `Mic error: ${e.error}`);
+    if (e.error !== "no-speech" && e.error !== "aborted" && e.error !== "interrupted") toast("warn", `Mic error: ${e.error}`);
     if (convMode) setTimeout(() => startConvListen(), 800);
     else resumeWakeWord();
   };
@@ -530,7 +532,10 @@ function initWakeWord() {
           if (!isListening && !convMode) {
             pauseWakeWord();
             enterChat();
-            setTimeout(() => toggleVoice(), 300);
+            // Greet then listen
+            const greetings = ["Yes? How can I help?", "What's up?", "Go ahead.", "I'm listening.", "How can I help?", "Yes, what do you need?"];
+            const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+            speak(greeting).then(() => { if (!isListening && !convMode) toggleVoice(); });
           }
           return;
         }
@@ -569,7 +574,8 @@ function initWakeWord() {
 
     wr.onerror = (e) => {
       wakeActive = false;
-      if (e.error === 'not-allowed') return; // user denied mic — don't retry
+      if (e.error === 'not-allowed') return;
+      if (e.error === 'aborted' || e.error === 'interrupted') return; // we stopped it intentionally
       if (!document.hidden && !isListening && !convMode) {
         clearTimeout(wakeRestartTimer);
         wakeRestartTimer = setTimeout(() => {

@@ -33,27 +33,102 @@ export async function onRequestPost(ctx) {
     });
   }
 
-  const itemsHtml = items.map(i => `
-    <li style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-size:15px;color:#1f2937;">${i}</li>`
+  // Build shareable list link — encode items as base64 JSON in URL
+  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(items))));
+  const listUrl = `https://smartcoretechnology.co.uk/systems/nova/list?items=${encoded}`;
+
+  const itemsHtml = items.map((item, i) => `
+    <tr>
+      <td style="padding:13px 0;border-bottom:1px solid rgba(255,255,255,0.06);vertical-align:middle;">
+        <table cellpadding="0" cellspacing="0" style="width:100%;">
+          <tr>
+            <td style="width:28px;vertical-align:middle;">
+              <div style="width:20px;height:20px;border:2px solid #06b6d4;border-radius:5px;"></div>
+            </td>
+            <td style="vertical-align:middle;padding-left:10px;color:#e2e8f0;font-size:15px;">${item}</td>
+            <td style="width:24px;text-align:right;color:#4b5563;font-size:12px;">${i + 1}</td>
+          </tr>
+        </table>
+      </td>
+    </tr>`
   ).join('');
 
-  const html = `
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f9fafb;padding:32px 0;">
-  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-    <div style="background:linear-gradient(135deg,#0a0f1e,#1a2744);padding:28px 32px;">
-      <div style="color:#06b6d4;font-size:13px;font-weight:600;letter-spacing:0.1em;margin-bottom:6px;">NOVA · SMARTCORE AI</div>
-      <h1 style="color:#fff;margin:0;font-size:22px;font-weight:600;">🛒 ${subject || 'Shopping List'}</h1>
-    </div>
-    <div style="padding:24px 32px;">
-      <ul style="margin:0;padding:0;list-style:none;">${itemsHtml}</ul>
-    </div>
-    <div style="padding:16px 32px 24px;color:#9ca3af;font-size:12px;border-top:1px solid #f3f4f6;">
-      Sent by Nova, your SmartCore AI assistant.
-    </div>
-  </div>
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>${subject || 'Shopping List'} · Nova</title>
+</head>
+<body style="margin:0;padding:0;background:#0a0f1e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0f1e;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;">
+
+        <!-- Header -->
+        <tr>
+          <td style="background:linear-gradient(135deg,#0d1426 0%,#0f2044 50%,#091535 100%);border-radius:20px 20px 0 0;padding:36px 40px 32px;border:1px solid rgba(6,182,212,0.15);border-bottom:none;">
+            <table cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td>
+                  <div style="display:inline-block;background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.3);border-radius:8px;padding:5px 12px;margin-bottom:16px;">
+                    <span style="color:#06b6d4;font-size:11px;font-weight:700;letter-spacing:0.12em;">NOVA · SMARTCORE AI</span>
+                  </div>
+                  <div style="color:#fff;font-size:26px;font-weight:700;margin:0;line-height:1.2;">🛒 ${subject || 'Shopping List'}</div>
+                  <div style="color:rgba(255,255,255,0.4);font-size:13px;margin-top:8px;">${items.length} item${items.length !== 1 ? 's' : ''} · Sent by Nova</div>
+                </td>
+                <td style="text-align:right;vertical-align:top;">
+                  <div style="width:52px;height:52px;background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.25);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:24px;">✦</div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Items -->
+        <tr>
+          <td style="background:#0d1426;padding:8px 40px 24px;border-left:1px solid rgba(6,182,212,0.15);border-right:1px solid rgba(6,182,212,0.15);">
+            <table width="100%" cellpadding="0" cellspacing="0">
+              ${itemsHtml}
+            </table>
+          </td>
+        </tr>
+
+        <!-- Interactive link button -->
+        <tr>
+          <td style="background:#0d1426;padding:0 40px 32px;border-left:1px solid rgba(6,182,212,0.15);border-right:1px solid rgba(6,182,212,0.15);">
+            <table cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td align="center" style="padding-top:8px;">
+                  <a href="${listUrl}" style="display:inline-block;background:linear-gradient(135deg,#06b6d4,#0891b2);color:#fff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 32px;border-radius:12px;letter-spacing:0.01em;">
+                    ✓ Open Interactive List
+                  </a>
+                  <div style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:10px;">Tick off items as you shop</div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="background:#080d1a;border-radius:0 0 20px 20px;padding:20px 40px;border:1px solid rgba(6,182,212,0.15);border-top:1px solid rgba(255,255,255,0.05);">
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="color:rgba(255,255,255,0.25);font-size:12px;">
+                  Sent by <span style="color:#06b6d4;">Nova</span> · SmartCore Technology
+                </td>
+                <td style="text-align:right;">
+                  <a href="https://smartcoretechnology.co.uk/systems/nova" style="color:#06b6d4;font-size:12px;text-decoration:none;">Open Nova →</a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
 </body>
 </html>`;
 
