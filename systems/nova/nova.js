@@ -414,6 +414,8 @@ function initVoice() {
     lastTranscript = "";
     if (t) { if (ta) ta.value = t; setTimeout(() => sendMessage(), 100); }
     else if (convMode) { setTimeout(() => startConvListen(), 600); }
+    // Resume wake word when main mic stops
+    if (!convMode) resumeWakeWord();
   };
 
   recognition.onerror = (e) => {
@@ -424,6 +426,7 @@ function initVoice() {
     lastTranscript = "";
     if (e.error !== "no-speech") toast("warn", `Mic error: ${e.error}`);
     if (convMode) setTimeout(() => startConvListen(), 800);
+    else resumeWakeWord();
   };
 }
 
@@ -434,6 +437,7 @@ function toggleVoice() {
     recognition.stop(); isListening = false;
     micBtn?.classList.remove("active"); setStatus("idle"); return;
   }
+  pauseWakeWord();
   stopSpeaking();
   try {
     recognition.start(); isListening = true;
@@ -448,10 +452,12 @@ function setConvMode(active) {
   if (active) {
     btn?.classList.add("active");
     btn && (btn.title = "Stop conversation");
+    pauseWakeWord();
   } else {
     btn?.classList.remove("active");
     btn && (btn.title = "Conversation mode");
     if (isListening) { recognition?.stop(); }
+    setTimeout(() => resumeWakeWord(), 800);
   }
 }
 
@@ -470,6 +476,7 @@ function toggleConvMode() {
 
 function startConvListen() {
   if (!convMode || isListening) return;
+  pauseWakeWord();
   stopSpeaking();
   try {
     recognition.start();
@@ -483,59 +490,104 @@ function startConvListen() {
 
 // ── Wake word listener ──────────────────────────────────────────────────────
 let wakeRecognition = null;
+let wakeActive = false;
+let wakeRestartTimer = null;
+
+function resumeWakeWord() {
+  if (wakeActive || isListening || convMode) return;
+  clearTimeout(wakeRestartTimer);
+  wakeRestartTimer = setTimeout(() => {
+    if (!wakeActive && !isListening && !convMode) {
+      try { wakeRecognition?.start(); wakeActive = true; } catch {}
+    }
+  }, 300);
+}
+
+function pauseWakeWord() {
+  if (!wakeActive) return;
+  try { wakeRecognition?.stop(); } catch {}
+  wakeActive = false;
+}
 
 function initWakeWord() {
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRec) return;
 
-  wakeRecognition = new SpeechRec();
-  wakeRecognition.lang = "en-GB";
-  wakeRecognition.continuous = true;
-  wakeRecognition.interimResults = true;
+  const makeWake = () => {
+    const wr = new SpeechRec();
+    wr.lang = "en-GB";
+    wr.continuous = true;
+    wr.interimResults = true;
 
-  wakeRecognition.onresult = (event) => {
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const transcript = event.results[i][0].transcript.toLowerCase().trim();
-      if (!transcript.includes('nova')) continue;
+    wr.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript.toLowerCase().trim();
+        if (!transcript.includes('nova')) continue;
 
-      // Strip "nova" / "hey nova" from the front to get the actual request
-      const cleaned = transcript.replace(/^(hey\s+nova|nova)[,\s]*/i, '').trim();
+        const cleaned = transcript.replace(/^(hey\s+nova|ok\s+nova|hi\s+nova|nova)[,\s]*/i, '').trim();
 
-      if (!cleaned) {
-        // Just "Nova" alone — open mic for a request
-        if (!isListening && !convMode) {
-          enterChat();
-          setTimeout(() => toggleVoice(), 200);
+        if (!cleaned) {
+          if (!isListening && !convMode) {
+            pauseWakeWord();
+            enterChat();
+            setTimeout(() => toggleVoice(), 300);
+          }
+          return;
         }
-        return;
-      }
 
-      // Check for conv mode intents
-      const intent = detectConvIntent(cleaned);
-      if (intent === 'start' && !convMode) {
+        const intent = detectConvIntent(cleaned);
+        if (intent === 'start' && !convMode) {
+          pauseWakeWord();
+          enterChat();
+          setTimeout(() => toggleConvMode(), 300);
+          return;
+        }
+        if (intent === 'stop' && convMode) {
+          toggleConvMode();
+          return;
+        }
+
+        // Full inline request
+        pauseWakeWord();
         enterChat();
-        setTimeout(() => toggleConvMode(), 200);
-        return;
+        const ta = document.getElementById("novaTextarea");
+        if (ta) ta.value = cleaned;
+        setTimeout(() => sendMessage(), 300);
       }
-      if (intent === 'stop' && convMode) {
-        toggleConvMode();
-        return;
-      }
+    };
 
-      // Otherwise treat as a full request — put it in the textarea and send
-      enterChat();
-      const ta = document.getElementById("novaTextarea");
-      if (ta) ta.value = cleaned;
-      setTimeout(() => sendMessage(), 200);
-    }
+    wr.onend = () => {
+      wakeActive = false;
+      // Always restart unless main mic is running or page hidden
+      if (!document.hidden && !isListening && !convMode) {
+        clearTimeout(wakeRestartTimer);
+        wakeRestartTimer = setTimeout(() => {
+          try { wakeRecognition?.start(); wakeActive = true; } catch {}
+        }, 1000);
+      }
+    };
+
+    wr.onerror = (e) => {
+      wakeActive = false;
+      if (e.error === 'not-allowed') return; // user denied mic — don't retry
+      if (!document.hidden && !isListening && !convMode) {
+        clearTimeout(wakeRestartTimer);
+        wakeRestartTimer = setTimeout(() => {
+          try { wakeRecognition?.start(); wakeActive = true; } catch {}
+        }, 2000);
+      }
+    };
+
+    return wr;
   };
 
-  wakeRecognition.onend = () => {
-    // Restart automatically unless page is hidden
-    if (!document.hidden) setTimeout(() => { try { wakeRecognition.start(); } catch {} }, 500);
-  };
+  wakeRecognition = makeWake();
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && !isListening && !convMode) resumeWakeWord();
+  });
 
-  try { wakeRecognition.start(); } catch {}
+  // Start after a short delay to let the page settle
+  setTimeout(() => { try { wakeRecognition.start(); wakeActive = true; } catch {} }, 1500);
 }
 
 // ── Send ────────────────────────────────────────────────────────────────────
@@ -654,6 +706,12 @@ function renderCard(card) {
     case "email_draft":              return renderEmailDraft(card);
     case "note":  case "note_list":  return renderNoteCard(card);
     case "reminder":                 return renderReminderCard(card);
+    case "weather":                  return renderWeatherCard(card);
+    case "news":                     return renderNewsCard(card);
+    case "stock":                    return renderStockCard(card);
+    case "shopping_list":
+      setTimeout(() => window._openShoppingList(card.items || []), 100);
+      return `<div class="info-card"><span style="color:var(--cyan)">&#128722;</span> Shopping list opened above.</div>`;
     default: return "";
   }
 }
@@ -726,6 +784,36 @@ function renderReminderCard(card) {
     <div><div class="reminder-title">${esc(r.title)}</div><div class="reminder-time">${r.remind_at?r.remind_at.slice(0,16).replace("T"," "):""}</div></div></div></div></div>`;
 }
 
+function renderWeatherCard(card) {
+  const d = card.data || {};
+  const icons = {0:'☀️',1:'🌤',2:'⛅',3:'☁️',45:'🌫',48:'🌫',51:'🌦',53:'🌦',55:'🌧',61:'🌧',63:'🌧',65:'🌧',71:'❄️',73:'❄️',75:'❄️',80:'🌦',81:'🌦',82:'⛈',95:'⛈',96:'⛈'};
+  const icon = icons[d.weather_code] || '🌡';
+  return `<div class="card"><div class="card-head"><span class="card-head-icon">🌤</span><span>Weather</span></div>
+    <div class="card-body" style="text-align:center;padding:16px 0;">
+      <div style="font-size:42px;margin-bottom:6px;">${icon}</div>
+      <div style="font-size:28px;font-weight:700;color:#e2e8f0;">${d.temperature_2m}°C</div>
+      <div style="color:rgba(255,255,255,0.5);font-size:13px;margin-top:4px;">${card.description || ''}</div>
+      <div style="color:rgba(255,255,255,0.4);font-size:12px;margin-top:8px;">Feels like ${d.apparent_temperature}°C &nbsp;·&nbsp; Humidity ${d.relative_humidity_2m}% &nbsp;·&nbsp; Wind ${d.wind_speed_10m} km/h</div>
+    </div></div>`;
+}
+
+function renderNewsCard(card) {
+  const articles = (card.articles || []).slice(0, 5);
+  if (!articles.length) return '';
+  const items = articles.map(a => `<div class="news-item"><a href="${esc(a.url||'#')}" target="_blank" rel="noopener" style="color:#e2e8f0;text-decoration:none;font-size:14px;line-height:1.4;">${esc(a.title)}</a><div style="color:rgba(255,255,255,0.35);font-size:11px;margin-top:3px;">${esc(a.source?.name||'')}</div></div>`).join('');
+  return `<div class="card"><div class="card-head"><span class="card-head-icon">📰</span><span>Latest News</span></div><div class="card-body" style="display:flex;flex-direction:column;gap:10px;">${items}</div></div>`;
+}
+
+function renderStockCard(card) {
+  const up = parseFloat(card.change) >= 0;
+  const changeStr = card.change ? `${up?'+':''}${card.change}%` : '';
+  return `<div class="card"><div class="card-head"><span class="card-head-icon">📈</span><span>${esc(card.symbol)}</span></div>
+    <div class="card-body" style="text-align:center;padding:12px 0;">
+      <div style="font-size:30px;font-weight:700;color:#e2e8f0;">${card.currency} ${parseFloat(card.price).toFixed(2)}</div>
+      ${changeStr ? `<div style="color:${up?'#4ade80':'#f87171'};font-size:14px;margin-top:4px;">${changeStr} today</div>` : ''}
+    </div></div>`;
+}
+
 window._copyDraft = (id) => {
   const el = document.getElementById(id);
   if (!el) return;
@@ -753,6 +841,88 @@ function initTextarea() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
 }
+
+// ── Shopping list overlay ───────────────────────────────────────────────────
+let shoppingItems = []; // [{ text, checked }]
+
+window._openShoppingList = function(items) {
+  shoppingItems = items.map(i => ({ text: i, checked: false }));
+  renderShoppingList();
+  document.getElementById("slOverlay")?.classList.add("active");
+  document.getElementById("slEmailRow")?.classList.add("hidden");
+};
+
+window._closeShoppingList = function() {
+  document.getElementById("slOverlay")?.classList.remove("active");
+};
+
+function renderShoppingList() {
+  const ul = document.getElementById("slItems");
+  if (!ul) return;
+  ul.innerHTML = "";
+  shoppingItems.forEach((item, idx) => {
+    const li = document.createElement("li");
+    li.className = "sl-item" + (item.checked ? " checked" : "");
+    li.innerHTML = `<input type="checkbox" id="sli${idx}" ${item.checked ? "checked" : ""}><label for="sli${idx}">${esc(item.text)}</label>`;
+    li.querySelector("input").addEventListener("change", (e) => {
+      shoppingItems[idx].checked = e.target.checked;
+      li.classList.toggle("checked", e.target.checked);
+      // Save back to Nova's note
+      saveShoppingList();
+    });
+    ul.appendChild(li);
+  });
+}
+
+async function saveShoppingList() {
+  if (!session) return;
+  const content = shoppingItems.map(i => (i.checked ? "[x] " : "- ") + i.text).join("\n");
+  try {
+    await fetch("/api/nova/shopping", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+      body: JSON.stringify({ content }),
+    });
+  } catch {}
+}
+
+window._clearChecked = function() {
+  shoppingItems = shoppingItems.filter(i => !i.checked);
+  renderShoppingList();
+  saveShoppingList();
+};
+
+window._emailShoppingList = function() {
+  const row = document.getElementById("slEmailRow");
+  if (!row) return;
+  row.classList.toggle("hidden");
+  // Pre-fill with known email if available
+  const emailInput = document.getElementById("slEmailInput");
+  if (emailInput && profile?.email && !emailInput.value) emailInput.value = profile.email;
+};
+
+window._sendShoppingEmail = async function() {
+  const emailInput = document.getElementById("slEmailInput");
+  const email = emailInput?.value?.trim();
+  if (!email) { toast("warn", "Please enter an email address"); return; }
+  const items = shoppingItems.filter(i => !i.checked).map(i => i.text);
+  if (!items.length) { toast("warn", "No items left to send (all ticked)"); return; }
+  try {
+    const res = await fetch("/api/nova/send-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ to: email, subject: "Shopping List from Nova", items }),
+    });
+    if (res.ok) {
+      toast("ok", `List sent to ${email}`);
+      document.getElementById("slEmailRow")?.classList.add("hidden");
+    } else {
+      toast("warn", "Couldn't send email — check Resend API key is set");
+    }
+  } catch (e) {
+    toast("warn", "Email error: " + e.message);
+  }
+};
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 async function boot() {

@@ -469,6 +469,14 @@ async function draftEmailContent({ to, subject, purpose, tone = 'professional', 
   return `[EMAIL DRAFT]\nTo: ${to || '(recipient)'}\nSubject: ${subject || '(subject)'}\n\nPurpose: ${purpose}\nTone: ${toneDesc}${pointsList}${signoff}`;
 }
 
+function parseShoppingItems(content) {
+  return (content || '').split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .map(l => l.replace(/^(\[x\]\s*|-\s*|\*\s*)/, '').trim())
+    .filter(Boolean);
+}
+
 async function runTool(toolName, input, userId, companyId, svcHdr, cards) {
   const base = `${SUPABASE_URL}/rest/v1`;
   const enc = encodeURIComponent;
@@ -929,27 +937,35 @@ async function runTool(toolName, input, userId, companyId, svcHdr, cards) {
 
     // ── Shopping List ───────────────────────────────────────────────────────
     if (toolName === 'manage_shopping_list') {
+      const getNote = () => nova(`nova_notes?user_id=eq.${userId}&title=eq.Shopping List&limit=1`).then(r=>r.json()).catch(()=>[]);
+
       if (input.action === 'add') {
         const items = (input.items || []).map(i => i.trim()).filter(Boolean);
         if (!items.length) return 'No items provided to add.';
-        const existing = await nova(`nova_notes?user_id=eq.${userId}&title=eq.Shopping List&limit=1`).then(r=>r.json()).catch(()=>[]);
+        const existing = await getNote();
         if (existing?.length) {
-          const current = existing[0].content || '';
-          const newContent = current + '\n' + items.map(i=>`- ${i}`).join('\n');
+          const current = (existing[0].content || '').split('\n').filter(Boolean);
+          const newLines = items.map(i => `- ${i}`);
+          const newContent = [...current, ...newLines].join('\n');
           await nova(`nova_notes?id=eq.${existing[0].id}&user_id=eq.${userId}`, { method:'PATCH', headers:{Prefer:'return=representation'}, body: JSON.stringify({ content: newContent }) });
         } else {
           await nova('nova_notes', { method:'POST', headers:{Prefer:'return=representation'}, body: JSON.stringify({ user_id: userId, company_id: companyId, title: 'Shopping List', content: items.map(i=>`- ${i}`).join('\n'), tags: ['shopping'] }) });
         }
-        return `Added to your shopping list: ${items.join(', ')}.`;
+        // Return updated list as interactive card
+        const updated = await getNote();
+        const allItems = parseShoppingItems(updated?.[0]?.content || '');
+        cards.push({ type: 'shopping_list', items: allItems });
+        return `Added to your shopping list: ${items.join(', ')}. I've opened the interactive list for you.`;
       }
       if (input.action === 'view') {
-        const res = await nova(`nova_notes?user_id=eq.${userId}&title=eq.Shopping List&limit=1`).then(r=>r.json()).catch(()=>[]);
+        const res = await getNote();
         if (!res?.length || !res[0].content) return 'Your shopping list is empty.';
-        cards.push({ type: 'note', data: res[0] });
-        return `Your shopping list:\n${res[0].content}`;
+        const allItems = parseShoppingItems(res[0].content);
+        cards.push({ type: 'shopping_list', items: allItems });
+        return `Here is your shopping list — you can tick items off directly. There are ${allItems.length} item${allItems.length !== 1 ? 's' : ''} on it.`;
       }
       if (input.action === 'clear') {
-        const res = await nova(`nova_notes?user_id=eq.${userId}&title=eq.Shopping List&limit=1`).then(r=>r.json()).catch(()=>[]);
+        const res = await getNote();
         if (res?.length) await nova(`nova_notes?id=eq.${res[0].id}&user_id=eq.${userId}`, { method:'PATCH', body: JSON.stringify({ content: '' }) });
         return 'Shopping list cleared.';
       }
