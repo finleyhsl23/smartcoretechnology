@@ -888,7 +888,7 @@ async function runTool(toolName, input, userId, companyId, svcHdr, cards) {
           const data = await res.json();
           if (data.articles?.length) {
             cards.push({ type: 'news', articles: data.articles });
-            return `Top news on "${input.topic || 'UK"}':\n` + data.articles.map((a,i)=>`${i+1}. ${a.title} — ${a.source.name}`).join('\n');
+            return `Top news on "${input.topic || 'UK'}":\n` + data.articles.map((a,i)=>`${i+1}. ${a.title} — ${a.source.name}`).join('\n');
           }
           return `I couldn't fetch news right now. A NEWS_API_KEY environment variable will enable full news access.`;
         }
