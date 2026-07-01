@@ -269,45 +269,17 @@ function stopSpeaking() {
   synth?.cancel();
 }
 
-// Stream audio via MediaSource so playback starts on first chunk
-function playStream(stream, clean) {
-  return new Promise((resolve) => {
-    const mime = "audio/mpeg";
-    if (typeof MediaSource === "undefined" || !MediaSource.isTypeSupported(mime)) {
-      resolve(null); return;
-    }
-    const ms = new MediaSource();
-    const url = URL.createObjectURL(ms);
-    const audio = new Audio(url);
-
-    ms.addEventListener("sourceopen", async () => {
-      let sb;
-      try { sb = ms.addSourceBuffer(mime); }
-      catch { URL.revokeObjectURL(url); resolve(null); return; }
-
-      const reader = stream.getReader();
-      const pump = async () => {
-        const { done, value } = await reader.read().catch(() => ({ done: true }));
-        if (done) {
-          if (ms.readyState === "open") {
-            if (sb.updating) sb.addEventListener("updateend", () => { if (ms.readyState === "open") ms.endOfStream(); }, { once: true });
-            else ms.endOfStream();
-          }
-          return;
-        }
-        if (sb.updating) await new Promise(r => sb.addEventListener("updateend", r, { once: true }));
-        try { sb.appendBuffer(value); } catch {}
-        await new Promise(r => sb.addEventListener("updateend", r, { once: true }));
-        pump();
-      };
-      pump();
-      audio._msUrl = url;
-      resolve(audio);
-    });
-
-    setTimeout(() => resolve(null), 3000); // fallback if sourceopen never fires
-  });
+// Unlock audio playback on first user gesture (autoplay policy)
+let audioUnlocked = false;
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  const silent = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
+  silent.play().catch(() => {});
 }
+document.addEventListener("click", unlockAudio, { once: true });
+document.addEventListener("touchstart", unlockAudio, { once: true });
+document.addEventListener("keydown", unlockAudio, { once: true });
 
 async function speak(text) {
   if (muteOn) return;
@@ -337,33 +309,26 @@ async function speak(text) {
   }
 
   const wordCount = mountCaption(clean);
+  const blob = await res.blob().catch(() => null);
+  if (!blob) return;
 
-  // Clone before streaming so fallback blob read still works if stream is consumed
-  const resClone = res.clone();
-  let audio = await playStream(res.body, clean);
-  if (!audio) {
-    const blob = await resClone.blob().catch(() => null);
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    audio = new Audio(url);
-    audio._blobUrl = url;
-  }
-
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio._blobUrl = url;
   currentAudio = audio;
   syncCaption(audio, wordCount);
 
   return new Promise((resolve) => {
     audio.addEventListener("ended", () => {
-      if (audio._msUrl)   URL.revokeObjectURL(audio._msUrl);
-      if (audio._blobUrl) URL.revokeObjectURL(audio._blobUrl);
+      URL.revokeObjectURL(url);
       currentAudio = null;
       stopSpeakingAudio();
       resetStandbyTimer();
       resolve();
     });
-    audio.addEventListener("error", () => {
-      if (audio._msUrl)   URL.revokeObjectURL(audio._msUrl);
-      if (audio._blobUrl) URL.revokeObjectURL(audio._blobUrl);
+    audio.addEventListener("error", (e) => {
+      console.error("[TTS] audio error:", e);
+      URL.revokeObjectURL(url);
       currentAudio = null;
       stopSpeakingAudio();
       resolve();
@@ -372,11 +337,7 @@ async function speak(text) {
     setStatus("speaking");
     showSpeakOverlay(true);
     resetStandbyTimer();
-    setTimeout(() => {
-      // Guard: if stopSpeaking was called during the delay, abort
-      if (currentAudio !== audio) { resolve(); return; }
-      audio.play().catch((e) => { console.error("[TTS] play:", e); stopSpeakingAudio(); resolve(); });
-    }, 800);
+    audio.play().catch((e) => { console.error("[TTS] play:", e); stopSpeakingAudio(); resolve(); });
   });
 }
 
@@ -534,12 +495,11 @@ function initWakeWord() {
           if (!isListening && !convMode) {
             pauseWakeWord();
             enterChat();
-            // Greet then listen
             const greetings = ["Yes? How can I help?", "What's up?", "Go ahead.", "I'm listening.", "How can I help?", "Yes, what do you need?"];
             const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+            renderNovaMsg(greeting);
             speak(greeting).then(() => {
-              // Only open mic if sendMessage wasn't already triggered by a longer phrase
-              if (!isListening && !convMode && session) toggleVoice();
+              if (!isListening && !convMode) toggleVoice();
             });
           }
           return;
