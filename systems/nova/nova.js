@@ -327,7 +327,9 @@ async function speak(text) {
     setStatus("speaking");
     showSpeakOverlay(true);
     resetStandbyTimer();
-    audio.play().catch((e) => { console.error("[TTS] play:", e); stopSpeakingAudio(); resolve(); });
+    setTimeout(() => {
+      audio.play().catch((e) => { console.error("[TTS] play:", e); stopSpeakingAudio(); resolve(); });
+    }, 800);
   });
 }
 
@@ -346,12 +348,16 @@ function initVoice() {
   const ttext = document.getElementById("transcriptText");
   const ta    = document.getElementById("novaTextarea");
 
+  let lastTranscript = "";
+
   recognition.onresult = (event) => {
     let interim = "", final = "";
     for (const res of event.results) {
       if (res.isFinal) final += res[0].transcript; else interim += res[0].transcript;
     }
-    if (tbar && ttext) { tbar.classList.add("active"); ttext.textContent = final || interim; }
+    const display = final || interim;
+    if (tbar && ttext) { tbar.classList.add("active"); ttext.textContent = display; }
+    if (display) lastTranscript = display;
     if (final && ta) ta.value = final;
   };
 
@@ -360,16 +366,20 @@ function initVoice() {
     micBtn?.classList.remove("active");
     if (!convMode) setStatus("idle");
     if (tbar) tbar.classList.remove("active");
-    const t = ttext?.textContent?.trim();
-    if (t && ta) { ta.value = t; setTimeout(() => sendMessage(), 100); }
+    const t = (lastTranscript || "").trim();
+    lastTranscript = "";
+    if (t) { if (ta) ta.value = t; setTimeout(() => sendMessage(), 100); }
+    else if (convMode) { setTimeout(() => startConvListen(), 600); }
   };
 
   recognition.onerror = (e) => {
     isListening = false;
     micBtn?.classList.remove("active");
-    setStatus("idle");
+    if (!convMode) setStatus("idle");
     if (tbar) tbar.classList.remove("active");
+    lastTranscript = "";
     if (e.error !== "no-speech") toast("warn", `Mic error: ${e.error}`);
+    if (convMode) setTimeout(() => startConvListen(), 800);
   };
 }
 
