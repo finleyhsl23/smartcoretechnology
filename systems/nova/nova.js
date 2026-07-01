@@ -269,39 +269,40 @@ function stopSpeaking() {
   synth?.cancel();
 }
 
-// Unlock audio playback on first user gesture (autoplay policy)
+// One-time activation overlay — ensures audio + mic are unlocked by a real user gesture
 let audioUnlocked = false;
+
 function unlockAudio() {
   if (audioUnlocked) return;
   audioUnlocked = true;
   const silent = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
   silent.play().catch(() => {});
-  document.getElementById("tapHearBtn")?.remove();
 }
-document.addEventListener("click", unlockAudio, { once: true });
-document.addEventListener("touchstart", unlockAudio, { once: true });
-document.addEventListener("keydown", unlockAudio, { once: true });
 
-function showTapToHear(onTap) {
-  let btn = document.getElementById("tapHearBtn");
-  if (btn) { btn.remove(); }
-  btn = document.createElement("button");
-  btn.id = "tapHearBtn";
-  btn.textContent = "🔊 Tap to hear Nova";
-  Object.assign(btn.style, {
-    position:"fixed", bottom:"90px", left:"50%", transform:"translateX(-50%)",
-    background:"rgba(6,182,212,0.15)", border:"1px solid rgba(6,182,212,0.4)",
-    color:"#06b6d4", borderRadius:"12px", padding:"10px 20px", fontSize:"14px",
-    fontFamily:"inherit", cursor:"pointer", zIndex:"9999",
-    backdropFilter:"blur(8px)", transition:"opacity 0.2s",
+function showActivationOverlay() {
+  if (sessionStorage.getItem("nova_activated")) { audioUnlocked = true; return; }
+  const ov = document.createElement("div");
+  ov.id = "activationOverlay";
+  Object.assign(ov.style, {
+    position:"fixed", inset:"0", zIndex:"99999", display:"flex",
+    alignItems:"center", justifyContent:"center",
+    background:"rgba(10,15,30,0.85)", backdropFilter:"blur(12px)",
+    cursor:"pointer",
   });
-  btn.addEventListener("click", () => {
+  ov.innerHTML = `<div style="text-align:center;padding:40px;">
+    <div style="font-size:52px;margin-bottom:16px;">✦</div>
+    <div style="color:#fff;font-size:22px;font-weight:600;margin-bottom:8px;">Tap anywhere to activate Nova</div>
+    <div style="color:rgba(255,255,255,0.4);font-size:14px;">Voice and audio will be enabled</div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener("click", () => {
     unlockAudio();
-    btn.remove();
-    onTap();
+    sessionStorage.setItem("nova_activated", "1");
+    ov.style.opacity = "0";
+    ov.style.transition = "opacity 0.3s";
+    setTimeout(() => ov.remove(), 300);
+    resumeWakeWord();
   }, { once: true });
-  document.body.appendChild(btn);
-  setTimeout(() => btn?.remove(), 8000);
 }
 
 async function speak(text) {
@@ -362,16 +363,8 @@ async function speak(text) {
     resetStandbyTimer();
     audio.play().catch((e) => {
       console.error("[TTS] play:", e);
-      if (e.name === "NotAllowedError") {
-        // Browser blocked autoplay — show tap button so user can unlock
-        showTapToHear(() => {
-          if (currentAudio === audio) {
-            audio.play().catch(() => { stopSpeakingAudio(); resolve(); });
-          }
-        });
-      } else {
-        stopSpeakingAudio(); resolve();
-      }
+      stopSpeakingAudio();
+      resolve();
     });
   });
 }
@@ -577,24 +570,18 @@ function initWakeWord() {
 
     wr.onend = () => {
       wakeActive = false;
-      // Always restart unless main mic is running or page hidden
-      if (!document.hidden && !isListening && !convMode) {
+      if (!document.hidden) {
         clearTimeout(wakeRestartTimer);
-        wakeRestartTimer = setTimeout(() => {
-          try { wakeRecognition?.start(); wakeActive = true; } catch {}
-        }, 1000);
+        wakeRestartTimer = setTimeout(() => resumeWakeWord(), 1000);
       }
     };
 
     wr.onerror = (e) => {
       wakeActive = false;
       if (e.error === 'not-allowed') return;
-      if (e.error === 'aborted' || e.error === 'interrupted') return; // we stopped it intentionally
-      if (!document.hidden && !isListening && !convMode) {
+      if (!document.hidden) {
         clearTimeout(wakeRestartTimer);
-        wakeRestartTimer = setTimeout(() => {
-          try { wakeRecognition?.start(); wakeActive = true; } catch {}
-        }, 2000);
+        wakeRestartTimer = setTimeout(() => resumeWakeWord(), e.error === 'aborted' || e.error === 'interrupted' ? 500 : 2000);
       }
     };
 
@@ -606,8 +593,10 @@ function initWakeWord() {
     if (!document.hidden && !isListening && !convMode) resumeWakeWord();
   });
 
-  // Start after a short delay to let the page settle
-  setTimeout(() => { try { wakeRecognition.start(); wakeActive = true; } catch {} }, 1500);
+  // Start after overlay is dismissed (if already activated, start immediately)
+  if (sessionStorage.getItem("nova_activated")) {
+    setTimeout(() => { try { wakeRecognition.start(); wakeActive = true; } catch {} }, 1500);
+  }
 }
 
 // ── Send ────────────────────────────────────────────────────────────────────
@@ -946,6 +935,8 @@ window._sendShoppingEmail = async function() {
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 async function boot() {
+  showActivationOverlay();
+
   // Set up UI immediately — don't gate on auth
   updateClock();
   setInterval(updateClock, 60000);
