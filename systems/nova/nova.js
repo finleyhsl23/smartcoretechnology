@@ -338,10 +338,11 @@ async function speak(text) {
 
   const wordCount = mountCaption(clean);
 
-  // Try streaming first, fall back to blob
+  // Clone before streaming so fallback blob read still works if stream is consumed
+  const resClone = res.clone();
   let audio = await playStream(res.body, clean);
   if (!audio) {
-    const blob = await res.blob().catch(() => null);
+    const blob = await resClone.blob().catch(() => null);
     if (!blob) return;
     const url = URL.createObjectURL(blob);
     audio = new Audio(url);
@@ -523,6 +524,7 @@ function initWakeWord() {
 
     wr.onresult = (event) => {
       for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (!event.results[i].isFinal) continue; // only act on final results
         const transcript = event.results[i][0].transcript.toLowerCase().trim();
         if (!transcript.includes('nova')) continue;
 
@@ -535,7 +537,10 @@ function initWakeWord() {
             // Greet then listen
             const greetings = ["Yes? How can I help?", "What's up?", "Go ahead.", "I'm listening.", "How can I help?", "Yes, what do you need?"];
             const greeting = greetings[Math.floor(Math.random() * greetings.length)];
-            speak(greeting).then(() => { if (!isListening && !convMode) toggleVoice(); });
+            speak(greeting).then(() => {
+              // Only open mic if sendMessage wasn't already triggered by a longer phrase
+              if (!isListening && !convMode && session) toggleVoice();
+            });
           }
           return;
         }
