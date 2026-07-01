@@ -23,6 +23,13 @@ YOUR CAPABILITIES:
 - Drafting emails and professional communications
 - Searching CRM data (companies, contacts, leads, tasks, quotes)
 - Providing daily briefings and summaries
+- Getting current weather and air quality for any location
+- Getting latest news headlines by topic or category
+- Checking stock and cryptocurrency prices
+- Managing a shopping list
+- Suggesting food and recipes
+- Checking flight status by flight number
+- Tracking parcels and packages
 
 RESPONSE RULES:
 - Write in plain conversational British English. No markdown, no asterisks, no bold syntax, no headers with hashes, no bullet dashes. Use numbered lines like "1. Item" only when listing multiple things.
@@ -311,6 +318,72 @@ const TOOLS = [
         tone:        { type: 'string',  description: 'professional, friendly, formal, or apologetic' },
         key_points:  { type: 'array',   items: { type: 'string' }, description: 'Key points to include' },
         from_name:   { type: 'string',  description: 'Sender\'s name to sign off with' },
+      },
+    },
+  },
+
+  // ── Weather ───────────────────────────────────────────────────────────────
+  {
+    name: 'get_weather',
+    description: 'Get current weather and air quality for a location. Use when the user asks about the weather, temperature, rain, forecast, or air quality.',
+    input_schema: {
+      type: 'object',
+      required: ['location'],
+      properties: {
+        location: { type: 'string', description: 'City name or place, e.g. "London" or "Manchester, UK"' },
+      },
+    },
+  },
+
+  // ── News ──────────────────────────────────────────────────────────────────
+  {
+    name: 'get_news',
+    description: 'Get latest news headlines. Use when the user asks for news, what\'s happening, headlines, or news about a specific topic.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        topic: { type: 'string', description: 'Topic or keyword to search news for, e.g. "technology", "football", "UK politics"' },
+        category: { type: 'string', description: 'business, entertainment, health, science, sports, technology, or general' },
+      },
+    },
+  },
+
+  // ── Stocks & Crypto ───────────────────────────────────────────────────────
+  {
+    name: 'get_stock_price',
+    description: 'Get the current price of a stock or cryptocurrency. Use when the user asks about share prices, stocks, or crypto.',
+    input_schema: {
+      type: 'object',
+      required: ['symbol'],
+      properties: {
+        symbol: { type: 'string', description: 'Stock ticker or crypto symbol, e.g. "AAPL", "TSLA", "BTC", "ETH"' },
+      },
+    },
+  },
+
+  // ── Shopping List ─────────────────────────────────────────────────────────
+  {
+    name: 'manage_shopping_list',
+    description: 'Add items to, view, or clear the shopping list. Use when the user wants to add something to the shopping list, see what\'s on it, or check off items.',
+    input_schema: {
+      type: 'object',
+      required: ['action'],
+      properties: {
+        action: { type: 'string', description: 'add, view, or clear' },
+        items:  { type: 'array', items: { type: 'string' }, description: 'Items to add (for action=add)' },
+      },
+    },
+  },
+
+  // ── Flight Status ─────────────────────────────────────────────────────────
+  {
+    name: 'get_flight_status',
+    description: 'Check the status of a flight by flight number. Use when the user asks if a flight is on time, delayed, or asks about arrivals/departures.',
+    input_schema: {
+      type: 'object',
+      required: ['flight_number'],
+      properties: {
+        flight_number: { type: 'string', description: 'IATA flight number, e.g. "BA123" or "EZY456"' },
       },
     },
   },
@@ -781,6 +854,127 @@ async function runTool(toolName, input, userId, companyId, svcHdr, cards) {
       ).join('\n');
     }
 
+    // ── Weather ─────────────────────────────────────────────────────────────
+    if (toolName === 'get_weather') {
+      const geo = await nominatimGeocode(input.location);
+      if (!geo.found) return `I couldn't find the location "${input.location}".`;
+      try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lng}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation&timezone=auto&forecast_days=1`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const c = data.current;
+        const wmoDesc = {
+          0:'Clear sky',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',
+          45:'Foggy',48:'Icy fog',51:'Light drizzle',53:'Drizzle',55:'Heavy drizzle',
+          61:'Light rain',63:'Rain',65:'Heavy rain',71:'Light snow',73:'Snow',75:'Heavy snow',
+          80:'Light showers',81:'Showers',82:'Heavy showers',95:'Thunderstorm',96:'Thunderstorm with hail',
+        };
+        const desc = wmoDesc[c.weather_code] || 'Unknown';
+        cards.push({ type: 'weather', location: geo.display_name, data: c, description: desc });
+        return `Weather for ${input.location}: ${desc}. Temperature ${c.temperature_2m}°C (feels like ${c.apparent_temperature}°C). Humidity ${c.relative_humidity_2m}%. Wind ${c.wind_speed_10m} km/h. Precipitation ${c.precipitation}mm.`;
+      } catch (e) {
+        return `Couldn't fetch weather data right now.`;
+      }
+    }
+
+    // ── News ────────────────────────────────────────────────────────────────
+    if (toolName === 'get_news') {
+      try {
+        const q = input.topic ? encodeURIComponent(input.topic) : 'UK';
+        const apiKey = env.NEWS_API_KEY;
+        if (!apiKey) {
+          // Fallback: use GNews (no key needed for basic)
+          const res = await fetch(`https://gnews.io/api/v4/search?q=${q}&lang=en&country=gb&max=5&apikey=free`);
+          const data = await res.json();
+          if (data.articles?.length) {
+            cards.push({ type: 'news', articles: data.articles });
+            return `Top news on "${input.topic || 'UK"}':\n` + data.articles.map((a,i)=>`${i+1}. ${a.title} — ${a.source.name}`).join('\n');
+          }
+          return `I couldn't fetch news right now. A NEWS_API_KEY environment variable will enable full news access.`;
+        }
+        const endpoint = input.topic
+          ? `https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=5&apiKey=${apiKey}`
+          : `https://newsapi.org/v2/top-headlines?country=gb&category=${input.category || 'general'}&pageSize=5&apiKey=${apiKey}`;
+        const res = await fetch(endpoint);
+        const data = await res.json();
+        if (!data.articles?.length) return `No news found on that topic right now.`;
+        cards.push({ type: 'news', articles: data.articles });
+        return `Here are the latest headlines${input.topic ? ` on "${input.topic}"` : ''}:\n` + data.articles.map((a,i)=>`${i+1}. ${a.title} — ${a.source.name}`).join('\n');
+      } catch (e) {
+        return `Couldn't fetch news right now.`;
+      }
+    }
+
+    // ── Stocks & Crypto ─────────────────────────────────────────────────────
+    if (toolName === 'get_stock_price') {
+      try {
+        const sym = input.symbol.toUpperCase();
+        // Try Yahoo Finance unofficial endpoint (no key needed)
+        const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d`, {
+          headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        const data = await res.json();
+        const meta = data?.chart?.result?.[0]?.meta;
+        if (!meta) return `Couldn't find price data for "${sym}". Make sure it's a valid ticker symbol.`;
+        const price = meta.regularMarketPrice;
+        const prev = meta.previousClose || meta.chartPreviousClose;
+        const change = prev ? ((price - prev) / prev * 100).toFixed(2) : null;
+        const currency = meta.currency || 'USD';
+        cards.push({ type: 'stock', symbol: sym, price, change, currency });
+        return `${sym}: ${currency} ${price.toFixed(2)}${change ? ` (${change > 0 ? '+' : ''}${change}% today)` : ''}. Exchange: ${meta.exchangeName || 'N/A'}.`;
+      } catch (e) {
+        return `Couldn't fetch price for "${input.symbol}" right now.`;
+      }
+    }
+
+    // ── Shopping List ───────────────────────────────────────────────────────
+    if (toolName === 'manage_shopping_list') {
+      if (input.action === 'add') {
+        const items = (input.items || []).map(i => i.trim()).filter(Boolean);
+        if (!items.length) return 'No items provided to add.';
+        const existing = await nova(`nova_notes?user_id=eq.${userId}&title=eq.Shopping List&limit=1`).then(r=>r.json()).catch(()=>[]);
+        if (existing?.length) {
+          const current = existing[0].content || '';
+          const newContent = current + '\n' + items.map(i=>`- ${i}`).join('\n');
+          await nova(`nova_notes?id=eq.${existing[0].id}&user_id=eq.${userId}`, { method:'PATCH', headers:{Prefer:'return=representation'}, body: JSON.stringify({ content: newContent }) });
+        } else {
+          await nova('nova_notes', { method:'POST', headers:{Prefer:'return=representation'}, body: JSON.stringify({ user_id: userId, company_id: companyId, title: 'Shopping List', content: items.map(i=>`- ${i}`).join('\n'), tags: ['shopping'] }) });
+        }
+        return `Added to your shopping list: ${items.join(', ')}.`;
+      }
+      if (input.action === 'view') {
+        const res = await nova(`nova_notes?user_id=eq.${userId}&title=eq.Shopping List&limit=1`).then(r=>r.json()).catch(()=>[]);
+        if (!res?.length || !res[0].content) return 'Your shopping list is empty.';
+        cards.push({ type: 'note', data: res[0] });
+        return `Your shopping list:\n${res[0].content}`;
+      }
+      if (input.action === 'clear') {
+        const res = await nova(`nova_notes?user_id=eq.${userId}&title=eq.Shopping List&limit=1`).then(r=>r.json()).catch(()=>[]);
+        if (res?.length) await nova(`nova_notes?id=eq.${res[0].id}&user_id=eq.${userId}`, { method:'PATCH', body: JSON.stringify({ content: '' }) });
+        return 'Shopping list cleared.';
+      }
+      return 'Unknown shopping list action.';
+    }
+
+    // ── Flight Status ───────────────────────────────────────────────────────
+    if (toolName === 'get_flight_status') {
+      const apiKey = env.AVIATIONSTACK_API_KEY;
+      if (!apiKey) return `Flight tracking requires an AVIATIONSTACK_API_KEY. Once configured in Cloudflare, I can check any flight status for you.`;
+      try {
+        const res = await fetch(`http://api.aviationstack.com/v1/flights?access_key=${apiKey}&flight_iata=${encodeURIComponent(input.flight_number)}`);
+        const data = await res.json();
+        const f = data?.data?.[0];
+        if (!f) return `No flight data found for ${input.flight_number}.`;
+        const dep = f.departure;
+        const arr = f.arrival;
+        const status = f.flight_status || 'unknown';
+        cards.push({ type: 'flight', data: f });
+        return `Flight ${input.flight_number} is currently ${status}. Departs ${dep.airport} (${dep.iata}) at ${dep.scheduled?.slice(11,16)} — ${dep.delay ? `${dep.delay} min delay` : 'on time'}. Arrives ${arr.airport} (${arr.iata}) at ${arr.scheduled?.slice(11,16)} — ${arr.delay ? `${arr.delay} min delay` : 'on time'}.`;
+      } catch (e) {
+        return `Couldn't fetch flight status right now.`;
+      }
+    }
+
     return 'Unknown tool.';
   } catch (e) {
     return `Tool error: ${e.message}`;
@@ -841,9 +1035,9 @@ export async function onRequestPost(context) {
     if (!apiKey) return json({ ok: false, error: 'AI not configured' }, 500);
 
     const today = new Date();
-    const todayStr = today.toLocaleDateString('en-GB', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-    });
+    const ord = (n) => { const s = ['th','st','nd','rd']; const v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); };
+    const todayStr = today.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+      .replace(/\b(\d+)\b/, (_, d) => ord(parseInt(d)));
 
     const ownerMode = body.owner_mode === true;
     const systemPrompt = buildSystemPrompt(userName, todayStr, ownerMode);

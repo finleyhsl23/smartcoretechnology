@@ -82,15 +82,59 @@ function enterStandby() {
   stopSpeaking();
   setConvMode(false);
   setStatus("idle");
-  // Keep messages/session in memory — chat resumes seamlessly
+  // Show "Continue Chat" button if there's a conversation to return to
+  if (messages.length > 0) {
+    document.getElementById("standbyOpenBtn")?.classList.remove("hidden");
+  }
 }
+
+window._openChat = function() {
+  document.getElementById("standbyOpenBtn")?.classList.add("hidden");
+  enterChat();
+  document.getElementById("novaTextarea")?.focus();
+};
 
 function enterChat() {
   if (chatStarted) { resetStandbyTimer(); return; }
   chatStarted = true;
   document.getElementById("welcome")?.classList.add("hidden");
   document.getElementById("chatArea")?.classList.add("active");
+  document.getElementById("standbyOpenBtn")?.classList.add("hidden");
   resetStandbyTimer();
+}
+
+// ── Natural language intent detection ──────────────────────────────────────
+const CONV_START_PHRASES = [
+  'have a chat','start a chat','start conversation','conversation mode','go chatty',
+  'chat mode','talk to me','let\'s talk','start talking','begin conversation',
+  'open chat','voice chat','voice mode','hands free','hands-free',
+  'keep listening','stay listening','continuous mode','open mic','keep mic on',
+  'i want to talk','can we talk','talk with me','speak to me','let\'s have a chat',
+  'can we have a chat','lets chat','lets talk','go ahead and listen','listen continuously',
+  'chat with me','start chatting','begin chatting','go into chat mode','activate chat',
+  'enable conversation','live chat','back and forth','go interactive','interactive mode',
+  'open conversation','free chat','open talk','stay on','keep on','keep listening',
+  'nova chat','nova talk','nova convo','talk freely','speak freely','go conversational',
+];
+
+const CONV_STOP_PHRASES = [
+  'stop','end chat','end conversation','stop conversation','stop chatting','stop talking',
+  'close chat','exit chat','exit conversation','leave chat','leave conversation',
+  'turn off chat','disable chat','stop listening','stop mic','end voice','finish chat',
+  'that\'s all','that\'s enough','thanks nova','thank you nova','goodbye nova',
+  'bye nova','see you nova','done chatting','done talking','we\'re done','all done',
+  'stop convo','end convo','close convo','quit chat','quit conversation','no more chat',
+  'go quiet','be quiet','silence','mute conversation','stop voice','voice off',
+  'end session','close session','finish session','wrap up','that will do','that\'ll do',
+  'cancel chat','cancel conversation','deactivate chat','deactivate conversation',
+  'i\'m done','im done','we\'re finished','finished talking','done for now',
+];
+
+function detectConvIntent(text) {
+  const t = text.toLowerCase().trim();
+  if (CONV_START_PHRASES.some(p => t.includes(p))) return 'start';
+  if (CONV_STOP_PHRASES.some(p => t.includes(p))) return 'stop';
+  return null;
 }
 
 // ── Chat rendering ─────────────────────────────────────────────────────────
@@ -437,6 +481,63 @@ function startConvListen() {
   }
 }
 
+// ── Wake word listener ──────────────────────────────────────────────────────
+let wakeRecognition = null;
+
+function initWakeWord() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) return;
+
+  wakeRecognition = new SpeechRec();
+  wakeRecognition.lang = "en-GB";
+  wakeRecognition.continuous = true;
+  wakeRecognition.interimResults = true;
+
+  wakeRecognition.onresult = (event) => {
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript.toLowerCase().trim();
+      if (!transcript.includes('nova')) continue;
+
+      // Strip "nova" / "hey nova" from the front to get the actual request
+      const cleaned = transcript.replace(/^(hey\s+nova|nova)[,\s]*/i, '').trim();
+
+      if (!cleaned) {
+        // Just "Nova" alone — open mic for a request
+        if (!isListening && !convMode) {
+          enterChat();
+          setTimeout(() => toggleVoice(), 200);
+        }
+        return;
+      }
+
+      // Check for conv mode intents
+      const intent = detectConvIntent(cleaned);
+      if (intent === 'start' && !convMode) {
+        enterChat();
+        setTimeout(() => toggleConvMode(), 200);
+        return;
+      }
+      if (intent === 'stop' && convMode) {
+        toggleConvMode();
+        return;
+      }
+
+      // Otherwise treat as a full request — put it in the textarea and send
+      enterChat();
+      const ta = document.getElementById("novaTextarea");
+      if (ta) ta.value = cleaned;
+      setTimeout(() => sendMessage(), 200);
+    }
+  };
+
+  wakeRecognition.onend = () => {
+    // Restart automatically unless page is hidden
+    if (!document.hidden) setTimeout(() => { try { wakeRecognition.start(); } catch {} }, 500);
+  };
+
+  try { wakeRecognition.start(); } catch {}
+}
+
 // ── Send ────────────────────────────────────────────────────────────────────
 async function sendMessage() {
   const ta      = document.getElementById("novaTextarea");
@@ -449,6 +550,20 @@ async function sendMessage() {
   const inputLower = input.toLowerCase();
   if (inputLower.includes('finley hassall') && inputLower.includes('2304')) {
     ownerMode = true;
+  }
+
+  // Natural language conv mode triggers
+  const convIntent = detectConvIntent(input);
+  if (convIntent === 'start' && !convMode) {
+    ta.value = ""; ta.style.height = "22px";
+    enterChat();
+    toggleConvMode();
+    return;
+  }
+  if (convIntent === 'stop' && convMode) {
+    ta.value = ""; ta.style.height = "22px";
+    toggleConvMode();
+    return;
   }
 
   // Owner "say" shortcut — bypass AI entirely
@@ -648,6 +763,7 @@ async function boot() {
 
   initTextarea();
   initVoice();
+  initWakeWord();
 
   document.getElementById("micBtn")?.addEventListener("click", toggleVoice);
   document.getElementById("convBtn")?.addEventListener("click", toggleConvMode);
