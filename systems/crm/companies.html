@@ -32,25 +32,30 @@
 
 <script type="module">
 import { requireCRMAccess } from "/systems/crm/shared/auth.js";
-import { companies, getStaff } from "/systems/crm/shared/api.js";
-import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { companies, getStaff } from "/systems/crm/shared/api.js?v=2";
+import { renderNav, initMobileNav, initTopbar, initSupport } from "/systems/crm/shared/nav.js?v=6";
 import { initTheme } from "/systems/crm/shared/theme.js";
-import { esc, fmt, fmtDate, timeAgo, toast, confirm, companyStatusBadge, loading, setInner } from "/systems/crm/shared/ui.js";
+import { esc, fmt, fmtDate, timeAgo, toast, confirm, companyStatusBadge, loading, setInner } from "/systems/crm/shared/ui.js?v=2";
+import { triggerCommand } from "/systems/crm/shared/commands.js";
+import { loadStatusLabels, getCompanyLabel, getCompanyStatuses } from "/systems/crm/shared/statusLabels.js?v=2";
 
 initTheme();
 
 let profile, tier, allCompanies = [], staffList = [], currentCompany = null;
+let _statusFilter = "", _search = "", _dropOutsideHandler = null;
 
 try {
   ({ profile, tier } = await requireCRMAccess());
   renderNav("companies", profile, tier);
   initMobileNav();
+  initSupport(tier);
   initTopbar(profile);
-  [staffList] = await Promise.all([getStaff()]);
+  [staffList] = await Promise.all([getStaff(), loadStatusLabels(profile.company_id)]);
   await loadAndRender();
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
-async function loadAndRender(search="", status="") {
+async function loadAndRender(search=_search, status=_statusFilter) {
+  _search = search; _statusFilter = status;
   setInner("content", loading());
   try {
     const res = await companies.list({ search, status, limit: 200 });
@@ -75,15 +80,19 @@ function renderTable(rows) {
     <div class="filter-bar">
       <div class="search-input-wrap">
         <span class="search-icon">🔍</span>
-        <input class="search-input" type="text" placeholder="Search companies…" id="searchInput"/>
+        <input class="search-input" type="text" placeholder="Search companies…" id="searchInput" value="${esc(_search)}"/>
       </div>
-      <select class="filter-select" id="statusFilter">
-        <option value="">All Statuses</option>
-        <option value="prospect">Prospect</option>
-        <option value="active">Active</option>
-        <option value="inactive">Inactive</option>
-        <option value="churned">Churned</option>
-      </select>
+      <div style="position:relative;display:inline-block" id="statusDropdown">
+        <button id="statusDropdownBtn" type="button" class="custom-select-btn">
+          <span id="statusDropdownLabel">${_statusFilter ? esc(getCompanyLabel(_statusFilter)) : 'All Statuses'}</span>
+          <svg id="statusChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" class="custom-select-chevron"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div id="statusDropdownMenu" class="custom-select-menu">
+          ${[{value:'',label:'All Statuses'}, ...getCompanyStatuses()].map(({value:val,label})=>`
+            <div data-value="${val}" class="custom-select-option sd-opt${_statusFilter===val?' selected':''}">${esc(label)}</div>
+          `).join('')}
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -91,6 +100,7 @@ function renderTable(rows) {
         <table class="tbl">
           <thead>
             <tr>
+              ${["business","enterprise"].includes(tier) ? `<th style="width:36px"><input type="checkbox" id="selectAll" title="Select all"/></th>` : ""}
               <th>Company</th>
               <th>Industry</th>
               <th>Status</th>
@@ -102,24 +112,141 @@ function renderTable(rows) {
           </thead>
           <tbody id="tblBody">
             ${rows.length === 0
-              ? `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🏢</div><h3>No companies yet</h3><p>Add your first company to get started.</p></div></td></tr>`
+              ? `<tr><td colspan="${["business","enterprise"].includes(tier) ? 8 : 7}"><div class="empty-state"><div class="empty-icon">🏢</div><h3>No companies yet</h3><p>Add your first company to get started.</p></div></td></tr>`
               : rows.map(c => companyRow(c)).join("")}
           </tbody>
         </table>
       </div>
-    </div>`;
+    </div>
+    ${["business","enterprise"].includes(tier) ? `
+    <div id="bulkBar" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--card,#1a1a2e);border:1px solid var(--line,rgba(255,255,255,.15));border-radius:14px;padding:12px 20px;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);z-index:1000;min-width:420px">
+      <span id="bulkCount" style="font-size:13px;font-weight:600;color:var(--text-dim)">0 selected</span>
+      <div style="flex:1"></div>
+      <span style="font-size:12px;color:var(--text-dim)">Change Status:</span>
+      <select id="bulkStatusSel" class="filter-select" style="font-size:12px;padding:6px 10px">
+        ${getCompanyStatuses().map(s=>`<option value="${s.value}">${esc(s.label)}</option>`).join('')}
+      </select>
+      <button class="btn btn-sm" id="bulkStatusBtn">Apply</button>
+      <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">Delete</button>
+      <button class="btn btn-sm btn-ghost" id="bulkCancelBtn">✕</button>
+    </div>` : ""}`;
 
   document.getElementById("addBtn").onclick = () => openModal();
-  document.getElementById("searchInput").addEventListener("input", debounce(e => loadAndRender(e.target.value, document.getElementById("statusFilter").value), 300));
-  document.getElementById("statusFilter").addEventListener("change", e => loadAndRender(document.getElementById("searchInput").value, e.target.value));
+  document.getElementById("searchInput").addEventListener("input", debounce(e => loadAndRender(e.target.value, _statusFilter), 300));
+
+  initStatusDropdown();
+
   document.querySelectorAll(".view-btn").forEach(btn => btn.addEventListener("click", () => viewCompany(btn.dataset.id)));
   document.querySelectorAll(".edit-btn").forEach(btn => btn.addEventListener("click", () => openModal(btn.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(btn => btn.addEventListener("click", () => deleteCompany(btn.dataset.id, btn.dataset.name)));
+  if (["business","enterprise"].includes(tier)) initBulkActions();
+}
+
+function initStatusDropdown() {
+  const wrap    = document.getElementById("statusDropdown");
+  const btn     = document.getElementById("statusDropdownBtn");
+  const menu    = document.getElementById("statusDropdownMenu");
+  const label   = document.getElementById("statusDropdownLabel");
+  const chevron = document.getElementById("statusChevron");
+  if (!btn || !menu) return;
+
+  if (_dropOutsideHandler) document.removeEventListener("click", _dropOutsideHandler);
+
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const open = menu.style.display !== "none";
+    menu.style.display = open ? "none" : "block";
+    chevron.style.transform = open ? "" : "rotate(180deg)";
+    btn.style.borderColor = open ? "rgba(255,255,255,0.12)" : "#1e5cff";
+  });
+
+  menu.querySelectorAll(".sd-opt").forEach(opt => {
+    opt.addEventListener("mouseenter", () => { opt.style.background = "rgba(255,255,255,0.06)"; opt.style.color = "#e9f0ff"; });
+    opt.addEventListener("mouseleave", () => {
+      const sel = opt.dataset.value === _statusFilter;
+      opt.style.background = sel ? "rgba(30,92,255,0.1)" : "transparent";
+      opt.style.color = sel ? "#1e5cff" : "rgba(233,240,255,0.7)";
+    });
+    opt.addEventListener("click", e => {
+      e.stopPropagation();
+      label.textContent = opt.textContent.trim();
+      menu.style.display = "none";
+      chevron.style.transform = "";
+      btn.style.borderColor = "rgba(255,255,255,0.12)";
+      loadAndRender(_search, opt.dataset.value);
+    });
+  });
+
+  _dropOutsideHandler = e => {
+    if (wrap && !wrap.contains(e.target)) {
+      menu.style.display = "none";
+      chevron.style.transform = "";
+      btn.style.borderColor = "rgba(255,255,255,0.12)";
+    }
+  };
+  document.addEventListener("click", _dropOutsideHandler);
+}
+
+function getSelectedIds() {
+  return [...document.querySelectorAll(".row-cb:checked")].map(cb => cb.dataset.id);
+}
+
+function updateBulkBar() {
+  const ids = getSelectedIds();
+  const bar = document.getElementById("bulkBar");
+  if (!bar) return;
+  if (ids.length > 0) {
+    bar.style.display = "flex";
+    document.getElementById("bulkCount").textContent = `${ids.length} selected`;
+  } else {
+    bar.style.display = "none";
+  }
+}
+
+function initBulkActions() {
+  document.getElementById("selectAll")?.addEventListener("change", e => {
+    document.querySelectorAll(".row-cb").forEach(cb => cb.checked = e.target.checked);
+    updateBulkBar();
+  });
+  document.querySelectorAll(".row-cb").forEach(cb => cb.addEventListener("change", updateBulkBar));
+
+  document.getElementById("bulkCancelBtn")?.addEventListener("click", () => {
+    document.querySelectorAll(".row-cb").forEach(cb => cb.checked = false);
+    const sa = document.getElementById("selectAll"); if (sa) sa.checked = false;
+    updateBulkBar();
+  });
+
+  document.getElementById("bulkStatusBtn")?.addEventListener("click", async () => {
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    const status = document.getElementById("bulkStatusSel").value;
+    try {
+      const { sb } = await import("/systems/crm/shared/supabase.js");
+      await sb().from("crm_companies").update({ status }).in("id", ids);
+      toast("ok", `${ids.length} companies updated`);
+      await loadAndRender();
+    } catch(e) { toast("bad","Error",e.message); }
+  });
+
+  document.getElementById("bulkDeleteBtn")?.addEventListener("click", () => {
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    confirm("Delete Companies", `Delete ${ids.length} company records? This cannot be undone.`, async () => {
+      try {
+        const { sb } = await import("/systems/crm/shared/supabase.js");
+        await sb().from("crm_companies").delete().in("id", ids);
+        toast("ok", `${ids.length} companies deleted`);
+        await loadAndRender();
+      } catch(e) { toast("bad","Error",e.message); }
+    });
+  });
 }
 
 function companyRow(c) {
   const staff = staffList.find(s => s.id === c.assigned_to);
-  return `<tr>
+  const hasBusiness = ["business","enterprise"].includes(tier);
+  return `<tr data-id="${c.id}">
+    ${hasBusiness ? `<td><input type="checkbox" class="row-cb" data-id="${c.id}"/></td>` : ""}
     <td>
       <div style="font-weight:600;cursor:pointer" class="tbl-link view-btn" data-id="${c.id}">${esc(c.name)}</div>
       ${c.email ? `<div class="tbl-muted">${esc(c.email)}</div>` : ""}
@@ -184,10 +311,7 @@ function openModal(id) {
           <div class="form-group">
             <label class="form-label">Status</label>
             <select class="form-control" id="mStatus">
-              <option value="prospect" ${c?.status==="prospect"||!c?"selected":""}>Prospect</option>
-              <option value="active" ${c?.status==="active"?"selected":""}>Active</option>
-              <option value="inactive" ${c?.status==="inactive"?"selected":""}>Inactive</option>
-              <option value="churned" ${c?.status==="churned"?"selected":""}>Churned</option>
+              ${getCompanyStatuses().map((s,i)=>`<option value="${s.value}" ${c?.status===s.value||(i===0&&!c)?"selected":""}>${esc(s.label)}</option>`).join('')}
             </select>
           </div>
         </div>
@@ -256,8 +380,20 @@ function openModal(id) {
         customer_since: document.getElementById("mSince").value || null,
         notes: document.getElementById("mNotes").value.trim() || null,
       };
-      if (c) await companies.update(c.id, fields);
-      else await companies.create(fields);
+      console.log('[companies] saving, c=', c?.id, 'old status=', c?.status, 'new status=', fields.status);
+      if (c) {
+        await companies.update(c.id, fields);
+        console.log('[companies] calling triggerCommand, tenantId=', profile.company_id);
+        await triggerCommand(profile.company_id, 'company_status_changed', {
+          triggerValue: fields.status,
+          ctx: { company_name: fields.name, company_email: fields.email || '', trigger_value: fields.status },
+        });
+      } else {
+        await companies.create(fields);
+        triggerCommand(profile.company_id, 'company_created', {
+          ctx: { company_name: fields.name, company_email: fields.email || '' },
+        });
+      }
       overlay.remove();
       toast("ok", c ? "Company updated" : "Company added");
       await loadAndRender();

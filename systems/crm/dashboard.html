@@ -39,21 +39,29 @@
 
 <script type="module">
 import { requireCRMAccess, getCRMSettings } from "/systems/crm/shared/auth.js";
-import { dashboardStats } from "/systems/crm/shared/api.js";
-import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js";
+import { dashboardStats } from "/systems/crm/shared/api.js?v=2";
+import { renderNav, initMobileNav, initTopbar, initSupport } from "/systems/crm/shared/nav.js?v=6";
 import { initTheme } from "/systems/crm/shared/theme.js";
-import { fmt, fmtDate, fmtDateTime, timeAgo, esc, toast } from "/systems/crm/shared/ui.js";
+import { fmt, fmtDate, fmtDateTime, timeAgo, esc, toast } from "/systems/crm/shared/ui.js?v=2";
+import { sb } from "/systems/crm/shared/supabase.js";
 
 initTheme();
 
+let _profile, _stats;
+
 try {
   const { profile, tier } = await requireCRMAccess();
+  _profile = profile;
   renderNav("dashboard", profile, tier);
   initMobileNav();
+  initSupport(tier);
   initTopbar(profile);
 
   const stats = await dashboardStats();
+  _stats = stats;
   render(stats, tier, profile);
+  if (["professional","business","enterprise"].includes(tier)) await renderGoals(stats);
+  else renderLockedGoals();
 } catch(e) {
   if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) {
     document.getElementById("content").innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Error loading dashboard</h3><p>${esc(e.message)}</p></div>`;
@@ -94,12 +102,19 @@ function render(s, tier, profile) {
         <div class="stat-label">Pipeline Value</div>
         <div class="stat-change up text-good">Active opportunities</div>
       </div>
+      ${(["professional","business","enterprise"].includes(tier)) ? `
       <div class="stat-card" style="--stat-color:var(--blue2);--stat-dim:rgba(14,165,255,.12)">
         <div class="stat-icon">📈</div>
         <div class="stat-value">${fmt(s.forecast)}</div>
         <div class="stat-label">Revenue Forecast</div>
         <div class="stat-change">Probability-weighted</div>
-      </div>
+      </div>` : `
+      <div class="stat-card" style="--stat-color:var(--blue2);--stat-dim:rgba(14,165,255,.12);opacity:.45">
+        <div class="stat-icon">📈</div>
+        <div class="stat-value">—</div>
+        <div class="stat-label">Revenue Forecast</div>
+        <div class="stat-change"><a href="/shop/index.html" style="color:inherit;text-decoration:underline">Professional+ ↑</a></div>
+      </div>`}
       <div class="stat-card" style="--stat-color:var(--warn);--stat-dim:var(--warn-dim)">
         <div class="stat-icon">✅</div>
         <div class="stat-value">${s.todayTasks}</div>
@@ -186,6 +201,150 @@ function activityItem(a) {
   </div>`;
 }
 
+async function renderGoals(stats) {
+  const { data: goals, error } = await sb().from("crm_goals").select("*").order("created_at");
+  if (error) return;
+
+  // Auto-populate current values based on label
+  const updatedGoals = goals.map(g => {
+    const label = g.label.toLowerCase();
+    let current = g.current_value;
+    if (label.includes("revenue") || label.includes("pipeline")) current = stats.pipelineValue || 0;
+    else if (label.includes("leads")) current = stats.activeLeads || 0;
+    else if (label.includes("deals") || label.includes("won")) current = stats.wonLeads || 0;
+    return { ...g, current_value: current };
+  });
+
+  const goalsCard = document.createElement("div");
+  goalsCard.id = "goalsCard";
+  goalsCard.className = "card";
+  goalsCard.style.marginBottom = "16px";
+  goalsCard.innerHTML = `
+    <div class="card-header">
+      <h2>Goals &amp; Targets</h2>
+      <button class="btn btn-sm btn-primary" id="addGoalBtn">+ Set Goal</button>
+    </div>
+    <div class="card-body" id="goalsList">
+      ${updatedGoals.length === 0
+        ? `<p style="color:var(--text-dim);font-size:13px">No goals set. Click "+ Set Goal" to add your first target.</p>`
+        : updatedGoals.map(g => goalItem(g)).join("")}
+    </div>`;
+
+  const content = document.getElementById("content");
+  // Insert after stats grid (first child)
+  const statsGrid = content.querySelector(".stats-grid");
+  if (statsGrid) statsGrid.insertAdjacentElement("afterend", goalsCard);
+  else content.appendChild(goalsCard);
+
+  document.getElementById("addGoalBtn").onclick = () => openGoalModal();
+  goalsCard.querySelectorAll(".goal-edit-btn").forEach(b => b.addEventListener("click", () => openGoalModal(b.dataset.id, updatedGoals)));
+  goalsCard.querySelectorAll(".goal-del-btn").forEach(b => b.addEventListener("click", () => deleteGoal(b.dataset.id)));
+}
+
+function goalItem(g) {
+  const pct = Math.min(100, g.target_value > 0 ? Math.round((g.current_value / g.target_value) * 100) : 0);
+  const color = pct >= 100 ? "#10b981" : pct >= 60 ? "#3b82f6" : "#f59e0b";
+  const valStr = g.unit === "currency" ? fmt(g.current_value) + " / " + fmt(g.target_value) : `${g.current_value} / ${g.target_value}`;
+  return `<div style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:13px;font-weight:600">${esc(g.label)}</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;color:var(--text-dim)">${esc(valStr)} · ${pct}%</span>
+        <span style="font-size:11px;color:var(--text3);background:var(--card2);padding:2px 6px;border-radius:6px">${esc(g.period)}</span>
+        <button class="btn btn-icon btn-ghost btn-sm goal-edit-btn" data-id="${g.id}" title="Edit">✏️</button>
+        <button class="btn btn-icon btn-ghost btn-sm goal-del-btn" data-id="${g.id}" title="Delete">🗑️</button>
+      </div>
+    </div>
+    <div class="progress-bar" style="height:8px;border-radius:6px">
+      <div class="progress-fill" style="width:${pct}%;background:${color};border-radius:6px;height:8px;transition:width .4s"></div>
+    </div>
+  </div>`;
+}
+
+async function deleteGoal(id) {
+  try {
+    await sb().from("crm_goals").delete().eq("id", id);
+    toast("ok","Goal deleted");
+    await renderGoals(_stats);
+  } catch(e) { toast("bad","Error",e.message); }
+}
+
+function openGoalModal(id, goals) {
+  const g = id && goals ? goals.find(x => x.id === id) : null;
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <h3>${g ? "Edit Goal" : "Set New Goal"}</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Label *</label>
+          <input class="form-control" id="gLabel" value="${esc(g?.label||"")}" placeholder="e.g. Monthly Revenue, New Leads"/>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Target Value *</label>
+            <input class="form-control" id="gTarget" type="number" value="${g?.target_value||""}" placeholder="10000"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Current Value</label>
+            <input class="form-control" id="gCurrent" type="number" value="${g?.current_value||0}"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Unit</label>
+            <select class="form-control" id="gUnit">
+              <option value="currency" ${g?.unit==="currency"||!g?"selected":""}>Currency (£)</option>
+              <option value="number" ${g?.unit==="number"?"selected":""}>Number</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Period</label>
+            <select class="form-control" id="gPeriod">
+              <option value="monthly" ${g?.period==="monthly"||!g?"selected":""}>Monthly</option>
+              <option value="quarterly" ${g?.period==="quarterly"?"selected":""}>Quarterly</option>
+              <option value="yearly" ${g?.period==="yearly"?"selected":""}>Yearly</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="gSaveBtn">${g ? "Save" : "Create Goal"}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector("#gSaveBtn").onclick = async () => {
+    const label = overlay.querySelector("#gLabel").value.trim();
+    const target = parseFloat(overlay.querySelector("#gTarget").value);
+    if (!label || isNaN(target)) return toast("warn","Validation","Label and target value are required.");
+    const btn = overlay.querySelector("#gSaveBtn");
+    btn.disabled = true;
+    try {
+      const fields = {
+        label,
+        target_value: target,
+        current_value: parseFloat(overlay.querySelector("#gCurrent").value) || 0,
+        unit: overlay.querySelector("#gUnit").value,
+        period: overlay.querySelector("#gPeriod").value,
+        tenant_id: _profile.company_id,
+      };
+      if (g) await sb().from("crm_goals").update(fields).eq("id", g.id);
+      else await sb().from("crm_goals").insert(fields);
+      overlay.remove();
+      toast("ok", g ? "Goal updated" : "Goal created");
+      await renderGoals(_stats);
+    } catch(e) { toast("bad","Error",e.message); btn.disabled = false; }
+  };
+}
+
 function initCharts(s) {
   // Pipeline bar chart
   const pCtx = document.getElementById("pipelineChart")?.getContext("2d");
@@ -202,8 +361,8 @@ function initCharts(s) {
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          x: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "rgba(233,240,255,.5)", font: { size: 11 } } },
-          y: { grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "rgba(233,240,255,.5)", font: { size: 11 }, callback: v => "£"+v.toLocaleString() } }
+          x: { grid: { color: getComputedStyle(document.documentElement).getPropertyValue("--line").trim() }, ticks: { color: getComputedStyle(document.documentElement).getPropertyValue("--text3").trim(), font: { size: 11 } } },
+          y: { grid: { color: getComputedStyle(document.documentElement).getPropertyValue("--line").trim() }, ticks: { color: getComputedStyle(document.documentElement).getPropertyValue("--text3").trim(), font: { size: 11 }, callback: v => "£"+v.toLocaleString() } }
         }
       }
     });
@@ -221,10 +380,29 @@ function initCharts(s) {
       options: {
         responsive: true, maintainAspectRatio: false,
         cutout: "70%",
-        plugins: { legend: { position: "bottom", labels: { color: "rgba(233,240,255,.7)", font: { size: 12 }, boxWidth: 10 } } }
+        plugins: { legend: { position: "bottom", labels: { color: getComputedStyle(document.documentElement).getPropertyValue("--text2").trim(), font: { size: 12 }, boxWidth: 10 } } }
       }
     });
   }
+}
+
+function renderLockedGoals() {
+  const goalsCard = document.createElement("div");
+  goalsCard.className = "card";
+  goalsCard.style.cssText = "margin-bottom:16px;opacity:.55";
+  goalsCard.innerHTML = `
+    <div class="card-header">
+      <h2>Goals &amp; Targets</h2>
+      <span style="font-size:12px;color:var(--text-dim);background:var(--card2);padding:3px 10px;border-radius:99px">Professional+ ↑</span>
+    </div>
+    <div class="card-body">
+      <p style="color:var(--text-dim);font-size:13px">Upgrade to Professional to set revenue goals, track lead targets, and monitor your team's performance over time.</p>
+      <a href="/shop/index.html" class="btn btn-sm btn-primary" style="margin-top:10px;display:inline-block">View Plans →</a>
+    </div>`;
+  const content = document.getElementById("content");
+  const statsGrid = content.querySelector(".stats-grid");
+  if (statsGrid) statsGrid.insertAdjacentElement("afterend", goalsCard);
+  else content.appendChild(goalsCard);
 }
 </script>
 </body>

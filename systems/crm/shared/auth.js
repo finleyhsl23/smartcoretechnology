@@ -5,7 +5,7 @@ let _profile = null;
 export async function requireAuth() {
   const { data, error } = await sb().auth.getSession();
   if (error || !data?.session) {
-    window.location.href = "/app/index.html";
+    window.location.href = "/modules";
     throw new Error("No session");
   }
   return data.session;
@@ -16,12 +16,14 @@ export async function getProfile() {
   const session = await requireAuth();
   const uid = session.user.id;
 
-  const { data, error } = await sb()
+  const { data: rows, error } = await sb()
     .from("core_employees")
     .select("id, company_id, role, full_name, work_email, auth_user_id")
     .eq("auth_user_id", uid)
-    .maybeSingle();
+    .order("created_at", { ascending: false })
+    .limit(1);
 
+  const data = rows?.[0] ?? null;
   if (error || !data) {
     throw new Error("Employee profile not found. Contact your administrator.");
   }
@@ -70,19 +72,51 @@ export async function getCRMSettings() {
 
 export async function logout() {
   await sb().auth.signOut();
-  window.location.href = "/app/index.html";
+  window.location.href = "https://www.smartcoretechnology.co.uk";
 }
 
 export function clearProfileCache() {
   _profile = null;
 }
 
-// Tier feature gates
+// Tier feature gates — only includes features that are actually built
 export const TIER_FEATURES = {
-  lite:         ["dashboard","companies","contacts","leads","pipeline","tasks","timeline"],
-  professional: ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields"],
-  business:     ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields","portal","multi_site","contracts","renewals","assets","workflows","advanced_permissions","support_tickets"],
-  enterprise:   ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields","portal","multi_site","contracts","renewals","assets","workflows","advanced_permissions","support_tickets","executive_dashboards","advanced_analytics","department_mgmt","branch_mgmt","api_access","audit_logs","custom_branding","custom_pipelines","data_import","priority_support"]
+  lite: [
+    "dashboard","global_search",
+    "companies","company_detail","contacts",
+    "leads","pipeline","tasks",
+    "reminders","commands",
+  ],
+  professional: [
+    "dashboard","global_search",
+    "companies","company_detail","contacts",
+    "leads","lead_scoring","pipeline","tasks",
+    "calendar","quotes","quote_acceptance",
+    "documents","reports","forecasting",
+    "goals_targets","email_templates",
+    "reminders","commands",
+  ],
+  business: [
+    "dashboard","global_search",
+    "companies","company_detail","company_team_notes","bulk_actions","contacts",
+    "leads","lead_scoring","pipeline","tasks",
+    "calendar","quotes","quote_acceptance",
+    "documents","reports","forecasting",
+    "goals_targets","email_templates",
+    "messaging","portal","projects",
+    "reminders","commands",
+  ],
+  enterprise: [
+    "dashboard","global_search",
+    "companies","company_detail","company_team_notes","bulk_actions","contacts",
+    "leads","lead_scoring","pipeline","tasks",
+    "calendar","quotes","quote_acceptance",
+    "documents","reports","forecasting",
+    "goals_targets","email_templates",
+    "messaging","portal","projects",
+    "reminders","commands",
+    "ai_support","audit_logs","data_import","priority_support",
+  ],
 };
 
 export function tierHasFeature(tier, feature) {
