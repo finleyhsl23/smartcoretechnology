@@ -203,7 +203,7 @@ async function runSearch(q, drop) {
 
     // Hover styles
     drop.querySelectorAll(".gsearch-item").forEach(a => {
-      a.addEventListener("mouseenter", () => a.style.background = "rgba(255,255,255,.05)");
+      a.addEventListener("mouseenter", () => a.style.background = "var(--sb-hover)");
       a.addEventListener("mouseleave", () => a.style.background = "");
     });
   } catch(e) {
@@ -250,14 +250,14 @@ function openSupport(tier) {
             <div style="font-size:12px;color:var(--text-dim,#7070a0);margin-top:2px">Instant answers about SmartCore CRM</div>
           </div>
         </button>` : `
-        <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:12px;opacity:.5;cursor:not-allowed">
+        <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--card2);border:1px solid var(--line);border-radius:12px;opacity:.5;cursor:not-allowed">
           <span style="font-size:24px">🤖</span>
           <div>
             <div style="font-weight:700;font-size:13px;color:var(--text,#f5f5f7)">Chat with AI Support</div>
             <div style="font-size:12px;color:var(--text-dim,#7070a0);margin-top:2px">Enterprise plan required ↑</div>
           </div>
         </div>`}
-        <button id="supportEmailBtn" style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:12px;cursor:pointer;text-align:left;width:100%">
+        <button id="supportEmailBtn" style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--card2);border:1px solid var(--line);border-radius:12px;cursor:pointer;text-align:left;width:100%">
           <span style="font-size:24px">✉️</span>
           <div>
             <div style="font-weight:700;font-size:13px;color:var(--text,#f5f5f7)">Email the team</div>
@@ -270,7 +270,7 @@ function openSupport(tier) {
       <div id="supportChat" style="display:none;flex-direction:column;flex:1;min-height:0">
         <div id="supportMessages" style="flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-height:200px;max-height:340px"></div>
         <div style="padding:10px 12px;border-top:1px solid var(--line,rgba(255,255,255,.08));display:flex;gap:8px">
-          <input id="supportInput" placeholder="Ask a question…" style="flex:1;background:rgba(255,255,255,.06);border:1px solid var(--line2,rgba(255,255,255,.1));border-radius:10px;padding:9px 12px;font-size:13px;color:var(--text,#f5f5f7);outline:none"/>
+          <input id="supportInput" placeholder="Ask a question…" style="flex:1;background:var(--bg);border:1px solid var(--line2);border-radius:10px;padding:9px 12px;font-size:13px;color:var(--text);outline:none"/>
           <button id="supportSend" style="background:#1e5cff;border:none;border-radius:10px;padding:9px 14px;color:#fff;font-size:13px;font-weight:700;cursor:pointer">↑</button>
         </div>
       </div>
@@ -366,7 +366,7 @@ function appendTyping() {
   const div = document.createElement("div");
   div.style.cssText = "display:flex;justify-content:flex-start";
   div.innerHTML = `
-    <div style="padding:10px 14px;border-radius:14px 14px 14px 4px;background:rgba(255,255,255,.07)">
+    <div style="padding:10px 14px;border-radius:14px 14px 14px 4px;background:var(--card2)">
       <div style="display:flex;gap:5px;align-items:center;height:16px">
         <span style="width:7px;height:7px;border-radius:50%;background:#5b8fff;display:block;animation:typingBounce 1.2s ease-in-out infinite"></span>
         <span style="width:7px;height:7px;border-radius:50%;background:#5b8fff;display:block;animation:typingBounce 1.2s ease-in-out .2s infinite"></span>
@@ -385,7 +385,7 @@ function appendBubble(role, text, isTemp = false) {
   const div = document.createElement("div");
   const isUser = role === "user";
   div.style.cssText = `display:flex;justify-content:${isUser ? "flex-end" : "flex-start"}`;
-  div.innerHTML = `<div style="max-width:80%;padding:9px 13px;border-radius:${isUser ? "14px 14px 4px 14px" : "14px 14px 14px 4px"};background:${isUser ? "#1e5cff" : "rgba(255,255,255,.07)"};color:${isUser ? "#fff" : "var(--text,#f5f5f7)"};font-size:13px;line-height:1.55;white-space:pre-wrap">${esc(text)}</div>`;
+  div.innerHTML = `<div style="max-width:80%;padding:9px 13px;border-radius:${isUser ? "14px 14px 4px 14px" : "14px 14px 14px 4px"};background:${isUser ? "#1e5cff" : "var(--card2)"};color:${isUser ? "#fff" : "var(--text)"};font-size:13px;line-height:1.55;white-space:pre-wrap">${esc(text)}</div>`;
   wrap.appendChild(div);
   wrap.scrollTop = wrap.scrollHeight;
   return isTemp ? div : null;
