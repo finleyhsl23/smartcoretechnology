@@ -1,0 +1,1045 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Manage Plan — SmartCore</title>
+  <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#080810;--surface:rgba(255,255,255,.04);--surface2:rgba(255,255,255,.07);
+      --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.06);
+      --text:#f5f5f7;--muted:#a1a1a6;--muted2:rgba(255,255,255,.3);
+      --accent:#5b8fff;--accent-soft:rgba(91,143,255,.12);--accent-border:rgba(91,143,255,.3);
+      --green:#30d158;--green-soft:rgba(48,209,88,.12);--green-border:rgba(48,209,88,.3);
+      --amber:#ff9f0a;--amber-soft:rgba(255,159,10,.1);--amber-border:rgba(255,159,10,.3);
+      --red:#ff453a;--red-soft:rgba(255,69,58,.1);--red-border:rgba(255,69,58,.3);
+      --purple:#bf5af2;--purple-soft:rgba(191,90,242,.1);--purple-border:rgba(191,90,242,.3);
+      --r:16px;--r2:12px;--r3:8px;
+    }
+    html,body{min-height:100%;-webkit-font-smoothing:antialiased}
+    body{
+      font-family:Inter,system-ui,-apple-system,sans-serif;color:var(--text);
+      background:
+        radial-gradient(ellipse 100% 55% at 50% 0%,rgba(91,143,255,.20) 0%,transparent 55%),
+        radial-gradient(ellipse 70% 60% at -5% 60%,rgba(91,143,255,.11) 0%,transparent 55%),
+        radial-gradient(ellipse 50% 45% at 105% 85%,rgba(48,209,88,.07) 0%,transparent 50%),
+        #080810;
+      min-height:100vh;
+    }
+
+    nav{
+      position:sticky;top:0;z-index:50;padding:0 24px;
+      background:rgba(0,0,0,.75);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+      border-bottom:1px solid var(--border2);height:56px;display:flex;align-items:center;
+    }
+    .nav-inner{max-width:760px;width:100%;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
+    .nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)}
+    .nav-logo{width:30px;height:30px;background:#1d1d1f;border-radius:8px;border:1px solid var(--border);overflow:hidden;display:flex;align-items:center;justify-content:center}
+    .nav-logo img{width:22px;height:22px;object-fit:contain}
+    .nav-title{font-size:14px;font-weight:700;letter-spacing:-.01em}
+    .pill{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+    .pill-blue{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-border)}
+    .pill-green{background:var(--green-soft);color:var(--green);border:1px solid var(--green-border)}
+
+    main{max-width:760px;margin:0 auto;padding:36px 24px 80px}
+
+    /* states */
+    .loading-state{min-height:60vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--muted)}
+    .spinner{display:inline-block;width:22px;height:22px;border:2px solid rgba(255,255,255,.2);border-top-color:currentColor;border-radius:50%;animation:spin .6s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .error-state{min-height:60vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;text-align:center;padding:40px}
+
+    /* summary card */
+    .summary-card{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:28px 32px;margin-bottom:28px}
+    .summary-top{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:20px}
+    .summary-company{font-size:22px;font-weight:800;letter-spacing:-.03em;margin-bottom:4px}
+    .summary-ref{font-size:12px;font-family:ui-monospace,monospace;color:var(--accent);font-weight:600}
+    .summary-price{text-align:right;flex-shrink:0}
+    .summary-amount{font-size:30px;font-weight:800;letter-spacing:-.04em;line-height:1}
+    .summary-period{font-size:14px;color:var(--muted);font-weight:500;margin-top:2px}
+    .summary-meta{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-top:16px;border-top:1px solid var(--border2)}
+    .meta-item{font-size:13px;color:var(--muted)}
+    .meta-item strong{color:var(--text);font-weight:600}
+    .meta-sep{width:3px;height:3px;border-radius:50%;background:var(--border);flex-shrink:0}
+
+    /* section */
+    .section{margin-bottom:24px}
+    .section-head{margin-bottom:12px}
+    .section-title{font-size:15px;font-weight:700}
+    .section-sub{font-size:13px;color:var(--muted);margin-top:3px}
+    .card{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:20px 24px}
+
+    /* size selector — custom dropdown */
+    .size-row{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
+    .cdd{position:relative;flex:1;min-width:220px;max-width:340px;user-select:none}
+    .cdd-trigger{
+      display:flex;align-items:center;justify-content:space-between;gap:8px;
+      background:var(--surface2);border:1px solid var(--border);border-radius:var(--r2);
+      padding:11px 14px;cursor:pointer;transition:border-color .15s;
+    }
+    .cdd-trigger:hover,.cdd.open .cdd-trigger{border-color:var(--accent-border)}
+    .cdd.open .cdd-trigger{border-bottom-left-radius:0;border-bottom-right-radius:0;border-bottom-color:transparent}
+    .cdd-label{font-size:14px;font-weight:700}
+    .cdd-sub{font-size:11px;color:var(--muted);margin-top:1px}
+    .cdd-chevron{color:var(--muted);font-size:11px;flex-shrink:0;transition:transform .2s}
+    .cdd.open .cdd-chevron{transform:rotate(180deg)}
+    .cdd-menu{
+      position:absolute;top:100%;left:0;right:0;z-index:60;
+      background:#0d0d1e;border:1px solid var(--accent-border);border-top:none;
+      border-bottom-left-radius:var(--r2);border-bottom-right-radius:var(--r2);
+      max-height:320px;overflow-y:auto;display:none;
+    }
+    .cdd.open .cdd-menu{display:block}
+    .cdd-item{
+      display:flex;align-items:center;justify-content:space-between;gap:12px;
+      padding:11px 14px;cursor:pointer;transition:background .1s;border-bottom:1px solid var(--border2);
+    }
+    .cdd-item:last-child{border-bottom:none}
+    .cdd-item:hover:not(.cdd-current){background:var(--surface2)}
+    .cdd-item.cdd-current{background:var(--accent-soft);cursor:default}
+    .cdd-item-left{}
+    .cdd-item-name{font-size:13px;font-weight:700}
+    .cdd-item-range{font-size:11px;color:var(--muted);margin-top:1px}
+    .cdd-item-right{text-align:right;flex-shrink:0}
+    .cdd-item-price{font-size:13px;font-weight:800}
+    .cdd-item-badge{font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--accent);margin-top:2px}
+    .size-info{font-size:13px;color:var(--muted);line-height:1.6;flex:1;padding-top:2px}
+    .size-info strong{color:var(--text)}
+
+    /* modules */
+    .mod-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 0;border-bottom:1px solid var(--border2)}
+    .mod-row:first-child{padding-top:0}
+    .mod-row:last-child{border-bottom:none;padding-bottom:0}
+    .mod-left{display:flex;align-items:flex-start;gap:10px;flex:1;min-width:0}
+    .mod-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:5px}
+    .dot-active{background:var(--green)}
+    .dot-free{background:var(--accent)}
+    .dot-inactive{background:rgba(255,255,255,.15)}
+    .mod-name{font-size:14px;font-weight:600}
+    .mod-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px}
+    .tag{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:5px;font-size:11px;font-weight:700}
+    .tag-size{background:var(--purple-soft);color:var(--purple);border:1px solid var(--purple-border)}
+    .tag-flat{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-border)}
+    .tag-free{background:var(--green-soft);color:var(--green);border:1px solid var(--green-border)}
+    .tag-inactive{background:rgba(255,255,255,.05);color:var(--muted);border:1px solid var(--border2)}
+    .mod-price-col{text-align:right;flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+    .mod-price{font-size:14px;font-weight:700;white-space:nowrap}
+    .store-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;color:var(--muted);border:1px solid var(--border2);background:var(--surface2);text-decoration:none;white-space:nowrap;transition:color .15s,border-color .15s}
+    .store-btn:hover{color:var(--text);border-color:var(--border)}
+    .price-active{color:var(--text)}
+    .price-free{color:var(--green)}
+    .price-inactive{color:var(--muted)}
+    .mod-old-price{font-size:11px;color:var(--muted);text-decoration:line-through;margin-bottom:1px}
+    .mod-new-price{font-size:14px;font-weight:700;color:var(--green)}
+
+    /* crm section inside modules */
+    .crm-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 0 10px;border-bottom:1px solid var(--border2)}
+    .crm-header:first-child{padding-top:0}
+    .crm-tiers{display:flex;gap:6px;flex-wrap:wrap;padding:0 0 14px 17px;border-bottom:1px solid var(--border2)}
+    .crm-tiers:last-child{border-bottom:none;padding-bottom:0}
+    .crm-opt{
+      flex:1;min-width:100px;background:rgba(255,255,255,.03);border:1px solid var(--border2);
+      border-radius:var(--r3);padding:12px 14px;cursor:pointer;transition:border-color .15s,background .15s,box-shadow .15s;
+    }
+    .crm-opt:hover:not(.crm-active){border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.06)}
+    .crm-opt.crm-active{
+      border-color:var(--accent);background:rgba(91,143,255,.18);cursor:default;
+      box-shadow:0 0 0 1px var(--accent-border),0 4px 16px rgba(91,143,255,.15);
+    }
+    .crm-opt-badge{font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:5px;display:flex;align-items:center;gap:4px}
+    .crm-opt-badge::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+    .crm-opt-name{font-size:12px;font-weight:700;margin-bottom:4px}
+    .crm-opt.crm-active .crm-opt-name{color:var(--text)}
+    .crm-opt:not(.crm-active) .crm-opt-name{color:var(--muted)}
+    .crm-opt-price{font-size:14px;font-weight:800}
+
+    /* pending change banner */
+    .pending-banner{background:var(--amber-soft);border:1px solid var(--amber-border);border-radius:var(--r2);padding:14px 18px;margin-bottom:20px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+    .pending-banner-left{}
+    .pending-banner-title{font-size:13px;font-weight:700;color:var(--amber);margin-bottom:4px;display:flex;align-items:center;gap:6px}
+    .pending-banner-body{font-size:13px;color:var(--muted);line-height:1.55}
+    .pending-banner-cancel{flex-shrink:0;font-size:12px;font-weight:700;color:var(--amber);background:none;border:1px solid var(--amber-border);border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;transition:background .15s}
+    .pending-banner-cancel:hover{background:var(--amber-soft)}
+
+    /* confirm dialog */
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);z-index:100;display:none;align-items:flex-start;justify-content:center;padding:40px 24px;overflow-y:auto}
+    .overlay.show{display:flex}
+    .dialog{background:#0d0d1e;border:1px solid var(--border);border-radius:var(--r);padding:28px 32px;max-width:480px;width:100%;margin:auto}
+    .dialog h2{font-size:18px;font-weight:800;letter-spacing:-.02em;margin-bottom:6px}
+    .dialog-sub{font-size:13px;color:var(--muted);line-height:1.65;margin-bottom:20px}
+    .price-change{display:flex;align-items:center;gap:14px;background:var(--surface2);border-radius:var(--r2);padding:14px 18px;margin-bottom:16px}
+    .price-old{font-size:15px;font-weight:700;color:var(--muted);text-decoration:line-through}
+    .price-arrow{color:var(--muted2);font-size:18px}
+    .price-new{font-size:24px;font-weight:800}
+    .price-new.going-down{color:var(--green)}
+    .price-new.going-up{color:var(--amber)}
+    .dialog-note{font-size:12px;color:var(--muted2);line-height:1.65;margin-bottom:20px}
+    /* two-button timing choice */
+    .timing-btns{display:flex;gap:8px;margin-bottom:12px}
+    .timing-btn{flex:1;border:1px solid var(--border);border-radius:var(--r2);padding:13px 14px;cursor:pointer;font-family:inherit;background:var(--surface);transition:border-color .15s,background .15s;text-align:left}
+    .timing-btn:hover{border-color:var(--accent-border);background:var(--accent-soft)}
+    .timing-btn.selected{border-color:var(--accent);background:var(--accent-soft)}
+    .timing-btn-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px}
+    .timing-btn-sub{font-size:11px;color:var(--muted);line-height:1.4}
+
+    /* breakdown dropdown */
+    .breakdown{border:1px solid var(--border2);border-radius:var(--r2);overflow:hidden;margin-bottom:20px}
+    .breakdown-toggle{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:pointer;font-size:13px;font-weight:600;background:var(--surface);user-select:none;gap:8px}
+    .breakdown-toggle:hover{background:var(--surface2)}
+    .breakdown-toggle .chevron{transition:transform .2s;font-size:11px;color:var(--muted);flex-shrink:0}
+    .breakdown-toggle.open .chevron{transform:rotate(180deg)}
+    .breakdown-body{display:none;background:rgba(0,0,0,.2)}
+    .breakdown-body.open{display:block}
+    .breakdown-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-top:1px solid var(--border2);font-size:13px}
+    .breakdown-row .label{color:var(--muted)}
+    .breakdown-row .val{font-weight:600}
+    .breakdown-row.highlight{background:rgba(48,209,88,.04)}
+    .breakdown-row .old-val{color:var(--muted);text-decoration:line-through;font-size:12px;margin-right:4px}
+
+    /* employee limit warning in dialog */
+    .emp-warn{background:var(--amber-soft);border:1px solid var(--amber-border);border-radius:var(--r2);padding:14px 16px;margin-bottom:20px}
+    .emp-warn-title{font-size:13px;font-weight:700;color:var(--amber);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+    .emp-warn-body{font-size:13px;color:var(--muted);line-height:1.65}
+    .emp-warn-body a{color:var(--amber);font-weight:700;text-decoration:none}
+
+    .dialog-btns{display:flex;gap:8px}
+    .btn{border:none;border-radius:var(--r2);padding:11px 18px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .15s;display:flex;align-items:center;justify-content:center;gap:7px}
+    .btn:hover{opacity:.85}
+    .btn:disabled{opacity:.45;cursor:not-allowed}
+    .btn-primary{background:var(--accent);color:#fff;flex:1}
+    .btn-ghost{background:var(--surface2);color:var(--muted);border:1px solid var(--border2)}
+    .inline-err{background:var(--red-soft);border:1px solid var(--red-border);border-radius:var(--r2);padding:12px 16px;font-size:13px;color:var(--red);margin-top:12px;display:none;line-height:1.6}
+    .inline-err.show{display:block}
+    .inline-err a{color:var(--red);font-weight:700}
+
+    /* toast */
+    .toast{
+      position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(80px);
+      background:#1c1c2e;border:1px solid var(--border);border-radius:12px;
+      padding:11px 20px;font-size:13px;font-weight:600;color:var(--text);
+      display:flex;align-items:center;gap:8px;z-index:200;
+      transition:transform .3s cubic-bezier(.34,1.56,.64,1),opacity .3s;opacity:0;pointer-events:none;
+    }
+    .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+    .toast.success .toast-icon{color:var(--green)}
+    .toast.error .toast-icon{color:var(--red)}
+
+    .footer-link{text-align:center;margin-top:40px;font-size:13px;color:var(--muted)}
+    .footer-link a{color:var(--muted);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+    .footer-link a:hover{color:var(--text)}
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="nav-brand">
+      <div class="nav-logo"><img src="/SmartCore Official Logos/SC Icon - Black Background.png" alt="SC" onerror="this.style.display='none'" /></div>
+      <span class="nav-title">SmartCore</span>
+    </a>
+    <div id="billingBadge" style="display:none"></div>
+  </div>
+</nav>
+
+<main>
+  <div id="loadingState" class="loading-state">
+    <div class="spinner"></div>
+    <div style="font-size:14px;color:var(--muted)">Loading your plan…</div>
+  </div>
+
+  <div id="errorState" class="error-state" style="display:none">
+    <div style="font-size:36px;margin-bottom:8px">🔗</div>
+    <div style="font-size:20px;font-weight:800;margin-bottom:8px">Couldn't load your plan</div>
+    <div style="font-size:14px;color:var(--muted);max-width:340px;line-height:1.7" id="errorMsg">Please sign in to SmartCore Core first, or contact support.</div>
+    <a href="mailto:support@smartcoretechnology.co.uk" style="margin-top:20px;color:var(--accent);font-weight:600;font-size:13px;text-decoration:none">support@smartcoretechnology.co.uk</a>
+  </div>
+
+  <div id="pageContent" style="display:none">
+
+    <!-- Summary -->
+    <div class="summary-card">
+      <div class="summary-top">
+        <div>
+          <div class="summary-company" id="companyName"></div>
+          <div class="summary-ref" id="orderRef"></div>
+        </div>
+        <div class="summary-price">
+          <div class="summary-amount" id="currentTotal"></div>
+          <div class="summary-period" id="currentPeriod"></div>
+        </div>
+      </div>
+      <div class="summary-meta">
+        <div class="meta-item" id="billingBadgeRight"></div>
+        <div class="meta-sep"></div>
+        <div class="meta-item" id="headerSub"></div>
+        <div class="meta-sep"></div>
+        <div class="meta-item">Next invoice <strong id="nextBillingDate">—</strong></div>
+      </div>
+    </div>
+
+    <!-- hidden for JS compat -->
+    <span id="billingTypeLabel" style="display:none"></span>
+    <span id="nextTotal" style="display:none"></span>
+
+    <!-- Pending change banner (shown when a scheduled change is queued) -->
+    <div id="pendingBanner" style="display:none" class="pending-banner">
+      <div class="pending-banner-left">
+        <div class="pending-banner-title">⏳ Scheduled plan change</div>
+        <div class="pending-banner-body" id="pendingBannerBody"></div>
+      </div>
+      <button class="pending-banner-cancel" onclick="cancelPendingChange()">Cancel change</button>
+    </div>
+
+    <!-- Company Size -->
+    <div class="section">
+      <div class="section-head">
+        <div class="section-title">Company Size</div>
+        <div class="section-sub">Your size tier sets the price for any module that scales with the number of employees.</div>
+      </div>
+      <div class="card">
+        <div class="size-row">
+          <div class="cdd" id="tierCdd">
+            <div class="cdd-trigger" onclick="toggleCdd()">
+              <div>
+                <div class="cdd-label" id="cddLabel">Loading…</div>
+                <div class="cdd-sub" id="cddSub"></div>
+              </div>
+              <span class="cdd-chevron">▾</span>
+            </div>
+            <div class="cdd-menu" id="cddMenu"></div>
+          </div>
+          <div class="size-info" id="sizeInfo"></div>
+        </div>
+        <div class="inline-err" id="sizeErr"></div>
+      </div>
+    </div>
+
+    <!-- Modules -->
+    <div class="section">
+      <div class="section-head">
+        <div class="section-title">Modules</div>
+        <div class="section-sub">All modules on your plan. <span style="color:var(--purple);font-weight:600">Scales with size</span> means the price changes when you change your company tier. <span style="color:var(--accent);font-weight:600">Flat rate</span> stays the same regardless of size.</div>
+      </div>
+      <div class="card">
+        <div id="modList"></div>
+      </div>
+    </div>
+
+    <div class="footer-link">
+      Want to cancel a module or your subscription?
+      <a href="/cancel-subscriptions/" target="_blank">Manage cancellations →</a>
+    </div>
+
+  </div>
+</main>
+
+<!-- Confirm dialog -->
+<div class="overlay" id="confirmOverlay">
+  <div class="dialog">
+    <h2 id="confirmTitle"></h2>
+    <p class="dialog-sub" id="confirmDesc"></p>
+
+    <!-- Price change row -->
+    <div class="price-change">
+      <span class="price-old" id="confirmOldPrice"></span>
+      <span class="price-arrow">→</span>
+      <span class="price-new" id="confirmNewPrice"></span>
+    </div>
+
+    <!-- Employee limit warning (shown when downgrading past employee count) -->
+    <div class="emp-warn" id="empWarn" style="display:none">
+      <div class="emp-warn-title">⚠ Employee limit will change</div>
+      <div class="emp-warn-body" id="empWarnBody"></div>
+    </div>
+
+    <!-- Breakdown dropdown -->
+    <div class="breakdown">
+      <div class="breakdown-toggle" id="breakdownToggle" onclick="toggleBreakdown()">
+        <span>See full breakdown</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="breakdown-body" id="breakdownBody"></div>
+    </div>
+
+    <!-- Timing choice -->
+    <div class="timing-btns" id="timingBtns">
+      <button class="timing-btn selected" id="timingNow" onclick="selectTiming('now')">
+        <div class="timing-btn-title">Pay now &amp; change immediately</div>
+        <div class="timing-btn-sub">Your plan updates right away and your billing amount changes from the next payment</div>
+      </button>
+      <button class="timing-btn" id="timingRenewal" onclick="selectTiming('renewal')">
+        <div class="timing-btn-title">Update on next renewal</div>
+        <div class="timing-btn-sub" id="timingRenewalSub">Keep your current plan until your next billing date</div>
+      </button>
+    </div>
+
+    <p class="dialog-note" id="confirmNote"></p>
+
+    <div class="dialog-btns">
+      <button class="btn btn-ghost" onclick="closeDialog()">Cancel</button>
+      <button class="btn btn-primary" id="confirmBtn" onclick="confirmChange()">Confirm Change</button>
+    </div>
+    <div class="inline-err" id="dialogErr" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">
+  <span class="toast-icon" id="toastIcon"></span>
+  <span id="toastMsg"></span>
+</div>
+
+<script>
+  const SIZE_TIERS = [
+    { id: 'micro',      label: 'Micro',      range: '1–10',        multiplier: 1.00,  maxEmployees: 10   },
+    { id: 'small',      label: 'Small',      range: '11–15',       multiplier: 0.71,  maxEmployees: 15   },
+    { id: 'growing',    label: 'Growing',    range: '16–50',       multiplier: 1.43,  maxEmployees: 50   },
+    { id: 'medium',     label: 'Medium',     range: '51–100',      multiplier: 2.86,  maxEmployees: 100  },
+    { id: 'large',      label: 'Large',      range: '101–250',     multiplier: 6.72,  maxEmployees: 250  },
+    { id: 'corporate',  label: 'Corporate',  range: '251–500',     multiplier: 14.44, maxEmployees: 500  },
+    { id: 'enterprise', label: 'Enterprise', range: '501–999',     multiplier: 28.92, maxEmployees: 999  },
+    { id: 'global',     label: 'Global',     range: '1,000–1,500', multiplier: 38.57, maxEmployees: 1500 },
+  ];
+
+  const CRM_SLUGS = [
+    'smartcore-crm-lite',
+    'smartcore-crm-professional',
+    'smartcore-crm-business',
+    'smartcore-crm-enterprise',
+  ];
+
+  // ── Auth ────────────────────────────────────────────────────────────────────
+  const params = new URLSearchParams(location.search);
+  const TOKEN  = params.get('token');
+
+  function getAuthHeaders() {
+    if (TOKEN) return {};
+    let jwt = null;
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.includes('supabase') || key.includes('sb-')) && key.includes('auth')) {
+        try {
+          const val = JSON.parse(localStorage.getItem(key));
+          jwt = val?.access_token || val?.currentSession?.access_token || null;
+          if (jwt) break;
+        } catch {}
+      }
+    }
+    return jwt ? { Authorization: `Bearer ${jwt}` } : {};
+  }
+
+  function buildApiUrl(base) {
+    return TOKEN ? `${base}?token=${encodeURIComponent(TOKEN)}` : base;
+  }
+
+  // ── State ───────────────────────────────────────────────────────────────────
+  let state = {
+    order: null, modules: [], employee_count: 0,
+    company: null, purchased_modules: [], pendingAction: null,
+  };
+  let selectedTiming = 'now'; // 'now' | 'renewal'
+
+  // ── Init ────────────────────────────────────────────────────────────────────
+  async function init() {
+    if (!TOKEN && !getAuthHeaders().Authorization) {
+      showError('Please sign in to SmartCore Core first, then click Manage Plan again.');
+      return;
+    }
+    try {
+      const res  = await fetch(buildApiUrl('/api/manage-plan'), { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok) { showError(data.error); return; }
+      state.order             = data.order;
+      state.modules           = data.modules || [];
+      state.employee_count    = data.employee_count || 0;
+      state.company           = data.company;
+      state.purchased_modules = data.purchased_modules || [];
+      render();
+    } catch (e) {
+      console.error(e); showError();
+    }
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+  function render() {
+    const o      = state.order;
+    const isYearly  = o.billing_type === 'yearly';
+    const period = isYearly ? '/yr' : '/mo';
+    const badgeClass = isYearly ? 'pill pill-green' : 'pill pill-blue';
+    const badgeLabel = isYearly ? 'Annual Billing' : 'Monthly Billing';
+
+    document.getElementById('billingBadge').innerHTML  = `<span class="${badgeClass}">${badgeLabel}</span>`;
+    document.getElementById('billingBadge').style.display = 'block';
+    document.getElementById('companyName').textContent = o.company_name;
+    document.getElementById('orderRef').textContent    = o.order_reference;
+    document.getElementById('currentTotal').textContent = fmt(o.total);
+    document.getElementById('currentPeriod').textContent = period;
+    document.getElementById('billingBadgeRight').innerHTML = `<span class="${badgeClass}">${badgeLabel}</span>`;
+    document.getElementById('headerSub').textContent   =
+      (o.size_tier ? cap(o.size_tier) + ' tier' : '') + (state.employee_count ? ` · ${state.employee_count} employees` : '');
+    document.getElementById('nextBillingDate').textContent =
+      o.next_billing_date ? fmtDate(o.next_billing_date) : '—';
+    document.getElementById('billingTypeLabel').textContent = isYearly ? 'Annual' : 'Monthly';
+    document.getElementById('nextTotal').textContent   = fmt(o.total) + period;
+
+    renderPendingBanner();
+    renderTierSelect();
+    renderSizeInfo();
+    renderModules();
+
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('pageContent').style.display  = 'block';
+  }
+
+  function renderPendingBanner() {
+    const pending = state.order?.pending_plan_change;
+    const banner  = document.getElementById('pendingBanner');
+    if (!pending) { banner.style.display = 'none'; return; }
+
+    const nextDate = state.order.next_billing_date ? fmtDate(state.order.next_billing_date) : 'your next billing date';
+    let desc = '';
+    if (pending.type === 'change_size') {
+      const tier = SIZE_TIERS.find(t => t.id === pending.new_tier_id);
+      desc = `Switching to <strong>${tier?.label || pending.new_tier_id}</strong> tier on <strong>${nextDate}</strong>. New total will be <strong>${fmt(pending.new_total)}</strong>${state.order.billing_type === 'yearly' ? '/yr' : '/mo'}.`;
+    } else if (pending.type === 'change_crm_tier') {
+      desc = `Switching CRM to <strong>${esc(pending.new_crm_name || pending.new_crm_slug)}</strong> on <strong>${nextDate}</strong>. New total will be <strong>${fmt(pending.new_total)}</strong>${state.order.billing_type === 'yearly' ? '/yr' : '/mo'}.`;
+    }
+
+    document.getElementById('pendingBannerBody').innerHTML = desc;
+    banner.style.display = 'flex';
+  }
+
+  function renderTierSelect() {
+    const o           = state.order;
+    const activeSlugs = getActiveSlugs();
+    const moduleMap   = Object.fromEntries(state.modules.map(m => [m.slug, m]));
+    const period      = o.billing_type === 'yearly' ? '/yr' : '/mo';
+    const disc        = o.discount_percent || 0;
+
+    // Split active modules: size-scaled vs flat-rate (CRM)
+    const activeMods  = [...activeSlugs].map(s => moduleMap[s]).filter(Boolean);
+    const sizedMods   = activeMods.filter(m => m.slug !== 'smartcore-core' && !CRM_SLUGS.includes(m.slug));
+    const hasCrm      = activeMods.some(m => CRM_SLUGS.includes(m.slug));
+
+    const currentTier = SIZE_TIERS.find(t => t.id === o.size_tier);
+
+    // Trigger label
+    document.getElementById('cddLabel').textContent = currentTier
+      ? `${currentTier.label} — ${currentTier.range} staff`
+      : 'Select tier';
+    if (currentTier) {
+      const sizePrice  = calcTotal(sizedMods,  moduleMap, currentTier.multiplier, o.billing_type, disc).total;
+      const totalPrice = calcTotal(activeMods,  moduleMap, currentTier.multiplier, o.billing_type, disc).total;
+      document.getElementById('cddSub').textContent = hasCrm
+        ? `${fmt(sizePrice)}${period} · incl. ${fmt(totalPrice)}${period} total`
+        : `${fmt(sizePrice)}${period}`;
+    } else {
+      document.getElementById('cddSub').textContent = '';
+    }
+
+    // Menu items
+    document.getElementById('cddMenu').innerHTML = SIZE_TIERS.map(tier => {
+      const sizePrice  = calcTotal(sizedMods,  moduleMap, tier.multiplier, o.billing_type, disc).total;
+      const totalPrice = calcTotal(activeMods,  moduleMap, tier.multiplier, o.billing_type, disc).total;
+      const isCurrent  = tier.id === o.size_tier;
+      return `<div class="cdd-item${isCurrent ? ' cdd-current' : ''}" ${isCurrent ? '' : `onclick="closeCdd();onTierChange('${tier.id}')"`}>
+        <div class="cdd-item-left">
+          <div class="cdd-item-name">${tier.label}</div>
+          <div class="cdd-item-range">${tier.range} employees</div>
+        </div>
+        <div class="cdd-item-right">
+          <div class="cdd-item-price">${fmt(sizePrice)}<span style="font-size:10px;font-weight:500;color:var(--muted)">${period}</span></div>
+          ${hasCrm ? `<div style="font-size:10px;color:var(--muted);margin-top:1px">incl. ${fmt(totalPrice)}${period}</div>` : ''}
+          ${isCurrent ? `<div class="cdd-item-badge">● Current</div>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function toggleCdd() {
+    document.getElementById('tierCdd').classList.toggle('open');
+  }
+  function closeCdd() {
+    document.getElementById('tierCdd').classList.remove('open');
+  }
+  // Close on outside click
+  document.addEventListener('click', e => {
+    if (!document.getElementById('tierCdd')?.contains(e.target)) closeCdd();
+  });
+
+  function renderSizeInfo() {
+    const o    = state.order;
+    const tier = SIZE_TIERS.find(t => t.id === o.size_tier);
+    if (!tier) return;
+    const used = state.employee_count;
+    const max  = tier.maxEmployees;
+    const pct  = Math.round((used / max) * 100);
+    document.getElementById('sizeInfo').innerHTML =
+      `You have <strong>${used}</strong> of <strong>${max}</strong> employees used on the <strong>${tier.label}</strong> tier.` +
+      (pct >= 80 ? ` <span style="color:var(--amber)">You're at ${pct}% capacity.</span>` : '');
+  }
+
+  // Build the canonical active-module slug set from purchased_modules (source of truth)
+  // Falls back to order.modules JSON if purchased_modules is empty
+  function getActiveSlugs() {
+    if (state.purchased_modules?.length) {
+      return new Set(state.purchased_modules.map(p => p.module_slug));
+    }
+    return new Set(parseModules(state.order.modules).map(m => m.slug));
+  }
+
+  function renderModules() {
+    const o         = state.order;
+    const moduleMap = Object.fromEntries(state.modules.map(m => [m.slug, m]));
+    const period    = o.billing_type === 'yearly' ? '/yr' : '/mo';
+    const mult      = o.size_multiplier || 1;
+
+    // Use purchased_modules as source of truth for what's active
+    const activeSlugs = getActiveSlugs();
+
+    // Find active CRM from purchased_modules
+    const activeCrmSlug = [...activeSlugs].find(s => CRM_SLUGS.includes(s)) || null;
+    const crmActive     = activeCrmSlug ? moduleMap[activeCrmSlug] : null;
+    const allCrm        = state.modules.filter(m => CRM_SLUGS.includes(m.slug));
+
+    // Non-CRM, non-core active modules
+    const activeNonCrm = [...activeSlugs]
+      .filter(s => s !== 'smartcore-core' && !CRM_SLUGS.includes(s))
+      .map(s => moduleMap[s])
+      .filter(Boolean);
+
+    let html = '';
+
+    // SmartCore Core
+    html += modRow({
+      dot: 'dot-free', name: 'SmartCore Core',
+      desc: 'HR platform, employee management & more',
+      tags: ['<span class="tag tag-free">Included free</span>'],
+      priceHtml: `<div class="mod-price price-free">Free</div>`,
+    });
+
+    // Size-scaled modules
+    for (const dbMod of activeNonCrm) {
+      const base  = o.billing_type === 'yearly'
+        ? (dbMod.yearly_price || dbMod.monthly_price || 0)
+        : (dbMod.monthly_price || 0);
+      const price = base * mult;
+      html += modRow({
+        dot: 'dot-active', name: esc(dbMod.name),
+        desc: dbMod.description || '',
+        tags: [`<span class="tag tag-size">↕ Scales with size</span>`],
+        priceHtml: `<div class="mod-price price-active">${fmt(price)}<span style="font-size:11px;font-weight:500;color:var(--muted)">${period}</span></div><a href="https://smartcoretechnology.co.uk/shop/" target="_blank" class="store-btn">View on store</a>`,
+      });
+    }
+
+    // CRM section — show all CRM tiers, highlight the active one
+    if (allCrm.length) {
+      const crmBase = crmActive
+        ? (o.billing_type === 'yearly' ? (crmActive.yearly_price || crmActive.monthly_price || 0) : (crmActive.monthly_price || 0))
+        : 0;
+      html += `<div class="crm-header">
+        <div>
+          <div class="mod-name">CRM Module${crmActive
+            ? ` <span style="font-size:12px;font-weight:600;color:var(--muted);margin-left:6px">— <span style="color:var(--accent)">${esc(crmActive.name.replace('SmartCore CRM ',''))}</span> active</span>`
+            : ''}</div>
+          <div class="mod-meta">
+            <span class="tag tag-flat">▪ Flat rate</span>
+            <span style="font-size:12px;color:var(--muted)">Doesn't change with company size · click a tier to switch</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+          ${crmActive ? `<div class="mod-price price-active" style="font-size:13px">${fmt(crmBase)}<span style="font-size:10px;font-weight:500;color:var(--muted)">${period}</span></div>` : ''}
+          <a href="https://smartcoretechnology.co.uk/shop/" target="_blank" class="store-btn">View on store</a>
+        </div>
+      </div>
+      <div class="crm-tiers">`;
+
+      allCrm.forEach(m => {
+        const isActive = m.slug === activeCrmSlug;
+        const base = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price || 0) : (m.monthly_price || 0);
+        const tierName = m.name.replace('SmartCore CRM ', '');
+        html += `<div class="crm-opt${isActive ? ' crm-active' : ''}" ${isActive ? '' : `onclick="onCrmClick('${m.slug}')"`}>
+          ${isActive ? `<div class="crm-opt-badge">Current plan</div>` : ''}
+          <div class="crm-opt-name">${esc(tierName)}</div>
+          <div class="crm-opt-price">${fmt(base)}<span style="font-size:10px;font-weight:500;color:var(--muted)">${period}</span></div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    document.getElementById('modList').innerHTML = html;
+  }
+
+  function modRow({ dot, name, desc, tags, priceHtml }) {
+    return `<div class="mod-row">
+      <div class="mod-left">
+        <div class="mod-dot ${dot}"></div>
+        <div>
+          <div class="mod-name">${name}</div>
+          <div class="mod-meta">${tags.join('')}${desc ? `<span style="font-size:12px;color:var(--muted)">${desc}</span>` : ''}</div>
+        </div>
+      </div>
+      <div class="mod-price-col">${priceHtml}</div>
+    </div>`;
+  }
+
+  // ── Tier change ─────────────────────────────────────────────────────────────
+  function onTierChange(tierId) {
+    const o         = state.order;
+    const tier      = SIZE_TIERS.find(t => t.id === tierId);
+    if (!tier || tier.id === o.size_tier) return;
+
+    const moduleMap     = Object.fromEntries(state.modules.map(m => [m.slug, m]));
+    const activeSlugs   = getActiveSlugs();
+    const allActiveMods = [...activeSlugs].map(s => moduleMap[s]).filter(Boolean);
+    const period        = o.billing_type === 'yearly' ? '/yr' : '/mo';
+    const oldTier       = SIZE_TIERS.find(t => t.id === o.size_tier);
+    const isDown        = tier.maxEmployees < (oldTier?.maxEmployees || 9999);
+
+    const oldTotal = calcTotal(allActiveMods, moduleMap, o.size_multiplier || 1, o.billing_type, o.discount_percent || 0).total;
+    const newTotal = calcTotal(allActiveMods, moduleMap, tier.multiplier,        o.billing_type, o.discount_percent || 0).total;
+
+    state.pendingAction = { type: 'change_size', payload: { action: 'change_size', new_tier_id: tierId }, newTotal, oldTotal };
+
+    document.getElementById('confirmTitle').textContent = `Switch to ${tier.label} tier`;
+    document.getElementById('confirmDesc').textContent  =
+      `You're changing your company size from ${oldTier?.label || 'current'} to ${tier.label} (${tier.range} employees).`;
+
+    document.getElementById('confirmOldPrice').textContent = fmt(oldTotal) + period;
+    const newPriceEl = document.getElementById('confirmNewPrice');
+    newPriceEl.textContent = fmt(newTotal) + period;
+    newPriceEl.className   = 'price-new ' + (newTotal < oldTotal ? 'going-down' : newTotal > oldTotal ? 'going-up' : '');
+
+    // Employee limit warning
+    const warnEl   = document.getElementById('empWarn');
+    const warnBody = document.getElementById('empWarnBody');
+    if (state.employee_count > tier.maxEmployees) {
+      const over = state.employee_count - tier.maxEmployees;
+      warnBody.innerHTML = `You currently have <strong>${state.employee_count} employees</strong> onboarded at ${esc(o.company_name)}, but the <strong>${tier.label}</strong> tier only allows up to <strong>${tier.maxEmployees}</strong>. You'd need to remove <strong>${over} employee${over !== 1 ? 's' : ''}</strong> before this change can take effect. <a href="https://smartcoretechnology.co.uk/systems/core" target="_blank">Manage employees →</a>`;
+      warnEl.style.display = 'block';
+      document.getElementById('confirmBtn').disabled = true;
+    } else if (isDown) {
+      warnBody.innerHTML = `By switching to the <strong>${tier.label}</strong> tier, your employee limit will change from <strong>${oldTier?.maxEmployees}</strong> to <strong>${tier.maxEmployees}</strong>. You currently have <strong>${state.employee_count}</strong> employees — you still have room, but you won't be able to add more beyond ${tier.maxEmployees}.`;
+      warnEl.style.display = 'block';
+      document.getElementById('confirmBtn').disabled = false;
+    } else {
+      warnEl.style.display = 'none';
+      document.getElementById('confirmBtn').disabled = false;
+    }
+
+    // Full breakdown showing every active module with old → new price
+    buildSizeBreakdown(allActiveMods, moduleMap, o.size_multiplier || 1, tier.multiplier, period, newTotal);
+
+    openDialog();
+  }
+
+  function buildSizeBreakdown(allActiveMods, moduleMap, oldMult, newMult, period, newTotal) {
+    const o = state.order;
+    let html = '';
+    for (const m of allActiveMods) {
+      if (m.slug === 'smartcore-core') continue;
+      const isCrm   = CRM_SLUGS.includes(m.slug);
+      const base     = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price || 0) : (m.monthly_price || 0);
+      const oldPrice = isCrm ? base : base * oldMult;
+      const newPrice = isCrm ? base : base * newMult;
+      const changed  = !isCrm && Math.abs(newPrice - oldPrice) > 0.001;
+      html += `<div class="breakdown-row${changed ? ' highlight' : ''}">
+        <span class="label">${esc(m.name)}${isCrm ? ' <span style="font-size:10px;opacity:.6">(flat rate)</span>' : ''}</span>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+          ${changed
+            ? `<span style="font-size:12px;color:var(--muted);text-decoration:line-through">${fmt(oldPrice)}${period}</span>
+               <span style="font-size:11px;color:var(--muted2)">→</span>
+               <span class="val" style="color:var(--green)">${fmt(newPrice)}${period}</span>`
+            : `<span class="val">${fmt(newPrice)}${period}</span>`
+          }
+        </div>
+      </div>`;
+    }
+    html += `<div class="breakdown-row" style="border-top:1px solid var(--border);background:rgba(255,255,255,.02)">
+      <span class="label" style="font-weight:600;color:var(--text)">New total</span>
+      <span class="val" style="font-size:15px">${fmt(newTotal)}${period}</span>
+    </div>`;
+    document.getElementById('breakdownBody').innerHTML = html;
+  }
+
+  function toggleBreakdown() {
+    const toggle = document.getElementById('breakdownToggle');
+    const body   = document.getElementById('breakdownBody');
+    const open   = body.classList.toggle('open');
+    toggle.classList.toggle('open', open);
+  }
+  function closeBreakdown() {
+    document.getElementById('breakdownToggle').classList.remove('open');
+    document.getElementById('breakdownBody').classList.remove('open');
+  }
+
+  // ── CRM tier change ─────────────────────────────────────────────────────────
+  function onCrmClick(slug) {
+    const o         = state.order;
+    const moduleMap = Object.fromEntries(state.modules.map(m => [m.slug, m]));
+    const newMod    = moduleMap[slug];
+    const period    = o.billing_type === 'yearly' ? '/yr' : '/mo';
+    if (!newMod) return;
+
+    // Use purchased_modules as source of truth for current active set
+    const activeSlugs     = getActiveSlugs();
+    const activeCrmSlug   = [...activeSlugs].find(s => CRM_SLUGS.includes(s)) || null;
+    const currentCrmMod   = activeCrmSlug ? moduleMap[activeCrmSlug] : null;
+    const currentTierName = currentCrmMod ? currentCrmMod.name.replace('SmartCore CRM ', '') : 'current plan';
+    const newTierName     = newMod.name.replace('SmartCore CRM ', '');
+
+    // Build full active module list from purchased_modules for accurate totals
+    const allActiveModules = [...activeSlugs].map(s => moduleMap[s]).filter(Boolean);
+    const nonCrmModules    = allActiveModules.filter(m => !CRM_SLUGS.includes(m.slug));
+
+    const oldTotal = calcTotal(allActiveModules, moduleMap, o.size_multiplier || 1, o.billing_type, o.discount_percent || 0).total;
+    const newTotal = calcTotal([...nonCrmModules, newMod], moduleMap, o.size_multiplier || 1, o.billing_type, o.discount_percent || 0).total;
+
+    state.pendingAction = { type: 'change_crm_tier', payload: { action: 'change_crm_tier', new_crm_slug: slug }, newTotal, oldTotal };
+
+    document.getElementById('confirmTitle').textContent = `Switch CRM from ${currentTierName} to ${newTierName}`;
+    document.getElementById('confirmDesc').textContent  =
+      `Are you sure you want to change your CRM tier from ${currentTierName} to ${newTierName}? CRM pricing is flat rate — it doesn't change with your company size.`;
+
+    document.getElementById('confirmOldPrice').textContent = fmt(oldTotal) + period;
+    const newPriceEl = document.getElementById('confirmNewPrice');
+    newPriceEl.textContent = fmt(newTotal) + period;
+    newPriceEl.className   = 'price-new ' + (newTotal < oldTotal ? 'going-down' : newTotal > oldTotal ? 'going-up' : '');
+
+    document.getElementById('empWarn').style.display = 'none';
+    document.getElementById('confirmBtn').disabled   = false;
+    document.getElementById('confirmBtn').innerHTML  = 'Confirm Change';
+
+    // Full breakdown showing all active modules, highlighting the CRM change
+    const mult = o.size_multiplier || 1;
+    let bdHtml = '';
+    for (const m of allActiveModules) {
+      if (m.slug === 'smartcore-core') continue;
+      const isCrm   = CRM_SLUGS.includes(m.slug);
+      const base     = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price || 0) : (m.monthly_price || 0);
+      const oldPrice = isCrm ? base : base * mult;
+      const newBase  = isCrm ? (o.billing_type === 'yearly' ? (newMod.yearly_price || newMod.monthly_price || 0) : (newMod.monthly_price || 0)) : null;
+      const newPrice = isCrm ? newBase : oldPrice;
+      const changed  = isCrm && Math.abs((newBase || 0) - base) > 0.001;
+      bdHtml += `<div class="breakdown-row${changed ? ' highlight' : ''}">
+        <span class="label">${esc(m.name)}${isCrm ? ` <span style="font-size:10px;opacity:.6">(flat rate)</span>` : ''}</span>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+          ${changed
+            ? `<span style="font-size:12px;color:var(--muted);text-decoration:line-through">${fmt(oldPrice)}${period}</span>
+               <span style="font-size:11px;color:var(--muted2)">→</span>
+               <span class="val" style="color:var(--green)">${fmt(newPrice)}${period}</span>`
+            : `<span class="val">${fmt(newPrice)}${period}</span>`
+          }
+        </div>
+      </div>`;
+    }
+    bdHtml += `<div class="breakdown-row" style="border-top:1px solid var(--border);background:rgba(255,255,255,.02)">
+      <span class="label" style="font-weight:600;color:var(--text)">New total</span>
+      <span class="val" style="font-size:15px">${fmt(newTotal)}${period}</span>
+    </div>`;
+    document.getElementById('breakdownBody').innerHTML = bdHtml;
+
+    openDialog();
+  }
+
+  // ── Confirm ─────────────────────────────────────────────────────────────────
+  async function confirmChange() {
+    const btn     = document.getElementById('confirmBtn');
+    const errEl   = document.getElementById('dialogErr');
+    const pending = state.pendingAction;
+    if (!pending) return;
+
+    btn.disabled  = true;
+    btn.innerHTML = `<div style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite"></div> Saving…`;
+    errEl.classList.remove('show');
+
+    try {
+      const applyNow = selectedTiming === 'now';
+      const res  = await fetch(buildApiUrl('/api/manage-plan'), {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body:    JSON.stringify({ ...pending.payload, apply_immediately: applyNow }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.error === 'employee_limit') {
+          const excess = data.current_employees - data.tier_max;
+          errEl.innerHTML = `You have <strong>${data.current_employees}</strong> employees — this tier only allows <strong>${data.tier_max}</strong>. Remove <strong>${excess}</strong> employee${excess !== 1 ? 's' : ''} at <a href="${data.manage_url}" target="_blank">your SmartCore workspace</a> first.`;
+          errEl.classList.add('show');
+          btn.disabled = false; btn.innerHTML = 'Confirm Change';
+          return;
+        }
+        throw new Error(data.error || 'Request failed');
+      }
+
+      if (data.scheduled) {
+        // Queued for next renewal — update pending_plan_change in local state
+        if (pending.type === 'change_size') {
+          const tier = SIZE_TIERS.find(t => t.id === pending.payload.new_tier_id);
+          state.order.pending_plan_change = { type: 'change_size', new_tier_id: tier.id, new_total: data.new_total };
+        } else if (pending.type === 'change_crm_tier') {
+          const moduleMap = Object.fromEntries(state.modules.map(m => [m.slug, m]));
+          const newMod    = moduleMap[pending.payload.new_crm_slug];
+          state.order.pending_plan_change = { type: 'change_crm_tier', new_crm_slug: newMod.slug, new_crm_name: newMod.name, new_total: data.new_total };
+        }
+        closeDialog();
+        showToast('success', 'Change scheduled for your next renewal');
+      } else {
+        // Applied immediately — update local state
+        if (pending.type === 'change_size') {
+          const tier = SIZE_TIERS.find(t => t.id === pending.payload.new_tier_id);
+          state.order.size_tier           = tier.id;
+          state.order.size_multiplier     = tier.multiplier;
+          state.order.total               = data.new_total;
+          state.order.pending_plan_change = null;
+        } else if (pending.type === 'change_crm_tier') {
+          const moduleMap  = Object.fromEntries(state.modules.map(m => [m.slug, m]));
+          const newMod     = moduleMap[pending.payload.new_crm_slug];
+          const modules    = parseModules(state.order.modules);
+          const nonCrm     = modules.filter(m => !CRM_SLUGS.includes(m.slug));
+          state.order.modules             = [...nonCrm, { slug: newMod.slug, name: newMod.name, monthly_price: newMod.monthly_price, yearly_price: newMod.yearly_price }];
+          state.order.total               = data.new_total;
+          state.order.pending_plan_change = null;
+          // Also update purchased_modules so getActiveSlugs() reflects the change immediately
+          state.purchased_modules = state.purchased_modules.filter(p => !CRM_SLUGS.includes(p.module_slug));
+          state.purchased_modules.push({ module_slug: newMod.slug });
+        }
+        closeDialog();
+        showToast('success', 'Plan updated successfully');
+      }
+
+      // Re-render
+      document.getElementById('currentTotal').textContent = fmt(state.order.total);
+      const period = state.order.billing_type === 'yearly' ? '/yr' : '/mo';
+      document.getElementById('nextTotal').textContent    = fmt(state.order.total) + period;
+      document.getElementById('headerSub').textContent    =
+        (state.order.size_tier ? cap(state.order.size_tier) + ' tier' : '') + (state.employee_count ? ` · ${state.employee_count} employees` : '');
+      renderPendingBanner();
+      renderTierSelect();
+      renderSizeInfo();
+      renderModules();
+
+    } catch (err) {
+      errEl.textContent = 'Something went wrong: ' + err.message;
+      errEl.classList.add('show');
+      btn.disabled = false; btn.innerHTML = 'Confirm Change';
+    }
+  }
+
+  function selectTiming(choice) {
+    selectedTiming = choice;
+    document.getElementById('timingNow').classList.toggle('selected', choice === 'now');
+    document.getElementById('timingRenewal').classList.toggle('selected', choice === 'renewal');
+    const note = document.getElementById('confirmNote');
+    const o    = state.order;
+    if (choice === 'now') {
+      note.innerHTML = 'Your plan updates immediately. Your billing amount changes from the next payment.';
+    } else {
+      note.innerHTML = o.next_billing_date
+        ? `Your current plan stays active until <strong>${fmtDate(o.next_billing_date)}</strong>, when the new plan will take effect.`
+        : 'Your current plan stays active until your next billing date, when the new plan will take effect.';
+    }
+  }
+
+  function openDialog() {
+    selectedTiming = 'now';
+    document.getElementById('timingNow').classList.add('selected');
+    document.getElementById('timingRenewal').classList.remove('selected');
+    const o = state.order;
+    document.getElementById('timingRenewalSub').textContent = o.next_billing_date
+      ? `Keep your current plan until ${fmtDate(o.next_billing_date)}`
+      : 'Keep your current plan until your next billing date';
+    document.getElementById('dialogErr').classList.remove('show');
+    document.getElementById('confirmBtn').innerHTML = 'Confirm Change';
+    closeBreakdown();
+    document.getElementById('confirmOverlay').classList.add('show');
+  }
+
+  function closeDialog() {
+    document.getElementById('confirmOverlay').classList.remove('show');
+    state.pendingAction = null;
+  }
+
+  document.getElementById('confirmOverlay').addEventListener('click', function(e) {
+    if (e.target === this) closeDialog();
+  });
+
+  async function cancelPendingChange() {
+    try {
+      const res  = await fetch(buildApiUrl('/api/manage-plan'), {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body:    JSON.stringify({ action: 'cancel_pending_change' }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed'); }
+      state.order.pending_plan_change = null;
+      renderPendingBanner();
+      showToast('success', 'Scheduled change cancelled');
+    } catch (e) {
+      showToast('error', 'Could not cancel: ' + e.message);
+    }
+  }
+
+  // ── Toast ────────────────────────────────────────────────────────────────────
+  let toastTimer = null;
+  function showToast(type, msg) {
+    const el = document.getElementById('toast');
+    document.getElementById('toastIcon').textContent = type === 'success' ? '✓' : '✕';
+    document.getElementById('toastMsg').textContent  = msg;
+    el.className = `toast ${type} show`;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  function calcTotal(modules, moduleMap, sizeMultiplier, billingType, discountPct) {
+    let subtotal = 0;
+    for (const m of modules) {
+      if (m.slug === 'smartcore-core') continue;
+      const dbMod = moduleMap[m.slug] || m;
+      const isCrm = CRM_SLUGS.includes(m.slug);
+      const base  = billingType === 'yearly'
+        ? (dbMod.yearly_price || dbMod.monthly_price || m.yearly_price || m.monthly_price || 0)
+        : (dbMod.monthly_price || m.monthly_price || 0);
+      subtotal += isCrm ? base : base * sizeMultiplier;
+    }
+    const discount = subtotal * (discountPct || 0) / 100;
+    return { subtotal, discount, total: Math.max(0, subtotal - discount) };
+  }
+
+  function parseModules(m) {
+    if (!m) return [];
+    if (Array.isArray(m)) return m;
+    try { return JSON.parse(m); } catch { return []; }
+  }
+
+  function showError(msg) {
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('errorState').style.display   = 'flex';
+    if (msg) document.getElementById('errorMsg').textContent = msg;
+  }
+
+  function fmt(n) {
+    return '£' + Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+
+  function fmtDate(iso) {
+    return new Date(iso).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
+  }
+
+  init();
+</script>
+</body>
+</html>
