@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Reports — SmartCore CRM</title>
-  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+  <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -193,22 +193,33 @@ async function loadReports() {
       </div>
     </div>`;
 
-  // Charts
-  const isDark = document.documentElement.getAttribute("data-theme") !== "light";
-  const textColor = isDark ? "rgba(233,240,255,.6)" : "rgba(15,23,42,.6)";
-  const gridColor = isDark ? "rgba(255,255,255,.06)" : "rgba(0,0,0,.06)";
+  // Charts — stored so they can be destroyed/recreated on theme change
+  const _rChartData = { monthLabels, monthlyLeads, stageCounts };
+  let _rCharts = [];
 
-  new Chart(document.getElementById("monthlyChart").getContext("2d"), {
-    type: "bar",
-    data: { labels: monthLabels, datasets: [{ label: "Leads", data: monthlyLeads, backgroundColor: "rgba(30,92,255,.6)", borderRadius: 6 }] },
-    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{grid:{color:gridColor},ticks:{color:textColor}},y:{grid:{color:gridColor},ticks:{color:textColor,stepSize:1}}} }
-  });
+  function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 
-  new Chart(document.getElementById("funnelChart").getContext("2d"), {
-    type: "bar",
-    data: { labels: ["New","Contacted","Qualified","Proposal","Negotiation"], datasets: [{ label:"Leads", data:stageCounts, backgroundColor:["#6366f1","#f59e0b","#3b82f6","#8b5cf6","#ec4899"], borderRadius:6, borderSkipped:false }] },
-    options: { indexAxis:"y", responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{grid:{color:gridColor},ticks:{color:textColor}},y:{grid:{color:gridColor},ticks:{color:textColor}}} }
-  });
+  function buildReportCharts(data) {
+    _rCharts.forEach(c => c.destroy());
+    _rCharts = [];
+    const textColor = cssVar("--text3");
+    const gridColor = cssVar("--line");
+
+    _rCharts.push(new Chart(document.getElementById("monthlyChart").getContext("2d"), {
+      type: "bar",
+      data: { labels: data.monthLabels, datasets: [{ label: "Leads", data: data.monthlyLeads, backgroundColor: "rgba(30,92,255,.6)", borderRadius: 6 }] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{grid:{color:gridColor},ticks:{color:textColor}},y:{grid:{color:gridColor},ticks:{color:textColor,stepSize:1}}} }
+    }));
+
+    _rCharts.push(new Chart(document.getElementById("funnelChart").getContext("2d"), {
+      type: "bar",
+      data: { labels: ["New","Contacted","Qualified","Proposal","Negotiation"], datasets: [{ label:"Leads", data:data.stageCounts, backgroundColor:["#6366f1","#f59e0b","#3b82f6","#8b5cf6","#ec4899"], borderRadius:6, borderSkipped:false }] },
+      options: { indexAxis:"y", responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{grid:{color:gridColor},ticks:{color:textColor}},y:{grid:{color:gridColor},ticks:{color:textColor}}} }
+    }));
+  }
+
+  buildReportCharts(_rChartData);
+  document.addEventListener("themechange", () => buildReportCharts(_rChartData));
 }
 
 function getLast6Months() {

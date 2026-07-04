@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Dashboard — SmartCore CRM</title>
-  <link rel="stylesheet" href="/systems/crm/crm.css"/>
+  <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -345,13 +345,22 @@ function openGoalModal(id, goals) {
   };
 }
 
+let _chartInstances = [];
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 function initCharts(s) {
+  _chartInstances.forEach(c => c.destroy());
+  _chartInstances = [];
+
   // Pipeline bar chart
   const pCtx = document.getElementById("pipelineChart")?.getContext("2d");
   if (pCtx) {
     const stages = ["New","Contacted","Qualified","Proposal Sent","Negotiation"];
     const values = stages.map((_, i) => Math.max(0, s.pipelineValue * [.3,.25,.2,.15,.1][i]));
-    new Chart(pCtx, {
+    _chartInstances.push(new Chart(pCtx, {
       type: "bar",
       data: {
         labels: stages,
@@ -361,17 +370,17 @@ function initCharts(s) {
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          x: { grid: { color: getComputedStyle(document.documentElement).getPropertyValue("--line").trim() }, ticks: { color: getComputedStyle(document.documentElement).getPropertyValue("--text3").trim(), font: { size: 11 } } },
-          y: { grid: { color: getComputedStyle(document.documentElement).getPropertyValue("--line").trim() }, ticks: { color: getComputedStyle(document.documentElement).getPropertyValue("--text3").trim(), font: { size: 11 }, callback: v => "£"+v.toLocaleString() } }
+          x: { grid: { color: cssVar("--line") }, ticks: { color: cssVar("--text3"), font: { size: 11 } } },
+          y: { grid: { color: cssVar("--line") }, ticks: { color: cssVar("--text3"), font: { size: 11 }, callback: v => "£"+v.toLocaleString() } }
         }
       }
-    });
+    }));
   }
 
   // Lead pie chart
   const lCtx = document.getElementById("leadPieChart")?.getContext("2d");
   if (lCtx) {
-    new Chart(lCtx, {
+    _chartInstances.push(new Chart(lCtx, {
       type: "doughnut",
       data: {
         labels: ["Active","Won","Lost"],
@@ -380,11 +389,13 @@ function initCharts(s) {
       options: {
         responsive: true, maintainAspectRatio: false,
         cutout: "70%",
-        plugins: { legend: { position: "bottom", labels: { color: getComputedStyle(document.documentElement).getPropertyValue("--text2").trim(), font: { size: 12 }, boxWidth: 10 } } }
+        plugins: { legend: { position: "bottom", labels: { color: cssVar("--text2"), font: { size: 12 }, boxWidth: 10 } } }
       }
-    });
+    }));
   }
 }
+
+document.addEventListener("themechange", () => { if (_stats) initCharts(_stats); });
 
 function renderLockedGoals() {
   const goalsCard = document.createElement("div");
