@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>SmartCore — Complete Payment</title>
   <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png" />
+  <script src="https://js.stripe.com/v3/"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -107,44 +108,38 @@
     .total-row.discount{color:var(--green)}
     .total-row.grand{font-size:18px;font-weight:800;color:var(--text);padding-top:8px;border-top:1px solid var(--border2);margin-top:4px}
 
-    /* PAYMENT PANEL */
-    .paypal-btn{
-      width:100%;display:flex;align-items:center;justify-content:center;gap:10px;
-      background:#ffc439;color:#003087;
-      border:none;border-radius:12px;padding:16px;
-      font-size:16px;font-weight:800;cursor:not-allowed;
-      opacity:.45;margin-bottom:12px;
+    /* STRIPE ELEMENT AREA */
+    #stripe-element-wrap{
+      background:rgba(255,255,255,.035);
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:20px;
+      margin-bottom:16px;
     }
-    .or-divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:var(--muted2);font-size:12px;font-weight:600;letter-spacing:.04em}
-    .or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:var(--border2)}
-    .test-section{background:rgba(255,159,10,.06);border:1px solid rgba(255,159,10,.2);border-radius:12px;padding:20px}
-    .test-section-label{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--amber);margin-bottom:16px;text-transform:uppercase}
-    .test-section p{font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6}
-    .btn-accept{
+    #payment-element{min-height:100px}
+
+    /* PAY BUTTON */
+    .btn-pay{
       width:100%;display:flex;align-items:center;justify-content:center;gap:8px;
       background:var(--green);color:#000;
-      border:none;border-radius:12px;padding:16px;
-      font-size:15px;font-weight:800;cursor:pointer;margin-bottom:10px;
+      border:none;border-radius:12px;padding:17px;
+      font-size:16px;font-weight:800;cursor:pointer;
       transition:opacity .15s,transform .1s;
+      font-family:inherit;
     }
-    .btn-accept:hover{opacity:.88;transform:scale(.99)}
-    .btn-accept:active{opacity:.7}
-    .btn-decline{
-      width:100%;display:flex;align-items:center;justify-content:center;gap:8px;
-      background:rgba(255,69,58,.12);color:var(--red);
-      border:1px solid rgba(255,69,58,.25);border-radius:12px;padding:14px;
-      font-size:14px;font-weight:700;cursor:pointer;
-      transition:background .15s;
-    }
-    .btn-decline:hover{background:rgba(255,69,58,.2)}
-    .security-row{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:20px;font-size:12px;color:var(--muted2)}
+    .btn-pay:hover:not(:disabled){opacity:.88;transform:scale(.99)}
+    .btn-pay:active:not(:disabled){opacity:.7}
+    .btn-pay:disabled{opacity:.5;cursor:not-allowed}
 
-    /* LOADING / STATES */
+    /* LOADING / ERROR STATES */
     .spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,.2);border-top-color:currentColor;border-radius:50%;animation:spin .6s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
     .err-box{background:rgba(255,69,58,.1);border:1px solid rgba(255,69,58,.25);border-radius:12px;padding:14px 16px;font-size:13px;color:var(--red);margin-top:16px;display:none}
     .loading-state{min-height:60vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--muted)}
     .loading-state .spinner{width:28px;height:28px;border-width:3px}
+    .stripe-loading{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--muted);font-size:13px;padding:24px 0}
+    .security-row{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:20px;font-size:12px;color:var(--muted2)}
+    .stripe-logo{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted2);justify-content:center;margin-top:8px}
   </style>
 </head>
 <body>
@@ -174,9 +169,9 @@
   </div>
 
   <div id="pageContent" style="display:none">
-    <div class="test-banner">
+    <div class="test-banner" id="testBanner" style="display:none">
       <span class="test-badge">TEST MODE</span>
-      <span>PayPal is not yet configured. Use the test buttons below to simulate payment acceptance or decline.</span>
+      <span>Stripe is in test mode. Use card <strong>4242 4242 4242 4242</strong>, any future date, any CVC.</span>
     </div>
 
     <div class="layout">
@@ -193,37 +188,34 @@
       <!-- Payment -->
       <div>
         <div class="panel">
-          <div class="panel-title">Payment Method</div>
+          <div class="panel-title">Secure Payment</div>
 
-          <!-- PayPal placeholder -->
-          <button class="paypal-btn" disabled title="PayPal integration coming soon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="#003087"><path d="M7.076 21.337H2.47a.641.641 0 01-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.047.288-.077.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19c-.524 0-.968.382-1.05.9l-1.12 7.106zm14.146-14.42a3.35 3.35 0 00-.607-.541c-.013.076-.026.175-.041.254-.93 4.778-4.005 7.201-9.138 7.201h-2.19a.563.563 0 00-.556.479l-1.187 7.527h-.506l-.24 1.516a.56.56 0 00.554.647h3.882c.46 0 .85-.334.922-.788.06-.26.76-4.852.816-5.09a.932.932 0 01.923-.788h.58c3.76 0 6.705-1.528 7.565-5.946.36-1.847.174-3.388-.777-4.471z"/></svg>
-            Pay with PayPal
-            <span style="font-size:11px;opacity:.7">(Coming soon)</span>
-          </button>
-
-          <div class="or-divider">or</div>
-
-          <!-- Test mode -->
-          <div class="test-section">
-            <div class="test-section-label">🧪 Test Mode</div>
-            <p>These buttons simulate a PayPal payment response. Use them to test the full order flow without real payment.</p>
-            <button class="btn-accept" onclick="processPayment('success')" id="acceptBtn">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Simulate Successful Payment
-            </button>
-            <button class="btn-decline" onclick="processPayment('failed')" id="declineBtn">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-              Simulate Failed Payment
-            </button>
+          <div id="stripeLoading" class="stripe-loading">
+            <div class="spinner"></div> Loading payment form…
           </div>
 
-          <div id="errBox" class="err-box"></div>
+          <form id="paymentForm" style="display:none" onsubmit="submitPayment(event)">
+            <div id="stripe-element-wrap">
+              <div id="payment-element"></div>
+            </div>
 
-          <div class="security-row">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="1.5"/></svg>
-            Secured · Encrypted · No card stored
-          </div>
+            <button class="btn-pay" id="payBtn" type="submit">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+              <span id="payBtnLabel">Pay now</span>
+            </button>
+
+            <div id="errBox" class="err-box"></div>
+
+            <div class="stripe-logo">
+              <svg width="38" height="16" viewBox="0 0 38 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7.47 6.27c0-.51.42-.71.97-.71 1.03 0 2.33.31 3.36.87V3.74A8.93 8.93 0 0 0 8.44 3C6.1 3 4.52 4.24 4.52 6.4c0 3.37 4.64 2.83 4.64 4.28 0 .6-.53.79-1.13.79-1.05 0-2.47-.45-3.57-1.06v2.73c1.21.52 2.43.74 3.57.74 2.4 0 4.06-1.19 4.06-3.37-.01-3.64-4.66-2.99-4.66-4.24zM17.09 1.32 14.5 1.87l-.01 9.75c0 1.8 1.35 3.12 3.15 3.12 1 0 1.73-.18 2.13-.4v-2.2c-.39.16-2.31.72-2.31-1.09V6.26h2.31V3.9h-2.31l.01-2.58h.62zM22.9 4.77l-.17-.87H20.4v10.74h2.71V7.79c.64-.84 1.73-.68 2.07-.57V4.77c-.35-.14-1.6-.4-2.29.5l.01-.5zM26.16 3.9h2.72v10.74h-2.72V3.9zm0-3.09 2.72-.58v2.2l-2.72.58V.81zM35.3 3.74c-.97 0-1.61.45-1.97.77l-.13-.61h-2.42v14.28l2.71-.57.01-3.47c.37.27.91.65 1.79.65 1.81 0 3.47-1.46 3.47-4.67 0-2.93-1.67-4.38-3.46-4.38zm-.61 6.77c-.6 0-.95-.21-1.19-.47l-.01-3.71c.26-.29.62-.49 1.2-.49.92 0 1.55 1.03 1.55 2.33 0 1.33-.62 2.34-1.55 2.34z" fill="currentColor" opacity=".4"/></svg>
+              <span>Powered by Stripe</span>
+            </div>
+
+            <div class="security-row">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="1.5"/></svg>
+              256-bit SSL · PCI DSS compliant · No card data stored
+            </div>
+          </form>
         </div>
       </div>
     </div>
@@ -242,17 +234,32 @@
   const params  = new URLSearchParams(location.search);
   const orderId = params.get('order_id');
   let order = null;
+  let stripe = null;
+  let elements = null;
+
+  function buildApiUrl(path) {
+    const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    return isLocal ? `http://localhost:8788${path}` : path;
+  }
 
   async function init() {
     if (!orderId) { showError(); return; }
+
+    // --- Handle Stripe redirect return ---
+    const redirectStatus = params.get('redirect_status');
+    const paymentIntent  = params.get('payment_intent');
+    if (redirectStatus === 'succeeded' && paymentIntent) {
+      await completeAfterRedirect(paymentIntent);
+      return;
+    }
 
     const { data, error } = await sb.from('marketplace_orders')
       .select('*').eq('id', orderId).single();
 
     if (error || !data) { showError(); return; }
     if (!['pending_payment','pending'].includes(data.status)) {
-      if (data.status === 'approved') {
-        location.href = `/shop/order-confirmed.html?ref=${encodeURIComponent(data.order_reference)}&company=${encodeURIComponent(data.company_name)}`;
+      if (data.status === 'approved' || data.status === 'confirmed') {
+        goToOnboarding(data);
       } else {
         showError();
       }
@@ -262,16 +269,145 @@
     order = data;
     renderOrder(data);
     document.getElementById('loadingState').style.display = 'none';
-    document.getElementById('pageContent').style.display = 'block';
+    document.getElementById('pageContent').style.display  = 'block';
+
+    // Show test mode banner if publishable key is a test key
+    await mountStripeElement();
+  }
+
+  async function mountStripeElement() {
+    try {
+      // 1. Create subscription + get client_secret from backend
+      const res  = await fetch(buildApiUrl('/api/stripe-checkout'), {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ order_id: orderId }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.client_secret) {
+        throw new Error(data.error || 'Could not initialise payment');
+      }
+
+      // Show test banner if using test key
+      if (data.publishable_key?.startsWith('pk_test_')) {
+        document.getElementById('testBanner').style.display = 'flex';
+      }
+
+      // 2. Initialise Stripe.js
+      stripe = Stripe(data.publishable_key);
+      const period = order.billing_type === 'yearly' ? '/year' : '/month';
+
+      elements = stripe.elements({
+        clientSecret: data.client_secret,
+        appearance: {
+          theme: 'night',
+          variables: {
+            colorPrimary:       '#2196f3',
+            colorBackground:    '#0d0d18',
+            colorText:          '#f5f5f7',
+            colorDanger:        '#ff453a',
+            fontFamily:         'Inter, system-ui, sans-serif',
+            borderRadius:       '10px',
+            spacingUnit:        '4px',
+          },
+        },
+      });
+
+      const paymentEl = elements.create('payment', { layout: 'tabs' });
+      paymentEl.mount('#payment-element');
+
+      // Show pay button once element is ready
+      paymentEl.on('ready', () => {
+        document.getElementById('stripeLoading').style.display = 'none';
+        document.getElementById('paymentForm').style.display   = 'block';
+        document.getElementById('payBtnLabel').textContent     = `Pay ${fmt(order.total)}${period}`;
+      });
+
+    } catch (err) {
+      document.getElementById('stripeLoading').innerHTML =
+        `<span style="color:var(--red)">${esc(err.message)}</span>`;
+    }
+  }
+
+  async function submitPayment(e) {
+    e.preventDefault();
+    const payBtn  = document.getElementById('payBtn');
+    const errBox  = document.getElementById('errBox');
+    const btnLabel = document.getElementById('payBtnLabel');
+
+    payBtn.disabled     = true;
+    btnLabel.innerHTML  = '<span class="spinner" style="margin-right:6px"></span>Processing…';
+    errBox.style.display = 'none';
+
+    const returnUrl = `${location.origin}/shop/payment.html?order_id=${encodeURIComponent(orderId)}`;
+
+    const { error } = await stripe.confirmPayment({
+      elements,
+      confirmParams: { return_url: returnUrl },
+      redirect: 'if_required',
+    });
+
+    if (error) {
+      // Card declined or validation error — show inline
+      errBox.textContent   = error.message || 'Payment failed. Please try again.';
+      errBox.style.display = 'block';
+      payBtn.disabled      = false;
+      const period = order.billing_type === 'yearly' ? '/year' : '/month';
+      btnLabel.textContent = `Pay ${fmt(order.total)}${period}`;
+      return;
+    }
+
+    // Payment confirmed without redirect (most cards)
+    await finaliseOrder();
+  }
+
+  async function completeAfterRedirect(paymentIntentId) {
+    // Shown after a 3DS redirect — show minimal loading state
+    document.getElementById('loadingState').querySelector('div:last-child').textContent = 'Confirming payment…';
+    document.getElementById('loadingState').style.display = 'flex';
+
+    try {
+      await finaliseOrder();
+    } catch (err) {
+      document.getElementById('loadingState').innerHTML = `<div style="color:var(--red)">${esc(err.message)}</div>`;
+    }
+  }
+
+  async function finaliseOrder() {
+    // Call payment-complete to provision the order
+    const res = await fetch(buildApiUrl('/api/payment-complete'), {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ order_id: orderId, result: 'success', source: 'stripe' }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      // Best-effort: also trigger email via CF function
+      fetch(buildApiUrl('/api/send-email'), {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ order_id: orderId }),
+      }).catch(() => {});
+
+      const ref     = order?.order_reference || '';
+      const company = order?.company_name    || '';
+      const total   = order?.total           || '';
+      const billing = order?.billing_type    || 'monthly';
+      window.location.href = `/shop/onboarding.html?order_id=${enc(orderId)}&ref=${enc(ref)}&company=${enc(company)}&total=${enc(total)}&billing=${enc(billing)}`;
+    } else {
+      throw new Error(data.error || 'Order finalisation failed');
+    }
   }
 
   function renderOrder(o) {
     const modules = Array.isArray(o.modules) ? o.modules : JSON.parse(o.modules || '[]');
     const regular = modules.filter(m => m.slug !== 'smartcore-core');
 
-    document.getElementById('orderRef').textContent = o.order_reference;
+    document.getElementById('orderRef').textContent     = o.order_reference;
     document.getElementById('orderCompany').textContent = o.company_name;
-    document.getElementById('orderSub').textContent =
+    document.getElementById('orderSub').textContent     =
       `${o.billing_type === 'yearly' ? 'Annual' : 'Monthly'} billing · ${o.contact_name}`;
 
     const modList = document.getElementById('modList');
@@ -279,71 +415,27 @@
       `<div class="mod-row"><span class="mod-name">SmartCore Core</span><span class="mod-price free">Included free</span></div>`,
       ...regular.map(m => {
         const multiplier = o.size_multiplier || 1;
-        const basePrice = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+        const basePrice  = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
         const actualPrice = basePrice * multiplier;
-        const tierLabel = o.size_tier ? o.size_tier.charAt(0).toUpperCase() + o.size_tier.slice(1) : '';
-        return `<div class="mod-row"><span class="mod-name">${esc(m.name)}${tierLabel ? `<span style="font-size:11px;font-weight:600;color:rgba(255,255,255,.4);margin-left:8px">${tierLabel}</span>` : ''}</span><span class="mod-price">${fmt(actualPrice)}${o.billing_type==='yearly'?'/yr':'/mo'}</span></div>`;
+        const tierLabel  = o.size_tier ? o.size_tier.charAt(0).toUpperCase() + o.size_tier.slice(1) : '';
+        return `<div class="mod-row">
+          <span class="mod-name">${esc(m.name)}${tierLabel ? `<span style="font-size:11px;font-weight:600;color:rgba(255,255,255,.4);margin-left:8px">${tierLabel}</span>` : ''}</span>
+          <span class="mod-price">${fmt(actualPrice)}${o.billing_type==='yearly'?'/yr':'/mo'}</span>
+        </div>`;
       }),
     ].join('');
 
     const period = o.billing_type === 'yearly' ? '/yr' : '/mo';
     const totals = document.getElementById('totals');
-    const rows = [`<div class="total-row"><span>Subtotal</span><span>${fmt(o.subtotal)}${period}</span></div>`];
-    if (o.discount_amount > 0) rows.push(`<div class="total-row discount"><span>Package discount</span><span>−${fmt(o.discount_amount)}</span></div>`);
+    const rows   = [`<div class="total-row"><span>Subtotal</span><span>${fmt(o.subtotal)}${period}</span></div>`];
+    if (o.discount_amount > 0)        rows.push(`<div class="total-row discount"><span>Package discount</span><span>−${fmt(o.discount_amount)}</span></div>`);
     if (o.annual_discount_amount > 0) rows.push(`<div class="total-row discount"><span>Annual savings</span><span>Saves ${fmt(o.annual_discount_amount)}${period} vs monthly</span></div>`);
     rows.push(`<div class="total-row grand"><span>Total</span><span>${fmt(o.total)}${period}</span></div>`);
     totals.innerHTML = rows.join('');
   }
 
-  async function processPayment(result) {
-    const acceptBtn  = document.getElementById('acceptBtn');
-    const declineBtn = document.getElementById('declineBtn');
-    const errBox     = document.getElementById('errBox');
-
-    acceptBtn.disabled  = true;
-    declineBtn.disabled = true;
-    acceptBtn.innerHTML  = result === 'success'
-      ? '<div class="spinner"></div> Processing…'
-      : acceptBtn.innerHTML;
-    errBox.style.display = 'none';
-
-    try {
-      const res = await fetch('https://hjdpcfhozhoyeqevnupm.supabase.co/functions/v1/payment-complete', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ order_id: orderId, result }),
-      });
-      const data = await res.json();
-
-      if (data.success && data.redirect) {
-        // Fire email send via Cloudflare Function (has Resend key) — don't await, just send
-        fetch('/api/send-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ order_id: orderId }),
-        }).catch(() => {}); // best-effort
-        // Extract ref and company from data.redirect, then go to onboarding
-        const redirectUrl = new URL(data.redirect, location.origin);
-        const ref = redirectUrl.searchParams.get('ref') || '';
-        const company = redirectUrl.searchParams.get('company') || (order ? order.company_name : '');
-        const total = order ? order.total : '';
-        const billing = order ? (order.billing_type || 'monthly') : 'monthly';
-        window.location.href = `/shop/onboarding.html?order_id=${encodeURIComponent(orderId)}&ref=${encodeURIComponent(ref)}&company=${encodeURIComponent(company)}&total=${encodeURIComponent(total)}&billing=${encodeURIComponent(billing)}`;
-      } else if (!data.success && result === 'failed') {
-        errBox.textContent   = data.message || 'Payment was declined.';
-        errBox.style.display = 'block';
-        acceptBtn.disabled   = false;
-        declineBtn.disabled  = false;
-        acceptBtn.innerHTML  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Simulate Successful Payment';
-      } else {
-        throw new Error(data.error || 'Unknown error');
-      }
-    } catch (err) {
-      errBox.textContent   = 'Something went wrong: ' + err.message;
-      errBox.style.display = 'block';
-      acceptBtn.disabled   = false;
-      declineBtn.disabled  = false;
-    }
+  function goToOnboarding(o) {
+    window.location.href = `/shop/onboarding.html?order_id=${enc(o.id)}&ref=${enc(o.order_reference)}&company=${enc(o.company_name)}&total=${enc(o.total)}&billing=${enc(o.billing_type || 'monthly')}`;
   }
 
   function showError() {
@@ -351,8 +443,9 @@
     document.getElementById('errorState').style.display   = 'block';
   }
 
-  function fmt(n)  { return '£' + Number(n || 0).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2}); }
-  function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function fmt(n) { return '£' + Number(n || 0).toLocaleString('en-GB', {minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function enc(s) { return encodeURIComponent(s||''); }
 
   init();
 </script>

@@ -12,10 +12,10 @@
  *       | { action: 'generate_token', order_id }  (requires Authorization header)
  *
  * Required env: SUPABASE_URL, SUPABASE_SERVICE_KEY,
- *               PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_BASE_URL (optional)
+ *               STRIPE_SECRET_KEY
  */
 
-import { paypalRequest } from './_paypal.js';
+import { updateStripeSubscription } from './_stripe.js';
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -236,13 +236,14 @@ async function handleChangeSize(env, order, body) {
     });
   }
 
-  // Update PayPal subscription if present
-  if (order.paypal_subscription_id) {
+  // Update Stripe subscription if present
+  if (order.stripe_subscription_id) {
     try {
-      await revisePayPalSubscription(env, order, total, modules, moduleMap, tier.multiplier);
+      await updateStripeSubscription(env, order.stripe_subscription_id, total, order.billing_type,
+        `SmartCore ${tier.label} — ${order.company_name}`);
     } catch (e) {
-      console.error('PayPal revise error:', e);
-      // Non-fatal — DB is already updated
+      console.error('Stripe revise error:', e);
+      // Non-fatal — DB already updated
     }
   }
 
@@ -319,12 +320,13 @@ async function handleChangeCrmTier(env, order, body) {
     });
   }
 
-  // Update PayPal subscription if present
-  if (order.paypal_subscription_id) {
+  // Update Stripe subscription if present
+  if (order.stripe_subscription_id) {
     try {
-      await revisePayPalSubscription(env, order, total, newModules, moduleMap, multiplier);
+      await updateStripeSubscription(env, order.stripe_subscription_id, total, order.billing_type,
+        `SmartCore CRM — ${order.company_name}`);
     } catch (e) {
-      console.error('PayPal revise error:', e);
+      console.error('Stripe revise error:', e);
     }
   }
 
@@ -379,58 +381,6 @@ async function handleGenerateToken(env, request, body) {
 
   const url = `https://smartcoretechnology.co.uk/shop/manage-plan.html?token=${token}`;
   return json({ token, url }, 200, CORS);
-}
-
-// ---------------------------------------------------------------------------
-// PayPal subscription revision
-// ---------------------------------------------------------------------------
-async function revisePayPalSubscription(env, order, newTotal, modules, moduleMap, multiplier) {
-  // Create a new PayPal billing plan with the new price
-  const period    = order.billing_type === 'yearly' ? 'YEAR' : 'MONTH';
-  const currency  = 'GBP';
-  const value     = newTotal.toFixed(2);
-
-  // Get existing plan to copy product_id
-  const sub = await paypalRequest(env, 'GET', `/v1/billing/subscriptions/${enc(order.paypal_subscription_id)}`);
-  const existingPlanId = sub?.plan_id || order.paypal_plan_id;
-
-  let productId = null;
-  if (existingPlanId) {
-    try {
-      const plan  = await paypalRequest(env, 'GET', `/v1/billing/plans/${existingPlanId}`);
-      productId   = plan?.product_id;
-    } catch (_) {}
-  }
-
-  // Build new plan
-  const planBody = {
-    product_id: productId || 'SMARTCORE-SUBSCRIPTION',
-    name:       `SmartCore ${order.size_tier || ''} — Updated`,
-    status:     'ACTIVE',
-    billing_cycles: [{
-      frequency:     { interval_unit: period, interval_count: 1 },
-      tenure_type:   'REGULAR',
-      sequence:      1,
-      total_cycles:  0,
-      pricing_scheme: { fixed_price: { value, currency_code: currency } },
-    }],
-    payment_preferences: {
-      auto_bill_outstanding:     true,
-      setup_fee_failure_action:  'CONTINUE',
-      payment_failure_threshold: 3,
-    },
-  };
-
-  const newPlan = await paypalRequest(env, 'POST', '/v1/billing/plans', planBody);
-  if (!newPlan?.id) throw new Error('Failed to create new PayPal plan');
-
-  // Revise the subscription
-  await paypalRequest(env, 'POST', `/v1/billing/subscriptions/${enc(order.paypal_subscription_id)}/revise`, {
-    plan_id: newPlan.id,
-  });
-
-  // Update order with new plan_id
-  await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, { paypal_plan_id: newPlan.id });
 }
 
 // ---------------------------------------------------------------------------
