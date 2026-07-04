@@ -18,7 +18,7 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   const btn = document.getElementById("themeToggle");
   if (btn) btn.textContent = theme === "dark" ? "☀️" : "🌙";
-  document.dispatchEvent(new CustomEvent("themechange", { detail: { theme } }));
+  requestAnimationFrame(() => document.dispatchEvent(new CustomEvent("themechange", { detail: { theme } })));
 }
 
 export function getTheme() {
