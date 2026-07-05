@@ -193,7 +193,7 @@
     <!-- FORM -->
     <div id="detailsPanel" class="glass p-6 sm:p-8" style="display:none">
       <!-- Step 1: Company Size -->
-      <div class="mb-8">
+      <div class="mb-8" id="companySizeStep">
         <div class="text-xs font-bold uppercase tracking-widest mb-3" style="color:rgba(234,240,255,.52)">Step 1 — Company Size</div>
         <h2 class="text-lg font-extrabold tracking-tight mb-1" style="color:#eaf0ff">How many employees does your company have?</h2>
         <p class="text-xs mb-4" style="color:rgba(234,240,255,.60)">This helps us tailor your pricing to the right scale for your team.</p>
@@ -264,7 +264,7 @@
           <span>Billing</span>
           <span id="summaryBilling" class="font-bold" style="color:var(--text)">Monthly</span>
         </div>
-        <div class="flex justify-between" style="color:var(--muted)">
+        <div class="flex justify-between" style="color:var(--muted)" id="summarySizeRow">
           <span>Company size</span>
           <span id="summarySizeTier" class="font-bold" style="color:var(--text)">Micro (base)</span>
         </div>
@@ -603,6 +603,28 @@ function loadBasket() {
 const basket = loadBasket();
 const billing = 'monthly'; // default; could be persisted too
 
+// ── Flat-rate module detection ────────────────────────────
+let flatRateSlugs = new Set();
+
+async function loadFlatRateFlags() {
+  const slugs = basket.filter(m => m.slug !== 'smartcore-core').map(m => m.slug);
+  if (!slugs.length) return;
+  const { data } = await sb.from('marketplace_modules')
+    .select('slug')
+    .in('slug', slugs)
+    .eq('is_flat_rate', true);
+  flatRateSlugs = new Set((data || []).map(m => m.slug));
+
+  // Hide/show the company size step based on whether any module needs sizing
+  const hasSized = basket.some(m => m.slug !== 'smartcore-core' && !flatRateSlugs.has(m.slug));
+  const sizeStep = document.getElementById('companySizeStep');
+  if (sizeStep) sizeStep.style.display = hasSized ? '' : 'none';
+  const sizeDiv  = document.getElementById('summarySizeRow');
+  if (sizeDiv) sizeDiv.style.display = hasSized ? '' : 'none';
+
+  renderSummary();
+}
+
 // ── Pricing ───────────────────────────────────────────────
 const ANNUAL_DISC = 0.08;
 const PACKAGE_DISCOUNTS = [
@@ -624,19 +646,31 @@ function modulePrice(m) {
 }
 function fmt(n) { return '£' + Number(n || 0).toFixed(2); }
 
+function effectiveMultiplier(m) {
+  if (m.slug === 'smartcore-core') return 1;
+  return flatRateSlugs.has(m.slug) ? 1 : (selectedSizeTier.multiplier || 1);
+}
+
 function calcTotals() {
-  if (selectedSizeTier.multiplier === null) return { subtotal: null, pkgDiscount: 0, annualDiscount: 0, total: null, discLabel: '' };
   const billable = basket.filter(m => m.slug !== 'smartcore-core');
+  const hasSized = billable.some(m => !flatRateSlugs.has(m.slug));
+  // If any sized module uses custom tier, return null totals for quote flow
+  if (hasSized && selectedSizeTier.multiplier === null) {
+    return { subtotal: null, pkgDiscount: 0, annualDiscount: 0, total: null, discLabel: '' };
+  }
   const disc = getPackageDiscount(billable.length);
   let subtotal = 0;
   billable.forEach(m => {
-    subtotal += modulePrice(m) * selectedSizeTier.multiplier;
+    subtotal += modulePrice(m) * effectiveMultiplier(m);
   });
   const pkgDiscount = subtotal * disc.pct;
   const annualDiscount = billingType === 'yearly'
-    ? billable.reduce((s, m) => s + (m.yearly_price
-        ? Math.max(0, m.monthly_price * 12 * selectedSizeTier.multiplier - +m.yearly_price * selectedSizeTier.multiplier)
-        : m.monthly_price * 12 * selectedSizeTier.multiplier * ANNUAL_DISC), 0)
+    ? billable.reduce((s, m) => {
+        const mult = effectiveMultiplier(m);
+        return s + (m.yearly_price
+          ? Math.max(0, m.monthly_price * 12 * mult - +m.yearly_price * mult)
+          : m.monthly_price * 12 * mult * ANNUAL_DISC);
+      }, 0)
     : 0;
   const total = subtotal - pkgDiscount;
   return { subtotal, pkgDiscount, annualDiscount, total, discLabel: disc.label };
@@ -656,11 +690,13 @@ function renderSummary() {
   const totals = calcTotals();
   const billable = basket.filter(m => m.slug !== 'smartcore-core');
 
-  const isCustomTier = selectedSizeTier.multiplier === null;
+  const hasSized = basket.some(m => m.slug !== 'smartcore-core' && !flatRateSlugs.has(m.slug));
+  const isCustomTier = hasSized && selectedSizeTier.multiplier === null;
   document.getElementById('summaryModules').innerHTML = basket.map(m => {
     const price = modulePrice(m);
     const isFree = m.slug === 'smartcore-core';
-    const priceStr = isFree ? 'Free' : (isCustomTier ? '<span style="color:#a78bfa">Custom</span>' : fmt(price * selectedSizeTier.multiplier) + (billingType === 'yearly' ? '/yr' : '/mo'));
+    const mult = effectiveMultiplier(m);
+    const priceStr = isFree ? 'Free' : (isCustomTier && !flatRateSlugs.has(m.slug) ? '<span style="color:#a78bfa">Custom</span>' : fmt(price * mult) + (billingType === 'yearly' ? '/yr' : '/mo'));
     return `
       <div class="flex items-start justify-between gap-2 text-sm">
         <div>
@@ -741,6 +777,7 @@ async function submitOrder() {
         name:          m.name,
         monthly_price: m.monthly_price,
         yearly_price:  m.yearly_price,
+        is_flat_rate:  flatRateSlugs.has(m.slug),
         price:         billingType === 'yearly' ? m.yearly_price : m.monthly_price
       })),
       billing_type:         billingType,
@@ -833,6 +870,7 @@ function showErr(msg) {
 renderSizeTierGrid();
 renderSummary();
 initAuth();
+loadFlatRateFlags();
 </script>
 </body>
 </html>
