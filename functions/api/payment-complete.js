@@ -256,6 +256,7 @@ async function sendWelcomeWithInvoice(env, o, modules, today) {
   const pdfBase64 = buildInvoicePdf(inv, o, modules);
   const html      = welcomeHtml(o, modules, inv);
 
+  const recipients = [...new Set([o.email, o.accounts_email].filter(Boolean))];
   await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -264,12 +265,12 @@ async function sendWelcomeWithInvoice(env, o, modules, today) {
     },
     body: JSON.stringify({
       from:    FROM,
-      to:      [o.email],
+      to:      recipients,
       subject: `Welcome to SmartCore — ${o.order_reference}`,
       html,
       attachments: [{
-        filename:    `SmartCore-Invoice-${inv.invoice_number}.pdf`,
-        content:     pdfBase64,
+        filename:     `SmartCore-Invoice-${inv.invoice_number}.pdf`,
+        content:      pdfBase64,
         content_type: 'application/pdf',
       }],
     }),
@@ -298,10 +299,11 @@ function buildInvoicePdf(inv, o, modules) {
   const fmtD       = iso => new Date(iso).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
 
   const lineItems = [
-    { desc: 'SmartCore Core', price: '£0.00 (Free)' },
+    { desc: 'SmartCore Core', price: 'Free' },
     ...regular.map(m => {
-      const base  = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
-      const price = (base || 0) * (m.is_flat_rate ? 1 : multiplier);
+      const base    = inv.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+      const isFlat  = !!m.is_flat_rate;
+      const price   = (base || 0) * (isFlat ? 1 : multiplier);
       return { desc: m.name, price: fmtGbp(price) + period };
     }),
   ];
@@ -419,10 +421,10 @@ function welcomeHtml(o, modules, inv) {
 
   const hasCrm = modules.some(m => m.slug && m.slug.startsWith('smartcore-crm'));
   const steps = [
-    { n: '1', title: 'Log in to SmartCore', body: `Visit <a href="${SITE}/app" style="color:#3b82f6">${SITE}/app</a> and sign in with the email address you used to purchase.` },
-    { n: '2', title: 'Add your employees', body: 'Go to <strong>SmartCore Core → Employees</strong> and add your team members. They\'ll receive an invite to join your workspace.' },
-    { n: '3', title: 'Configure your modules', body: 'Head to <strong>Settings → Modules</strong> to activate and configure the modules included in your plan.' },
-    ...(hasCrm ? [{ n: '4', title: 'Set up your CRM', body: 'Visit <strong>SmartCore CRM</strong> from your dashboard. Your default pipeline stages are ready — customise them to match your sales process.' }] : []),
+    { n: '1', title: 'Log in to SmartCore', body: `Head to <a href="${SITE}/modules" style="color:#3b82f6">smartcoretechnology.co.uk/modules</a> and sign in with the email address you used to purchase.` },
+    { n: '2', title: 'Explore your modules', body: 'Your home screen gives you an overview of all your active modules. Non-activated ones appear at the bottom, ready for purchase when you need them. Hover over any active module and press the settings icon to control who in your team can access it.' },
+    { n: '3', title: 'Build your team', body: 'Open the <strong>SmartCore Core</strong> module to manage your team. Press <strong>Add Employee</strong> to get started. In Settings you can manage departments, shift patterns, and onboarding questions.' },
+    ...(hasCrm ? [{ n: '4', title: 'Set up your CRM', body: 'Open <strong>SmartCore CRM</strong> from your dashboard. Your default pipeline stages are ready — customise them to fit your sales process.' }] : []),
   ];
 
   const stepHtml = steps.map(s => `
@@ -445,7 +447,7 @@ function welcomeHtml(o, modules, inv) {
     <p style="font-weight:700;color:#0f172a;margin-bottom:12px">Getting started</p>
     ${stepHtml}
     <br>
-    <a href="${SITE}/app" class="btn">Open SmartCore →</a>
+    <a href="${SITE}/modules" class="btn">Open SmartCore →</a>
     <br>
     <p>Questions? Contact us at <a href="mailto:support@smartcoretechnology.co.uk" style="color:#3b82f6">support@smartcoretechnology.co.uk</a></p>`
   );
