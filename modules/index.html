@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SmartCore — My Modules</title>
+  <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{background:#060d1f;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:32px 16px}
+    .logo{display:flex;align-items:center;gap:12px;margin-bottom:36px}
+    .logo img{width:44px;height:44px;border-radius:10px}
+    .logo-text{font-size:18px;font-weight:800;letter-spacing:-.02em;color:#fff}
+    .logo-sub{font-size:11px;color:#64748b;font-weight:500;margin-top:2px}
+
+    /* Login card */
+    .card{width:100%;max-width:400px;background:#0f172a;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:32px}
+    .card h2{font-size:20px;font-weight:800;color:#fff;margin-bottom:6px}
+    .card .sub{font-size:13px;color:#64748b;margin-bottom:24px}
+    .field{margin-bottom:16px}
+    .field label{display:block;font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:6px;letter-spacing:.04em;text-transform:uppercase}
+    .field input{width:100%;background:#020617;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:11px 14px;color:#e2e8f0;font-size:14px;outline:none;transition:border-color .15s}
+    .field input:focus{border-color:#3b82f6}
+    .btn-primary{width:100%;background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;margin-top:4px;transition:background .15s}
+    .btn-primary:hover{background:#2563eb}
+    .btn-primary:disabled{background:#1e3a5f;color:#64748b;cursor:not-allowed}
+    .forgot{text-align:center;margin-top:14px;font-size:13px;color:#64748b}
+    .forgot a{color:#3b82f6;text-decoration:none;cursor:pointer}
+    .forgot a:hover{text-decoration:underline}
+    .err{background:#450a0a;border:1px solid #7f1d1d;color:#fca5a5;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;display:none}
+    .ok-msg{background:#052e16;border:1px solid #166534;color:#86efac;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;display:none}
+
+    /* Dashboard */
+    #dashboard{width:100%;max-width:680px;display:none}
+    .dash-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;flex-wrap:wrap;gap:12px}
+    .dash-head h2{font-size:20px;font-weight:800;color:#fff}
+    .dash-head .meta{font-size:13px;color:#64748b}
+    .btn-logout{background:transparent;border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:border-color .15s}
+    .btn-logout:hover{border-color:#ef4444;color:#ef4444}
+
+    .mod-grid{display:grid;gap:12px}
+    .mod-card{background:#0f172a;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:20px 22px;display:flex;align-items:center;gap:16px;transition:border-color .2s}
+    .mod-card.active{border-color:rgba(59,130,246,.35)}
+    .mod-card.inactive{opacity:.55}
+    .mod-icon{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+    .mod-icon.blue{background:rgba(59,130,246,.15)}
+    .mod-icon.green{background:rgba(34,197,94,.15)}
+    .mod-icon.purple{background:rgba(139,92,246,.15)}
+    .mod-icon.amber{background:rgba(245,158,11,.15)}
+    .mod-body{flex:1;min-width:0}
+    .mod-name{font-size:15px;font-weight:700;color:#fff}
+    .mod-desc{font-size:13px;color:#64748b;margin-top:2px}
+    .mod-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .badge-active{background:#052e16;color:#4ade80;border:1px solid #166534;font-size:11px;font-weight:700;padding:3px 10px;border-radius:6px;letter-spacing:.04em}
+    .badge-locked{background:#1a1a2e;color:#475569;border:1px solid rgba(255,255,255,.07);font-size:11px;font-weight:700;padding:3px 10px;border-radius:6px;letter-spacing:.04em}
+    .btn-open{background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s;text-decoration:none;display:inline-block;white-space:nowrap}
+    .btn-open:hover{background:#2563eb}
+    .btn-store{background:transparent;border:1px solid rgba(59,130,246,.4);color:#3b82f6;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap;transition:border-color .15s}
+    .btn-store:hover{border-color:#3b82f6}
+
+    .section-label{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#334155;margin:20px 0 10px}
+    .spinner{text-align:center;color:#3b82f6;font-size:13px;padding:40px}
+  </style>
+</head>
+<body>
+  <div class="logo">
+    <img src="/SmartCore Official Logos/SC Icon - Black Background.png" alt="SmartCore">
+    <div>
+      <div class="logo-text">SmartCore</div>
+      <div class="logo-sub">TECHNOLOGY</div>
+    </div>
+  </div>
+
+  <!-- Login -->
+  <div class="card" id="loginCard">
+    <h2>Sign in</h2>
+    <p class="sub">Access your SmartCore modules</p>
+    <div class="err" id="loginErr"></div>
+    <div class="ok-msg" id="loginOk"></div>
+    <div id="loginForm">
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="emailInput" autocomplete="email" placeholder="you@company.com"/>
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="pwInput" autocomplete="current-password" placeholder="••••••••"/>
+      </div>
+      <button class="btn-primary" id="loginBtn">Sign in</button>
+      <p class="forgot"><a id="forgotLink">Forgot your password?</a></p>
+    </div>
+    <div id="resetForm" style="display:none">
+      <p style="font-size:13px;color:#94a3b8;margin-bottom:16px">Enter your email and we'll send you a reset link.</p>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="resetEmail" autocomplete="email" placeholder="you@company.com"/>
+      </div>
+      <button class="btn-primary" id="resetBtn">Send reset link</button>
+      <p class="forgot"><a id="backToLogin">Back to sign in</a></p>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard">
+    <div class="dash-head">
+      <div>
+        <h2 id="companyLabel">My Modules</h2>
+        <div class="meta" id="userLabel"></div>
+      </div>
+      <button class="btn-logout" id="logoutBtn">Sign out</button>
+    </div>
+    <div id="modList"><div class="spinner">Loading modules…</div></div>
+  </div>
+
+  <script>
+    const SUPABASE_URL  = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
+    const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2MDU4ODUsImV4cCI6MjA1OTE4MTg4NX0.8QFnHfHFCjn9Jf5fVhJdHXhVpG9rDCWXwjEBb7hEyX4';
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+    // Module catalog — slug → display info
+    const MODULE_CATALOG = {
+      'smartcore-core':          { name: 'SmartCore Core',           desc: 'Employee management, departments, shift patterns & onboarding', icon: '🏢', color: 'blue',   href: '/systems/core/' },
+      'smartcore-crm-lite':       { name: 'SmartCore CRM',            desc: 'Lite — Contacts, leads & pipeline management',                 icon: '📊', color: 'purple', href: '/systems/crm/' },
+      'smartcore-crm-professional':{ name: 'SmartCore CRM',           desc: 'Professional — Advanced pipeline, documents & quotes',         icon: '📊', color: 'purple', href: '/systems/crm/' },
+      'smartcore-crm-business':   { name: 'SmartCore CRM',            desc: 'Business — Full CRM suite with projects & goals',              icon: '📊', color: 'purple', href: '/systems/crm/' },
+      'smartcore-crm-enterprise': { name: 'SmartCore CRM',            desc: 'Enterprise — Complete CRM with all features',                  icon: '📊', color: 'purple', href: '/systems/crm/' },
+      'holiday-management':       { name: 'Holiday Management',       desc: 'Leave requests, approvals & team calendar',                    icon: '🌴', color: 'green',  href: '/systems/holidaymanagement/' },
+      'presence-and-fire-safety': { name: 'Presence & Fire Safety',  desc: 'Sign-in board, fire roll & site presence tracking',            icon: '🔥', color: 'amber',  href: '/app/modules/presence-and-fire-safety.html' },
+    };
+
+    async function init() {
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) {
+        showDashboard(session.user);
+      }
+    }
+
+    async function showDashboard(user) {
+      document.getElementById('loginCard').style.display   = 'none';
+      document.getElementById('dashboard').style.display   = 'block';
+      document.getElementById('userLabel').textContent     = user.email;
+
+      // Get company via core_employees
+      const { data: empRows } = await sb
+        .from('core_employees')
+        .select('company_id')
+        .eq('auth_user_id', user.id)
+        .limit(1);
+
+      const companyId = empRows?.[0]?.company_id;
+      if (!companyId) {
+        document.getElementById('modList').innerHTML = `<div class="spinner" style="color:#ef4444">No company profile found. Contact support@smartcoretechnology.co.uk</div>`;
+        return;
+      }
+
+      // Get company name
+      const { data: company } = await sb
+        .from('smartcore_core_companies')
+        .select('company_name')
+        .eq('id', companyId)
+        .single();
+      if (company?.company_name) document.getElementById('companyLabel').textContent = company.company_name;
+
+      // Get purchased modules
+      const { data: purchased } = await sb
+        .from('smartcore_core_purchased_modules')
+        .select('module_slug, module_name, status')
+        .eq('company_id', companyId)
+        .eq('status', 'active');
+
+      renderModules(purchased || []);
+    }
+
+    function renderModules(purchased) {
+      const purchasedSlugs = new Set(purchased.map(p => p.module_slug));
+
+      // SmartCore Core always first and always active
+      const active = [
+        { module_slug: 'smartcore-core', module_name: 'SmartCore Core', status: 'active' },
+        ...purchased.filter(p => p.module_slug !== 'smartcore-core'),
+      ];
+
+      // Available to purchase (from catalog, not owned, exclude smartcore-core)
+      const allCatalogSlugs = Object.keys(MODULE_CATALOG).filter(s => s !== 'smartcore-core');
+      const notOwned = allCatalogSlugs.filter(s => !purchasedSlugs.has(s));
+      // Deduplicate CRM — only show one "Add CRM" if none purchased
+      const hasCrm = purchased.some(p => p.module_slug.startsWith('smartcore-crm'));
+      const toShow = notOwned.filter(s => hasCrm ? !s.startsWith('smartcore-crm') : s === 'smartcore-crm-enterprise');
+
+      let html = '';
+
+      if (active.length) {
+        html += `<div class="section-label">Your active modules</div>`;
+        for (const mod of active) {
+          const info = MODULE_CATALOG[mod.module_slug] || { name: mod.module_name, desc: '', icon: '📦', color: 'blue', href: '#' };
+          html += `<div class="mod-card active">
+            <div class="mod-icon ${info.color}">${info.icon}</div>
+            <div class="mod-body">
+              <div class="mod-name">${info.name}</div>
+              <div class="mod-desc">${info.desc}</div>
+            </div>
+            <div class="mod-right">
+              <span class="badge-active">ACTIVE</span>
+              <a class="btn-open" href="${info.href}">Open →</a>
+            </div>
+          </div>`;
+        }
+      }
+
+      if (toShow.length) {
+        html += `<div class="section-label">Available to add</div>`;
+        for (const slug of toShow) {
+          const info = MODULE_CATALOG[slug];
+          html += `<div class="mod-card inactive">
+            <div class="mod-icon ${info.color}">${info.icon}</div>
+            <div class="mod-body">
+              <div class="mod-name">${info.name}</div>
+              <div class="mod-desc">${info.desc}</div>
+            </div>
+            <div class="mod-right">
+              <span class="badge-locked">NOT ACTIVE</span>
+              <a class="btn-store" href="https://smartcoretechnology.co.uk/shop/" target="_blank">View on store</a>
+            </div>
+          </div>`;
+        }
+      }
+
+      document.getElementById('modList').innerHTML = html;
+    }
+
+    // Auth event listener
+    sb.auth.onAuthStateChange((_event, session) => {
+      if (session) showDashboard(session.user);
+    });
+
+    // Login
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      const email = document.getElementById('emailInput').value.trim();
+      const pw    = document.getElementById('pwInput').value;
+      const btn   = document.getElementById('loginBtn');
+      const err   = document.getElementById('loginErr');
+      err.style.display = 'none';
+      if (!email || !pw) { showErr('Please enter your email and password.'); return; }
+      btn.disabled = true; btn.textContent = 'Signing in…';
+      const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+      btn.disabled = false; btn.textContent = 'Sign in';
+      if (error) showErr(error.message);
+    });
+
+    document.getElementById('pwInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('loginBtn').click();
+    });
+
+    // Forgot password toggle
+    document.getElementById('forgotLink').addEventListener('click', () => {
+      document.getElementById('loginForm').style.display = 'none';
+      document.getElementById('resetForm').style.display = 'block';
+      document.getElementById('loginErr').style.display  = 'none';
+      const emailVal = document.getElementById('emailInput').value.trim();
+      if (emailVal) document.getElementById('resetEmail').value = emailVal;
+    });
+
+    document.getElementById('backToLogin').addEventListener('click', () => {
+      document.getElementById('resetForm').style.display = 'none';
+      document.getElementById('loginForm').style.display = 'block';
+      document.getElementById('loginOk').style.display   = 'none';
+    });
+
+    // Send reset link
+    document.getElementById('resetBtn').addEventListener('click', async () => {
+      const email = document.getElementById('resetEmail').value.trim();
+      const btn   = document.getElementById('resetBtn');
+      const ok    = document.getElementById('loginOk');
+      const err   = document.getElementById('loginErr');
+      err.style.display = 'none'; ok.style.display = 'none';
+      if (!email) { showErr('Please enter your email address.'); return; }
+      btn.disabled = true; btn.textContent = 'Sending…';
+      const { error } = await sb.auth.resetPasswordForEmail(email, {
+        redirectTo: 'https://smartcoretechnology.co.uk/reset-password/',
+      });
+      btn.disabled = false; btn.textContent = 'Send reset link';
+      if (error) {
+        showErr(error.message);
+      } else {
+        ok.textContent = 'Reset link sent — check your inbox.';
+        ok.style.display = 'block';
+      }
+    });
+
+    // Logout
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await sb.auth.signOut();
+      document.getElementById('dashboard').style.display  = 'none';
+      document.getElementById('loginCard').style.display  = 'block';
+      document.getElementById('loginForm').style.display  = 'block';
+      document.getElementById('resetForm').style.display  = 'none';
+      document.getElementById('loginOk').style.display    = 'none';
+      document.getElementById('emailInput').value = '';
+      document.getElementById('pwInput').value    = '';
+    });
+
+    function showErr(msg) {
+      const el = document.getElementById('loginErr');
+      el.textContent = msg; el.style.display = 'block';
+    }
+
+    init();
+  </script>
+</body>
+</html>
