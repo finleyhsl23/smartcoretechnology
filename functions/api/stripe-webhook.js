@@ -138,7 +138,7 @@ async function handleSubscriptionDeleted(env, subscription) {
   if (!orders?.[0]) return;
 
   await dbPatch(env, `/marketplace_orders?id=eq.${enc(orders[0].id)}`, {
-    status: 'cancelled',
+    status: 'rejected',
   });
 }
 

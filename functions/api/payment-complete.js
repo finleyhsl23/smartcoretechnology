@@ -50,7 +50,7 @@ export async function onRequestPost(context) {
     const nextBilling = o.billing_type === 'yearly' ? addYear(today) : addMonth(today);
 
     await dbPatch(env, `/marketplace_orders?id=eq.${enc(order_id)}`, {
-      status: 'confirmed',
+      status: 'approved',
       reviewed_at: new Date().toISOString(),
       subscription_start_date: today,
       next_billing_date: nextBilling,
