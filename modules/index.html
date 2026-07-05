@@ -565,14 +565,28 @@ let drawer = {
 };
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
+let dashboardLoaded = false;
+
+sb.auth.onAuthStateChange(async (event, session) => {
+  if (session && !dashboardLoaded) {
+    dashboardLoaded = true;
+    await loadDashboard(session.user);
+  }
+  if (event === 'SIGNED_OUT') {
+    dashboardLoaded = false;
+    hide('shell');
+    show('loginWrap');
+    document.getElementById('modContent').innerHTML = '<div class="spin">Loading modules…</div>';
+  }
+});
+
 async function init() {
   const { data:{ session } } = await sb.auth.getSession();
-  if (session) await loadDashboard(session.user);
+  if (session && !dashboardLoaded) {
+    dashboardLoaded = true;
+    await loadDashboard(session.user);
+  }
 }
-
-sb.auth.onAuthStateChange((_e, session) => {
-  if (session) loadDashboard(session.user);
-});
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
 async function loadDashboard(user) {
@@ -907,6 +921,7 @@ document.getElementById('rBtn').addEventListener('click', async () => {
 
 // ── Sign out ────────────────────────────────────────────────────────────────
 document.getElementById('signOutBtn').addEventListener('click', async () => {
+  dashboardLoaded = false;
   await sb.auth.signOut();
   hide('shell'); show('loginWrap');
   document.getElementById('lEmail').value = '';
@@ -925,7 +940,8 @@ document.getElementById('empSearch').addEventListener('input', e => {
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-function show(id){ document.getElementById(id).style.display = 'block' }
+const DISPLAY = { loginWrap: 'flex', shell: 'block', signInPanel: 'block', resetPanel: 'block' };
+function show(id){ document.getElementById(id).style.display = DISPLAY[id] || 'block' }
 function hide(id){ document.getElementById(id).style.display = 'none' }
 function showErr(el, msg){ el.textContent = msg; el.style.display = 'block'; }
 function showToast(msg) {
