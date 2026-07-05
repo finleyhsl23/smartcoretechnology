@@ -547,12 +547,13 @@ const CATALOG = {
 // State
 let state = {
   user: null,
-  employee: null,   // current user's core_employees row
+  employee: null,
   company: null,
   companyId: null,
   purchased: [],
+  shopModules: [],
   employees: [],
-  accessMap: {},    // module_slug → { allowed_roles, allowed_employee_ids, id }
+  accessMap: {},
   isOwner: false,
 };
 
@@ -633,6 +634,14 @@ async function loadDashboard(user) {
 }
 
 async function fetchData() {
+  // All real shop modules (used for "available to add" section)
+  const { data: shopMods } = await sb
+    .from('marketplace_modules')
+    .select('slug, name, monthly_price, is_flat_rate')
+    .neq('slug', 'smartcore-core')
+    .order('name');
+  state.shopModules = shopMods || [];
+
   if (!state.companyId) return;
 
   // Purchased modules
@@ -676,14 +685,16 @@ function render() {
   // Filter by access
   const visible = activeOrdered.filter(slug => canAccess(slug));
 
-  // Not-purchased catalog entries (show add-to-plan)
-  const notOwned = Object.keys(CATALOG).filter(s => !purchasedSlugs.has(s));
-  // Dedupe CRM — only show highest tier available
+  // Not-purchased — from real shop modules only
   const hasCrm = [...purchasedSlugs].some(s => s.startsWith('smartcore-crm'));
-  const notOwnedFiltered = notOwned.filter(s => {
-    if (s.startsWith('smartcore-crm')) return !hasCrm && s === 'smartcore-crm-lite';
-    return true;
-  });
+  const notOwnedFiltered = state.shopModules
+    .map(m => m.slug)
+    .filter(s => !purchasedSlugs.has(s))
+    .filter(s => {
+      // If they already have any CRM tier, hide all other CRM tiers
+      if (s.startsWith('smartcore-crm')) return !hasCrm;
+      return true;
+    });
 
   let html = '';
 
