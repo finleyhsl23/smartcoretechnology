@@ -3,309 +3,932 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>SmartCore — My Modules</title>
+  <title>SmartCore — Modules</title>
   <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    body{background:#060d1f;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:32px 16px}
-    .logo{display:flex;align-items:center;gap:12px;margin-bottom:36px}
-    .logo img{width:44px;height:44px;border-radius:10px}
-    .logo-text{font-size:18px;font-weight:800;letter-spacing:-.02em;color:#fff}
-    .logo-sub{font-size:11px;color:#64748b;font-weight:500;margin-top:2px}
 
-    /* Login card */
-    .card{width:100%;max-width:400px;background:#0f172a;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:32px}
-    .card h2{font-size:20px;font-weight:800;color:#fff;margin-bottom:6px}
-    .card .sub{font-size:13px;color:#64748b;margin-bottom:24px}
-    .field{margin-bottom:16px}
-    .field label{display:block;font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:6px;letter-spacing:.04em;text-transform:uppercase}
-    .field input{width:100%;background:#020617;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:11px 14px;color:#e2e8f0;font-size:14px;outline:none;transition:border-color .15s}
-    .field input:focus{border-color:#3b82f6}
-    .btn-primary{width:100%;background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;margin-top:4px;transition:background .15s}
-    .btn-primary:hover{background:#2563eb}
-    .btn-primary:disabled{background:#1e3a5f;color:#64748b;cursor:not-allowed}
-    .forgot{text-align:center;margin-top:14px;font-size:13px;color:#64748b}
-    .forgot a{color:#3b82f6;text-decoration:none;cursor:pointer}
-    .forgot a:hover{text-decoration:underline}
-    .err{background:#450a0a;border:1px solid #7f1d1d;color:#fca5a5;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;display:none}
-    .ok-msg{background:#052e16;border:1px solid #166534;color:#86efac;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;display:none}
+    :root{
+      --bg:        #03060f;
+      --bg1:       #080f1f;
+      --bg2:       #0c1628;
+      --border:    rgba(255,255,255,.07);
+      --border-hi: rgba(99,160,255,.25);
+      --text:      #e2e8f0;
+      --muted:     #475569;
+      --accent:    #3b82f6;
+      --accent2:   #6366f1;
+      --success:   #22c55e;
+      --glow:      rgba(59,130,246,.18);
+    }
 
-    /* Dashboard */
-    #dashboard{width:100%;max-width:680px;display:none}
-    .dash-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;flex-wrap:wrap;gap:12px}
-    .dash-head h2{font-size:20px;font-weight:800;color:#fff}
-    .dash-head .meta{font-size:13px;color:#64748b}
-    .btn-logout{background:transparent;border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:border-color .15s}
-    .btn-logout:hover{border-color:#ef4444;color:#ef4444}
+    body{
+      background:var(--bg);
+      color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;
+      min-height:100vh;
+      overflow-x:hidden;
+    }
 
-    .mod-grid{display:grid;gap:12px}
-    .mod-card{background:#0f172a;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:20px 22px;display:flex;align-items:center;gap:16px;transition:border-color .2s}
-    .mod-card.active{border-color:rgba(59,130,246,.35)}
-    .mod-card.inactive{opacity:.55}
-    .mod-icon{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
-    .mod-icon.blue{background:rgba(59,130,246,.15)}
-    .mod-icon.green{background:rgba(34,197,94,.15)}
-    .mod-icon.purple{background:rgba(139,92,246,.15)}
-    .mod-icon.amber{background:rgba(245,158,11,.15)}
+    /* ── Background grid ── */
+    body::before{
+      content:'';
+      position:fixed;inset:0;
+      background-image:
+        linear-gradient(rgba(59,130,246,.03) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(59,130,246,.03) 1px,transparent 1px);
+      background-size:60px 60px;
+      pointer-events:none;
+      z-index:0;
+    }
+
+    /* ── Login ── */
+    #loginWrap{
+      position:fixed;inset:0;
+      display:flex;align-items:center;justify-content:center;
+      z-index:100;
+      background:var(--bg);
+    }
+    .login-box{
+      width:100%;max-width:380px;
+      padding:40px 36px;
+      background:var(--bg1);
+      border:1px solid var(--border);
+      border-radius:20px;
+      box-shadow:0 0 80px rgba(59,130,246,.08);
+      position:relative;
+    }
+    .login-logo{display:flex;align-items:center;gap:12px;margin-bottom:28px}
+    .login-logo img{width:40px;height:40px;border-radius:10px}
+    .login-logo-text{font-size:16px;font-weight:800;letter-spacing:-.02em}
+    .login-logo-sub{font-size:10px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-top:1px}
+    .login-box h2{font-size:22px;font-weight:800;margin-bottom:4px}
+    .login-box .sub{font-size:13px;color:var(--muted);margin-bottom:24px}
+    .lfield{margin-bottom:15px}
+    .lfield label{display:block;font-size:11px;font-weight:600;color:#64748b;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px}
+    .lfield input{
+      width:100%;
+      background:#020817;
+      border:1px solid rgba(255,255,255,.09);
+      border-radius:10px;
+      padding:11px 14px;
+      color:var(--text);
+      font-size:14px;
+      outline:none;
+      transition:border-color .2s,box-shadow .2s;
+    }
+    .lfield input:focus{border-color:rgba(99,130,246,.5);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+    .lbtn{
+      width:100%;
+      background:linear-gradient(135deg,#2563eb,#4f46e5);
+      color:#fff;
+      border:none;border-radius:10px;
+      padding:12px;
+      font-size:14px;font-weight:700;
+      cursor:pointer;
+      margin-top:6px;
+      transition:opacity .2s,transform .1s;
+      letter-spacing:.01em;
+    }
+    .lbtn:hover{opacity:.9}
+    .lbtn:active{transform:scale(.98)}
+    .lbtn:disabled{opacity:.4;cursor:not-allowed}
+    .lerr{
+      background:rgba(239,68,68,.1);
+      border:1px solid rgba(239,68,68,.2);
+      color:#fca5a5;
+      border-radius:8px;padding:10px 13px;font-size:13px;
+      margin-bottom:14px;display:none;
+    }
+    .lok{
+      background:rgba(34,197,94,.1);
+      border:1px solid rgba(34,197,94,.2);
+      color:#86efac;
+      border-radius:8px;padding:10px 13px;font-size:13px;
+      margin-bottom:14px;display:none;
+    }
+    .forgot-link{
+      display:block;text-align:center;
+      margin-top:14px;font-size:13px;color:var(--muted);
+      cursor:pointer;transition:color .15s;
+    }
+    .forgot-link span{color:var(--accent);cursor:pointer}
+    .forgot-link span:hover{text-decoration:underline}
+
+    /* ── Main shell ── */
+    #shell{display:none;position:relative;z-index:1}
+
+    /* ── Top nav ── */
+    .nav{
+      position:sticky;top:0;z-index:50;
+      background:rgba(3,6,15,.85);
+      backdrop-filter:blur(16px);
+      border-bottom:1px solid var(--border);
+      padding:0 32px;
+      display:flex;align-items:center;justify-content:space-between;
+      height:60px;
+    }
+    .nav-brand{display:flex;align-items:center;gap:10px}
+    .nav-brand img{width:32px;height:32px;border-radius:8px}
+    .nav-brand span{font-size:14px;font-weight:800;letter-spacing:-.01em}
+    .nav-right{display:flex;align-items:center;gap:16px}
+    .nav-company{font-size:12px;color:var(--muted)}
+    .nav-company b{color:var(--text);font-weight:600}
+    .nav-signout{
+      background:transparent;
+      border:1px solid var(--border);
+      color:var(--muted);
+      border-radius:8px;padding:6px 14px;
+      font-size:12px;font-weight:600;cursor:pointer;
+      transition:border-color .15s,color .15s;
+    }
+    .nav-signout:hover{border-color:rgba(239,68,68,.4);color:#ef4444}
+
+    /* ── Page ── */
+    .page{max-width:900px;margin:0 auto;padding:40px 24px 80px}
+
+    .page-title{font-size:28px;font-weight:900;letter-spacing:-.03em;margin-bottom:4px}
+    .page-sub{font-size:14px;color:var(--muted);margin-bottom:36px}
+
+    .section-label{
+      font-size:10px;font-weight:700;letter-spacing:.14em;
+      text-transform:uppercase;color:#334155;
+      margin-bottom:14px;
+    }
+
+    /* ── Module grid ── */
+    .mod-grid{display:grid;gap:14px;margin-bottom:40px}
+
+    .mod-card{
+      position:relative;
+      background:var(--bg1);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:22px 24px;
+      display:flex;align-items:center;gap:18px;
+      transition:border-color .25s,box-shadow .25s,transform .2s;
+      overflow:hidden;
+    }
+    .mod-card::before{
+      content:'';
+      position:absolute;inset:0;
+      background:linear-gradient(135deg,rgba(59,130,246,.04) 0%,transparent 60%);
+      opacity:0;transition:opacity .3s;
+      pointer-events:none;
+    }
+    .mod-card.active{border-color:var(--border)}
+    .mod-card.active:hover{
+      border-color:var(--border-hi);
+      box-shadow:0 0 30px var(--glow);
+      transform:translateY(-1px);
+    }
+    .mod-card.active:hover::before{opacity:1}
+
+    .mod-card.inactive{
+      opacity:.38;
+      filter:grayscale(.4);
+    }
+    .mod-card.inactive:hover{opacity:.5}
+
+    /* Gear icon — only shows on hover for owners */
+    .mod-gear{
+      position:absolute;top:14px;right:16px;
+      width:28px;height:28px;
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:8px;
+      display:flex;align-items:center;justify-content:center;
+      cursor:pointer;
+      opacity:0;
+      transition:opacity .2s,background .15s;
+      font-size:13px;
+      z-index:2;
+    }
+    .mod-card.active:hover .mod-gear{opacity:1}
+    .mod-gear:hover{background:rgba(59,130,246,.2)!important;border-color:rgba(59,130,246,.3)!important}
+
+    .mod-icon{
+      width:52px;height:52px;
+      border-radius:14px;
+      display:flex;align-items:center;justify-content:center;
+      font-size:24px;
+      flex-shrink:0;
+    }
+    .mod-icon.blue  {background:linear-gradient(135deg,rgba(37,99,235,.25),rgba(99,102,241,.15));border:1px solid rgba(99,130,255,.15)}
+    .mod-icon.green {background:linear-gradient(135deg,rgba(16,185,129,.2),rgba(6,182,212,.12));border:1px solid rgba(16,185,129,.15)}
+    .mod-icon.purple{background:linear-gradient(135deg,rgba(139,92,246,.25),rgba(236,72,153,.12));border:1px solid rgba(139,92,246,.15)}
+    .mod-icon.amber {background:linear-gradient(135deg,rgba(245,158,11,.2),rgba(239,68,68,.1));border:1px solid rgba(245,158,11,.12)}
+    .mod-icon.cyan  {background:linear-gradient(135deg,rgba(6,182,212,.2),rgba(59,130,246,.12));border:1px solid rgba(6,182,212,.15)}
+
     .mod-body{flex:1;min-width:0}
-    .mod-name{font-size:15px;font-weight:700;color:#fff}
-    .mod-desc{font-size:13px;color:#64748b;margin-top:2px}
-    .mod-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
-    .badge-active{background:#052e16;color:#4ade80;border:1px solid #166534;font-size:11px;font-weight:700;padding:3px 10px;border-radius:6px;letter-spacing:.04em}
-    .badge-locked{background:#1a1a2e;color:#475569;border:1px solid rgba(255,255,255,.07);font-size:11px;font-weight:700;padding:3px 10px;border-radius:6px;letter-spacing:.04em}
-    .btn-open{background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s;text-decoration:none;display:inline-block;white-space:nowrap}
-    .btn-open:hover{background:#2563eb}
-    .btn-store{background:transparent;border:1px solid rgba(59,130,246,.4);color:#3b82f6;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap;transition:border-color .15s}
-    .btn-store:hover{border-color:#3b82f6}
+    .mod-name{font-size:15px;font-weight:700;color:#f1f5f9;margin-bottom:2px}
+    .mod-desc{font-size:12px;color:var(--muted);line-height:1.5}
 
-    .section-label{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#334155;margin:20px 0 10px}
-    .spinner{text-align:center;color:#3b82f6;font-size:13px;padding:40px}
+    .mod-right{display:flex;align-items:center;gap:10px;flex-shrink:0;padding-right:8px}
+
+    .tag-active{
+      font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+      padding:3px 9px;border-radius:5px;
+      background:rgba(34,197,94,.12);
+      border:1px solid rgba(34,197,94,.2);
+      color:#4ade80;
+    }
+    .tag-locked{
+      font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+      padding:3px 9px;border-radius:5px;
+      background:rgba(255,255,255,.04);
+      border:1px solid var(--border);
+      color:var(--muted);
+    }
+    .tag-restricted{
+      font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+      padding:3px 9px;border-radius:5px;
+      background:rgba(245,158,11,.1);
+      border:1px solid rgba(245,158,11,.2);
+      color:#fbbf24;
+    }
+
+    .btn-enter{
+      background:linear-gradient(135deg,#2563eb,#4f46e5);
+      color:#fff;border:none;border-radius:9px;
+      padding:9px 20px;
+      font-size:13px;font-weight:700;
+      cursor:pointer;
+      text-decoration:none;
+      display:inline-flex;align-items:center;gap:6px;
+      transition:opacity .15s,box-shadow .2s;
+      white-space:nowrap;
+      box-shadow:0 2px 12px rgba(59,130,246,.25);
+    }
+    .btn-enter:hover{opacity:.88;box-shadow:0 4px 20px rgba(59,130,246,.4)}
+
+    .btn-store{
+      background:transparent;
+      border:1px solid rgba(99,130,255,.25);
+      color:var(--accent);
+      border-radius:9px;padding:9px 18px;
+      font-size:13px;font-weight:600;cursor:pointer;
+      text-decoration:none;
+      display:inline-block;
+      transition:border-color .15s,background .15s;
+      white-space:nowrap;
+    }
+    .btn-store:hover{border-color:var(--accent);background:rgba(59,130,246,.07)}
+
+    /* ── Settings drawer ── */
+    #drawerOverlay{
+      position:fixed;inset:0;background:rgba(0,0,0,.6);
+      z-index:200;opacity:0;pointer-events:none;
+      transition:opacity .25s;
+      backdrop-filter:blur(4px);
+    }
+    #drawerOverlay.open{opacity:1;pointer-events:all}
+
+    #drawer{
+      position:fixed;top:0;right:0;bottom:0;
+      width:380px;max-width:95vw;
+      background:var(--bg1);
+      border-left:1px solid var(--border);
+      z-index:201;
+      transform:translateX(100%);
+      transition:transform .3s cubic-bezier(.4,0,.2,1);
+      display:flex;flex-direction:column;
+      overflow:hidden;
+    }
+    #drawer.open{transform:translateX(0)}
+
+    .drawer-head{
+      padding:24px;
+      border-bottom:1px solid var(--border);
+      display:flex;align-items:flex-start;justify-content:space-between;
+      flex-shrink:0;
+    }
+    .drawer-head h3{font-size:16px;font-weight:800}
+    .drawer-head p{font-size:12px;color:var(--muted);margin-top:3px}
+    .drawer-close{
+      width:30px;height:30px;
+      background:rgba(255,255,255,.06);
+      border:1px solid var(--border);
+      border-radius:7px;
+      color:var(--muted);font-size:15px;
+      cursor:pointer;display:flex;align-items:center;justify-content:center;
+      flex-shrink:0;
+      transition:background .15s;
+    }
+    .drawer-close:hover{background:rgba(239,68,68,.15);color:#ef4444}
+
+    .drawer-body{flex:1;overflow-y:auto;padding:24px}
+    .drawer-body::-webkit-scrollbar{width:4px}
+    .drawer-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:4px}
+
+    .d-section{margin-bottom:24px}
+    .d-section-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#334155;margin-bottom:12px}
+
+    .role-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+    .role-chip{
+      border:1px solid var(--border);
+      border-radius:10px;padding:10px 8px;
+      text-align:center;cursor:pointer;
+      transition:border-color .15s,background .15s;
+      user-select:none;
+    }
+    .role-chip .ri{font-size:18px;display:block;margin-bottom:4px}
+    .role-chip .rn{font-size:11px;font-weight:600;color:var(--muted)}
+    .role-chip.on{
+      border-color:rgba(59,130,246,.5);
+      background:rgba(59,130,246,.12);
+    }
+    .role-chip.on .rn{color:var(--accent)}
+
+    .emp-search-wrap{position:relative;margin-bottom:10px}
+    .emp-search-wrap input{
+      width:100%;
+      background:#020817;
+      border:1px solid rgba(255,255,255,.09);
+      border-radius:10px;
+      padding:10px 14px;
+      color:var(--text);font-size:13px;outline:none;
+      transition:border-color .2s;
+    }
+    .emp-search-wrap input:focus{border-color:rgba(99,130,246,.4)}
+
+    .emp-list{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto}
+    .emp-list::-webkit-scrollbar{width:3px}
+    .emp-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:3px}
+
+    .emp-row{
+      display:flex;align-items:center;gap:10px;
+      padding:9px 12px;border-radius:9px;
+      cursor:pointer;transition:background .15s;
+      user-select:none;
+    }
+    .emp-row:hover{background:rgba(255,255,255,.04)}
+    .emp-row.on{background:rgba(59,130,246,.1)}
+    .emp-avatar{
+      width:30px;height:30px;border-radius:50%;
+      background:linear-gradient(135deg,#2563eb,#4f46e5);
+      display:flex;align-items:center;justify-content:center;
+      font-size:12px;font-weight:700;color:#fff;flex-shrink:0;
+    }
+    .emp-info b{display:block;font-size:13px;font-weight:600;color:var(--text)}
+    .emp-info span{font-size:11px;color:var(--muted)}
+    .emp-check{
+      margin-left:auto;
+      width:18px;height:18px;border-radius:5px;
+      border:1px solid var(--border);
+      display:flex;align-items:center;justify-content:center;
+      font-size:11px;
+      transition:background .15s,border-color .15s;
+      flex-shrink:0;
+    }
+    .emp-row.on .emp-check{background:var(--accent);border-color:var(--accent);color:#fff}
+
+    .drawer-foot{
+      padding:16px 24px;
+      border-top:1px solid var(--border);
+      display:flex;gap:10px;
+      flex-shrink:0;
+    }
+    .btn-save{
+      flex:1;
+      background:linear-gradient(135deg,#2563eb,#4f46e5);
+      color:#fff;border:none;border-radius:9px;
+      padding:11px;font-size:13px;font-weight:700;
+      cursor:pointer;transition:opacity .15s;
+    }
+    .btn-save:hover{opacity:.88}
+    .btn-cancel{
+      background:rgba(255,255,255,.05);
+      border:1px solid var(--border);
+      color:var(--muted);border-radius:9px;
+      padding:11px 18px;font-size:13px;font-weight:600;
+      cursor:pointer;transition:background .15s;
+    }
+    .btn-cancel:hover{background:rgba(255,255,255,.08)}
+
+    .d-hint{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5}
+
+    /* ── Toast ── */
+    .toast{
+      position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(80px);
+      background:var(--bg2);border:1px solid var(--border);
+      border-radius:10px;padding:11px 20px;
+      font-size:13px;font-weight:600;
+      z-index:300;
+      transition:transform .3s,opacity .3s;
+      opacity:0;
+      white-space:nowrap;
+    }
+    .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+    /* ── Spinner ── */
+    .spin{color:var(--muted);text-align:center;padding:48px;font-size:13px}
+
+    @media(max-width:580px){
+      .nav{padding:0 16px}
+      .page{padding:24px 16px 60px}
+      .mod-right{gap:8px}
+      .btn-enter{padding:8px 14px;font-size:12px}
+    }
   </style>
 </head>
 <body>
-  <div class="logo">
-    <img src="/SmartCore Official Logos/SC Icon - Black Background.png" alt="SmartCore">
-    <div>
-      <div class="logo-text">SmartCore</div>
-      <div class="logo-sub">TECHNOLOGY</div>
-    </div>
-  </div>
 
-  <!-- Login -->
-  <div class="card" id="loginCard">
-    <h2>Sign in</h2>
-    <p class="sub">Access your SmartCore modules</p>
-    <div class="err" id="loginErr"></div>
-    <div class="ok-msg" id="loginOk"></div>
-    <div id="loginForm">
-      <div class="field">
-        <label>Email</label>
-        <input type="email" id="emailInput" autocomplete="email" placeholder="you@company.com"/>
-      </div>
-      <div class="field">
-        <label>Password</label>
-        <input type="password" id="pwInput" autocomplete="current-password" placeholder="••••••••"/>
-      </div>
-      <button class="btn-primary" id="loginBtn">Sign in</button>
-      <p class="forgot"><a id="forgotLink">Forgot your password?</a></p>
-    </div>
-    <div id="resetForm" style="display:none">
-      <p style="font-size:13px;color:#94a3b8;margin-bottom:16px">Enter your email and we'll send you a reset link.</p>
-      <div class="field">
-        <label>Email</label>
-        <input type="email" id="resetEmail" autocomplete="email" placeholder="you@company.com"/>
-      </div>
-      <button class="btn-primary" id="resetBtn">Send reset link</button>
-      <p class="forgot"><a id="backToLogin">Back to sign in</a></p>
-    </div>
-  </div>
-
-  <!-- Dashboard -->
-  <div id="dashboard">
-    <div class="dash-head">
+<!-- LOGIN -->
+<div id="loginWrap">
+  <div class="login-box">
+    <div class="login-logo">
+      <img src="/SmartCore Official Logos/SC Icon - Black Background.png" alt="SmartCore">
       <div>
-        <h2 id="companyLabel">My Modules</h2>
-        <div class="meta" id="userLabel"></div>
+        <div class="login-logo-text">SmartCore</div>
+        <div class="login-logo-sub">Technology</div>
       </div>
-      <button class="btn-logout" id="logoutBtn">Sign out</button>
     </div>
-    <div id="modList"><div class="spinner">Loading modules…</div></div>
+
+    <div id="signInPanel">
+      <h2>Sign in</h2>
+      <p class="sub">Access your company modules</p>
+      <div class="lerr" id="lErr"></div>
+      <div class="lfield"><label>Email</label><input type="email" id="lEmail" autocomplete="email" placeholder="you@company.com"/></div>
+      <div class="lfield"><label>Password</label><input type="password" id="lPw" autocomplete="current-password" placeholder="••••••••"/></div>
+      <button class="lbtn" id="lBtn">Sign in</button>
+      <div class="forgot-link">Forgot your password? <span id="forgotToggle">Reset it</span></div>
+    </div>
+
+    <div id="resetPanel" style="display:none">
+      <h2>Reset password</h2>
+      <p class="sub">We'll send a link to your inbox</p>
+      <div class="lerr" id="rErr"></div>
+      <div class="lok" id="rOk"></div>
+      <div class="lfield"><label>Email</label><input type="email" id="rEmail" autocomplete="email" placeholder="you@company.com"/></div>
+      <button class="lbtn" id="rBtn">Send reset link</button>
+      <div class="forgot-link"><span id="backToggle">← Back to sign in</span></div>
+    </div>
   </div>
+</div>
 
-  <script>
-    const SUPABASE_URL  = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
-    const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2MDU4ODUsImV4cCI6MjA1OTE4MTg4NX0.8QFnHfHFCjn9Jf5fVhJdHXhVpG9rDCWXwjEBb7hEyX4';
-    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+<!-- SHELL -->
+<div id="shell">
+  <nav class="nav">
+    <div class="nav-brand">
+      <img src="/SmartCore Official Logos/SC Icon - Black Background.png" alt="SmartCore">
+      <span>SmartCore</span>
+    </div>
+    <div class="nav-right">
+      <div class="nav-company">Signed in as <b id="navCompany">—</b></div>
+      <button class="nav-signout" id="signOutBtn">Sign out</button>
+    </div>
+  </nav>
 
-    // Module catalog — slug → display info
-    const MODULE_CATALOG = {
-      'smartcore-core':          { name: 'SmartCore Core',           desc: 'Employee management, departments, shift patterns & onboarding', icon: '🏢', color: 'blue',   href: '/systems/core/' },
-      'smartcore-crm-lite':       { name: 'SmartCore CRM',            desc: 'Lite — Contacts, leads & pipeline management',                 icon: '📊', color: 'purple', href: '/systems/crm/' },
-      'smartcore-crm-professional':{ name: 'SmartCore CRM',           desc: 'Professional — Advanced pipeline, documents & quotes',         icon: '📊', color: 'purple', href: '/systems/crm/' },
-      'smartcore-crm-business':   { name: 'SmartCore CRM',            desc: 'Business — Full CRM suite with projects & goals',              icon: '📊', color: 'purple', href: '/systems/crm/' },
-      'smartcore-crm-enterprise': { name: 'SmartCore CRM',            desc: 'Enterprise — Complete CRM with all features',                  icon: '📊', color: 'purple', href: '/systems/crm/' },
-      'holiday-management':       { name: 'Holiday Management',       desc: 'Leave requests, approvals & team calendar',                    icon: '🌴', color: 'green',  href: '/systems/holidaymanagement/' },
-      'presence-and-fire-safety': { name: 'Presence & Fire Safety',  desc: 'Sign-in board, fire roll & site presence tracking',            icon: '🔥', color: 'amber',  href: '/app/modules/presence-and-fire-safety.html' },
+  <div class="page">
+    <div class="page-title">Your Modules</div>
+    <div class="page-sub" id="pageSubtext">Loading…</div>
+    <div id="modContent"><div class="spin">Loading modules…</div></div>
+  </div>
+</div>
+
+<!-- DRAWER -->
+<div id="drawerOverlay"></div>
+<div id="drawer">
+  <div class="drawer-head">
+    <div>
+      <h3 id="drawerTitle">Module Access</h3>
+      <p id="drawerSub">Control who can see this module</p>
+    </div>
+    <button class="drawer-close" id="drawerClose">✕</button>
+  </div>
+  <div class="drawer-body">
+    <div class="d-section">
+      <div class="d-section-label">Access by role</div>
+      <div class="role-grid">
+        <div class="role-chip on" data-role="owner">  <span class="ri">👑</span><span class="rn">Owner</span></div>
+        <div class="role-chip on" data-role="admin">  <span class="ri">🛡️</span><span class="rn">Admin</span></div>
+        <div class="role-chip on" data-role="employee"><span class="ri">👤</span><span class="rn">Employee</span></div>
+      </div>
+      <p class="d-hint">Selected roles can access this module. Owners always have full access.</p>
+    </div>
+
+    <div class="d-section">
+      <div class="d-section-label">Or restrict to specific people</div>
+      <div class="emp-search-wrap">
+        <input type="text" id="empSearch" placeholder="Search employees…"/>
+      </div>
+      <div class="emp-list" id="empList"></div>
+      <p class="d-hint">If specific people are selected, only they can access this module (roles above are ignored).</p>
+    </div>
+  </div>
+  <div class="drawer-foot">
+    <button class="btn-cancel" id="drawerCancel">Cancel</button>
+    <button class="btn-save" id="drawerSave">Save changes</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SUPABASE_URL  = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2MDU4ODUsImV4cCI6MjA1OTE4MTg4NX0.8QFnHfHFCjn9Jf5fVhJdHXhVpG9rDCWXwjEBb7hEyX4';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// Module catalog
+const CATALOG = {
+  'smartcore-core':            { name:'SmartCore Core',       desc:'Employee management, departments, shift patterns & onboarding', icon:'🏢', color:'blue',   href:'/systems/core/',                alwaysActive:true },
+  'holiday-management':        { name:'Holiday Management',   desc:'Leave requests, approvals & team calendar',                     icon:'🌴', color:'green',  href:'/systems/holidaymanagement/' },
+  'smartcore-crm-lite':        { name:'SmartCore CRM Lite',        desc:'Contacts, leads & basic pipeline management',             icon:'📊', color:'purple', href:'/systems/crm/' },
+  'smartcore-crm-professional':{ name:'SmartCore CRM Professional', desc:'Advanced pipeline, documents & quote builder',           icon:'📊', color:'purple', href:'/systems/crm/' },
+  'smartcore-crm-business':    { name:'SmartCore CRM Business',     desc:'Full CRM suite with projects & goals',                   icon:'📊', color:'purple', href:'/systems/crm/' },
+  'smartcore-crm-enterprise':  { name:'SmartCore CRM Enterprise',   desc:'Complete CRM with all features & priority support',      icon:'📊', color:'purple', href:'/systems/crm/' },
+  'presence-and-fire-safety':  { name:'Presence & Fire Safety',desc:'Sign-in board, fire roll & site presence tracking',           icon:'🔥', color:'amber',  href:'/systems/presence/' },
+  'training-and-compliance':   { name:'Training & Compliance', desc:'Training records, certifications & compliance tracking',      icon:'📋', color:'cyan',   href:'/systems/training/' },
+  'expenses-upload':           { name:'Expenses',             desc:'Expense claims, receipts & approval workflow',                 icon:'💳', color:'green',  href:'/systems/expenses/' },
+};
+
+// State
+let state = {
+  user: null,
+  employee: null,   // current user's core_employees row
+  company: null,
+  companyId: null,
+  purchased: [],
+  employees: [],
+  accessMap: {},    // module_slug → { allowed_roles, allowed_employee_ids, id }
+  isOwner: false,
+};
+
+// Drawer state
+let drawer = {
+  slug: null,
+  roles: new Set(),
+  empIds: new Set(),
+  searchTerm: '',
+};
+
+// ── Bootstrap ──────────────────────────────────────────────────────────────
+async function init() {
+  const { data:{ session } } = await sb.auth.getSession();
+  if (session) await loadDashboard(session.user);
+}
+
+sb.auth.onAuthStateChange((_e, session) => {
+  if (session) loadDashboard(session.user);
+});
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+async function loadDashboard(user) {
+  state.user = user;
+  show('shell'); hide('loginWrap');
+
+  // core_employees row for this user
+  const { data: empRows } = await sb
+    .from('core_employees')
+    .select('id,company_id,full_name,role,job_title')
+    .eq('auth_user_id', user.id)
+    .limit(1);
+
+  const emp = empRows?.[0];
+  state.employee = emp;
+  state.companyId = emp?.company_id || null;
+  state.isOwner = emp?.role === 'owner' || emp?.role === 'admin';
+
+  // Company name
+  if (state.companyId) {
+    const { data: co } = await sb
+      .from('smartcore_core_companies')
+      .select('company_name')
+      .eq('id', state.companyId)
+      .single();
+    state.company = co;
+    document.getElementById('navCompany').textContent = co?.company_name || user.email;
+    document.getElementById('pageSubtext').textContent =
+      `Welcome back, ${emp?.full_name || user.email}`;
+  } else {
+    document.getElementById('navCompany').textContent = user.email;
+    document.getElementById('pageSubtext').textContent = `Welcome back`;
+  }
+
+  await fetchData();
+  render();
+}
+
+async function fetchData() {
+  if (!state.companyId) return;
+
+  // Purchased modules
+  const { data: pm } = await sb
+    .from('smartcore_core_purchased_modules')
+    .select('module_slug, module_name, status')
+    .eq('company_id', state.companyId)
+    .eq('status', 'active');
+  state.purchased = pm || [];
+
+  // Module access settings
+  const { data: ac } = await sb
+    .from('module_access')
+    .select('*')
+    .eq('company_id', state.companyId);
+  state.accessMap = {};
+  (ac || []).forEach(r => { state.accessMap[r.module_slug] = r; });
+
+  // All employees (for drawer search)
+  if (state.isOwner) {
+    const { data: emps } = await sb
+      .from('core_employees')
+      .select('id, full_name, job_title, role')
+      .eq('company_id', state.companyId)
+      .order('full_name');
+    state.employees = emps || [];
+  }
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function render() {
+  const purchasedSlugs = new Set(state.purchased.map(p => p.module_slug));
+  purchasedSlugs.add('smartcore-core'); // always active
+
+  // Build active list — core first, then purchased
+  const activeOrdered = [
+    'smartcore-core',
+    ...state.purchased.map(p => p.module_slug).filter(s => s !== 'smartcore-core'),
+  ];
+
+  // Filter by access
+  const visible = activeOrdered.filter(slug => canAccess(slug));
+
+  // Not-purchased catalog entries (show add-to-plan)
+  const notOwned = Object.keys(CATALOG).filter(s => !purchasedSlugs.has(s));
+  // Dedupe CRM — only show highest tier available
+  const hasCrm = [...purchasedSlugs].some(s => s.startsWith('smartcore-crm'));
+  const notOwnedFiltered = notOwned.filter(s => {
+    if (s.startsWith('smartcore-crm')) return !hasCrm && s === 'smartcore-crm-lite';
+    return true;
+  });
+
+  let html = '';
+
+  if (visible.length) {
+    html += `<div class="section-label">Active modules</div><div class="mod-grid">`;
+    for (const slug of visible) {
+      html += modCard(slug, true);
+    }
+    html += `</div>`;
+  }
+
+  if (notOwnedFiltered.length) {
+    html += `<div class="section-label">Available to add</div><div class="mod-grid">`;
+    for (const slug of notOwnedFiltered) {
+      html += modCard(slug, false);
+    }
+    html += `</div>`;
+  }
+
+  if (!html) html = `<div class="spin">No modules found. Contact support@smartcoretechnology.co.uk</div>`;
+
+  document.getElementById('modContent').innerHTML = html;
+
+  // Bind gear clicks
+  document.querySelectorAll('.mod-gear').forEach(el => {
+    el.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      openDrawer(el.dataset.slug);
+    });
+  });
+}
+
+function canAccess(slug) {
+  if (slug === 'smartcore-core') return true;
+  if (state.isOwner) return true;
+  const ac = state.accessMap[slug];
+  if (!ac) return true; // no restriction = open to all
+
+  const empIdStr = state.employee?.id;
+  // If specific employees set, only they can access
+  if (ac.allowed_employee_ids?.length) {
+    return empIdStr && ac.allowed_employee_ids.includes(empIdStr);
+  }
+  // Otherwise check role
+  if (ac.allowed_roles?.length) {
+    return ac.allowed_roles.includes(state.employee?.role || '');
+  }
+  return true;
+}
+
+function accessTag(slug) {
+  const ac = state.accessMap[slug];
+  if (!ac) return '';
+  const hasEmpRestriction = ac.allowed_employee_ids?.length > 0;
+  const hasRoleRestriction = ac.allowed_roles && ac.allowed_roles.length < 3;
+  if (hasEmpRestriction) return `<span class="tag-restricted">RESTRICTED</span>`;
+  if (hasRoleRestriction) return `<span class="tag-restricted">ROLE RESTRICTED</span>`;
+  return '';
+}
+
+function modCard(slug, active) {
+  const info = CATALOG[slug] || { name: slug, desc: '', icon: '📦', color: 'blue', href: '#' };
+  const gear = (state.isOwner && active && slug !== 'smartcore-core')
+    ? `<div class="mod-gear" data-slug="${slug}" title="Manage access">⚙️</div>`
+    : '';
+
+  if (active) {
+    const tag = accessTag(slug);
+    return `<div class="mod-card active">
+      ${gear}
+      <div class="mod-icon ${info.color}">${info.icon}</div>
+      <div class="mod-body">
+        <div class="mod-name">${info.name}</div>
+        <div class="mod-desc">${info.desc}</div>
+      </div>
+      <div class="mod-right">
+        ${tag || `<span class="tag-active">ACTIVE</span>`}
+        <a class="btn-enter" href="${info.href}">Enter <span style="opacity:.7">→</span></a>
+      </div>
+    </div>`;
+  } else {
+    return `<div class="mod-card inactive">
+      <div class="mod-icon ${info.color}">${info.icon}</div>
+      <div class="mod-body">
+        <div class="mod-name">${info.name}</div>
+        <div class="mod-desc">${info.desc}</div>
+      </div>
+      <div class="mod-right">
+        <span class="tag-locked">NOT ACTIVE</span>
+        <a class="btn-store" href="https://smartcoretechnology.co.uk/shop/" target="_blank">Add to plan</a>
+      </div>
+    </div>`;
+  }
+}
+
+// ── Drawer ─────────────────────────────────────────────────────────────────
+function openDrawer(slug) {
+  drawer.slug = slug;
+  const info = CATALOG[slug] || { name: slug };
+  document.getElementById('drawerTitle').textContent = info.name;
+  document.getElementById('drawerSub').textContent   = 'Control who can see this module';
+
+  // Load current settings
+  const ac = state.accessMap[slug];
+  const savedRoles = ac?.allowed_roles || ['owner','admin','employee'];
+  const savedEmps  = ac?.allowed_employee_ids || [];
+  drawer.roles  = new Set(savedRoles);
+  drawer.empIds = new Set(savedEmps);
+
+  // Render role chips
+  document.querySelectorAll('.role-chip').forEach(chip => {
+    const role = chip.dataset.role;
+    chip.classList.toggle('on', drawer.roles.has(role));
+    chip.onclick = () => {
+      if (role === 'owner') return; // owner always on
+      drawer.roles.has(role) ? drawer.roles.delete(role) : drawer.roles.add(role);
+      chip.classList.toggle('on', drawer.roles.has(role));
     };
+  });
 
-    async function init() {
-      const { data: { session } } = await sb.auth.getSession();
-      if (session) {
-        showDashboard(session.user);
-      }
-    }
+  // Render employee list
+  document.getElementById('empSearch').value = '';
+  drawer.searchTerm = '';
+  renderEmpList();
 
-    async function showDashboard(user) {
-      document.getElementById('loginCard').style.display   = 'none';
-      document.getElementById('dashboard').style.display   = 'block';
-      document.getElementById('userLabel').textContent     = user.email;
+  document.getElementById('drawerOverlay').classList.add('open');
+  document.getElementById('drawer').classList.add('open');
+}
 
-      // Get company via core_employees
-      const { data: empRows } = await sb
-        .from('core_employees')
-        .select('company_id')
-        .eq('auth_user_id', user.id)
-        .limit(1);
+function closeDrawer() {
+  document.getElementById('drawerOverlay').classList.remove('open');
+  document.getElementById('drawer').classList.remove('open');
+}
 
-      const companyId = empRows?.[0]?.company_id;
-      if (!companyId) {
-        document.getElementById('modList').innerHTML = `<div class="spinner" style="color:#ef4444">No company profile found. Contact support@smartcoretechnology.co.uk</div>`;
-        return;
-      }
-
-      // Get company name
-      const { data: company } = await sb
-        .from('smartcore_core_companies')
-        .select('company_name')
-        .eq('id', companyId)
-        .single();
-      if (company?.company_name) document.getElementById('companyLabel').textContent = company.company_name;
-
-      // Get purchased modules
-      const { data: purchased } = await sb
-        .from('smartcore_core_purchased_modules')
-        .select('module_slug, module_name, status')
-        .eq('company_id', companyId)
-        .eq('status', 'active');
-
-      renderModules(purchased || []);
-    }
-
-    function renderModules(purchased) {
-      const purchasedSlugs = new Set(purchased.map(p => p.module_slug));
-
-      // SmartCore Core always first and always active
-      const active = [
-        { module_slug: 'smartcore-core', module_name: 'SmartCore Core', status: 'active' },
-        ...purchased.filter(p => p.module_slug !== 'smartcore-core'),
-      ];
-
-      // Available to purchase (from catalog, not owned, exclude smartcore-core)
-      const allCatalogSlugs = Object.keys(MODULE_CATALOG).filter(s => s !== 'smartcore-core');
-      const notOwned = allCatalogSlugs.filter(s => !purchasedSlugs.has(s));
-      // Deduplicate CRM — only show one "Add CRM" if none purchased
-      const hasCrm = purchased.some(p => p.module_slug.startsWith('smartcore-crm'));
-      const toShow = notOwned.filter(s => hasCrm ? !s.startsWith('smartcore-crm') : s === 'smartcore-crm-enterprise');
-
-      let html = '';
-
-      if (active.length) {
-        html += `<div class="section-label">Your active modules</div>`;
-        for (const mod of active) {
-          const info = MODULE_CATALOG[mod.module_slug] || { name: mod.module_name, desc: '', icon: '📦', color: 'blue', href: '#' };
-          html += `<div class="mod-card active">
-            <div class="mod-icon ${info.color}">${info.icon}</div>
-            <div class="mod-body">
-              <div class="mod-name">${info.name}</div>
-              <div class="mod-desc">${info.desc}</div>
-            </div>
-            <div class="mod-right">
-              <span class="badge-active">ACTIVE</span>
-              <a class="btn-open" href="${info.href}">Open →</a>
-            </div>
-          </div>`;
-        }
-      }
-
-      if (toShow.length) {
-        html += `<div class="section-label">Available to add</div>`;
-        for (const slug of toShow) {
-          const info = MODULE_CATALOG[slug];
-          html += `<div class="mod-card inactive">
-            <div class="mod-icon ${info.color}">${info.icon}</div>
-            <div class="mod-body">
-              <div class="mod-name">${info.name}</div>
-              <div class="mod-desc">${info.desc}</div>
-            </div>
-            <div class="mod-right">
-              <span class="badge-locked">NOT ACTIVE</span>
-              <a class="btn-store" href="https://smartcoretechnology.co.uk/shop/" target="_blank">View on store</a>
-            </div>
-          </div>`;
-        }
-      }
-
-      document.getElementById('modList').innerHTML = html;
-    }
-
-    // Auth event listener
-    sb.auth.onAuthStateChange((_event, session) => {
-      if (session) showDashboard(session.user);
+function renderEmpList() {
+  const term  = drawer.searchTerm.toLowerCase();
+  const emps  = state.employees.filter(e =>
+    !term || e.full_name.toLowerCase().includes(term) || (e.job_title||'').toLowerCase().includes(term)
+  );
+  const el = document.getElementById('empList');
+  if (!emps.length) { el.innerHTML = `<div style="font-size:12px;color:var(--muted);padding:8px 12px">No employees found</div>`; return; }
+  el.innerHTML = emps.map(e => {
+    const on    = drawer.empIds.has(e.id);
+    const init  = (e.full_name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+    return `<div class="emp-row${on?' on':''}" data-id="${e.id}">
+      <div class="emp-avatar">${init}</div>
+      <div class="emp-info"><b>${e.full_name}</b><span>${e.job_title||e.role||''}</span></div>
+      <div class="emp-check">${on?'✓':''}</div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.emp-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const id = row.dataset.id;
+      drawer.empIds.has(id) ? drawer.empIds.delete(id) : drawer.empIds.add(id);
+      renderEmpList();
     });
+  });
+}
 
-    // Login
-    document.getElementById('loginBtn').addEventListener('click', async () => {
-      const email = document.getElementById('emailInput').value.trim();
-      const pw    = document.getElementById('pwInput').value;
-      const btn   = document.getElementById('loginBtn');
-      const err   = document.getElementById('loginErr');
-      err.style.display = 'none';
-      if (!email || !pw) { showErr('Please enter your email and password.'); return; }
-      btn.disabled = true; btn.textContent = 'Signing in…';
-      const { error } = await sb.auth.signInWithPassword({ email, password: pw });
-      btn.disabled = false; btn.textContent = 'Sign in';
-      if (error) showErr(error.message);
-    });
+async function saveDrawer() {
+  const slug     = drawer.slug;
+  const roles    = [...drawer.roles];
+  const empIds   = [...drawer.empIds];
+  const existing = state.accessMap[slug];
 
-    document.getElementById('pwInput').addEventListener('keydown', e => {
-      if (e.key === 'Enter') document.getElementById('loginBtn').click();
-    });
+  const payload = {
+    company_id:           state.companyId,
+    module_slug:          slug,
+    allowed_roles:        roles,
+    allowed_employee_ids: empIds.length ? empIds : null,
+    updated_at:           new Date().toISOString(),
+  };
 
-    // Forgot password toggle
-    document.getElementById('forgotLink').addEventListener('click', () => {
-      document.getElementById('loginForm').style.display = 'none';
-      document.getElementById('resetForm').style.display = 'block';
-      document.getElementById('loginErr').style.display  = 'none';
-      const emailVal = document.getElementById('emailInput').value.trim();
-      if (emailVal) document.getElementById('resetEmail').value = emailVal;
-    });
+  let err;
+  if (existing?.id) {
+    ({ error: err } = await sb.from('module_access').update(payload).eq('id', existing.id));
+  } else {
+    ({ error: err } = await sb.from('module_access').insert(payload));
+  }
 
-    document.getElementById('backToLogin').addEventListener('click', () => {
-      document.getElementById('resetForm').style.display = 'none';
-      document.getElementById('loginForm').style.display = 'block';
-      document.getElementById('loginOk').style.display   = 'none';
-    });
+  if (err) { showToast('Error saving — ' + err.message); return; }
 
-    // Send reset link
-    document.getElementById('resetBtn').addEventListener('click', async () => {
-      const email = document.getElementById('resetEmail').value.trim();
-      const btn   = document.getElementById('resetBtn');
-      const ok    = document.getElementById('loginOk');
-      const err   = document.getElementById('loginErr');
-      err.style.display = 'none'; ok.style.display = 'none';
-      if (!email) { showErr('Please enter your email address.'); return; }
-      btn.disabled = true; btn.textContent = 'Sending…';
-      const { error } = await sb.auth.resetPasswordForEmail(email, {
-        redirectTo: 'https://smartcoretechnology.co.uk/reset-password/',
-      });
-      btn.disabled = false; btn.textContent = 'Send reset link';
-      if (error) {
-        showErr(error.message);
-      } else {
-        ok.textContent = 'Reset link sent — check your inbox.';
-        ok.style.display = 'block';
-      }
-    });
+  // Refresh access map
+  const { data: fresh } = await sb.from('module_access').select('*').eq('company_id', state.companyId);
+  state.accessMap = {};
+  (fresh||[]).forEach(r => { state.accessMap[r.module_slug] = r; });
 
-    // Logout
-    document.getElementById('logoutBtn').addEventListener('click', async () => {
-      await sb.auth.signOut();
-      document.getElementById('dashboard').style.display  = 'none';
-      document.getElementById('loginCard').style.display  = 'block';
-      document.getElementById('loginForm').style.display  = 'block';
-      document.getElementById('resetForm').style.display  = 'none';
-      document.getElementById('loginOk').style.display    = 'none';
-      document.getElementById('emailInput').value = '';
-      document.getElementById('pwInput').value    = '';
-    });
+  closeDrawer();
+  render();
+  showToast('Access settings saved ✓');
+}
 
-    function showErr(msg) {
-      const el = document.getElementById('loginErr');
-      el.textContent = msg; el.style.display = 'block';
-    }
+// ── Login ──────────────────────────────────────────────────────────────────
+document.getElementById('lBtn').addEventListener('click', async () => {
+  const email = document.getElementById('lEmail').value.trim();
+  const pw    = document.getElementById('lPw').value;
+  const err   = document.getElementById('lErr');
+  const btn   = document.getElementById('lBtn');
+  err.style.display = 'none';
+  if (!email || !pw) { showErr(err, 'Please enter your email and password.'); return; }
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+  btn.disabled = false; btn.textContent = 'Sign in';
+  if (error) showErr(err, error.message);
+});
+document.getElementById('lPw').addEventListener('keydown', e => { if (e.key==='Enter') document.getElementById('lBtn').click(); });
 
-    init();
-  </script>
+document.getElementById('forgotToggle').addEventListener('click', () => {
+  hide('signInPanel'); show('resetPanel');
+  const v = document.getElementById('lEmail').value.trim();
+  if (v) document.getElementById('rEmail').value = v;
+  document.getElementById('lErr').style.display = 'none';
+});
+document.getElementById('backToggle').addEventListener('click', () => {
+  hide('resetPanel'); show('signInPanel');
+  document.getElementById('rErr').style.display = 'none';
+  document.getElementById('rOk').style.display  = 'none';
+});
+
+document.getElementById('rBtn').addEventListener('click', async () => {
+  const email = document.getElementById('rEmail').value.trim();
+  const err   = document.getElementById('rErr');
+  const ok    = document.getElementById('rOk');
+  const btn   = document.getElementById('rBtn');
+  err.style.display = 'none'; ok.style.display = 'none';
+  if (!email) { showErr(err, 'Please enter your email address.'); return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: 'https://smartcoretechnology.co.uk/reset-password/',
+  });
+  btn.disabled = false; btn.textContent = 'Send reset link';
+  if (error) showErr(err, error.message);
+  else { ok.textContent = 'Reset link sent — check your inbox.'; ok.style.display = 'block'; }
+});
+
+// ── Sign out ────────────────────────────────────────────────────────────────
+document.getElementById('signOutBtn').addEventListener('click', async () => {
+  await sb.auth.signOut();
+  hide('shell'); show('loginWrap');
+  document.getElementById('lEmail').value = '';
+  document.getElementById('lPw').value    = '';
+  document.getElementById('modContent').innerHTML = '<div class="spin">Loading modules…</div>';
+});
+
+// ── Drawer bindings ─────────────────────────────────────────────────────────
+document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+document.getElementById('drawerCancel').addEventListener('click', closeDrawer);
+document.getElementById('drawerOverlay').addEventListener('click', closeDrawer);
+document.getElementById('drawerSave').addEventListener('click', saveDrawer);
+document.getElementById('empSearch').addEventListener('input', e => {
+  drawer.searchTerm = e.target.value;
+  renderEmpList();
+});
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function show(id){ document.getElementById(id).style.display = '' }
+function hide(id){ document.getElementById(id).style.display = 'none' }
+function showErr(el, msg){ el.textContent = msg; el.style.display = 'block'; }
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+init();
+</script>
 </body>
 </html>
