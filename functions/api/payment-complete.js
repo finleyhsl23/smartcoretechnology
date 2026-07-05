@@ -1,22 +1,19 @@
 /**
  * POST /api/payment-complete
  *
- * Handles payment result — called from the payment page (test mode)
- * or PayPal webhook (future). No auth required; order_id is a UUID.
+ * Called from the payment page after Stripe confirms payment.
+ * Body: { order_id, result: 'success' | 'failed', source?: 'stripe' }
  *
- * Body: { order_id: string, result: 'success' | 'failed' }
- *
- * On success → approve order, provision Core, send emails, return redirect URL.
- * On failure → mark payment_failed, return error message.
+ * On success → approve order, provision modules, send welcome email + PDF invoice.
+ * On failure → mark payment_failed.
  *
  * Requires env: SUPABASE_URL, SUPABASE_SERVICE_KEY, RESEND_API_KEY
  */
 
-const ADMIN_EMAIL    = 'support@smartcoretechnology.co.uk';
-const BILLING_EMAIL  = 'support@smartcoretechnology.co.uk';
-const FROM           = 'SmartCore <noreply@smartcoretechnology.co.uk>';
-const FROM_BILLING   = 'SmartCore Billing <noreply@smartcoretechnology.co.uk>';
-const SITE           = 'https://smartcoretechnology.co.uk';
+const ADMIN_EMAIL   = 'support@smartcoretechnology.co.uk';
+const FROM          = 'SmartCore <noreply@smartcoretechnology.co.uk>';
+const FROM_BILLING  = 'SmartCore Billing <noreply@smartcoretechnology.co.uk>';
+const SITE          = 'https://smartcoretechnology.co.uk';
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -46,33 +43,27 @@ export async function onRequestPost(context) {
     }
 
     // --- Success path ---
-    const today = new Date().toISOString().slice(0, 10);
+    const today       = new Date().toISOString().slice(0, 10);
     const nextBilling = o.billing_type === 'yearly' ? addYear(today) : addMonth(today);
 
     await dbPatch(env, `/marketplace_orders?id=eq.${enc(order_id)}`, {
-      status: 'approved',
-      reviewed_at: new Date().toISOString(),
+      status:                 'approved',
+      reviewed_at:            new Date().toISOString(),
       subscription_start_date: today,
-      next_billing_date: nextBilling,
+      next_billing_date:      nextBilling,
     });
 
-    // Provision SmartCore Core (best-effort — don't fail the payment if this errors)
-    try { await provisionCore(env, o); } catch (e) { console.error('provision error:', e); }
+    const modules = parseModules(o.modules);
+    const oFull   = { ...o, subscription_start_date: today, next_billing_date: nextBilling };
 
-    // Provision CRM module if purchased (best-effort)
+    // Provision modules (best-effort)
+    try { await provisionModules(env, o); } catch (e) { console.error('provision error:', e); }
+
+    // Provision CRM extras (best-effort)
     try { await provisionCRM(env, o); } catch (e) { console.error('crm provision error:', e); }
 
-    // Send confirmation + first invoice (best-effort)
-    const modules = parseModules(o.modules);
-    // Merge billing dates into order object for invoice generation
-    const oFull = { ...o, subscription_start_date: today, next_billing_date: nextBilling };
-    try {
-      await Promise.all([
-        sendEmail(env, { from: FROM, to: o.email,    subject: `Payment Confirmed — ${o.order_reference} | SmartCore`, html: customerHtml(oFull, modules) }),
-        sendEmail(env, { from: FROM, to: ADMIN_EMAIL, subject: `Payment Received — ${o.order_reference} | ${o.company_name}`,  html: adminHtml(oFull, modules) }),
-        sendFirstInvoice(env, oFull, modules, today),
-      ]);
-    } catch (e) { console.error('email error:', e); }
+    // Send welcome email with PDF invoice attached (best-effort)
+    try { await sendWelcomeWithInvoice(env, oFull, modules, today); } catch (e) { console.error('email error:', e); }
 
     return json({
       success:  true,
@@ -94,24 +85,39 @@ export async function onRequestOptions() {
 }
 
 // ---------------------------------------------------------------------------
-// Provisioning
+// Provisioning — finds existing company by email to avoid duplicates
 // ---------------------------------------------------------------------------
-async function provisionCore(env, o) {
-  const existing = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
-  if (existing?.length) return;
+async function provisionModules(env, o) {
+  // Look for an existing company by email first (handles re-orders from existing customers)
+  let company;
+  const byEmail = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(o.email)}&select=id&limit=1`);
+  if (byEmail?.length) {
+    company = byEmail[0];
+  } else {
+    // Check by order_id in case of retry
+    const byOrder = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
+    if (byOrder?.length) {
+      company = byOrder[0];
+    } else {
+      // Create new company
+      const rows = await dbPost(env, '/smartcore_core_companies', {
+        order_id:       o.id,
+        company_name:   o.company_name,
+        company_email:  o.email,
+        company_phone:  o.phone || null,
+        staff_count:    o.staff_count || null,
+        status:         'active',
+        provisioned_at: new Date().toISOString(),
+      }, true);
+      company = Array.isArray(rows) ? rows[0] : rows;
+    }
+  }
 
-  const rows = await dbPost(env, '/smartcore_core_companies', {
-    order_id:     o.id,
-    company_name: o.company_name,
-    company_email: o.email,
-    company_phone: o.phone || null,
-    staff_count:  o.staff_count || null,
-    status:       'active',
-    provisioned_at: new Date().toISOString(),
-  }, true);
-
-  const company = Array.isArray(rows) ? rows[0] : rows;
   if (!company?.id) return;
+
+  // Add any purchased modules not already provisioned
+  const existing = await dbGet(env, `/smartcore_core_purchased_modules?company_id=eq.${enc(company.id)}&select=module_slug`);
+  const existingSlugs = new Set((existing || []).map(r => r.module_slug));
 
   const modules = parseModules(o.modules);
   const all = [
@@ -120,6 +126,7 @@ async function provisionCore(env, o) {
   ];
 
   for (const m of all) {
+    if (existingSlugs.has(m.slug)) continue;
     await dbPost(env, '/smartcore_core_purchased_modules', {
       company_id:   company.id,
       order_id:     o.id,
@@ -144,18 +151,16 @@ const CRM_TIER_MAP = {
 };
 
 async function provisionCRM(env, o) {
-  const modules = parseModules(o.modules);
+  const modules   = parseModules(o.modules);
   const crmModule = modules.find(m => CRM_TIER_MAP[m.slug]);
   if (!crmModule) return;
 
   const tier = CRM_TIER_MAP[crmModule.slug];
 
-  // Find the company that was provisioned for this order
-  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
-  const company = companies?.[0];
+  const byEmail = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(o.email)}&select=id&limit=1`);
+  const company = byEmail?.[0];
   if (!company?.id) return;
 
-  // Upsert company_modules record
   await fetch(`${env.SUPABASE_URL}/rest/v1/company_modules`, {
     method: 'POST',
     headers: {
@@ -173,7 +178,6 @@ async function provisionCRM(env, o) {
     }),
   });
 
-  // Upsert crm_settings with default pipeline stages
   const defaultStages = [
     { name: 'New',           color: '#6366f1', order: 0 },
     { name: 'Contacted',     color: '#f59e0b', order: 1 },
@@ -191,12 +195,246 @@ async function provisionCRM(env, o) {
       'Content-Type': 'application/json',
       Prefer: 'resolution=ignore-duplicates,return=minimal',
     },
+    body: JSON.stringify({ tenant_id: company.id, tier, pipeline_stages: defaultStages }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Email: single welcome email with PDF invoice attachment
+// ---------------------------------------------------------------------------
+async function sendWelcomeWithInvoice(env, o, modules, today) {
+  const invoiceNum  = await nextInvoiceNumber(env);
+  const periodEnd   = o.billing_type === 'yearly' ? addYear(today) : addMonth(today);
+  const multiplier  = o.size_multiplier || 1;
+  const regular     = modules.filter(m => m.slug !== 'smartcore-core');
+
+  const subtotal = regular.reduce((s, m) => {
+    const isFlat = m.is_flat_rate;
+    const base   = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+    return s + (base || 0) * (isFlat ? 1 : multiplier);
+  }, 0);
+  const discount    = o.discount_amount || 0;
+  const annualDisc  = o.annual_discount_amount || 0;
+  const total       = Math.max(0, subtotal - discount - annualDisc);
+
+  const inv = {
+    invoice_number:       invoiceNum,
+    order_id:             o.id,
+    company_name:         o.company_name,
+    contact_name:         o.contact_name,
+    contact_email:        o.email,
+    accounts_email:       o.accounts_email || o.email,
+    modules,
+    billing_type:         o.billing_type,
+    size_tier:            o.size_tier,
+    size_multiplier:      multiplier,
+    subtotal,
+    discount_amount:      discount,
+    total,
+    billing_period_start: today,
+    billing_period_end:   periodEnd,
+    due_date:             today,
+    status:               'sent',
+  };
+
+  await dbPost(env, '/marketplace_invoices', inv, false);
+
+  const pdfBase64 = buildInvoicePdf(inv, o, modules);
+  const html      = welcomeHtml(o, modules, inv);
+
+  await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization:  `Bearer ${env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify({
-      tenant_id:       company.id,
-      tier,
-      pipeline_stages: defaultStages,
+      from:    FROM,
+      to:      [o.email],
+      subject: `Welcome to SmartCore — ${o.order_reference}`,
+      html,
+      attachments: [{
+        filename:    `SmartCore-Invoice-${inv.invoice_number}.pdf`,
+        content:     pdfBase64,
+        content_type: 'application/pdf',
+      }],
     }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Invoice number
+// ---------------------------------------------------------------------------
+async function nextInvoiceNumber(env) {
+  const year = new Date().getFullYear();
+  const rows = await dbGet(env, `/marketplace_invoices?invoice_number=like.INV-${year}-%25&select=invoice_number&order=invoice_number.desc&limit=1`);
+  const last = rows?.[0]?.invoice_number;
+  const seq  = last ? parseInt(last.split('-')[2] || '0', 10) + 1 : 1;
+  return `INV-${year}-${String(seq).padStart(4, '0')}`;
+}
+
+// ---------------------------------------------------------------------------
+// PDF builder (pure base64, no external libs — uses a minimal PDF structure)
+// ---------------------------------------------------------------------------
+function buildInvoicePdf(inv, o, modules) {
+  const regular    = modules.filter(m => m.slug !== 'smartcore-core');
+  const period     = o.billing_type === 'yearly' ? '/yr' : '/mo';
+  const multiplier = o.size_multiplier || 1;
+  const fmtGbp     = n => '£' + Number(n || 0).toFixed(2);
+  const fmtD       = iso => new Date(iso).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
+
+  const lineItems = [
+    { desc: 'SmartCore Core', price: '£0.00 (Free)' },
+    ...regular.map(m => {
+      const base  = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+      const price = (base || 0) * (m.is_flat_rate ? 1 : multiplier);
+      return { desc: m.name, price: fmtGbp(price) + period };
+    }),
+  ];
+
+  // Build a minimal but complete PDF using raw PDF syntax
+  const textLines = [
+    ['SmartCore Technology',                          36, 760, 18, true],
+    ['Invoice ' + inv.invoice_number,                 36, 735, 13, false],
+    ['support@smartcoretechnology.co.uk',             36, 720, 10, false],
+    ['www.smartcoretechnology.co.uk',                 36, 708, 10, false],
+    ['',                                              36, 696, 10, false],
+    ['BILLED TO',                                     36, 680, 9,  true],
+    [o.company_name,                                  36, 668, 12, true],
+    [o.contact_name,                                  36, 655, 10, false],
+    [inv.accounts_email || o.email,                   36, 643, 10, false],
+    ['Invoice No:  ' + inv.invoice_number,            370, 680, 10, false],
+    ['Invoice Date:  ' + fmtD(inv.billing_period_start), 370, 668, 10, false],
+    ['Due Date:  ' + fmtD(inv.due_date),              370, 656, 10, false],
+    ['',                                              36,  625, 10, false],
+    ['DESCRIPTION',                                   36,  610, 9,  true],
+    ['AMOUNT',                                        480, 610, 9,  true],
+  ];
+
+  let y = 595;
+  for (const li of lineItems) {
+    textLines.push([li.desc,  36,  y, 10, false]);
+    textLines.push([li.price, 480, y, 10, false]);
+    y -= 16;
+  }
+  y -= 8;
+  if (inv.discount_amount > 0) {
+    textLines.push(['Package Discount',        36,  y, 10, false]);
+    textLines.push(['-' + fmtGbp(inv.discount_amount), 480, y, 10, false]);
+    y -= 16;
+  }
+  textLines.push(['TOTAL DUE',        36,  y - 8, 12, true]);
+  textLines.push([fmtGbp(inv.total) + period, 480, y - 8, 12, true]);
+  textLines.push(['Payment collected securely via Stripe.', 36, y - 32, 9, false]);
+  textLines.push(['Order: ' + o.order_reference + '  |  Period: ' + fmtD(inv.billing_period_start) + ' – ' + fmtD(inv.billing_period_end), 36, y - 48, 8, false]);
+
+  // Encode to PDF content stream
+  let stream = 'BT\n';
+  for (const [text, x, yy, size, bold] of textLines) {
+    const safe = String(text).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+    stream += `/${bold ? 'F2' : 'F1'} ${size} Tf\n${x} ${yy} Td\n(${safe}) Tj\n-${x} -${yy} Td\n`;
+  }
+  stream += 'ET\n';
+
+  const streamBytes = encodeUtf8(stream);
+  const streamLen   = streamBytes.length;
+
+  const objects = [];
+  // obj 1: catalog
+  objects.push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj');
+  // obj 2: pages
+  objects.push('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj');
+  // obj 3: page
+  objects.push('3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>\nendobj');
+  // obj 4: content stream
+  objects.push(`4 0 obj\n<< /Length ${streamLen} >>\nstream\n${stream}\nendstream\nendobj`);
+  // obj 5: Helvetica
+  objects.push('5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj');
+  // obj 6: Helvetica-Bold
+  objects.push('6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj');
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = [];
+  for (const obj of objects) {
+    offsets.push(pdf.length);
+    pdf += obj + '\n';
+  }
+  const xrefOffset = pdf.length;
+  pdf += 'xref\n';
+  pdf += `0 ${objects.length + 1}\n`;
+  pdf += '0000000000 65535 f \n';
+  for (const off of offsets) {
+    pdf += String(off).padStart(10, '0') + ' 00000 n \n';
+  }
+  pdf += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root 1 0 R >>\n';
+  pdf += 'startxref\n' + xrefOffset + '\n%%EOF';
+
+  return btoa(pdf);
+}
+
+function encodeUtf8(str) {
+  let bytes = '';
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    if (c < 128) bytes += str[i];
+    else bytes += '?';
+  }
+  return bytes;
+}
+
+// ---------------------------------------------------------------------------
+// Welcome email template
+// ---------------------------------------------------------------------------
+function welcomeHtml(o, modules, inv) {
+  const regular = modules.filter(m => m.slug !== 'smartcore-core');
+  const date = new Date(o.created_at).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
+  const multiplier = o.size_multiplier || 1;
+
+  const modRows = [
+    `<div class="row"><span>SmartCore Core</span><span style="color:#22c55e;font-weight:600">Included free</span></div>`,
+    ...regular.map(m => {
+      const base  = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+      const price = (base || 0) * (m.is_flat_rate ? 1 : multiplier);
+      return `<div class="row"><span>${esc(m.name)}</span><span style="font-weight:600">${fmt(price)}/${o.billing_type === 'yearly' ? 'yr' : 'mo'}</span></div>`;
+    }),
+  ].join('');
+
+  const discounts = [];
+  if ((o.discount_amount || 0) > 0) discounts.push(`<div class="row"><span style="color:#64748b">Package discount</span><span style="color:#22c55e;font-weight:600">−${fmt(o.discount_amount)}</span></div>`);
+  if ((o.annual_discount_amount || 0) > 0) discounts.push(`<div class="row"><span style="color:#64748b">Annual billing (8%)</span><span style="color:#22c55e;font-weight:600">−${fmt(o.annual_discount_amount)}</span></div>`);
+
+  const hasCrm = modules.some(m => m.slug && m.slug.startsWith('smartcore-crm'));
+  const steps = [
+    { n: '1', title: 'Log in to SmartCore', body: `Visit <a href="${SITE}/app" style="color:#3b82f6">${SITE}/app</a> and sign in with the email address you used to purchase.` },
+    { n: '2', title: 'Add your employees', body: 'Go to <strong>SmartCore Core → Employees</strong> and add your team members. They\'ll receive an invite to join your workspace.' },
+    { n: '3', title: 'Configure your modules', body: 'Head to <strong>Settings → Modules</strong> to activate and configure the modules included in your plan.' },
+    ...(hasCrm ? [{ n: '4', title: 'Set up your CRM', body: 'Visit <strong>SmartCore CRM</strong> from your dashboard. Your default pipeline stages are ready — customise them to match your sales process.' }] : []),
+  ];
+
+  const stepHtml = steps.map(s => `
+    <div style="display:flex;gap:14px;margin-bottom:16px;align-items:flex-start">
+      <div style="min-width:28px;height:28px;border-radius:50%;background:#3b82f6;color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;line-height:1">${s.n}</div>
+      <div><p style="margin:0 0 4px;font-weight:700;color:#0f172a;font-size:14px">${s.title}</p><p style="margin:0;font-size:13px;color:#475569;line-height:1.6">${s.body}</p></div>
+    </div>`).join('');
+
+  return shell(
+    `Welcome to SmartCore! Your order ${o.order_reference} is active.`,
+    `<span class="tag">✓ Welcome to SmartCore</span>
+    <h1>You're all set, ${esc(o.contact_name)}!</h1>
+    <p>Your payment has been received and your SmartCore modules are now live. A copy of your invoice is attached to this email.</p>
+    <div class="ref">${esc(o.order_reference)}</div>
+    <p style="font-size:13px;color:#64748b;margin-bottom:16px">Order placed ${date} &bull; ${o.billing_type === 'yearly' ? 'Annual' : 'Monthly'} billing &bull; Invoice ${inv.invoice_number}</p>
+    ${modRows}
+    ${discounts.join('')}
+    <div class="total"><span>Total</span><span>${fmt(inv.total)}/${o.billing_type === 'yearly' ? 'yr' : 'mo'}</span></div>
+    <br>
+    <p style="font-weight:700;color:#0f172a;margin-bottom:12px">Getting started</p>
+    ${stepHtml}
+    <br>
+    <a href="${SITE}/app" class="btn">Open SmartCore →</a>
+    <br>
+    <p>Questions? Contact us at <a href="mailto:support@smartcoretechnology.co.uk" style="color:#3b82f6">support@smartcoretechnology.co.uk</a></p>`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -231,15 +469,6 @@ async function dbPost(env, path, body, returning = false) {
   if (returning) return r.json();
 }
 
-async function sendEmail(env, { from = FROM, to, subject, html }) {
-  const r = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to: Array.isArray(to) ? to : [to], subject, html }),
-  });
-  if (!r.ok) throw new Error(await r.text());
-}
-
 function parseModules(m) {
   if (!m) return [];
   if (Array.isArray(m)) return m;
@@ -251,95 +480,12 @@ function json(data, status = 200, extra = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Date helpers
-// ---------------------------------------------------------------------------
-function addMonth(d) {
-  const dt = new Date(d);
-  return new Date(dt.getFullYear(), dt.getMonth() + 1, dt.getDate()).toISOString().slice(0, 10);
-}
-function addYear(d) {
-  const dt = new Date(d);
-  return new Date(dt.getFullYear() + 1, dt.getMonth(), dt.getDate()).toISOString().slice(0, 10);
-}
-function addDays(d, n) {
-  const dt = new Date(d); dt.setDate(dt.getDate() + n); return dt.toISOString().slice(0, 10);
-}
-function addWorkingDays(d, n) {
-  const dt = new Date(d);
-  let added = 0;
-  while (added < n) {
-    dt.setDate(dt.getDate() + 1);
-    const day = dt.getDay();
-    if (day !== 0 && day !== 6) added++;
-  }
-  return dt.toISOString().slice(0, 10);
-}
-
-// ---------------------------------------------------------------------------
-// First invoice
-// ---------------------------------------------------------------------------
-async function nextInvoiceNumber(env) {
-  const year = new Date().getFullYear();
-  const rows = await dbGet(env, `/marketplace_invoices?invoice_number=like.INV-${year}-%25&select=invoice_number&order=invoice_number.desc&limit=1`);
-  const last = rows?.[0]?.invoice_number;
-  const seq = last ? parseInt(last.split('-')[2] || '0', 10) + 1 : 1;
-  return `INV-${year}-${String(seq).padStart(4, '0')}`;
-}
-
-async function sendFirstInvoice(env, o, modules, today) {
-  const invoiceNum   = await nextInvoiceNumber(env);
-  const periodEnd    = o.billing_type === 'yearly' ? addYear(today) : addMonth(today);
-  const dueDate      = addWorkingDays(today, 3);
-  const multiplier   = o.size_multiplier || 1;
-  const regular      = modules.filter(m => m.slug !== 'smartcore-core');
-  const subtotal     = regular.reduce((s, m) => {
-    const base = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
-    return s + (base || 0) * multiplier;
-  }, 0);
-  const discount     = o.discount_amount || 0;
-  const annualDisc   = o.annual_discount_amount || 0;
-  const total        = Math.max(0, subtotal - discount - annualDisc);
-
-  const inv = {
-    invoice_number:       invoiceNum,
-    order_id:             o.id,
-    company_name:         o.company_name,
-    contact_name:         o.contact_name,
-    contact_email:        o.email,
-    accounts_email:       o.accounts_email || o.email,
-    modules:              modules,
-    billing_type:         o.billing_type,
-    size_tier:            o.size_tier,
-    size_multiplier:      multiplier,
-    subtotal,
-    discount_amount:      discount,
-    total,
-    billing_period_start: today,
-    billing_period_end:   periodEnd,
-    due_date:             dueDate,
-    status:               'sent',
-  };
-
-  await dbPost(env, '/marketplace_invoices', inv, false);
-
-  const html = invoiceHtml(inv, o, modules);
-  const subject = `Invoice ${invoiceNum} — ${o.company_name} | SmartCore`;
-  const recipients = [...new Set([o.email, inv.accounts_email, BILLING_EMAIL])];
-  await Promise.all(recipients.map(to =>
-    sendEmail(env, { from: FROM_BILLING, to, subject, html })
-  ));
-}
-
-// ---------------------------------------------------------------------------
-// Email templates
+// Email shell
 // ---------------------------------------------------------------------------
 function fmt(n) {
   return '£' + Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function fmtDate(iso) {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-}
 
 function shell(preheader, body) {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -366,232 +512,14 @@ p{font-size:14px;line-height:1.7;color:#334155;margin:0 0 14px}
 </div></body></html>`;
 }
 
-function customerHtml(o, modules) {
-  const regular = modules.filter(m => m.slug !== 'smartcore-core');
-  const date = new Date(o.created_at).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
-  const modRows = [
-    `<div class="row"><span>SmartCore Core</span><span style="color:#22c55e;font-weight:600">Included free</span></div>`,
-    ...regular.map(m => `<div class="row"><span>${esc(m.name)}</span><span style="font-weight:600">${fmt(m.price)}/mo</span></div>`),
-  ].join('');
-  const discounts = [];
-  if (o.discount_amount > 0) discounts.push(`<div class="row"><span style="color:#64748b">Package discount</span><span style="color:#22c55e;font-weight:600">−${fmt(o.discount_amount)}</span></div>`);
-  if (o.annual_discount_amount > 0) discounts.push(`<div class="row"><span style="color:#64748b">Annual billing (8%)</span><span style="color:#22c55e;font-weight:600">−${fmt(o.annual_discount_amount)}</span></div>`);
-
-  return shell(
-    `Payment confirmed! Your SmartCore order ${o.order_reference} is now active.`,
-    `<span class="tag">✓ Payment Confirmed</span>
-    <h1>You're all set, ${esc(o.contact_name)}!</h1>
-    <p>Your payment has been received and your SmartCore modules are now active. Here's your order summary.</p>
-    <div class="ref">${esc(o.order_reference)}</div>
-    <p style="font-size:13px;color:#64748b;margin-bottom:16px">Order placed ${date} &bull; ${o.billing_type === 'yearly' ? 'Annual' : 'Monthly'} billing</p>
-    ${modRows}
-    ${discounts.join('')}
-    <div class="total"><span>Total</span><span>${fmt(o.total)}/mo</span></div>
-    <br>
-    <p>Your SmartCore Core workspace has been provisioned and is ready. We'll be in touch shortly with your login details.</p>
-    <p>Questions? Reply to this email or contact <a href="mailto:support@smartcoretechnology.co.uk" style="color:#3b82f6">support@smartcoretechnology.co.uk</a></p>`
-  );
+// ---------------------------------------------------------------------------
+// Date helpers
+// ---------------------------------------------------------------------------
+function addMonth(d) {
+  const dt = new Date(d);
+  return new Date(dt.getFullYear(), dt.getMonth() + 1, dt.getDate()).toISOString().slice(0, 10);
 }
-
-function adminHtml(o, modules) {
-  const regular = modules.filter(m => m.slug !== 'smartcore-core');
-  const date = new Date().toLocaleString('en-GB');
-  return shell(
-    `New payment received from ${o.company_name} — ${o.order_reference}`,
-    `<span class="tag">💳 Payment Received</span>
-    <h1>New Order — ${esc(o.company_name)}</h1>
-    <div class="row"><span>Reference</span><span style="font-family:monospace;font-weight:700;color:#2563eb">${esc(o.order_reference)}</span></div>
-    <div class="row"><span>Company</span><span style="font-weight:600">${esc(o.company_name)}</span></div>
-    <div class="row"><span>Contact</span><span>${esc(o.contact_name)}</span></div>
-    <div class="row"><span>Email</span><span><a href="mailto:${esc(o.email)}" style="color:#3b82f6">${esc(o.email)}</a></span></div>
-    ${o.phone ? `<div class="row"><span>Phone</span><span>${esc(o.phone)}</span></div>` : ''}
-    <div class="row"><span>Billing</span><span>${o.billing_type === 'yearly' ? 'Annual' : 'Monthly'}</span></div>
-    <div class="row"><span>Modules</span><span>${regular.length + 1} (incl. Core)</span></div>
-    <div class="total"><span>Total</span><span>${fmt(o.total)}/mo</span></div>
-    <br>
-    <p>SmartCore Core has been automatically provisioned. Modules: ${['SmartCore Core', ...regular.map(m => m.name)].join(', ')}.</p>
-    <p>Processed at ${date}.</p>
-    <a href="${SITE}/hq#orders" class="btn">View in HQ →</a>`
-  );
-}
-
-function invoiceHtml(inv, o, modules) {
-  const regular    = modules.filter(m => m.slug !== 'smartcore-core');
-  const period     = o.billing_type === 'yearly' ? '/yr' : '/mo';
-  const multiplier = o.size_multiplier || 1;
-
-  const lineRows = [
-    `<tr>
-      <td style="padding:12px 16px;font-size:14px;color:#1e293b;border-bottom:1px solid #e2e8f0">SmartCore Core</td>
-      <td style="padding:12px 16px;font-size:14px;color:#1e293b;border-bottom:1px solid #e2e8f0;text-align:center">1</td>
-      <td style="padding:12px 16px;font-size:14px;color:#16a34a;font-weight:600;border-bottom:1px solid #e2e8f0;text-align:right">Free</td>
-      <td style="padding:12px 16px;font-size:14px;color:#16a34a;font-weight:600;border-bottom:1px solid #e2e8f0;text-align:right">£0.00</td>
-    </tr>`,
-    ...regular.map((m) => {
-      const base  = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
-      const price = (base || 0) * multiplier;
-      return `<tr>
-        <td style="padding:12px 16px;font-size:14px;color:#1e293b;border-bottom:1px solid #e2e8f0">${esc(m.name)}</td>
-        <td style="padding:12px 16px;font-size:14px;color:#1e293b;border-bottom:1px solid #e2e8f0;text-align:center">1</td>
-        <td style="padding:12px 16px;font-size:14px;color:#1e293b;border-bottom:1px solid #e2e8f0;text-align:right">${fmt(price)}</td>
-        <td style="padding:12px 16px;font-size:14px;color:#1e293b;border-bottom:1px solid #e2e8f0;text-align:right">${fmt(price)}</td>
-      </tr>`;
-    }),
-  ].join('');
-
-  const tierLabel = o.size_tier ? o.size_tier.charAt(0).toUpperCase() + o.size_tier.slice(1) : '';
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SmartCore Invoice ${inv.invoice_number}</title></head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 0">
-<tr><td align="center">
-<table width="640" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.10)">
-
-  <!-- Blue header -->
-  <tr>
-    <td style="background:linear-gradient(135deg,#1e3a8a 0%,#2563eb 60%,#3b82f6 100%);padding:32px 36px">
-      <table width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td style="vertical-align:top">
-          <table cellpadding="0" cellspacing="0"><tr>
-            <td style="padding-right:14px;vertical-align:middle">
-              <img src="https://smartcoretechnology.co.uk/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png" alt="SmartCore" width="48" height="48" style="display:block;border-radius:12px;border:2px solid rgba(255,255,255,.3)" />
-            </td>
-            <td style="vertical-align:middle">
-              <div style="color:#ffffff;font-size:20px;font-weight:900;letter-spacing:-.02em">SmartCore</div>
-              <div style="color:rgba(255,255,255,.75);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-top:2px">Technology</div>
-              <div style="color:rgba(255,255,255,.65);font-size:12px;margin-top:8px;line-height:1.6">
-                support@smartcoretechnology.co.uk<br>
-                +44 7407 494433<br>
-                www.smartcoretechnology.co.uk
-              </div>
-            </td>
-          </tr></table>
-        </td>
-        <td style="text-align:right;vertical-align:top">
-          <div style="color:rgba(255,255,255,.6);font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;margin-bottom:6px">Invoice</div>
-          <div style="color:#ffffff;font-size:36px;font-weight:900;letter-spacing:-.04em;line-height:1">${esc(inv.invoice_number)}</div>
-        </td>
-      </tr></table>
-    </td>
-  </tr>
-
-  <!-- Billing details + Invoice meta -->
-  <tr>
-    <td style="padding:28px 36px 0">
-      <table width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td style="vertical-align:top;width:50%">
-          <div style="font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#64748b;margin-bottom:10px">Billed To</div>
-          <div style="font-size:16px;font-weight:900;color:#0f172a;text-transform:uppercase;letter-spacing:.02em;margin-bottom:4px">${esc(o.company_name)}</div>
-          <div style="font-size:13px;color:#475569;margin-bottom:2px">${esc(o.contact_name)}</div>
-          <div style="font-size:13px;color:#475569">${esc(inv.accounts_email || o.email)}</div>
-        </td>
-        <td style="vertical-align:top;text-align:right">
-          <table cellpadding="0" cellspacing="0" style="margin-left:auto">
-            <tr>
-              <td style="font-size:12px;color:#64748b;padding:4px 0;white-space:nowrap;text-align:right">Invoice No:</td>
-              <td style="font-size:12px;font-weight:700;color:#0f172a;padding:4px 0 4px 14px;text-align:right">${esc(inv.invoice_number)}</td>
-            </tr>
-            <tr>
-              <td style="font-size:12px;color:#64748b;padding:4px 0;white-space:nowrap;text-align:right">Invoice Date:</td>
-              <td style="font-size:12px;font-weight:700;color:#0f172a;padding:4px 0 4px 14px;text-align:right">${fmtDate(inv.billing_period_start)}</td>
-            </tr>
-            <tr>
-              <td style="font-size:12px;color:#64748b;padding:4px 0;white-space:nowrap;text-align:right">Due Date:</td>
-              <td style="font-size:12px;font-weight:700;color:#dc2626;padding:4px 0 4px 14px;text-align:right">${fmtDate(inv.due_date)}</td>
-            </tr>
-          </table>
-        </td>
-      </tr></table>
-    </td>
-  </tr>
-
-  <!-- Total Due box -->
-  <tr>
-    <td style="padding:20px 36px 0">
-      <table width="100%" cellpadding="0" cellspacing="0" style="background:#1e3a8a;border-radius:10px">
-        <tr>
-          <td style="padding:16px 20px;font-size:13px;font-weight:600;color:rgba(255,255,255,.8)">Total Due</td>
-          <td style="padding:16px 20px;text-align:right;font-size:24px;font-weight:900;color:#ffffff">${fmt(inv.total)}${period}</td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-
-  <!-- Line items table -->
-  <tr>
-    <td style="padding:20px 36px 0">
-      <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden">
-        <tr style="background:#1e3a8a">
-          <th style="padding:11px 16px;font-size:11px;font-weight:700;color:#ffffff;text-align:left;letter-spacing:.06em;text-transform:uppercase">Description</th>
-          <th style="padding:11px 16px;font-size:11px;font-weight:700;color:#ffffff;text-align:center;letter-spacing:.06em;text-transform:uppercase;width:60px">Qty</th>
-          <th style="padding:11px 16px;font-size:11px;font-weight:700;color:#ffffff;text-align:right;letter-spacing:.06em;text-transform:uppercase;width:100px">Price</th>
-          <th style="padding:11px 16px;font-size:11px;font-weight:700;color:#ffffff;text-align:right;letter-spacing:.06em;text-transform:uppercase;width:100px">Total</th>
-        </tr>
-        ${lineRows}
-      </table>
-    </td>
-  </tr>
-
-  <!-- Totals -->
-  <tr>
-    <td style="padding:12px 36px 0">
-      <table width="100%" cellpadding="0" cellspacing="0">
-        <tr>
-          <td style="padding:6px 0;font-size:13px;color:#64748b" colspan="2">Subtotal</td>
-          <td style="padding:6px 0;font-size:13px;color:#0f172a;font-weight:600;text-align:right">${fmt(inv.subtotal)}</td>
-        </tr>
-        ${inv.discount_amount > 0 ? `<tr>
-          <td style="padding:6px 0;font-size:13px;color:#64748b" colspan="2">Package Discount</td>
-          <td style="padding:6px 0;font-size:13px;color:#16a34a;font-weight:600;text-align:right">−${fmt(inv.discount_amount)}</td>
-        </tr>` : ''}
-        <tr>
-          <td style="padding:6px 0;font-size:13px;color:#64748b" colspan="2">Tax (0%)</td>
-          <td style="padding:6px 0;font-size:13px;color:#0f172a;font-weight:600;text-align:right">£0.00</td>
-        </tr>
-        <tr style="background:#1e3a8a;border-radius:8px">
-          <td style="padding:12px 16px;font-size:14px;font-weight:800;color:#ffffff;border-radius:8px 0 0 8px" colspan="2">Total Amount</td>
-          <td style="padding:12px 16px;font-size:18px;font-weight:900;color:#ffffff;text-align:right;border-radius:0 8px 8px 0">${fmt(inv.total)}${period}</td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-
-  <!-- Payment method -->
-  <tr>
-    <td style="padding:20px 36px 0">
-      <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:16px 20px">
-        <div style="font-size:12px;font-weight:700;color:#0369a1;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">Payment Method</div>
-        <div style="font-size:14px;font-weight:700;color:#0c4a6e;margin-bottom:4px">Stripe</div>
-        <div style="font-size:13px;color:#0369a1">Payment collected securely via Stripe. Your card on file will be automatically charged at each renewal.</div>
-      </div>
-    </td>
-  </tr>
-
-  <!-- Terms -->
-  <tr>
-    <td style="padding:16px 36px 0">
-      <div style="background:#fefce8;border:1px solid #fde68a;border-radius:10px;padding:14px 18px">
-        <div style="font-size:12px;font-weight:700;color:#92400e;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">Terms &amp; Conditions</div>
-        <div style="font-size:13px;color:#78350f;line-height:1.6">Payment is due within <strong>3 working calendar days</strong> of this invoice date. Late payments may result in service suspension. For queries, contact <a href="mailto:support@smartcoretechnology.co.uk" style="color:#92400e">support@smartcoretechnology.co.uk</a>.</div>
-      </div>
-    </td>
-  </tr>
-
-  <!-- Footer -->
-  <tr>
-    <td style="padding:20px 36px 28px">
-      <div style="border-top:1px solid #e2e8f0;padding-top:16px;text-align:center;font-size:12px;color:#94a3b8;line-height:1.8">
-        SmartCore Technology &bull; +44 7407 494433 &bull; <a href="https://www.smartcoretechnology.co.uk" style="color:#3b82f6">www.smartcoretechnology.co.uk</a><br>
-        Order: ${esc(o.order_reference)} &bull; Period: ${fmtDate(inv.billing_period_start)} – ${fmtDate(inv.billing_period_end)}${tierLabel ? ` &bull; ${tierLabel} tier` : ''}
-      </div>
-    </td>
-  </tr>
-
-</table>
-</td></tr>
-</table>
-</body>
-</html>`;
+function addYear(d) {
+  const dt = new Date(d);
+  return new Date(dt.getFullYear() + 1, dt.getMonth(), dt.getDate()).toISOString().slice(0, 10);
 }
