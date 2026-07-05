@@ -205,9 +205,9 @@
       </div>
 
       <div class="border-t mb-7" style="border-color:rgba(255,255,255,.08)"></div>
-      <div class="text-xs font-bold uppercase tracking-widest mb-4" style="color:rgba(234,240,255,.52)">Step 2 — Your Details</div>
+      <div class="text-xs font-bold uppercase tracking-widest mb-4" style="color:rgba(234,240,255,.52)" id="detailsStepLabel">Step 2 — Your Details</div>
       <h1 class="text-2xl font-extrabold tracking-tight mb-2">Your Details</h1>
-      <p class="text-sm mb-7" style="color:var(--muted)">Tell us about your company and we'll get back to you within 1 working day to confirm and activate your modules.</p>
+      <p class="text-sm mb-7" style="color:var(--muted)">Fill in your company details to complete your order.</p>
 
       <div class="grid sm:grid-cols-2 gap-4">
         <div>
@@ -249,7 +249,6 @@
 
       <p class="mt-4 text-xs text-center" style="color:var(--muted2)">
         By submitting you agree to our <a href="/privacy-policy.html" style="color:var(--accent);text-decoration:underline">Privacy Policy</a>.
-        No payment is taken until your order is approved by our team.
       </p>
     </div>
 
@@ -287,9 +286,6 @@
         <strong>SmartCore Core</strong> is automatically included with your order at no extra cost. It is the central platform all modules depend on.
       </div>
 
-      <div class="mt-4 p-3 rounded-xl text-xs" style="background:rgba(245,158,11,.08);color:#fbbf24;border:1px solid rgba(245,158,11,.18)">
-        <strong>Manual approval:</strong> No payment is taken today. Our team reviews and approves orders within 1 working day, then contacts you to complete setup.
-      </div>
     </div>
   </div>
 </main>
@@ -419,13 +415,35 @@ function markAccountDone() {
   document.getElementById('stepDetailsLabel').style.color = 'var(--accent)';
 }
 
-function showDetailsPanel() {
+async function showDetailsPanel() {
   document.getElementById('authPanel').style.display = 'none';
   document.getElementById('detailsPanel').style.display = '';
+
   // Pre-fill email from auth form
   const email = document.getElementById('authEmail')?.value || document.getElementById('signinEmail')?.value || '';
   const fEmail = document.getElementById('fEmail');
   if (email && fEmail && !fEmail.value) fEmail.value = email;
+
+  // Auto-fill from existing company if user is signed in
+  if (authedUserId) {
+    try {
+      // Look up the user's company via core_employees → smartcore_core_companies
+      const { data: empRows } = await sb.from('core_employees')
+        .select('company_id').eq('auth_user_id', authedUserId).limit(1);
+      const companyId = empRows?.[0]?.company_id;
+      if (companyId) {
+        const { data: co } = await sb.from('smartcore_core_companies')
+          .select('company_name,company_email,company_phone,staff_count').eq('id', companyId).single();
+        if (co) {
+          const set = (id, val) => { const el = document.getElementById(id); if (el && !el.value && val) el.value = val; };
+          set('fCompany', co.company_name);
+          set('fEmail',   co.company_email);
+          set('fPhone',   co.company_phone);
+          set('fStaff',   co.staff_count);
+        }
+      }
+    } catch (_) {}
+  }
 }
 
 function showSignup() {
@@ -621,6 +639,10 @@ async function loadFlatRateFlags() {
   if (sizeStep) sizeStep.style.display = hasSized ? '' : 'none';
   const sizeDiv  = document.getElementById('summarySizeRow');
   if (sizeDiv) sizeDiv.style.display = hasSized ? '' : 'none';
+
+  // Update step label
+  const stepLabel = document.getElementById('detailsStepLabel');
+  if (stepLabel) stepLabel.textContent = hasSized ? 'Step 2 — Your Details' : 'Step 1 — Your Details';
 
   renderSummary();
 }
