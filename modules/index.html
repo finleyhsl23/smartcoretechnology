@@ -579,36 +579,43 @@ async function loadDashboard(user) {
   state.user = user;
   show('shell'); hide('loginWrap');
 
-  // core_employees row for this user
-  const { data: empRows } = await sb
-    .from('core_employees')
-    .select('id,company_id,full_name,role,job_title')
-    .eq('auth_user_id', user.id)
-    .limit(1);
+  try {
+    // core_employees row for this user
+    const { data: empRows, error: empErr } = await sb
+      .from('core_employees')
+      .select('id,company_id,full_name,role,job_title')
+      .eq('auth_user_id', user.id)
+      .limit(1);
 
-  const emp = empRows?.[0];
-  state.employee = emp;
-  state.companyId = emp?.company_id || null;
-  state.isOwner = emp?.role === 'owner' || emp?.role === 'admin';
+    if (empErr) throw empErr;
 
-  // Company name
-  if (state.companyId) {
-    const { data: co } = await sb
-      .from('smartcore_core_companies')
-      .select('company_name')
-      .eq('id', state.companyId)
-      .single();
-    state.company = co;
-    document.getElementById('navCompany').textContent = co?.company_name || user.email;
-    document.getElementById('pageSubtext').textContent =
-      `Welcome back, ${emp?.full_name || user.email}`;
-  } else {
-    document.getElementById('navCompany').textContent = user.email;
-    document.getElementById('pageSubtext').textContent = `Welcome back`;
+    const emp = empRows?.[0];
+    state.employee = emp;
+    state.companyId = emp?.company_id || null;
+    state.isOwner = emp?.role === 'owner' || emp?.role === 'admin';
+
+    // Company name
+    if (state.companyId) {
+      const { data: co } = await sb
+        .from('smartcore_core_companies')
+        .select('company_name')
+        .eq('id', state.companyId)
+        .single();
+      state.company = co;
+      document.getElementById('navCompany').textContent = co?.company_name || user.email;
+      document.getElementById('pageSubtext').textContent =
+        `Welcome back${emp?.full_name ? ', ' + emp.full_name : ''}`;
+    } else {
+      document.getElementById('navCompany').textContent = user.email;
+      document.getElementById('pageSubtext').textContent = `Welcome back`;
+    }
+
+    await fetchData();
+    render();
+  } catch (e) {
+    document.getElementById('modContent').innerHTML =
+      `<div class="spin" style="color:#ef4444">Error loading modules: ${e.message}<br><br>Contact support@smartcoretechnology.co.uk</div>`;
   }
-
-  await fetchData();
-  render();
 }
 
 async function fetchData() {
@@ -918,7 +925,7 @@ document.getElementById('empSearch').addEventListener('input', e => {
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-function show(id){ document.getElementById(id).style.display = '' }
+function show(id){ document.getElementById(id).style.display = 'block' }
 function hide(id){ document.getElementById(id).style.display = 'none' }
 function showErr(el, msg){ el.textContent = msg; el.style.display = 'block'; }
 function showToast(msg) {
