@@ -115,6 +115,20 @@ async function provisionModules(env, o) {
 
   if (!company?.id) return;
 
+  // Link the ordering user's auth account to this company (if we have their auth_user_id)
+  if (o.auth_user_id) {
+    const empExists = await dbGet(env, `/core_employees?company_id=eq.${enc(company.id)}&auth_user_id=eq.${enc(o.auth_user_id)}&select=id&limit=1`);
+    if (!empExists?.length) {
+      await dbPost(env, '/core_employees', {
+        company_id:  company.id,
+        employee_id: `EMP-${o.auth_user_id.slice(0, 8).toUpperCase()}`,
+        full_name:   o.contact_name || o.email,
+        auth_user_id: o.auth_user_id,
+        role:        'owner',
+      }).catch(e => console.error('core_employees insert error:', e));
+    }
+  }
+
   // Add any purchased modules not already provisioned
   const existing = await dbGet(env, `/smartcore_core_purchased_modules?company_id=eq.${enc(company.id)}&select=module_slug`);
   const existingSlugs = new Set((existing || []).map(r => r.module_slug));
