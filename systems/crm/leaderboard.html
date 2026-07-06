@@ -295,9 +295,9 @@ function initials(name) {
 }
 
 function fmtCompact(n) {
-  if (n >= 1000000) return "£" + (n/1000000).toFixed(1) + "M";
-  if (n >= 1000) return "£" + (n/1000).toFixed(0) + "K";
-  return "£" + n.toLocaleString();
+  if (n >= 1000000) return "£" + (n/1000000).toFixed(2).replace(/\.?0+$/, "") + "M";
+  if (n >= 100000) return "£" + (n/1000).toFixed(0) + "K";
+  return "£" + Number(n).toLocaleString("en-GB");
 }
 
 let currentPeriod = "all";
@@ -395,17 +395,19 @@ function renderPage(ranked, profile) {
   const rest = ranked.slice(3);
   const topValue = ranked[0]?.value || 1;
 
-  const podiumOrder = [1, 0, 2]; // 2nd, 1st, 3rd
   const medals = ["🥇","🥈","🥉"];
-  const podiumClasses = ["lb-podium-2","lb-podium-1","lb-podium-3"];
+  const podiumClasses = ["lb-podium-1","lb-podium-2","lb-podium-3"];
+  // Only include slots for people that exist, order: 2nd, 1st, 3rd (but skip missing)
+  const podiumSlots = top3.length === 1 ? [0]
+    : top3.length === 2 ? [1, 0]
+    : [1, 0, 2];
 
-  const podiumHTML = podiumOrder.map(i => {
+  const podiumHTML = podiumSlots.map(i => {
     const p = top3[i];
-    if (!p) return `<div class="lb-podium-slot ${podiumClasses[podiumOrder.indexOf(i)]}"></div>`;
+    if (!p) return "";
     const lv = getLevel(p.value);
-    const idx = podiumOrder.indexOf(i);
     return `
-      <div class="lb-podium-slot ${podiumClasses[idx]}">
+      <div class="lb-podium-slot ${podiumClasses[i]}">
         <div class="lb-podium-card">
           <span class="lb-podium-medal">${medals[i]}</span>
           <div class="lb-podium-avatar">${initials(p.name)}</div>
