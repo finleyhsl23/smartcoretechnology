@@ -497,12 +497,24 @@ export async function onRequestPost(context) {
     if (!userData?.id) return json({ ok: false, error: 'Unauthorized' }, 401);
 
     // Get tenant_id using service key (bypasses RLS)
-    const profileRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/core_employees?id=eq.${userData.id}&select=company_id&limit=1`,
+    // Try smartcore_core_employees first (user_id), then core_employees (auth_user_id)
+    let tenantId = null;
+    const p1 = await fetch(
+      `${SUPABASE_URL}/rest/v1/smartcore_core_employees?user_id=eq.${userData.id}&select=company_id&limit=1`,
       { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } }
     );
-    const profiles = await profileRes.json();
-    const tenantId = profiles?.[0]?.company_id;
+    const r1 = await p1.json();
+    tenantId = r1?.[0]?.company_id;
+
+    if (!tenantId) {
+      const p2 = await fetch(
+        `${SUPABASE_URL}/rest/v1/core_employees?auth_user_id=eq.${userData.id}&select=company_id&limit=1`,
+        { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } }
+      );
+      const r2 = await p2.json();
+      tenantId = r2?.[0]?.company_id;
+    }
+
     if (!tenantId) return json({ ok: false, error: 'No tenant' }, 403);
 
     const apiKey = env.ANTHROPIC_API_KEY;
