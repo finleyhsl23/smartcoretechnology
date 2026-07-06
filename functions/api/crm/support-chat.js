@@ -496,10 +496,10 @@ export async function onRequestPost(context) {
     const userData = await userRes.json();
     if (!userData?.id) return json({ ok: false, error: 'Unauthorized' }, 401);
 
-    // Get tenant_id from profile
+    // Get tenant_id using service key (bypasses RLS)
     const profileRes = await fetch(
       `${SUPABASE_URL}/rest/v1/core_employees?id=eq.${userData.id}&select=company_id&limit=1`,
-      { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${token}` } }
+      { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } }
     );
     const profiles = await profileRes.json();
     const tenantId = profiles?.[0]?.company_id;
