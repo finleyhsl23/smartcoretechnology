@@ -1,5 +1,3 @@
-import { sb } from "/systems/crm/shared/supabase.js";
-
 const DEFAULT_COMPANY_STATUSES = [
   { value: "lead",       label: "Lead" },
   { value: "prospect",   label: "Prospect" },
@@ -21,21 +19,8 @@ const DEFAULT_LEAD_STATUSES = [
 let _companyStatuses = [...DEFAULT_COMPANY_STATUSES];
 let _leadStatuses    = [...DEFAULT_LEAD_STATUSES];
 
-export async function loadStatusLabels(tenantId) {
-  try {
-    const { data } = await sb()
-      .from("crm_status_labels")
-      .select("*")
-      .eq("tenant_id", tenantId);
-    if (data?.length) {
-      const company = data.filter(r => r.type === "company");
-      const lead    = data.filter(r => r.type === "lead");
-      if (company.length) _companyStatuses = company.map(r => ({ value: r.value, label: r.label }));
-      if (lead.length)    _leadStatuses    = lead.map(r => ({ value: r.value, label: r.label }));
-    }
-  } catch (_) {
-    // table may not exist yet — fall back to defaults silently
-  }
+export async function loadStatusLabels(_tenantId) {
+  // Uses hardcoded defaults. Custom status labels can be added later.
 }
 
 export function getCompanyStatuses() { return _companyStatuses; }
