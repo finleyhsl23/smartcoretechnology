@@ -381,13 +381,20 @@ function appendTyping() {
   return div;
 }
 
+function renderMarkdown(text) {
+  return esc(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>');
+}
+
 function appendBubble(role, text, isTemp = false) {
   const wrap = document.getElementById("supportMessages");
   if (!wrap) return null;
   const div = document.createElement("div");
   const isUser = role === "user";
   div.style.cssText = `display:flex;justify-content:${isUser ? "flex-end" : "flex-start"}`;
-  div.innerHTML = `<div style="max-width:80%;padding:9px 13px;border-radius:${isUser ? "14px 14px 4px 14px" : "14px 14px 14px 4px"};background:${isUser ? "#1e5cff" : "var(--card2)"};color:${isUser ? "#fff" : "var(--text)"};font-size:13px;line-height:1.55;white-space:pre-wrap">${esc(text)}</div>`;
+  div.innerHTML = `<div style="max-width:80%;padding:9px 13px;border-radius:${isUser ? "14px 14px 4px 14px" : "14px 14px 14px 4px"};background:${isUser ? "#1e5cff" : "var(--card2)"};color:${isUser ? "#fff" : "var(--text)"};font-size:13px;line-height:1.55">${isUser ? esc(text) : renderMarkdown(text)}</div>`;
   wrap.appendChild(div);
   wrap.scrollTop = wrap.scrollHeight;
   return isTemp ? div : null;
