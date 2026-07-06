@@ -568,29 +568,27 @@ let drawer = {
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 let dashboardLoaded = false;
 
-sb.auth.onAuthStateChange(async (event, session) => {
-  if (event === 'TOKEN_REFRESH_FAILED' || event === 'SIGNED_OUT' || (!session && event === 'INITIAL_SESSION')) {
-    dashboardLoaded = false;
-    await sb.auth.signOut();
-    hide('shell');
-    show('loginWrap');
-    document.getElementById('modContent').innerHTML = '<div class="spin">Loading modules…</div>';
-    return;
-  }
-  if (session && !dashboardLoaded) {
-    dashboardLoaded = true;
-    await loadDashboard(session.user);
+function showLogin() {
+  dashboardLoaded = false;
+  hide('shell');
+  show('loginWrap');
+  document.getElementById('modContent').innerHTML = '<div class="spin">Loading modules…</div>';
+}
+
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESH_FAILED') {
+    showLogin();
   }
 });
 
 async function init() {
-  const { data:{ session } } = await sb.auth.getSession();
-  if (session && !dashboardLoaded) {
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) { showLogin(); return; }
     dashboardLoaded = true;
     await loadDashboard(session.user);
-  } else if (!session) {
-    hide('shell');
-    show('loginWrap');
+  } catch(e) {
+    showLogin();
   }
 }
 
