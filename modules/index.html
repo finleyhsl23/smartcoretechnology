@@ -436,7 +436,7 @@
 <body>
 
 <!-- LOGIN -->
-<div id="loginWrap">
+<div id="loginWrap" style="display:none">
   <div class="login-box">
     <div class="login-logo">
       <img src="/SmartCore Official Logos/SC Icon - Black Background.png" alt="SmartCore">
@@ -569,15 +569,17 @@ let drawer = {
 let dashboardLoaded = false;
 
 sb.auth.onAuthStateChange(async (event, session) => {
-  if (session && !dashboardLoaded) {
-    dashboardLoaded = true;
-    await loadDashboard(session.user);
-  }
-  if (event === 'SIGNED_OUT') {
+  if (event === 'TOKEN_REFRESH_FAILED' || event === 'SIGNED_OUT' || (!session && event === 'INITIAL_SESSION')) {
     dashboardLoaded = false;
+    await sb.auth.signOut();
     hide('shell');
     show('loginWrap');
     document.getElementById('modContent').innerHTML = '<div class="spin">Loading modules…</div>';
+    return;
+  }
+  if (session && !dashboardLoaded) {
+    dashboardLoaded = true;
+    await loadDashboard(session.user);
   }
 });
 
@@ -586,6 +588,9 @@ async function init() {
   if (session && !dashboardLoaded) {
     dashboardLoaded = true;
     await loadDashboard(session.user);
+  } else if (!session) {
+    hide('shell');
+    show('loginWrap');
   }
 }
 
@@ -628,6 +633,13 @@ async function loadDashboard(user) {
     await fetchData();
     render();
   } catch (e) {
+    // Auth errors → sign out and show login
+    if (e.status === 401 || e.message?.toLowerCase().includes('jwt') || e.message?.toLowerCase().includes('auth')) {
+      dashboardLoaded = false;
+      await sb.auth.signOut();
+      hide('shell'); show('loginWrap');
+      return;
+    }
     document.getElementById('modContent').innerHTML =
       `<div class="spin" style="color:#ef4444">Error loading modules: ${e.message}<br><br>Contact support@smartcoretechnology.co.uk</div>`;
   }
