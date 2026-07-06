@@ -18,6 +18,20 @@
     .cred-box { background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:16px;font-family:var(--mono);font-size:13px;margin-top:12px; }
     .cred-row { display:flex;justify-content:space-between;padding:4px 0; }
     .cred-label { color:var(--text3);font-family:inherit; }
+    /* Dark-themed form fields */
+    .form-input, .form-select {
+      width:100%; padding:10px 13px;
+      background:var(--card2); border:1px solid var(--line); border-radius:8px;
+      color:var(--text); font-size:13px; outline:none;
+      transition:border-color .15s; font-family:inherit;
+      appearance:none; -webkit-appearance:none;
+    }
+    .form-input:focus, .form-select:focus { border-color:var(--blue); }
+    .form-input::placeholder { color:var(--text3); }
+    .form-select {
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat:no-repeat; background-position:right 12px center; padding-right:32px; cursor:pointer;
+    }
   </style>
 </head>
 <body>
@@ -52,6 +66,7 @@ import { esc, fmt, fmtDate, toast, tierGate } from "/systems/crm/shared/ui.js";
 initTheme();
 
 let profile, tier;
+let companiesList = [];
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -77,7 +92,7 @@ async function loadPortal() {
     quotes.list({ limit: 500 }),
     sb().from("crm_portal_users").select("*").eq("tenant_id", profile.company_id).order("invited_at", { ascending: false }),
   ]);
-  const companiesList = companiesRes.data || [];
+  companiesList = companiesRes.data || [];
   const docsList = docsRes.data || [];
   const quotesList = quotesRes.data || [];
   const portalUsers = portalUsersRes.data || [];
@@ -200,6 +215,10 @@ async function loadPortal() {
 }
 
 function showAddUserModal() {
+  const companyOptions = companiesList.map(c =>
+    `<option value="${c.id}">${esc(c.name)}</option>`
+  ).join("");
+
   document.getElementById("modalWrap").innerHTML = `
     <div class="modal-overlay" id="mOverlay">
       <div class="modal">
@@ -208,7 +227,14 @@ function showAddUserModal() {
           <button class="btn" id="closeModal">✕</button>
         </div>
         <div class="modal-body">
-          <div style="display:grid;gap:12px">
+          <div style="display:grid;gap:14px">
+            <div>
+              <label class="form-label">Company *</label>
+              <select class="form-select" id="puCompany">
+                <option value="">— Select a company —</option>
+                ${companyOptions}
+              </select>
+            </div>
             <div>
               <label class="form-label">Customer Name</label>
               <input class="form-input" id="puName" placeholder="e.g. Jane Smith"/>
@@ -256,11 +282,14 @@ function showAddUserModal() {
     const btn = document.getElementById("createBtn");
     btn.disabled = true; btn.textContent = "Creating…";
 
+    const crm_company_id = document.getElementById("puCompany").value;
+    if (!crm_company_id) { toast("bad","Please select a company"); btn.disabled = false; btn.textContent = "Create & Get Credentials"; return; }
+
     const { data: { session } } = await sb().auth.getSession();
     const res = await fetch("/api/crm/create-portal-user", {
       method: "POST",
       headers: { "Content-Type":"application/json", "Authorization":`Bearer ${session.access_token}` },
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ email, password, name, crm_company_id }),
     });
     const result = await res.json();
 
