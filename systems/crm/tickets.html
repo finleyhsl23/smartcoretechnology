@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+  <title>Tickets — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
+  <style>
+    .ticket-row { display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);cursor:pointer;transition:background .1s; }
+    .ticket-row:hover { background:var(--card2); }
+    .ticket-row:last-child { border-bottom:none; }
+    .ticket-badge { display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700; }
+    .badge-open { background:rgba(30,92,255,.12);color:#1e5cff; }
+    .badge-in_progress { background:rgba(245,158,11,.12);color:#f59e0b; }
+    .badge-closed { background:rgba(107,114,128,.12);color:#6b7280; }
+    .badge-support { background:rgba(139,92,246,.12);color:#8b5cf6; }
+    .badge-sales { background:rgba(16,185,129,.12);color:#10b981; }
+    .badge-high { background:rgba(239,68,68,.12);color:#ef4444; }
+    .badge-urgent { background:rgba(239,68,68,.2);color:#dc2626; }
+    .badge-normal { background:rgba(107,114,128,.08);color:#6b7280; }
+    .badge-low { background:rgba(107,114,128,.06);color:#9ca3af; }
+    .ticket-subject { font-weight:600;font-size:14px;margin-bottom:2px; }
+    .ticket-meta { font-size:12px;color:var(--text3); }
+
+    /* Ticket detail modal */
+    .modal-overlay { position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px; }
+    .modal { background:var(--card);border:1px solid var(--line);border-radius:16px;width:100%;max-width:680px;max-height:90vh;display:flex;flex-direction:column; }
+    .modal-header { padding:20px 24px 16px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px; }
+    .modal-body { flex:1;overflow-y:auto;padding:20px 24px; }
+    .modal-footer { padding:16px 24px;border-top:1px solid var(--line); }
+    .chat-bubble { padding:10px 14px;border-radius:12px;margin-bottom:10px;max-width:85%; }
+    .chat-team { background:rgba(30,92,255,.1);border:1px solid rgba(30,92,255,.2);margin-left:auto;border-bottom-right-radius:4px; }
+    .chat-customer { background:var(--card2);border:1px solid var(--line);border-bottom-left-radius:4px; }
+    .chat-internal { background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);margin-left:auto;border-bottom-right-radius:4px; }
+    .chat-label { font-size:11px;font-weight:700;margin-bottom:4px; }
+    .chat-text { font-size:13px;line-height:1.5; }
+    .chat-time { font-size:10px;color:var(--text3);margin-top:4px; }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Tickets</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+<div id="modalWrap"></div>
+
+<script type="module">
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
+import { sb } from "/systems/crm/shared/supabase.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=10";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmtDate, fmtDateTime, toast, tierGate } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier;
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("tickets", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  if (!tierHasFeature(tier, "support_tickets")) {
+    document.getElementById("content").innerHTML = tierGate("support_tickets");
+  } else {
+    await loadTickets();
+  }
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+let _statusFilter = "open";
+let _typeFilter = "all";
+
+async function loadTickets() {
+  let q = sb().from("crm_tickets")
+    .select("*, crm_portal_users(name,email), crm_companies(name)")
+    .eq("tenant_id", profile.company_id)
+    .order("created_at", { ascending: false });
+
+  if (_statusFilter !== "all") q = q.eq("status", _statusFilter);
+  if (_typeFilter !== "all") q = q.eq("type", _typeFilter);
+
+  const { data: tickets, error } = await q;
+  if (error) { toast("bad","Error loading tickets",error.message); return; }
+
+  const counts = { open: 0, in_progress: 0, closed: 0 };
+  (tickets || []).forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
+
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Support Tickets</h1>
+        <p>Manage customer support and sales enquiries</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" id="newTicketBtn">+ New Ticket</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      ${statCard("Open", counts.open, "#1e5cff")}
+      ${statCard("In Progress", counts.in_progress, "#f59e0b")}
+      ${statCard("Closed", counts.closed, "#6b7280")}
+    </div>
+
+    <div class="card">
+      <div class="card-header" style="flex-wrap:wrap;gap:8px">
+        <h2>Tickets</h2>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${["all","open","in_progress","closed"].map(s =>
+            `<button class="btn btn-sm${_statusFilter===s?" btn-primary":""}" data-status="${s}">${s==="all"?"All":s==="in_progress"?"In Progress":s.charAt(0).toUpperCase()+s.slice(1)}</button>`
+          ).join("")}
+          <div style="width:1px;background:var(--line);margin:0 2px"></div>
+          ${["all","support","sales"].map(s =>
+            `<button class="btn btn-sm${_typeFilter===s?" btn-primary":""}" data-type="${s}">${s.charAt(0).toUpperCase()+s.slice(1)}</button>`
+          ).join("")}
+        </div>
+      </div>
+      <div class="card-body" style="padding:0">
+        ${!tickets?.length ? `
+          <div class="empty-state">
+            <div class="empty-icon">🎫</div>
+            <h3>No tickets</h3>
+            <p>Customer tickets will appear here when submitted via the portal or created manually.</p>
+          </div>` :
+          tickets.map(t => ticketRow(t)).join("")}
+      </div>
+    </div>`;
+
+  document.querySelectorAll("[data-status]").forEach(btn => {
+    btn.addEventListener("click", () => { _statusFilter = btn.dataset.status; loadTickets(); });
+  });
+  document.querySelectorAll("[data-type]").forEach(btn => {
+    btn.addEventListener("click", () => { _typeFilter = btn.dataset.type; loadTickets(); });
+  });
+  document.querySelectorAll(".ticket-row[data-id]").forEach(row => {
+    row.addEventListener("click", () => openTicket(row.dataset.id));
+  });
+  document.getElementById("newTicketBtn")?.addEventListener("click", showNewTicketModal);
+}
+
+function statCard(label, count, color) {
+  return `<div style="flex:1;min-width:100px;padding:16px;background:var(--card);border:1px solid var(--line);border-radius:12px;text-align:center">
+    <div style="font-size:28px;font-weight:900;color:${color}">${count}</div>
+    <div style="font-size:12px;color:var(--text3);margin-top:2px">${label}</div>
+  </div>`;
+}
+
+function ticketRow(t) {
+  const company = t.crm_companies?.name || t.crm_portal_users?.name || "Unknown";
+  const ago = timeAgo(t.created_at);
+  return `<div class="ticket-row" data-id="${t.id}">
+    <div style="flex:1;min-width:0">
+      <div class="ticket-subject">${esc(t.subject)}</div>
+      <div class="ticket-meta">${esc(company)} · ${ago}</div>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+      <span class="ticket-badge badge-${t.type}">${t.type}</span>
+      <span class="ticket-badge badge-${t.priority||"normal"}">${t.priority||"normal"}</span>
+      <span class="ticket-badge badge-${t.status}">${t.status==="in_progress"?"In Progress":t.status.charAt(0).toUpperCase()+t.status.slice(1)}</span>
+    </div>
+  </div>`;
+}
+
+async function openTicket(id) {
+  const { data: ticket } = await sb().from("crm_tickets")
+    .select("*, crm_portal_users(name,email), crm_companies(name)")
+    .eq("id", id).single();
+  const { data: msgs } = await sb().from("crm_ticket_messages")
+    .select("*").eq("ticket_id", id).order("created_at");
+  if (!ticket) return;
+
+  const isOpen = ticket.status !== "closed";
+  const company = ticket.crm_companies?.name || ticket.crm_portal_users?.name || "Unknown";
+
+  document.getElementById("modalWrap").innerHTML = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div>
+            <div style="font-size:16px;font-weight:700;margin-bottom:6px">${esc(ticket.subject)}</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <span class="ticket-badge badge-${ticket.type}">${ticket.type}</span>
+              <span class="ticket-badge badge-${ticket.priority||"normal"}">${ticket.priority||"normal"}</span>
+              <span class="ticket-badge badge-${ticket.status}">${ticket.status==="in_progress"?"In Progress":ticket.status.charAt(0).toUpperCase()+ticket.status.slice(1)}</span>
+              <span class="text-sm text-muted" style="padding:3px 0">· ${esc(company)}</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            ${isOpen ? `
+              <select class="form-select" id="statusSel" style="font-size:12px;padding:4px 8px">
+                <option value="open"${ticket.status==="open"?" selected":""}>Open</option>
+                <option value="in_progress"${ticket.status==="in_progress"?" selected":""}>In Progress</option>
+                <option value="closed"${ticket.status==="closed"?" selected":""}>Closed</option>
+              </select>` : ""}
+            <button class="btn" id="closeModal">✕</button>
+          </div>
+        </div>
+        <div class="modal-body" id="chatBody">
+          ${ticket.description ? `
+            <div style="padding:12px;background:var(--card2);border-radius:10px;margin-bottom:16px;font-size:13px;color:var(--text2)">
+              <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px">ORIGINAL MESSAGE</div>
+              ${esc(ticket.description)}
+            </div>` : ""}
+          ${(msgs||[]).map(m => `
+            <div style="display:flex;flex-direction:column;align-items:${m.sender_type==="team"?"flex-end":"flex-start"}">
+              <div class="chat-bubble chat-${m.sender_type==="team"?"team":m.is_internal?"internal":"customer"}">
+                <div class="chat-label" style="color:${m.sender_type==="team"?"#1e5cff":m.is_internal?"#f59e0b":"var(--text3)"}">
+                  ${esc(m.sender_name)}${m.is_internal?" (internal)":""}
+                </div>
+                <div class="chat-text">${esc(m.message)}</div>
+                <div class="chat-time">${fmtDateTime(m.created_at)}</div>
+              </div>
+            </div>`).join("")}
+          ${!msgs?.length && !ticket.description ? `<div class="empty-state" style="padding:40px 0"><p>No messages yet. Start the conversation below.</p></div>` : ""}
+        </div>
+        ${isOpen ? `
+        <div class="modal-footer">
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="internalChk"> Internal note (hidden from customer)
+            </label>
+          </div>
+          <div style="display:flex;gap:8px">
+            <textarea id="replyMsg" class="form-input" placeholder="Write a reply…" rows="2" style="resize:none;flex:1"></textarea>
+            <button class="btn btn-primary" id="sendReply" style="align-self:flex-end">Send</button>
+          </div>
+        </div>` : `
+        <div class="modal-footer" style="text-align:center;color:var(--text3);font-size:13px">
+          This ticket is closed. <button class="btn btn-sm" id="reopenBtn" style="margin-left:8px">Reopen</button>
+        </div>`}
+      </div>
+    </div>`;
+
+  document.getElementById("closeModal").onclick = () => { document.getElementById("modalWrap").innerHTML = ""; };
+  document.getElementById("modalOverlay").onclick = (e) => { if (e.target.id==="modalOverlay") document.getElementById("modalWrap").innerHTML = ""; };
+
+  document.getElementById("statusSel")?.addEventListener("change", async (e) => {
+    await sb().from("crm_tickets").update({ status: e.target.value, updated_at: new Date().toISOString(), closed_at: e.target.value==="closed" ? new Date().toISOString() : null }).eq("id", id);
+    toast("ok", "Status updated");
+    document.getElementById("modalWrap").innerHTML = "";
+    loadTickets();
+  });
+
+  document.getElementById("reopenBtn")?.addEventListener("click", async () => {
+    await sb().from("crm_tickets").update({ status: "open", closed_at: null, updated_at: new Date().toISOString() }).eq("id", id);
+    toast("ok", "Ticket reopened");
+    document.getElementById("modalWrap").innerHTML = "";
+    loadTickets();
+  });
+
+  document.getElementById("sendReply")?.addEventListener("click", async () => {
+    const msg = document.getElementById("replyMsg").value.trim();
+    if (!msg) return;
+    const isInternal = document.getElementById("internalChk").checked;
+    const { error } = await sb().from("crm_ticket_messages").insert({
+      ticket_id: id,
+      sender_type: "team",
+      sender_name: profile.full_name || profile.email,
+      message: msg,
+      is_internal: isInternal,
+    });
+    if (error) { toast("bad","Error",error.message); return; }
+    await sb().from("crm_tickets").update({ status: "in_progress", updated_at: new Date().toISOString() }).eq("id", id).eq("status","open");
+    openTicket(id);
+  });
+}
+
+function showNewTicketModal() {
+  document.getElementById("modalWrap").innerHTML = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal" style="max-width:500px">
+        <div class="modal-header">
+          <h2 style="font-size:16px">New Ticket</h2>
+          <button class="btn" id="closeModal">✕</button>
+        </div>
+        <div class="modal-body">
+          <div style="display:grid;gap:12px">
+            <div>
+              <label class="form-label">Subject *</label>
+              <input class="form-input" id="ntSubject" placeholder="Brief description of the issue"/>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div>
+                <label class="form-label">Type</label>
+                <select class="form-select" id="ntType">
+                  <option value="support">Support</option>
+                  <option value="sales">Sales</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">Priority</label>
+                <select class="form-select" id="ntPriority">
+                  <option value="low">Low</option>
+                  <option value="normal" selected>Normal</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="form-label">Description</label>
+              <textarea class="form-input" id="ntDesc" rows="4" placeholder="Details about the issue…" style="resize:vertical"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px">
+          <button class="btn" id="closeModal2">Cancel</button>
+          <button class="btn btn-primary" id="createTicketBtn">Create Ticket</button>
+        </div>
+      </div>
+    </div>`;
+
+  const close = () => { document.getElementById("modalWrap").innerHTML = ""; };
+  document.getElementById("closeModal").onclick = close;
+  document.getElementById("closeModal2").onclick = close;
+  document.getElementById("modalOverlay").onclick = (e) => { if (e.target.id==="modalOverlay") close(); };
+
+  document.getElementById("createTicketBtn").onclick = async () => {
+    const subject = document.getElementById("ntSubject").value.trim();
+    if (!subject) { toast("bad","Subject required"); return; }
+    const { error } = await sb().from("crm_tickets").insert({
+      tenant_id: profile.company_id,
+      subject,
+      type: document.getElementById("ntType").value,
+      priority: document.getElementById("ntPriority").value,
+      description: document.getElementById("ntDesc").value.trim() || null,
+      status: "open",
+    });
+    if (error) { toast("bad","Error",error.message); return; }
+    toast("ok","Ticket created");
+    close();
+    loadTickets();
+  };
+}
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff/60000);
+  if (m < 1) return "just now";
+  if (m < 60) return m + "m ago";
+  const h = Math.floor(m/60);
+  if (h < 24) return h + "h ago";
+  return Math.floor(h/24) + "d ago";
+}
+</script>
+</body>
+</html>

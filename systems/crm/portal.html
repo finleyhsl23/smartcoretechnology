@@ -3,8 +3,22 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
   <title>Customer Portal — SmartCore CRM</title>
   <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
+  <style>
+    .pu-row { display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);transition:background .1s; }
+    .pu-row:last-child { border-bottom:none; }
+    .pu-avatar { width:36px;height:36px;border-radius:50%;background:rgba(30,92,255,.15);border:1px solid rgba(30,92,255,.3);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#1e5cff;flex-shrink:0; }
+    .modal-overlay { position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px; }
+    .modal { background:var(--card);border:1px solid var(--line);border-radius:16px;width:100%;max-width:480px; }
+    .modal-header { padding:20px 24px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between; }
+    .modal-body { padding:20px 24px; }
+    .modal-footer { padding:16px 24px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px; }
+    .cred-box { background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:16px;font-family:var(--mono);font-size:13px;margin-top:12px; }
+    .cred-row { display:flex;justify-content:space-between;padding:4px 0; }
+    .cred-label { color:var(--text3);font-family:inherit; }
+  </style>
 </head>
 <body>
 <div class="crm-shell">
@@ -25,11 +39,13 @@
   </div>
 </div>
 <div id="toastwrap"></div>
+<div id="modalWrap"></div>
 
 <script type="module">
-import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=2";
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
+import { sb } from "/systems/crm/shared/supabase.js";
 import { companies, documents, quotes } from "/systems/crm/shared/api.js";
-import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=9";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=10";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmt, fmtDate, toast, tierGate } from "/systems/crm/shared/ui.js";
 
@@ -50,126 +66,234 @@ try {
   }
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
+function initials(name) {
+  return (name||"?").split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase();
+}
+
 async function loadPortal() {
-  const [companiesRes, docsRes, quotesRes] = await Promise.all([
+  const [companiesRes, docsRes, quotesRes, portalUsersRes] = await Promise.all([
     companies.list({ status: "active", limit: 200 }),
     documents.list({ limit: 500 }),
     quotes.list({ limit: 500 }),
+    sb().from("crm_portal_users").select("*").eq("tenant_id", profile.company_id).order("invited_at", { ascending: false }),
   ]);
-  const companiesList = companiesRes.data;
-  const docsList = docsRes.data;
-  const quotesList = quotesRes.data;
-
+  const companiesList = companiesRes.data || [];
+  const docsList = docsRes.data || [];
+  const quotesList = quotesRes.data || [];
+  const portalUsers = portalUsersRes.data || [];
   const portalDocs = docsList.filter(d => d.is_portal_visible);
 
   document.getElementById("content").innerHTML = `
     <div class="page-header">
       <div class="page-header-left">
-        <h1>Customer Portal Management</h1>
-        <p>Manage what your customers can see and access</p>
+        <h1>Customer Portal</h1>
+        <p>Manage customer access, portal logins, and shared content</p>
+      </div>
+      <div class="page-header-actions">
+        <a href="/systems/crm/portal-login.html" target="_blank" class="btn">↗ View Portal</a>
       </div>
     </div>
 
-    <div class="grid-2" style="gap:16px;margin-bottom:16px">
-      <div class="card">
-        <div class="card-header"><h2>Portal Overview</h2></div>
-        <div class="card-body">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;text-align:center">
-            <div style="padding:16px;background:var(--blue-dim);border-radius:var(--r2)">
-              <div style="font-size:28px;font-weight:800;color:var(--blue2)">${companiesList.length}</div>
-              <div class="text-sm text-muted">Active Customers</div>
-            </div>
-            <div style="padding:16px;background:var(--good-dim);border-radius:var(--r2)">
-              <div style="font-size:28px;font-weight:800;color:var(--good)">${portalDocs.length}</div>
-              <div class="text-sm text-muted">Portal Documents</div>
-            </div>
-            <div style="padding:16px;background:var(--purple-dim);border-radius:var(--r2)">
-              <div style="font-size:28px;font-weight:800;color:var(--purple)">${quotesList.filter(q=>q.status==="sent").length}</div>
-              <div class="text-sm text-muted">Pending Quotes</div>
-            </div>
-            <div style="padding:16px;background:var(--warn-dim);border-radius:var(--r2)">
-              <div style="font-size:28px;font-weight:800;color:var(--warn)">${quotesList.filter(q=>q.status==="accepted").length}</div>
-              <div class="text-sm text-muted">Accepted Quotes</div>
-            </div>
-          </div>
-        </div>
-      </div>
+    <!-- Stats -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin-bottom:20px">
+      ${[
+        ["Portal Users", portalUsers.length, "#1e5cff"],
+        ["Portal Docs", portalDocs.length, "#8b5cf6"],
+        ["Pending Quotes", quotesList.filter(q=>q.status==="sent").length, "#f59e0b"],
+        ["Accepted Quotes", quotesList.filter(q=>q.status==="accepted").length, "#10b981"],
+      ].map(([l,v,c]) => `
+        <div style="padding:16px;background:var(--card);border:1px solid var(--line);border-radius:12px;text-align:center">
+          <div style="font-size:26px;font-weight:900;color:${c}">${v}</div>
+          <div class="text-sm text-muted" style="margin-top:2px">${l}</div>
+        </div>`).join("")}
+    </div>
 
-      <div class="card">
-        <div class="card-header"><h2>Portal Documents</h2></div>
-        <div class="card-body" style="padding:0">
-          ${portalDocs.length === 0
-            ? `<div class="empty-state" style="padding:24px"><p>No portal-visible documents. Mark documents as "Visible in customer portal" from the Documents page.</p></div>`
-            : portalDocs.slice(0,6).map(d => `
-              <div style="padding:10px 16px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;align-items:center">
+    <!-- Portal Users -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <h2>Portal Users</h2>
+        <button class="btn btn-primary btn-sm" id="addUserBtn">+ Add User</button>
+      </div>
+      <div class="card-body" style="padding:0">
+        ${portalUsers.length === 0
+          ? `<div class="empty-state" style="padding:32px">
+               <div class="empty-icon">🔐</div>
+               <h3>No portal users yet</h3>
+               <p>Add a customer's email and password to give them portal access. They'll be able to log in and submit tickets.</p>
+             </div>`
+          : portalUsers.map(u => `
+            <div class="pu-row">
+              <div class="pu-avatar">${initials(u.name||u.email)}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:600;font-size:13px">${esc(u.name||"—")}</div>
+                <div class="text-sm text-muted">${esc(u.email)}</div>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+                <span class="badge ${u.status==="active"?"badge-green":"badge-grey"}">${u.status}</span>
+                ${u.last_login_at ? `<span class="text-xs text-muted">Last login ${fmtDate(u.last_login_at)}</span>` : `<span class="text-xs text-muted">Never logged in</span>`}
+                <button class="btn btn-sm btn-danger" data-del="${u.id}" data-auth="${u.auth_user_id}">Remove</button>
+              </div>
+            </div>`).join("")}
+      </div>
+    </div>
+
+    <!-- Portal Documents -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <h2>Portal Documents</h2>
+        <a href="/systems/crm/documents.html" class="btn btn-sm">Manage Docs</a>
+      </div>
+      <div class="card-body" style="padding:0">
+        ${portalDocs.length === 0
+          ? `<div class="empty-state" style="padding:24px"><p>No portal-visible documents. Mark documents as "Visible in customer portal" from the Documents page.</p></div>`
+          : portalDocs.slice(0,6).map(d => `
+              <div style="padding:10px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
                 <div>
                   <div style="font-weight:600;font-size:13px">${esc(d.name)}</div>
-                  <div class="text-xs text-muted">${esc(d.category)} · ${fmtDate(d.created_at)}</div>
+                  <div class="text-xs text-muted">${esc(d.category||"")} · ${fmtDate(d.created_at)}</div>
                 </div>
                 <span class="badge badge-green">Portal</span>
               </div>`).join("")}
-          ${portalDocs.length > 6 ? `<div style="padding:10px 16px;text-align:center"><a href="/systems/crm/documents.html" class="btn btn-ghost btn-sm">View all ${portalDocs.length} documents</a></div>` : ""}
-        </div>
+        ${portalDocs.length > 6 ? `<div style="padding:10px 16px;text-align:center"><a href="/systems/crm/documents.html" class="btn btn-sm">View all ${portalDocs.length}</a></div>` : ""}
       </div>
     </div>
 
-    <!-- Customer access table -->
+    <!-- Customer companies table -->
     <div class="card">
       <div class="card-header">
-        <h2>Active Customer Companies</h2>
-        <span class="text-muted text-sm">${companiesList.length} customers with portal access</span>
+        <h2>Active Customers</h2>
+        <span class="text-muted text-sm">${companiesList.length} companies</span>
       </div>
       <div class="tbl-wrap">
         <table class="tbl">
-          <thead>
-            <tr>
-              <th>Company</th>
-              <th>Email</th>
-              <th>Quotes</th>
-              <th>Documents</th>
-              <th>Customer Since</th>
-              <th>Status</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Company</th><th>Email</th><th>Quotes</th><th>Documents</th><th>Since</th><th>Status</th></tr></thead>
           <tbody>
             ${companiesList.length === 0
-              ? `<tr><td colspan="6"><div class="empty-state" style="padding:20px"><p>No active customers yet</p></div></td></tr>`
+              ? `<tr><td colspan="6"><div class="empty-state" style="padding:20px"><p>No active customers</p></div></td></tr>`
               : companiesList.map(c => {
                   const cQuotes = quotesList.filter(q => q.crm_company_id === c.id);
                   const cDocs = portalDocs.filter(d => d.crm_company_id === c.id);
                   return `<tr>
-                    <td><span class="font-bold">${esc(c.name)}</span></td>
-                    <td>${c.email ? `<a href="mailto:${esc(c.email)}" class="text-blue text-sm">${esc(c.email)}</a>` : '<span class="text-dim">—</span>'}</td>
+                    <td><span style="font-weight:600">${esc(c.name)}</span></td>
+                    <td>${c.email ? `<a href="mailto:${esc(c.email)}" style="color:#1e5cff;font-size:13px">${esc(c.email)}</a>` : '<span class="text-muted">—</span>'}</td>
                     <td><span class="badge badge-blue">${cQuotes.length}</span></td>
                     <td><span class="badge badge-purple">${cDocs.length}</span></td>
-                    <td>${fmtDate(c.customer_since)}</td>
+                    <td class="text-sm text-muted">${c.customer_since ? fmtDate(c.customer_since) : "—"}</td>
                     <td><span class="badge badge-green">Active</span></td>
                   </tr>`;
                 }).join("")}
           </tbody>
         </table>
       </div>
-    </div>
+    </div>`;
 
-    <div class="card" style="margin-top:16px">
-      <div class="card-header"><h2>Coming Soon</h2></div>
-      <div class="card-body">
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
-          ${[
-            ["🔐","Customer Login Portal","Allow customers to log in and view their account"],
-            ["💬","Customer Messaging","Direct messaging with customers from the portal"],
-            ["📋","Project Tracking","Let customers track project progress"],
-            ["🤝","E-Signatures","Customers sign documents digitally"],
-          ].map(([icon,title,desc]) => `
-            <div style="padding:16px;background:var(--card2);border:1px solid var(--line);border-radius:var(--r2);opacity:.7">
-              <div style="font-size:24px;margin-bottom:8px">${icon}</div>
-              <div style="font-weight:600;font-size:13px;margin-bottom:4px">${title}</div>
-              <div class="text-xs text-muted">${desc}</div>
-              <span class="badge badge-yellow" style="margin-top:8px">Coming Soon</span>
-            </div>`).join("")}
+  document.getElementById("addUserBtn")?.addEventListener("click", showAddUserModal);
+
+  document.querySelectorAll("[data-del]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Remove this portal user? They will lose access immediately.")) return;
+      await sb().from("crm_portal_users").delete().eq("id", btn.dataset.del);
+      toast("ok","Portal user removed");
+      loadPortal();
+    });
+  });
+}
+
+function showAddUserModal() {
+  document.getElementById("modalWrap").innerHTML = `
+    <div class="modal-overlay" id="mOverlay">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 style="font-size:15px">Add Portal User</h2>
+          <button class="btn" id="closeModal">✕</button>
+        </div>
+        <div class="modal-body">
+          <div style="display:grid;gap:12px">
+            <div>
+              <label class="form-label">Customer Name</label>
+              <input class="form-input" id="puName" placeholder="e.g. Jane Smith"/>
+            </div>
+            <div>
+              <label class="form-label">Email Address *</label>
+              <input class="form-input" id="puEmail" type="email" placeholder="customer@example.com"/>
+            </div>
+            <div>
+              <label class="form-label">Password *</label>
+              <div style="display:flex;gap:8px">
+                <input class="form-input" id="puPassword" placeholder="Create a strong password" style="flex:1"/>
+                <button class="btn btn-sm" id="genPwBtn" style="flex-shrink:0">Generate</button>
+              </div>
+              <div class="text-xs text-muted" style="margin-top:4px">The customer will use this to log in. Share it with them securely.</div>
+            </div>
+          </div>
+          <div id="credResult" style="display:none"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="cancelBtn">Cancel</button>
+          <button class="btn btn-primary" id="createBtn">Create & Get Credentials</button>
         </div>
       </div>
     </div>`;
+
+  const close = () => { document.getElementById("modalWrap").innerHTML = ""; };
+  document.getElementById("closeModal").onclick = close;
+  document.getElementById("cancelBtn").onclick = close;
+  document.getElementById("mOverlay").onclick = (e) => { if (e.target.id==="mOverlay") close(); };
+
+  document.getElementById("genPwBtn").onclick = () => {
+    const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789!@#$";
+    const pw = Array.from({length:12}, () => chars[Math.floor(Math.random()*chars.length)]).join("");
+    document.getElementById("puPassword").value = pw;
+  };
+
+  document.getElementById("createBtn").onclick = async () => {
+    const email = document.getElementById("puEmail").value.trim();
+    const password = document.getElementById("puPassword").value;
+    const name = document.getElementById("puName").value.trim();
+    if (!email || !password) { toast("bad","Email and password are required"); return; }
+    if (password.length < 8) { toast("bad","Password must be at least 8 characters"); return; }
+
+    const btn = document.getElementById("createBtn");
+    btn.disabled = true; btn.textContent = "Creating…";
+
+    const { data: { session } } = await sb().auth.getSession();
+    const res = await fetch("/api/crm/create-portal-user", {
+      method: "POST",
+      headers: { "Content-Type":"application/json", "Authorization":`Bearer ${session.access_token}` },
+      body: JSON.stringify({ email, password, name }),
+    });
+    const result = await res.json();
+
+    if (!res.ok) {
+      toast("bad","Error",result.error);
+      btn.disabled = false; btn.textContent = "Create & Get Credentials";
+      return;
+    }
+
+    // Show credentials
+    const portalUrl = `${window.location.origin}/systems/crm/portal-login.html`;
+    document.getElementById("credResult").style.display = "block";
+    document.getElementById("credResult").innerHTML = `
+      <div style="margin-top:16px;padding:16px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:10px">
+        <div style="font-weight:700;color:#10b981;margin-bottom:10px">✅ Portal user created!</div>
+        ${!result.emailSent ? `<div class="text-sm text-muted" style="margin-bottom:10px">No email was sent — share these details with the customer directly:</div>` : `<div class="text-sm text-muted" style="margin-bottom:10px">Login details have been emailed to the customer. Here's a copy:</div>`}
+        <div class="cred-box">
+          <div class="cred-row"><span class="cred-label">Portal URL</span><span>${esc(portalUrl)}</span></div>
+          <div class="cred-row"><span class="cred-label">Email</span><span>${esc(email)}</span></div>
+          <div class="cred-row"><span class="cred-label">Password</span><span>${esc(password)}</span></div>
+        </div>
+        <button class="btn btn-sm" style="margin-top:10px" id="copyCredsBtn">Copy Credentials</button>
+      </div>`;
+
+    document.getElementById("copyCredsBtn").onclick = () => {
+      navigator.clipboard.writeText(`Portal URL: ${portalUrl}\nEmail: ${email}\nPassword: ${password}`);
+      toast("ok","Copied to clipboard");
+    };
+
+    document.getElementById("cancelBtn").textContent = "Close";
+    btn.style.display = "none";
+    loadPortal();
+  };
 }
 </script>
 </body>
