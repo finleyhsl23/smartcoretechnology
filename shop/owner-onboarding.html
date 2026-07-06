@@ -534,6 +534,20 @@ async function submitOwner() {
   btn.disabled = true; btn.textContent = 'Saving…';
 
   try {
+    // Re-fetch company if not loaded at init time (webhook may have been slow)
+    if (!coreCompanyId && orderId) {
+      const { data: co } = await sb.from('smartcore_core_companies')
+        .select('id').eq('order_id', orderId).maybeSingle();
+      coreCompanyId = co?.id || null;
+    }
+    // Fallback: look up by email (payment-complete may have matched by email not order_id)
+    if (!coreCompanyId && orderData?.email) {
+      const { data: co2 } = await sb.from('smartcore_core_companies')
+        .select('id').eq('company_email', orderData.email).maybeSingle();
+      coreCompanyId = co2?.id || null;
+    }
+    if (!coreCompanyId) throw new Error('Your order is still being set up — please wait a moment and try again.');
+
     const fullName = val('fFullName');
     const parts = fullName.split(' ');
     const firstName = parts[0] || fullName;
@@ -588,7 +602,8 @@ async function submitOwner() {
       accessibility_needs:           val('fAccessibility') || null,
     };
 
-    const { error } = await sb.from('smartcore_core_employees').insert(payload);
+    const { error } = await sb.from('smartcore_core_employees')
+      .upsert(payload, { onConflict: 'company_id,auth_user_id', ignoreDuplicates: false });
     if (error) throw new Error(error.message);
   } catch(e) {
     console.error('Owner profile insert:', e.message);
