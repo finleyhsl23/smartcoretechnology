@@ -23,8 +23,9 @@
     h1 { font-size:22px; font-weight:800; margin-bottom:6px; }
     p { font-size:14px; color:var(--text3); margin-bottom:24px; }
     label { display:block; font-size:12px; font-weight:600; color:var(--text2); margin-bottom:6px; }
-    input { width:100%; padding:11px 14px; background:var(--bg); border:1px solid var(--line); border-radius:var(--r); color:var(--text); font-size:14px; outline:none; margin-bottom:14px; transition:border-color .15s; }
+    input { width:100%; padding:11px 14px; background:var(--bg); border:1px solid var(--line); border-radius:var(--r); color:var(--text); font-size:14px; outline:none; margin-bottom:14px; transition:border-color .15s; font-family:inherit; }
     input:focus { border-color:var(--blue); }
+    input::placeholder { color:var(--text3); }
     button { width:100%; padding:12px; background:var(--blue); color:#fff; border:none; border-radius:var(--r); font-size:14px; font-weight:700; cursor:pointer; transition:opacity .15s; }
     button:hover { opacity:.9; }
     button:disabled { opacity:.5; cursor:not-allowed; }
@@ -55,15 +56,16 @@
   </div>
 </div>
 
-<script type="module">
-import { sb } from "/systems/crm/shared/supabase.js";
-
-// If already logged in as a portal user, redirect
-const { data: { session } } = await sb().auth.getSession();
-if (session) {
-  // Check if this user is a portal user
-  const { data: pu } = await sb().from("crm_portal_users").select("id").eq("auth_user_id", session.user.id).maybeSingle();
-  if (pu) { window.location.href = "/systems/crm/portal-customer.html"; }
+<script>
+// If already logged in, redirect
+const stored = localStorage.getItem("portal_session");
+if (stored) {
+  try {
+    const { token, expires_at } = JSON.parse(stored);
+    if (token && (!expires_at || new Date(expires_at) > new Date())) {
+      window.location.href = "/systems/crm/portal-customer.html";
+    }
+  } catch(_) {}
 }
 
 document.getElementById("loginForm").addEventListener("submit", async (e) => {
@@ -77,27 +79,34 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
   const email = document.getElementById("email").value.trim();
   const password = document.getElementById("password").value;
 
-  const { data, error } = await sb().auth.signInWithPassword({ email, password });
-  if (error) {
-    err.textContent = "Invalid email or password. Please try again.";
+  try {
+    const res = await fetch("/api/crm/portal-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      err.textContent = data.error || "Invalid email or password.";
+      err.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "Sign In";
+      return;
+    }
+
+    localStorage.setItem("portal_session", JSON.stringify({
+      token: data.session_token,
+      user: data.user,
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    }));
+    window.location.href = "/systems/crm/portal-customer.html";
+  } catch(_) {
+    err.textContent = "Connection error. Please try again.";
     err.style.display = "block";
     btn.disabled = false;
     btn.textContent = "Sign In";
-    return;
   }
-
-  // Verify this is a portal user, not a CRM employee
-  const { data: pu } = await sb().from("crm_portal_users").select("id").eq("auth_user_id", data.user.id).maybeSingle();
-  if (!pu) {
-    await sb().auth.signOut();
-    err.textContent = "This account does not have portal access. Contact your account manager.";
-    err.style.display = "block";
-    btn.disabled = false;
-    btn.textContent = "Sign In";
-    return;
-  }
-
-  window.location.href = "/systems/crm/portal-customer.html";
 });
 </script>
 </body>
