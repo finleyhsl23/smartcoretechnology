@@ -71,6 +71,8 @@ export function renderNav(currentPage, profile, tier) {
         <div class="user-chevron">↗</div>
       </div>
     </div>`;
+
+  document.getElementById("supportBtn")?.addEventListener("click", () => openSupport(tier));
 }
 
 function navItem(link, currentPage, tier) {
