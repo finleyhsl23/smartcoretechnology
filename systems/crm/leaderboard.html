@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Leaderboard — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
+  <style>
+    /* ── Leaderboard-specific styles ── */
+    @keyframes shimmer { 0%,100%{opacity:1} 50%{opacity:.6} }
+    @keyframes floatUp { 0%{transform:translateY(0)} 50%{transform:translateY(-6px)} 100%{transform:translateY(0)} }
+    @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,215,0,.4)} 50%{box-shadow:0 0 0 12px rgba(255,215,0,0)} }
+    @keyframes rankIn { from{opacity:0;transform:translateX(-24px)} to{opacity:1;transform:translateX(0)} }
+    @keyframes confetti { 0%{transform:translateY(-20px) rotate(0deg);opacity:1} 100%{transform:translateY(80px) rotate(720deg);opacity:0} }
+    @keyframes glow { 0%,100%{filter:drop-shadow(0 0 6px gold)} 50%{filter:drop-shadow(0 0 18px gold)} }
+    @keyframes countUp { from{opacity:0;transform:scale(.7)} to{opacity:1;transform:scale(1)} }
+
+    .lb-hero {
+      background: linear-gradient(135deg, #0a0f1e 0%, #0d1535 40%, #0a1228 100%);
+      border: 1px solid rgba(255,215,0,.15);
+      border-radius: 20px;
+      padding: 32px;
+      margin-bottom: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .lb-hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 20% 50%, rgba(255,215,0,.06) 0%, transparent 60%),
+                  radial-gradient(ellipse at 80% 20%, rgba(30,92,255,.08) 0%, transparent 50%);
+      pointer-events: none;
+    }
+    .lb-hero-title {
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: -.04em;
+      background: linear-gradient(135deg, #ffd700, #ffaa00, #fff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 4px;
+    }
+    .lb-hero-sub { font-size: 14px; color: var(--text3); }
+
+    .lb-period-btns { display:flex; gap:6px; }
+    .lb-period-btn {
+      padding: 6px 14px; border-radius: 99px; font-size: 12px; font-weight: 700;
+      border: 1px solid var(--line); background: var(--card2); color: var(--text3);
+      cursor: pointer; transition: all .15s;
+    }
+    .lb-period-btn.active {
+      background: rgba(255,215,0,.15); border-color: rgba(255,215,0,.4); color: #ffd700;
+    }
+
+    /* Podium */
+    .lb-podium {
+      display: flex; align-items: flex-end; justify-content: center;
+      gap: 12px; margin-bottom: 24px; padding: 0 20px;
+    }
+    .lb-podium-slot { flex: 1; max-width: 180px; text-align: center; }
+    .lb-podium-card {
+      border-radius: 16px 16px 0 0;
+      padding: 20px 12px 16px;
+      position: relative;
+      cursor: default;
+      transition: transform .2s;
+    }
+    .lb-podium-card:hover { transform: translateY(-4px); }
+    .lb-podium-1 .lb-podium-card {
+      background: linear-gradient(180deg, rgba(255,215,0,.18) 0%, rgba(255,215,0,.06) 100%);
+      border: 1px solid rgba(255,215,0,.4);
+      min-height: 160px;
+      animation: pulse 3s infinite;
+    }
+    .lb-podium-2 .lb-podium-card {
+      background: linear-gradient(180deg, rgba(180,180,200,.15) 0%, rgba(180,180,200,.05) 100%);
+      border: 1px solid rgba(180,180,200,.25);
+      min-height: 130px;
+    }
+    .lb-podium-3 .lb-podium-card {
+      background: linear-gradient(180deg, rgba(205,127,50,.15) 0%, rgba(205,127,50,.05) 100%);
+      border: 1px solid rgba(205,127,50,.25);
+      min-height: 110px;
+    }
+    .lb-podium-medal { font-size: 36px; display:block; margin-bottom: 6px; }
+    .lb-podium-1 .lb-podium-medal { animation: floatUp 3s ease-in-out infinite; }
+    .lb-podium-avatar {
+      width: 48px; height: 48px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; font-weight: 800; margin: 0 auto 8px;
+    }
+    .lb-podium-1 .lb-podium-avatar { background: linear-gradient(135deg,#ffd700,#ffaa00); color:#0a0f1e; box-shadow:0 0 20px rgba(255,215,0,.4); }
+    .lb-podium-2 .lb-podium-avatar { background: linear-gradient(135deg,#c0c0c0,#a0a0a0); color:#0a0f1e; }
+    .lb-podium-3 .lb-podium-avatar { background: linear-gradient(135deg,#cd7f32,#a0522d); color:#fff; }
+    .lb-podium-name { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+    .lb-podium-value { font-size: 11px; color: var(--text3); }
+    .lb-podium-wins { font-size: 18px; font-weight: 900; color: #ffd700; }
+    .lb-podium-base {
+      height: 8px; border-radius: 0 0 8px 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 800; color: #0a0f1e;
+    }
+    .lb-podium-1 .lb-podium-base { background: #ffd700; }
+    .lb-podium-2 .lb-podium-base { background: #c0c0c0; }
+    .lb-podium-3 .lb-podium-base { background: #cd7f32; }
+
+    /* Rank rows */
+    .lb-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px; border-radius: 12px;
+      margin-bottom: 6px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      transition: background .15s, transform .15s;
+      animation: rankIn .3s ease both;
+    }
+    .lb-row:hover { background: var(--card2); transform: translateX(4px); }
+    .lb-rank-num {
+      width: 32px; text-align: center;
+      font-size: 15px; font-weight: 800; color: var(--text3); flex-shrink: 0;
+    }
+    .lb-row-avatar {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue), #7b5fff);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 800; color: #fff; flex-shrink: 0;
+    }
+    .lb-row-name { font-size: 13px; font-weight: 700; flex: 1; }
+    .lb-row-level { font-size: 11px; color: var(--text3); margin-top: 1px; }
+    .lb-row-bar-wrap { flex: 1; max-width: 120px; }
+    .lb-row-bar { height: 4px; background: var(--line); border-radius: 99px; overflow: hidden; }
+    .lb-row-bar-fill { height: 100%; border-radius: 99px; transition: width .6s ease; }
+    .lb-row-stats { text-align: right; flex-shrink: 0; }
+    .lb-row-value { font-size: 13px; font-weight: 800; color: var(--text); }
+    .lb-row-wins { font-size: 11px; color: var(--text3); }
+
+    /* Level badge */
+    .level-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 99px;
+      font-size: 10px; font-weight: 800; letter-spacing: .03em;
+    }
+
+    /* Level guide */
+    .level-guide-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 8px;
+    }
+    .level-guide-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 12px; border-radius: 10px;
+      background: var(--card2); border: 1px solid var(--line);
+      font-size: 12px;
+    }
+    .level-guide-num {
+      width: 22px; height: 22px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 800; flex-shrink: 0;
+    }
+    .level-guide-name { font-weight: 700; flex: 1; }
+    .level-guide-req { color: var(--text3); font-size: 11px; }
+
+    /* Me highlight */
+    .lb-row.is-me {
+      background: rgba(30,92,255,.08);
+      border-color: rgba(30,92,255,.3);
+    }
+    .lb-row.is-me .lb-row-avatar {
+      box-shadow: 0 0 12px rgba(30,92,255,.5);
+    }
+
+    /* Disabled state */
+    .lb-disabled {
+      text-align: center; padding: 80px 20px;
+    }
+    .lb-disabled-icon { font-size: 64px; margin-bottom: 16px; }
+    .lb-disabled h2 { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+    .lb-disabled p { color: var(--text3); font-size: 14px; }
+
+    [data-theme="light"] .lb-hero {
+      background: linear-gradient(135deg, #f0f4ff 0%, #e8f0ff 40%, #f5f9ff 100%);
+    }
+    [data-theme="light"] .lb-hero-title {
+      background: linear-gradient(135deg, #b8860b, #daa520, #1e3a8a);
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">🏆 Leaderboard</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess, tierHasFeature, getCRMSettings } from "/systems/crm/shared/auth.js";
+import { sb } from "/systems/crm/shared/supabase.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=9";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmt, toast, tierGate } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+// ── 50 Levels ────────────────────────────────────────────────
+const LEVELS = [
+  { n:1,  name:"New Closer",        min:0,           color:"#6b7280", bg:"rgba(107,114,128,.15)", icon:"🌱" },
+  { n:2,  name:"Cold Caller",       min:500,          color:"#6b7280", bg:"rgba(107,114,128,.15)", icon:"📞" },
+  { n:3,  name:"Lead Hunter",       min:1000,         color:"#6b7280", bg:"rgba(107,114,128,.15)", icon:"🎯" },
+  { n:4,  name:"Pipeline Builder",  min:2500,         color:"#6b7280", bg:"rgba(107,114,128,.15)", icon:"🔧" },
+  { n:5,  name:"Opportunity Scout", min:5000,         color:"#6b7280", bg:"rgba(107,114,128,.15)", icon:"🔍" },
+  { n:6,  name:"First Blood",       min:7500,         color:"#6b7280", bg:"rgba(107,114,128,.15)", icon:"🩸" },
+  { n:7,  name:"Deal Finder",       min:10000,        color:"#3b82f6", bg:"rgba(59,130,246,.15)",  icon:"💼" },
+  { n:8,  name:"Quota Chaser",      min:15000,        color:"#3b82f6", bg:"rgba(59,130,246,.15)",  icon:"📊" },
+  { n:9,  name:"Revenue Starter",   min:20000,        color:"#3b82f6", bg:"rgba(59,130,246,.15)",  icon:"💵" },
+  { n:10, name:"Hustler",           min:25000,        color:"#3b82f6", bg:"rgba(59,130,246,.15)",  icon:"⚡" },
+  { n:11, name:"Rising Star",       min:30000,        color:"#8b5cf6", bg:"rgba(139,92,246,.15)",  icon:"⭐" },
+  { n:12, name:"Deal Maker",        min:40000,        color:"#8b5cf6", bg:"rgba(139,92,246,.15)",  icon:"🤝" },
+  { n:13, name:"The Negotiator",    min:50000,        color:"#8b5cf6", bg:"rgba(139,92,246,.15)",  icon:"🎭" },
+  { n:14, name:"Revenue Driver",    min:65000,        color:"#8b5cf6", bg:"rgba(139,92,246,.15)",  icon:"🚗" },
+  { n:15, name:"Closer Pro",        min:80000,        color:"#8b5cf6", bg:"rgba(139,92,246,.15)",  icon:"🔑" },
+  { n:16, name:"Pipeline King",     min:100000,       color:"#ec4899", bg:"rgba(236,72,153,.15)",  icon:"👑" },
+  { n:17, name:"Sales Machine",     min:125000,       color:"#ec4899", bg:"rgba(236,72,153,.15)",  icon:"🤖" },
+  { n:18, name:"Momentum Builder",  min:150000,       color:"#ec4899", bg:"rgba(236,72,153,.15)",  icon:"🌊" },
+  { n:19, name:"Quota Crusher",     min:175000,       color:"#ec4899", bg:"rgba(236,72,153,.15)",  icon:"💥" },
+  { n:20, name:"Silver Fox",        min:200000,       color:"#ec4899", bg:"rgba(236,72,153,.15)",  icon:"🦊" },
+  { n:21, name:"Top Performer",     min:250000,       color:"#10b981", bg:"rgba(16,185,129,.15)",  icon:"📈" },
+  { n:22, name:"Revenue Rocket",    min:300000,       color:"#10b981", bg:"rgba(16,185,129,.15)",  icon:"🚀" },
+  { n:23, name:"City's Best",       min:375000,       color:"#10b981", bg:"rgba(16,185,129,.15)",  icon:"🏙️" },
+  { n:24, name:"Regional Star",     min:450000,       color:"#10b981", bg:"rgba(16,185,129,.15)",  icon:"🌟" },
+  { n:25, name:"Market Leader",     min:525000,       color:"#10b981", bg:"rgba(16,185,129,.15)",  icon:"📋" },
+  { n:26, name:"The Rainmaker",     min:600000,       color:"#f59e0b", bg:"rgba(245,158,11,.15)",  icon:"🌧️" },
+  { n:27, name:"Gold Rush",         min:700000,       color:"#f59e0b", bg:"rgba(245,158,11,.15)",  icon:"⛏️" },
+  { n:28, name:"Value Creator",     min:800000,       color:"#f59e0b", bg:"rgba(245,158,11,.15)",  icon:"💡" },
+  { n:29, name:"Client Whisperer",  min:900000,       color:"#f59e0b", bg:"rgba(245,158,11,.15)",  icon:"🧠" },
+  { n:30, name:"The Architect",     min:1000000,      color:"#f59e0b", bg:"rgba(245,158,11,.15)",  icon:"🏗️" },
+  { n:31, name:"Master Closer",     min:1250000,      color:"#ef4444", bg:"rgba(239,68,68,.15)",   icon:"🔐" },
+  { n:32, name:"Revenue Legend",    min:1500000,      color:"#ef4444", bg:"rgba(239,68,68,.15)",   icon:"📜" },
+  { n:33, name:"Million Maker",     min:1750000,      color:"#ef4444", bg:"rgba(239,68,68,.15)",   icon:"💰" },
+  { n:34, name:"The Elite",         min:2000000,      color:"#ef4444", bg:"rgba(239,68,68,.15)",   icon:"💎" },
+  { n:35, name:"Deal Legend",       min:2500000,      color:"#ef4444", bg:"rgba(239,68,68,.15)",   icon:"🏅" },
+  { n:36, name:"Top Gun",           min:3000000,      color:"#6366f1", bg:"rgba(99,102,241,.15)",  icon:"🔫" },
+  { n:37, name:"Pipeline Master",   min:3500000,      color:"#6366f1", bg:"rgba(99,102,241,.15)",  icon:"⚔️" },
+  { n:38, name:"The Titan",         min:4000000,      color:"#6366f1", bg:"rgba(99,102,241,.15)",  icon:"🗿" },
+  { n:39, name:"Business Builder",  min:5000000,      color:"#6366f1", bg:"rgba(99,102,241,.15)",  icon:"🏢" },
+  { n:40, name:"Strategy King",     min:6000000,      color:"#6366f1", bg:"rgba(99,102,241,.15)",  icon:"♟️" },
+  { n:41, name:"Rainmaker Elite",   min:7000000,      color:"#ffd700", bg:"rgba(255,215,0,.12)",   icon:"⛈️" },
+  { n:42, name:"Hall of Famer",     min:8000000,      color:"#ffd700", bg:"rgba(255,215,0,.12)",   icon:"🏛️" },
+  { n:43, name:"Industry Icon",     min:10000000,     color:"#ffd700", bg:"rgba(255,215,0,.12)",   icon:"🌐" },
+  { n:44, name:"Sales Deity",       min:12000000,     color:"#ffd700", bg:"rgba(255,215,0,.12)",   icon:"⚡" },
+  { n:45, name:"The Untouchable",   min:15000000,     color:"#ffd700", bg:"rgba(255,215,0,.12)",   icon:"🛡️" },
+  { n:46, name:"Record Breaker",    min:18000000,     color:"#ffd700", bg:"rgba(255,215,0,.12)",   icon:"📏" },
+  { n:47, name:"The Summit",        min:20000000,     color:"#fff",    bg:"rgba(255,255,255,.12)",  icon:"🏔️" },
+  { n:48, name:"The GOAT",          min:25000000,     color:"#fff",    bg:"rgba(255,255,255,.12)",  icon:"🐐" },
+  { n:49, name:"Immortal",          min:30000000,     color:"#fff",    bg:"rgba(255,255,255,.12)",  icon:"♾️" },
+  { n:50, name:"Champion",          min:50000000,     color:"#ffd700", bg:"rgba(255,215,0,.2)",     icon:"🏆" },
+];
+
+function getLevel(totalValue) {
+  let level = LEVELS[0];
+  for (const l of LEVELS) {
+    if (totalValue >= l.min) level = l;
+    else break;
+  }
+  return level;
+}
+
+function getNextLevel(totalValue) {
+  for (const l of LEVELS) {
+    if (totalValue < l.min) return l;
+  }
+  return null;
+}
+
+function initials(name) {
+  return (name || "?").split(" ").map(w => w[0]).slice(0,2).join("").toUpperCase();
+}
+
+function fmtCompact(n) {
+  if (n >= 1000000) return "£" + (n/1000000).toFixed(1) + "M";
+  if (n >= 1000) return "£" + (n/1000).toFixed(0) + "K";
+  return "£" + n.toLocaleString();
+}
+
+let currentPeriod = "all";
+let _rawLeads = [];
+let _staffMap = {};
+let _profile = null;
+
+try {
+  const { profile, tier } = await requireCRMAccess();
+  renderNav("leaderboard", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+
+  if (!tierHasFeature(tier, "leaderboard")) {
+    document.getElementById("content").innerHTML = tierGate("leaderboard");
+  } else {
+    const crmSettings = await getCRMSettings();
+    if (crmSettings?.leaderboard_enabled === false) {
+      document.getElementById("content").innerHTML = `
+        <div class="lb-disabled">
+          <div class="lb-disabled-icon">🔒</div>
+          <h2>Leaderboard Disabled</h2>
+          <p>Your admin has turned this feature off. Contact them if you think this is a mistake.</p>
+        </div>`;
+    } else {
+      myId = profile.id;
+      await loadLeaderboard(profile);
+    }
+  }
+} catch(e) {
+  if (!e.message.includes("CRM not enabled") && !e.message.includes("session"))
+    toast("bad", "Error", e.message);
+}
+
+async function loadLeaderboard(profile) {
+  const tenantId = profile.company_id;
+
+  // Fetch all won leads + employee names in parallel
+  const [leadsRes, staffRes] = await Promise.all([
+    sb().from("crm_leads")
+      .select("assigned_to, estimated_value, closed_at, updated_at, created_at")
+      .eq("tenant_id", tenantId)
+      .eq("status", "won"),
+    sb().from("core_employees")
+      .select("id, full_name")
+      .eq("company_id", tenantId),
+  ]);
+
+  const leads = leadsRes.data || [];
+  const staff = staffRes.data || [];
+  const staffMap = Object.fromEntries(staff.map(s => [s.id, s.full_name]));
+
+  _rawLeads = leads;
+  _staffMap = staffMap;
+  _profile = profile;
+  renderPage(buildRankings(leads, staffMap, currentPeriod), profile);
+}
+
+function buildRankings(leads, staffMap, period) {
+  const now = new Date();
+  const filtered = leads.filter(l => {
+    if (period === "all") return true;
+    const date = new Date(l.closed_at || l.updated_at || l.created_at);
+    if (period === "month") {
+      return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+    }
+    if (period === "quarter") {
+      const q = Math.floor(now.getMonth() / 3);
+      const dq = Math.floor(date.getMonth() / 3);
+      return date.getFullYear() === now.getFullYear() && dq === q;
+    }
+    if (period === "year") {
+      return date.getFullYear() === now.getFullYear();
+    }
+    return true;
+  });
+
+  const map = {};
+  for (const l of filtered) {
+    if (!l.assigned_to) continue;
+    if (!map[l.assigned_to]) map[l.assigned_to] = { id: l.assigned_to, name: staffMap[l.assigned_to] || "Unknown", wins: 0, value: 0 };
+    map[l.assigned_to].wins++;
+    map[l.assigned_to].value += Number(l.estimated_value) || 0;
+  }
+
+  return Object.values(map).sort((a, b) => b.value - a.value);
+}
+
+function renderPage(ranked, profile) {
+  const top3 = ranked.slice(0, 3);
+  const rest = ranked.slice(3);
+  const topValue = ranked[0]?.value || 1;
+
+  const podiumOrder = [1, 0, 2]; // 2nd, 1st, 3rd
+  const medals = ["🥇","🥈","🥉"];
+  const podiumClasses = ["lb-podium-2","lb-podium-1","lb-podium-3"];
+
+  const podiumHTML = podiumOrder.map(i => {
+    const p = top3[i];
+    if (!p) return `<div class="lb-podium-slot ${podiumClasses[podiumOrder.indexOf(i)]}"></div>`;
+    const lv = getLevel(p.value);
+    const idx = podiumOrder.indexOf(i);
+    return `
+      <div class="lb-podium-slot ${podiumClasses[idx]}">
+        <div class="lb-podium-card">
+          <span class="lb-podium-medal">${medals[i]}</span>
+          <div class="lb-podium-avatar">${initials(p.name)}</div>
+          <div class="lb-podium-name">${esc(p.name)}</div>
+          <div class="lb-podium-wins">${fmtCompact(p.value)}</div>
+          <div class="lb-podium-value">${p.wins} win${p.wins!==1?"s":""}</div>
+          <div style="margin-top:8px">
+            <span class="level-badge" style="background:${lv.bg};color:${lv.color};border:1px solid ${lv.color}40">
+              ${lv.icon} ${lv.name}
+            </span>
+          </div>
+        </div>
+        <div class="lb-podium-base">${i+1}</div>
+      </div>`;
+  }).join("");
+
+  const rowsHTML = rest.map((p, i) => {
+    const rank = i + 4;
+    const lv = getLevel(p.value);
+    const next = getNextLevel(p.value);
+    const pct = next ? Math.min(100, ((p.value - lv.min) / (next.min - lv.min)) * 100) : 100;
+    const isMe = p.id === profile.id;
+    const barColors = ["#6366f1","#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6","#ec4899"];
+    const barColor = barColors[i % barColors.length];
+    return `
+      <div class="lb-row${isMe?" is-me":""}" style="animation-delay:${i*0.04}s">
+        <div class="lb-rank-num">#${rank}</div>
+        <div class="lb-row-avatar">${initials(p.name)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="lb-row-name">${esc(p.name)}${isMe?" <span style='font-size:10px;background:rgba(30,92,255,.15);color:#1e5cff;padding:1px 6px;border-radius:99px;font-weight:700'>YOU</span>":""}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+            <span class="level-badge" style="background:${lv.bg};color:${lv.color};border:1px solid ${lv.color}40">${lv.icon} Lv.${lv.n} ${lv.name}</span>
+          </div>
+          <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
+            <div class="lb-row-bar" style="flex:1;max-width:100px">
+              <div class="lb-row-bar-fill" style="width:${pct}%;background:${lv.color}"></div>
+            </div>
+            ${next ? `<span style="font-size:10px;color:var(--text3)">${fmtCompact(next.min - p.value)} to ${next.name}</span>` : `<span style="font-size:10px;color:#ffd700">MAX LEVEL 🏆</span>`}
+          </div>
+        </div>
+        <div class="lb-row-stats">
+          <div class="lb-row-value">${fmtCompact(p.value)}</div>
+          <div class="lb-row-wins">${p.wins} win${p.wins!==1?"s":""}</div>
+        </div>
+      </div>`;
+  }).join("");
+
+  // My stats
+  const me = ranked.find(r => r.id === profile.id);
+  const myRank = me ? ranked.indexOf(me) + 1 : null;
+  const myLevel = me ? getLevel(me.value) : LEVELS[0];
+  const myNext = me ? getNextLevel(me.value) : LEVELS[1];
+  const myPct = me && myNext ? Math.min(100, ((me.value - myLevel.min) / (myNext.min - myLevel.min)) * 100) : (me ? 100 : 0);
+
+  document.getElementById("content").innerHTML = `
+    <!-- Hero -->
+    <div class="lb-hero">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px">
+        <div>
+          <div class="lb-hero-title">🏆 Sales Leaderboard</div>
+          <div class="lb-hero-sub">Compete. Win. Dominate. Based on total won deal value.</div>
+        </div>
+        <div class="lb-period-btns">
+          <button class="lb-period-btn ${currentPeriod==="month"?"active":""}" data-period="month">This Month</button>
+          <button class="lb-period-btn ${currentPeriod==="quarter"?"active":""}" data-period="quarter">Quarter</button>
+          <button class="lb-period-btn ${currentPeriod==="year"?"active":""}" data-period="year">This Year</button>
+          <button class="lb-period-btn ${currentPeriod==="all"?"active":""}" data-period="all">All Time</button>
+        </div>
+      </div>
+
+      ${me ? `
+      <!-- My card -->
+      <div style="margin-top:20px;padding:16px;background:rgba(30,92,255,.08);border:1px solid rgba(30,92,255,.2);border-radius:14px">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#1e5cff,#7b5fff);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff;box-shadow:0 0 16px rgba(30,92,255,.4)">${initials(me.name)}</div>
+          <div style="flex:1">
+            <div style="font-weight:800;font-size:14px">Your Stats</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
+              <span class="level-badge" style="background:${myLevel.bg};color:${myLevel.color};border:1px solid ${myLevel.color}40;font-size:12px;padding:3px 10px">${myLevel.icon} Level ${myLevel.n} — ${myLevel.name}</span>
+              <span style="font-size:12px;color:var(--text3)">Rank #${myRank} of ${ranked.length}</span>
+            </div>
+            <div style="margin-top:8px;display:flex;align-items:center;gap:10px">
+              <div style="flex:1;max-width:200px">
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:3px">
+                  <span>${myLevel.name}</span>
+                  ${myNext ? `<span>${myNext.name}</span>` : `<span style="color:#ffd700">MAX</span>`}
+                </div>
+                <div class="lb-row-bar">
+                  <div class="lb-row-bar-fill" style="width:${myPct}%;background:linear-gradient(90deg,#1e5cff,#7b5fff)"></div>
+                </div>
+              </div>
+              ${myNext ? `<span style="font-size:11px;color:var(--text3)">${fmtCompact(myNext.min - me.value)} to next level</span>` : `<span style="font-size:11px;color:#ffd700">🏆 Maximum Level!</span>`}
+            </div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:22px;font-weight:900;color:#ffd700">${fmtCompact(me.value)}</div>
+            <div style="font-size:12px;color:var(--text3)">${me.wins} deal${me.wins!==1?"s":""} won</div>
+          </div>
+        </div>
+      </div>` : `
+      <div style="margin-top:16px;padding:12px 16px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:12px;font-size:13px;color:var(--text3)">
+        🎯 You haven't won any deals yet. Close your first deal to appear on the board!
+      </div>`}
+    </div>
+
+    ${ranked.length === 0 ? `
+    <div style="text-align:center;padding:60px 20px">
+      <div style="font-size:48px;margin-bottom:12px">🎯</div>
+      <h3 style="font-size:18px;font-weight:700;margin-bottom:6px">No won deals yet</h3>
+      <p style="color:var(--text3)">Be the first to win a deal and claim the top spot!</p>
+    </div>` : `
+
+    <!-- Podium (top 3) -->
+    ${top3.length > 0 ? `
+    <div class="card" style="margin-bottom:16px;padding:20px 12px 0">
+      <div class="card-header" style="padding-bottom:12px"><h2>🥇 Top Performers</h2></div>
+      <div class="lb-podium">${podiumHTML}</div>
+    </div>` : ""}
+
+    <!-- Full rankings -->
+    ${rest.length > 0 ? `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h2>📋 Full Rankings</h2></div>
+      <div class="card-body">${rowsHTML}</div>
+    </div>` : ""}
+
+    <!-- Level guide -->
+    <div class="card">
+      <div class="card-header">
+        <h2>🗺️ Level Guide</h2>
+        <span style="font-size:12px;color:var(--text3)">50 levels based on total won deal value</span>
+      </div>
+      <div class="card-body">
+        <div class="level-guide-grid">
+          ${LEVELS.map(l => `
+            <div class="level-guide-item" style="border-color:${l.color}30">
+              <div class="level-guide-num" style="background:${l.bg};color:${l.color}">${l.n}</div>
+              <div>
+                <div class="level-guide-name" style="color:${l.color}">${l.icon} ${l.name}</div>
+                <div class="level-guide-req">${l.min === 0 ? "Starting rank" : fmtCompact(l.min) + "+"}</div>
+              </div>
+            </div>`).join("")}
+        </div>
+      </div>
+    </div>`}`;
+
+  // Period filter buttons
+  document.querySelectorAll(".lb-period-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      currentPeriod = btn.dataset.period;
+      document.querySelectorAll(".lb-period-btn").forEach(b => b.classList.toggle("active", b === btn));
+      const profile2 = (await sb().from("core_employees").select("id,full_name,company_id").eq("id", profile.id).single()).data || profile;
+      // Re-filter from allData's underlying leads
+      await loadLeaderboard(profile);
+    });
+  });
+}
+</script>
+</body>
+</html>

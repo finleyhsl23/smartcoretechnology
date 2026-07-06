@@ -181,6 +181,27 @@ function renderSettings() {
           </div>
         </div>
       </div>
+
+      ${tierHasFeature(tier, "leaderboard") ? `
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><h2>🏆 Features</h2></div>
+        <div class="card-body">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:14px;background:var(--card2);border-radius:var(--r2)">
+            <div>
+              <div style="font-weight:600">Sales Leaderboard</div>
+              <div class="text-sm text-muted">Show the leaderboard in the sidebar and allow staff to see it. Admins only can toggle this.</div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <div id="lbToggleWrap" style="position:relative;width:44px;height:24px">
+                <input type="checkbox" id="lbToggle" ${settings?.leaderboard_enabled !== false ? "checked" : ""} style="opacity:0;width:0;height:0;position:absolute">
+                <div id="lbTrack" style="position:absolute;inset:0;border-radius:99px;background:${settings?.leaderboard_enabled !== false ? "var(--blue)" : "var(--line)"};transition:background .2s"></div>
+                <div id="lbThumb" style="position:absolute;top:3px;left:${settings?.leaderboard_enabled !== false ? "23px" : "3px"};width:18px;height:18px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>
+              </div>
+              <span id="lbLabel" style="font-size:13px;font-weight:600;color:${settings?.leaderboard_enabled !== false ? "var(--blue)" : "var(--text3)"}">${settings?.leaderboard_enabled !== false ? "On" : "Off"}</span>
+            </label>
+          </div>
+        </div>
+      </div>` : ""}
     </div>`;
 
   // Tabs
@@ -202,6 +223,18 @@ function renderSettings() {
   document.getElementById("themeToggleSettings")?.addEventListener("click", () => {
     toggleTheme();
     document.getElementById("themeToggleSettings").textContent = getTheme() === "dark" ? "☀️ Switch to Light" : "🌙 Switch to Dark";
+  });
+
+  document.getElementById("lbToggle")?.addEventListener("change", async (e) => {
+    const enabled = e.target.checked;
+    document.getElementById("lbTrack").style.background = enabled ? "var(--blue)" : "var(--line)";
+    document.getElementById("lbThumb").style.left = enabled ? "23px" : "3px";
+    document.getElementById("lbLabel").style.color = enabled ? "var(--blue)" : "var(--text3)";
+    document.getElementById("lbLabel").textContent = enabled ? "On" : "Off";
+    try {
+      await sb().from("crm_settings").upsert({ tenant_id: profile.company_id, leaderboard_enabled: enabled }, { onConflict: "tenant_id" });
+      toast("ok", enabled ? "Leaderboard enabled" : "Leaderboard disabled");
+    } catch(err) { toast("bad", "Error", err.message); }
   });
 }
 </script>

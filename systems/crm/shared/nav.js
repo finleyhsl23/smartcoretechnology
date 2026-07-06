@@ -16,7 +16,8 @@ const NAV_LINKS = [
   { id: "reports",    icon: "📈", label: "Reports",         href: "/systems/crm/reports.html",    tier: "professional" },
   { id: "portal",     icon: "🌐", label: "Customer Portal", href: "/systems/crm/portal.html",     tier: "business" },
   { id: "messaging",  icon: "💬", label: "Messaging",       href: "/systems/crm/messaging.html",  tier: "business" },
-  { id: "projects",   icon: "📋", label: "Projects",        href: "/systems/crm/projects.html",   tier: "business" },
+  { id: "projects",     icon: "📋", label: "Projects",      href: "/systems/crm/projects.html",     tier: "business" },
+  { id: "leaderboard", icon: "🏆", label: "Leaderboard",   href: "/systems/crm/leaderboard.html",  tier: "professional", featureFlag: "leaderboard" },
   { id: "reminders",  icon: "🔔", label: "Reminders",       href: "/systems/crm/reminders.html",  system: true },
   { id: "commands",   icon: "⚡", label: "Commands",        href: "/systems/crm/commands.html",   system: true },
   { id: "settings",   icon: "⚙️",  label: "Settings",       href: "/systems/crm/settings.html",   system: true },
@@ -28,12 +29,17 @@ function tierAllows(userTier, requiredTier) {
   return (TIER_ORDER[userTier] || 0) >= (TIER_ORDER[requiredTier] || 0);
 }
 
-export function renderNav(currentPage, profile, tier) {
+export function renderNav(currentPage, profile, tier, crmSettings) {
   const nav = document.getElementById("crmNav");
   if (!nav) return;
 
   const userName = profile?.full_name || profile?.email || "User";
   const role = profile?.role || "employee";
+
+  function linkVisible(l) {
+    if (l.featureFlag === "leaderboard" && crmSettings?.leaderboard_enabled === false) return false;
+    return true;
+  }
 
   nav.innerHTML = `
     <div class="sidebar-logo">
@@ -47,11 +53,11 @@ export function renderNav(currentPage, profile, tier) {
       <div class="sidebar-section">
         <div class="sidebar-section-label">Main</div>
       </div>
-      ${NAV_LINKS.filter(l => !l.tier && !l.system).map(l => navItem(l, currentPage, tier)).join("")}
+      ${NAV_LINKS.filter(l => !l.tier && !l.system && linkVisible(l)).map(l => navItem(l, currentPage, tier)).join("")}
       <div class="sidebar-section" style="margin-top:8px">
         <div class="sidebar-section-label">Features</div>
       </div>
-      ${NAV_LINKS.filter(l => l.tier && l.id !== "settings").map(l => navItem(l, currentPage, tier)).join("")}
+      ${NAV_LINKS.filter(l => l.tier && l.id !== "settings" && linkVisible(l)).map(l => navItem(l, currentPage, tier)).join("")}
       <div class="sidebar-section" style="margin-top:8px">
         <div class="sidebar-section-label">System</div>
       </div>
