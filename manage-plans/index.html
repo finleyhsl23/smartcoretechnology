@@ -138,7 +138,7 @@
   <div class="spin" id="loader">Loading your plan…</div>
 </div>
 
-<!-- Cancel confirmation modal -->
+<!-- Cancel whole subscription modal -->
 <div class="modal-bg hide" id="cancelModal">
   <div class="modal">
     <h3>Cancel subscription?</h3>
@@ -146,6 +146,18 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Keep subscription</button>
       <button class="btn btn-danger" id="confirmCancelBtn" onclick="confirmCancel()">Yes, cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cancel single module modal -->
+<div class="modal-bg hide" id="moduleCancelModal">
+  <div class="modal">
+    <h3>Cancel <span id="modCancelName"></span>?</h3>
+    <p>This module will be removed from your subscription. Your billing will be reduced immediately and you'll keep access until <strong id="modCancelDate">the end of your current billing period</strong>.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModuleModal()">Keep module</button>
+      <button class="btn btn-danger" id="confirmModCancelBtn" onclick="confirmModuleCancel()">Yes, cancel module</button>
     </div>
   </div>
 </div>
@@ -385,14 +397,21 @@
 
   function modRow(mod, price, billing, order, showPrice) {
     const meta = MOD_META[mod.module_slug] || { icon:'📦', color:'blue' };
+    const isCancelling = mod.status === 'cancelling';
+    const isCore = mod.module_slug === 'smartcore-core';
     return `
       <div class="mod-row">
         <div class="mod-icon ${meta.color}">${meta.icon}</div>
         <div class="mod-info">
-          <div class="mod-name">${mod.module_name || mod.module_slug}</div>
-          ${mod.module_slug === 'smartcore-core' ? `<div class="mod-desc">Included with all plans</div>` : ''}
+          <div class="mod-name">${mod.module_name || mod.module_slug}
+            ${isCancelling ? `<span class="badge badge-amber" style="margin-left:8px;vertical-align:middle">Cancelling</span>` : ''}
+          </div>
+          ${isCore ? `<div class="mod-desc">Included with all plans</div>` : ''}
         </div>
-        ${showPrice ? `<div class="mod-price">£${price.toFixed(2)}${billing}</div>` : `<span class="badge badge-green">Included</span>`}
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+          ${showPrice ? `<div class="mod-price">£${price.toFixed(2)}${billing}</div>` : `<span class="badge badge-green">Included</span>`}
+          ${(!isCore && !isCancelling && order.status !== 'cancelling') ? `<button class="btn btn-danger btn-sm" onclick="openModuleCancelModal('${mod.module_slug}','${(mod.module_name||mod.module_slug).replace(/'/g,"\\'")}')">Cancel</button>` : ''}
+        </div>
       </div>`;
   }
 
@@ -474,6 +493,48 @@
     }
 
     toast('ok', 'CRM tier updated', `Switched to ${data.new_module?.name}`);
+    await loadPlan();
+  }
+
+  let pendingModuleSlug = null;
+
+  function openModuleCancelModal(slug, name) {
+    pendingModuleSlug = slug;
+    document.getElementById('modCancelName').textContent = name;
+    const order = planData?.order;
+    const label = order?.next_payment_date
+      ? new Date(order.next_payment_date).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' })
+      : 'the end of your current billing period';
+    document.getElementById('modCancelDate').textContent = label;
+    document.getElementById('moduleCancelModal').classList.remove('hide');
+  }
+
+  function closeModuleModal() {
+    document.getElementById('moduleCancelModal').classList.add('hide');
+    pendingModuleSlug = null;
+  }
+
+  async function confirmModuleCancel() {
+    if (!pendingModuleSlug) return;
+    const btn = document.getElementById('confirmModCancelBtn');
+    btn.disabled = true; btn.textContent = 'Cancelling…';
+
+    const res = await fetch('/api/manage-plan', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${jwtToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cancel_module', module_slug: pendingModuleSlug })
+    });
+
+    const data = await res.json();
+    closeModuleModal();
+
+    if (!res.ok || !data.success) {
+      toast('err', 'Cancellation failed', data.error || 'Please contact support');
+      btn.disabled = false; btn.textContent = 'Yes, cancel module';
+      return;
+    }
+
+    toast('ok', 'Module cancelled', `Removed from your subscription. New total: £${Number(data.new_total).toFixed(2)}/mo`);
     await loadPlan();
   }
 

@@ -147,6 +147,7 @@ export async function onRequestPatch(context) {
     if (action === 'change_crm_tier')       return handleChangeCrmTier(env, order, body);
     if (action === 'cancel_pending_change') return handleCancelPendingChange(env, order);
     if (action === 'cancel_subscription')   return handleCancelSubscription(env, order);
+    if (action === 'cancel_module')         return handleCancelModule(env, order, body);
 
     return json({ error: `Unknown action: ${action}` }, 400, CORS);
   } catch (err) {
@@ -186,6 +187,51 @@ async function handleCancelSubscription(env, order) {
   });
 
   return json({ success: true }, 200, CORS);
+}
+
+// ---------------------------------------------------------------------------
+// Action: cancel_module
+// ---------------------------------------------------------------------------
+async function handleCancelModule(env, order, body) {
+  const { module_slug } = body;
+  if (!module_slug || module_slug === 'smartcore-core') {
+    return json({ error: 'Cannot cancel this module' }, 400, CORS);
+  }
+
+  // Get company
+  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=id&limit=1`);
+  const company   = companies?.[0];
+  if (!company?.id) return json({ error: 'Company not found' }, 404, CORS);
+
+  // Mark the module as cancelling in purchased_modules
+  await dbPatch(env, `/smartcore_core_purchased_modules?company_id=eq.${enc(company.id)}&module_slug=eq.${enc(module_slug)}`, {
+    status:       'cancelling',
+    cancelled_at: new Date().toISOString(),
+  });
+
+  // Remove module from order's modules array and recalculate total
+  const allModules = await dbGet(env, `/marketplace_modules?select=*`);
+  const moduleMap  = Object.fromEntries((allModules || []).map(m => [m.slug, m]));
+  const modules    = parseModules(order.modules).filter(m => m.slug !== module_slug);
+  const multiplier = order.size_multiplier || 1;
+  const { subtotal, discount, total } = calcTotal(modules, moduleMap, multiplier, order.billing_type, order.discount_percent || 0);
+
+  await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, {
+    modules:  JSON.stringify(modules),
+    subtotal, total, discount_amount: discount,
+  });
+
+  // Update Stripe subscription price
+  if (order.stripe_subscription_id) {
+    try {
+      await updateStripeSubscription(env, order.stripe_subscription_id, total, order.billing_type,
+        `SmartCore — ${order.company_name}`);
+    } catch (e) {
+      console.error('Stripe update error on cancel_module:', e);
+    }
+  }
+
+  return json({ success: true, new_total: total }, 200, CORS);
 }
 
 // ---------------------------------------------------------------------------
