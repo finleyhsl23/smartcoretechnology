@@ -233,7 +233,7 @@ function openModal(id) {
         </div>
         <div class="form-group">
           <label class="form-label">Terms</label>
-          <textarea class="form-control" id="mTerms" rows="2">${esc(q?.terms||"Payment due within 30 days.")}</textarea>
+          <textarea class="form-control" id="mTerms" rows="2">${esc(q?.terms || crmSettings?.default_quote_terms || "Payment due within 30 days.")}</textarea>
         </div>
       </div>
       <div class="modal-footer">
@@ -319,10 +319,12 @@ function exportPDF(id) {
   const q = allQuotes.find(x => x.id === id);
   if (!q) return;
   const co = q.crm_companies?.name || "";
-  const primary = crmSettings?.brand_primary_color || "#1e5cff";
-  const secondary = crmSettings?.brand_secondary_color || "#0a0f1e";
-  const prefer = crmSettings?.prefer_icon === true;
-  const logoUrl = prefer ? (crmSettings?.company_icon_url || crmSettings?.company_logo_url) : (crmSettings?.company_logo_url || crmSettings?.company_icon_url);
+  const br = crmSettings?.branding || {};
+  const primary = br.primary_color || "#1e5cff";
+  const secondary = br.secondary_color || "#0a0f1e";
+  const prefer = br.prefer_icon === true;
+  const logoUrl = prefer ? (br.icon_url || br.logo_url) : (br.logo_url || br.icon_url);
+  const issuerName = br.company_name || "SmartCore Technology";
 
   const lineItems = q.line_items || [];
   const linesHtml = lineItems.map(li => `
@@ -371,7 +373,7 @@ function exportPDF(id) {
 <body>
 <div class="header">
   <div class="header-left">
-    ${logoUrl ? `<img src="${logoUrl}" alt="logo"/>` : `<div class="company-name">SmartCore CRM</div>`}
+    ${logoUrl ? `<img src="${logoUrl}" alt="logo"/>` : `<div class="company-name">${esc(issuerName)}</div>`}
   </div>
   <div style="text-align:right">
     <div class="quote-badge">⚠ QUOTE — NOT AN INVOICE</div>

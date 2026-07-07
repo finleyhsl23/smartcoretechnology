@@ -273,11 +273,13 @@ function buildTemplatesList() {
 }
 
 function buildBrandingTab() {
-  const logo = settings?.company_logo_url || "";
-  const icon = settings?.company_icon_url || "";
-  const preferIcon = settings?.prefer_icon === true;
-  const primaryColor = settings?.brand_primary_color || "#1e5cff";
-  const secondaryColor = settings?.brand_secondary_color || "#0a0f1e";
+  const br = settings?.branding || {};
+  const logo = br.logo_url || "";
+  const icon = br.icon_url || "";
+  const preferIcon = br.prefer_icon === true;
+  const primaryColor = br.primary_color || "#1e5cff";
+  const secondaryColor = br.secondary_color || "#0a0f1e";
+  const companyName = br.company_name || "";
 
   return `
   <div class="card">
@@ -310,6 +312,10 @@ function buildBrandingTab() {
           <div class="text-sm text-muted">When enabled, the icon will be used instead of the logo on quotes and exports</div>
         </div>
       </div>
+      <div class="form-group" style="margin-top:4px">
+        <label class="form-label">Company / Business Name (shown on quotes)</label>
+        <input class="form-control" id="companyNameInput" value="${esc(companyName)}" placeholder="e.g. SmartCore Technology Ltd"/>
+      </div>
     </div>
   </div>
 
@@ -337,6 +343,18 @@ function buildBrandingTab() {
         </div>
       </div>
       <button class="btn btn-primary" id="saveBrandingBtn" style="max-width:160px">Save Branding</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="card-header"><h2>Quote Defaults</h2></div>
+    <div class="card-body">
+      <div class="form-group">
+        <label class="form-label">Default Quote Terms</label>
+        <textarea class="form-control" id="defaultTermsInput" rows="4" placeholder="e.g. Payment due within 30 days of quote acceptance.">${esc(settings?.default_quote_terms || "Payment due within 30 days.")}</textarea>
+        <div class="text-sm text-muted" style="margin-top:4px">Pre-filled on every new quote. You can override per quote.</div>
+      </div>
+      <button class="btn btn-primary" id="saveTermsBtn" style="max-width:180px">Save Default Terms</button>
     </div>
   </div>`;
 }
@@ -453,8 +471,12 @@ function bindEvents() {
     document.getElementById("lbLabel").style.color = enabled ? "var(--blue)" : "var(--text3)";
     document.getElementById("lbLabel").textContent = enabled ? "On" : "Off";
     try {
-      await sb().from("crm_settings").upsert({ tenant_id: profile.company_id, leaderboard_enabled: enabled }, { onConflict: "tenant_id" });
+      const { error } = await sb().from("crm_settings").update({ leaderboard_enabled: enabled }).eq("tenant_id", profile.company_id);
+      if (error) throw error;
       settings = { ...settings, leaderboard_enabled: enabled };
+      // Re-render nav so leaderboard link appears/disappears immediately
+      renderNav("settings", profile, tier, settings);
+      initMobileNav();
       toast("ok", enabled ? "Leaderboard enabled" : "Leaderboard disabled");
     } catch(err) { toast("bad", "Error", err.message); }
   });
@@ -469,16 +491,21 @@ function bindEvents() {
     });
 
     document.getElementById("saveStagesBtn")?.addEventListener("click", async () => {
+      const btn = document.getElementById("saveStagesBtn");
       const stages = [...document.querySelectorAll("#stagesList .stage-item")].map((el, i) => ({
         name: el.querySelector(".stage-name-input").value.trim(),
         color: el.querySelector(".stage-color-input").value,
         order: i,
       })).filter(s => s.name);
+      if (!stages.length) return toast("warn","Validation","At least one stage required.");
+      btn.disabled = true; btn.textContent = "Saving…";
       try {
-        await sb().from("crm_settings").upsert({ tenant_id: profile.company_id, pipeline_stages: stages }, { onConflict: "tenant_id" });
+        const { error } = await sb().from("crm_settings").update({ pipeline_stages: stages }).eq("tenant_id", profile.company_id);
+        if (error) throw error;
         settings = { ...settings, pipeline_stages: stages };
         toast("ok", "Pipeline stages saved");
       } catch(err) { toast("bad", "Error", err.message); }
+      finally { btn.disabled = false; btn.textContent = "Save Changes"; }
     });
 
     bindStageEvents();
@@ -589,7 +616,7 @@ function bindBrandingEvents() {
       const { error } = await sb().storage.from("crm-documents").upload(path, file, { upsert: true });
       if (error) throw error;
       const { data: { publicUrl } } = sb().storage.from("crm-documents").getPublicUrl(path);
-      await saveBrandingField("company_logo_url", publicUrl);
+      await mergeBranding({ logo_url: publicUrl });
       const preview = document.getElementById("logoPreview");
       preview.innerHTML = `<img src="${publicUrl}" alt="logo"/>`;
       toast("ok","Logo uploaded");
@@ -605,7 +632,7 @@ function bindBrandingEvents() {
       const { error } = await sb().storage.from("crm-documents").upload(path, file, { upsert: true });
       if (error) throw error;
       const { data: { publicUrl } } = sb().storage.from("crm-documents").getPublicUrl(path);
-      await saveBrandingField("company_icon_url", publicUrl);
+      await mergeBranding({ icon_url: publicUrl });
       const preview = document.getElementById("iconPreview");
       preview.innerHTML = `<img src="${publicUrl}" alt="icon"/>`;
       toast("ok","Icon uploaded");
@@ -613,19 +640,19 @@ function bindBrandingEvents() {
   });
 
   document.getElementById("removeLogoBtn")?.addEventListener("click", async () => {
-    await saveBrandingField("company_logo_url", null);
+    await mergeBranding({ logo_url: null });
     document.getElementById("logoPreview").innerHTML = "<span>Click to upload logo</span>";
     toast("ok","Logo removed");
   });
 
   document.getElementById("removeIconBtn")?.addEventListener("click", async () => {
-    await saveBrandingField("company_icon_url", null);
+    await mergeBranding({ icon_url: null });
     document.getElementById("iconPreview").innerHTML = "<span style='text-align:center'>Click to upload icon</span>";
     toast("ok","Icon removed");
   });
 
   document.getElementById("preferIconToggle")?.addEventListener("change", async e => {
-    await saveBrandingField("prefer_icon", e.target.checked);
+    await mergeBranding({ prefer_icon: e.target.checked });
     toast("ok", e.target.checked ? "Icon preferred over logo" : "Logo preferred over icon");
   });
 
@@ -639,21 +666,28 @@ function bindBrandingEvents() {
   document.getElementById("saveBrandingBtn")?.addEventListener("click", async () => {
     const primary = document.getElementById("primaryColorInput").value;
     const secondary = document.getElementById("secondaryColorInput").value;
+    const companyName = document.getElementById("companyNameInput").value.trim();
+    await mergeBranding({ primary_color: primary, secondary_color: secondary, company_name: companyName });
+    toast("ok","Branding saved");
+  });
+
+  document.getElementById("saveTermsBtn")?.addEventListener("click", async () => {
+    const terms = document.getElementById("defaultTermsInput").value.trim();
     try {
-      await sb().from("crm_settings").upsert({
-        tenant_id: profile.company_id,
-        brand_primary_color: primary,
-        brand_secondary_color: secondary,
-      }, { onConflict: "tenant_id" });
-      settings = { ...settings, brand_primary_color: primary, brand_secondary_color: secondary };
-      toast("ok","Brand colours saved");
+      const { error } = await sb().from("crm_settings").update({ default_quote_terms: terms }).eq("tenant_id", profile.company_id);
+      if (error) throw error;
+      settings = { ...settings, default_quote_terms: terms };
+      toast("ok","Default terms saved");
     } catch(err) { toast("bad","Error",err.message); }
   });
 }
 
-async function saveBrandingField(field, value) {
-  await sb().from("crm_settings").upsert({ tenant_id: profile.company_id, [field]: value }, { onConflict: "tenant_id" });
-  settings = { ...settings, [field]: value };
+async function mergeBranding(patch) {
+  const current = settings?.branding || {};
+  const merged = { ...current, ...patch };
+  const { error } = await sb().from("crm_settings").update({ branding: merged }).eq("tenant_id", profile.company_id);
+  if (error) throw error;
+  settings = { ...settings, branding: merged };
 }
 </script>
 </body>
