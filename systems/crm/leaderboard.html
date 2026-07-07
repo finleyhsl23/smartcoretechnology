@@ -308,25 +308,19 @@ let myId = null;
 
 try {
   const { profile, tier } = await requireCRMAccess();
-  renderNav("leaderboard", profile, tier);
+  const crmSettings = await getCRMSettings();
+  renderNav("leaderboard", profile, tier, crmSettings);
   initMobileNav();
   initTopbar(profile);
 
   if (!tierHasFeature(tier, "leaderboard")) {
     document.getElementById("content").innerHTML = tierGate("leaderboard");
+  } else if (crmSettings?.leaderboard_enabled === false) {
+    // Blocked via direct URL — redirect to dashboard
+    window.location.href = "/systems/crm/dashboard.html";
   } else {
-    const crmSettings = await getCRMSettings();
-    if (crmSettings?.leaderboard_enabled === false) {
-      document.getElementById("content").innerHTML = `
-        <div class="lb-disabled">
-          <div class="lb-disabled-icon">🔒</div>
-          <h2>Leaderboard Disabled</h2>
-          <p>Your admin has turned this feature off. Contact them if you think this is a mistake.</p>
-        </div>`;
-    } else {
-      myId = profile.id;
-      await loadLeaderboard(profile);
-    }
+    myId = profile.id;
+    await loadLeaderboard(profile);
   }
 } catch(e) {
   if (!e.message.includes("CRM not enabled") && !e.message.includes("session"))

@@ -5,6 +5,29 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Settings — SmartCore CRM</title>
   <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
+  <style>
+    .tier-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .tier-table th, .tier-table td { padding:8px 12px; border:1px solid var(--line2); text-align:center; }
+    .tier-table th:first-child, .tier-table td:first-child { text-align:left; }
+    .tier-table thead th { background:var(--card2); font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
+    .tier-table tbody tr:nth-child(even) { background:var(--card2); }
+    .tier-table .current-tier { background:color-mix(in srgb,var(--accent) 8%,transparent)!important; }
+    .tier-table .section-row td { font-weight:700; background:var(--card3)!important; color:var(--text2); font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+    .stage-item { display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--card2); border-radius:var(--r2); border:1px solid var(--line); margin-bottom:6px; }
+    .stage-dot { width:14px; height:14px; border-radius:50%; flex-shrink:0; cursor:pointer; border:2px solid rgba(255,255,255,.2); }
+    .stage-name-input { flex:1; background:transparent; border:none; outline:none; color:var(--text1); font-size:14px; font-weight:600; }
+    .stage-drag { cursor:grab; color:var(--text3); font-size:16px; padding:0 4px; }
+    .color-picker-wrap { position:relative; display:inline-block; }
+    .color-swatch { width:28px; height:28px; border-radius:6px; cursor:pointer; border:2px solid var(--line2); display:inline-block; }
+    .template-row { padding:12px 14px; background:var(--card2); border-radius:var(--r2); border:1px solid var(--line); margin-bottom:8px; }
+    .template-row-header { display:flex; align-items:center; justify-content:space-between; }
+    .template-name { font-weight:600; font-size:14px; }
+    .template-subject { font-size:12px; color:var(--text3); margin-top:2px; }
+    .branding-preview { border:1px solid var(--line2); border-radius:12px; overflow:hidden; }
+    .branding-logo-area { width:120px; height:60px; object-fit:contain; border-radius:8px; border:1px solid var(--line2); background:var(--card2); display:flex; align-items:center; justify-content:center; color:var(--text3); font-size:12px; cursor:pointer; overflow:hidden; }
+    .branding-logo-area img { width:100%; height:100%; object-fit:contain; }
+    .color-row { display:flex; align-items:center; justify-content:space-between; padding:12px; background:var(--card2); border-radius:var(--r2); }
+  </style>
 </head>
 <body>
 <div class="crm-shell">
@@ -44,17 +67,13 @@ const TIER_COLORS = { lite:"badge-blue", professional:"badge-green", business:"b
 try {
   ({ profile, tier } = await requireCRMAccess());
   settings = await getCRMSettings();
-  renderNav("settings", profile, tier);
+  renderNav("settings", profile, tier, settings);
   initMobileNav();
   initTopbar(profile);
   renderSettings();
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
 function renderSettings() {
-  const features = TIER_FEATURES[tier] || TIER_FEATURES.lite;
-  const allFeatures = ["dashboard","companies","contacts","leads","pipeline","tasks","timeline","quotes","documents","calendar","reports","email_templates","lead_scoring","forecasting","custom_fields","portal","multi_site","contracts","renewals","assets","workflows","advanced_permissions","support_tickets","executive_dashboards","advanced_analytics","department_mgmt","branch_mgmt","api_access","audit_logs","custom_branding","custom_pipelines","data_import","priority_support"];
-  const featureLabels = { dashboard:"Dashboard",companies:"Companies",contacts:"Contacts",leads:"Leads",pipeline:"Pipeline (Kanban)",tasks:"Tasks",timeline:"Customer Timeline",quotes:"Quotes",documents:"Documents",calendar:"Calendar",reports:"Reports",email_templates:"Email Templates",lead_scoring:"Lead Scoring",forecasting:"Revenue Forecasting",custom_fields:"Custom Fields",portal:"Customer Portal",multi_site:"Multi-Site Support",contracts:"Contract Tracking",renewals:"Renewal Tracking",assets:"Asset Tracking",workflows:"Workflow Automation",advanced_permissions:"Advanced Permissions",support_tickets:"Support Tickets",executive_dashboards:"Executive Dashboards",advanced_analytics:"Advanced Analytics",department_mgmt:"Department Management",branch_mgmt:"Branch Management",api_access:"API Access",audit_logs:"Audit Logs",custom_branding:"Custom Branding",custom_pipelines:"Custom Pipelines",data_import:"Data Import Tools",priority_support:"Priority Support" };
-
   document.getElementById("content").innerHTML = `
     <div class="page-header">
       <div class="page-header-left">
@@ -66,7 +85,8 @@ function renderSettings() {
     <!-- Tabs -->
     <div class="tabs-bar" id="tabBar">
       <button class="tab active" data-tab="general">General</button>
-      <button class="tab" data-tab="plan">Plan & Features</button>
+      <button class="tab" data-tab="plan">Plan &amp; Features</button>
+      <button class="tab" data-tab="branding">Branding</button>
       <button class="tab" data-tab="pipeline">Pipeline Stages</button>
       ${tierHasFeature(tier,"email_templates") ? '<button class="tab" data-tab="templates">Email Templates</button>' : ""}
       <button class="tab" data-tab="appearance">Appearance</button>
@@ -101,7 +121,8 @@ function renderSettings() {
         <div class="card-header"><h2>Quick Links</h2></div>
         <div class="card-body" style="display:flex;flex-wrap:wrap;gap:10px">
           <a href="/app/dashboard.html" class="btn">← SmartCore Dashboard</a>
-          <a href="/shop/index.html" class="btn">Upgrade Plan</a>
+          <a href="/shop/index.html" class="btn btn-primary">Manage Plan</a>
+          <a href="https://smartcoretechnology.co.uk/systems/core/" target="_blank" class="btn">Manage Team ↗</a>
           <button class="btn btn-danger" id="signOutBtn">Sign Out</button>
         </div>
       </div>
@@ -112,18 +133,17 @@ function renderSettings() {
       <div class="card">
         <div class="card-header">
           <h2>Current Plan: <span class="badge ${TIER_COLORS[tier]||"badge-blue"}">${TIER_LABELS[tier]||tier}</span></h2>
-          <a href="/shop/index.html" class="btn btn-primary btn-sm">Upgrade →</a>
+          <a href="/shop/index.html" class="btn btn-primary btn-sm">Manage Plan →</a>
         </div>
-        <div class="card-body">
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
-            ${allFeatures.map(f => `
-              <div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:var(--r2);${features.includes(f)?"background:var(--good-dim)":"opacity:.5"}">
-                <span>${features.includes(f) ? "✅" : "🔒"}</span>
-                <span style="font-size:13px">${featureLabels[f]||f}</span>
-              </div>`).join("")}
-          </div>
+        <div class="card-body" style="overflow-x:auto">
+          ${buildTierTable()}
         </div>
       </div>
+    </div>
+
+    <!-- Branding Tab -->
+    <div id="tab-branding" class="hidden">
+      ${buildBrandingTab()}
     </div>
 
     <!-- Pipeline Tab -->
@@ -131,18 +151,19 @@ function renderSettings() {
       <div class="card">
         <div class="card-header"><h2>Pipeline Stages</h2></div>
         <div class="card-body">
-          <p class="text-muted" style="margin-bottom:16px">The default pipeline stages used in your CRM. ${tierHasFeature(tier,"custom_pipelines") ? "You can customise these for your business." : "Custom pipelines are available on the Enterprise plan."}</p>
-          <div style="display:flex;flex-direction:column;gap:8px" id="stagesList">
-            ${(settings?.pipeline_stages || []).map(stage => `
-              <div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--card2);border-radius:var(--r2);border:1px solid var(--line)">
-                <div style="width:12px;height:12px;border-radius:50%;background:${stage.color};flex-shrink:0"></div>
-                <span style="font-weight:600">${esc(stage.name)}</span>
-                <span class="badge badge-grey">Stage ${stage.order+1}</span>
-              </div>`).join("")}
+          <p class="text-muted" style="margin-bottom:16px">
+            ${tierHasFeature(tier,"custom_pipelines")
+              ? "Customise your pipeline stages — drag to reorder, click the colour dot to change colour."
+              : "Your current pipeline stages. Custom stages require the Enterprise plan."}
+          </p>
+          <div id="stagesList">
+            ${(settings?.pipeline_stages || defaultStages()).map((s,i) => stageItem(s,i)).join("")}
           </div>
-          ${tierHasFeature(tier,"custom_pipelines")
-            ? `<button class="btn btn-primary" style="margin-top:12px" id="customiseStages">Customise Stages</button>`
-            : `<div style="margin-top:12px"><span class="badge badge-yellow">Enterprise plan required for custom stages</span></div>`}
+          ${tierHasFeature(tier,"custom_pipelines") ? `
+          <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+            <button class="btn btn-primary" id="addStageBtn">+ Add Stage</button>
+            <button class="btn btn-success" id="saveStagesBtn">Save Changes</button>
+          </div>` : `<div style="margin-top:12px"><span class="badge badge-yellow">Custom stages available on Enterprise plan</span></div>`}
         </div>
       </div>
     </div>
@@ -156,10 +177,8 @@ function renderSettings() {
           <button class="btn btn-primary btn-sm" id="addTemplateBtn">+ Add Template</button>
         </div>
         <div class="card-body">
-          <div class="empty-state">
-            <div class="empty-icon">📧</div>
-            <h3>No templates yet</h3>
-            <p>Create email templates for follow-ups, quotes, and welcome messages to save time.</p>
+          <div id="templatesList">
+            ${buildTemplatesList()}
           </div>
         </div>
       </div>
@@ -206,12 +225,211 @@ function renderSettings() {
       </div>` : ""}
     </div>`;
 
+  bindEvents();
+}
+
+function defaultStages() {
+  return [
+    { name:"New", color:"#6366f1", order:0 },
+    { name:"Contacted", color:"#f59e0b", order:1 },
+    { name:"Qualified", color:"#3b82f6", order:2 },
+    { name:"Proposal Sent", color:"#8b5cf6", order:3 },
+    { name:"Negotiation", color:"#ec4899", order:4 },
+    { name:"Won", color:"#10b981", order:5 },
+    { name:"Lost", color:"#ef4444", order:6 },
+  ];
+}
+
+function stageItem(s, i) {
+  return `<div class="stage-item" draggable="${tierHasFeature(tier,"custom_pipelines")}" data-index="${i}">
+    <span class="stage-drag">${tierHasFeature(tier,"custom_pipelines")?"⠿":"·"}</span>
+    <div class="color-picker-wrap">
+      <div class="stage-dot" style="background:${s.color}" title="Click to change colour" data-color="${s.color}"></div>
+      <input type="color" value="${s.color}" style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer" class="stage-color-input"/>
+    </div>
+    <input class="stage-name-input" value="${esc(s.name)}" ${tierHasFeature(tier,"custom_pipelines")?"":"readonly"}/>
+    ${tierHasFeature(tier,"custom_pipelines") ? `<button class="btn btn-icon btn-danger stage-del-btn" title="Remove">✕</button>` : ""}
+  </div>`;
+}
+
+function buildTemplatesList() {
+  const templates = settings?.email_templates || [];
+  if (templates.length === 0) {
+    return `<div class="empty-state"><div class="empty-icon">📧</div><h3>No templates yet</h3><p>Create email templates for follow-ups, quotes, and welcome messages to save time.</p></div>`;
+  }
+  return templates.map((t, i) => `
+    <div class="template-row">
+      <div class="template-row-header">
+        <div>
+          <div class="template-name">${esc(t.name)}</div>
+          <div class="template-subject">Subject: ${esc(t.subject||"")}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm edit-template-btn" data-index="${i}">Edit</button>
+          <button class="btn btn-sm btn-danger del-template-btn" data-index="${i}">Del</button>
+        </div>
+      </div>
+    </div>`).join("");
+}
+
+function buildBrandingTab() {
+  const logo = settings?.company_logo_url || "";
+  const icon = settings?.company_icon_url || "";
+  const preferIcon = settings?.prefer_icon === true;
+  const primaryColor = settings?.brand_primary_color || "#1e5cff";
+  const secondaryColor = settings?.brand_secondary_color || "#0a0f1e";
+
+  return `
+  <div class="card">
+    <div class="card-header"><h2>Company Logo &amp; Icon</h2></div>
+    <div class="card-body" style="display:grid;gap:16px">
+      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+        <div>
+          <div class="text-sm text-muted" style="margin-bottom:6px;font-weight:600">Company Logo</div>
+          <div class="branding-logo-area" id="logoPreview" style="width:200px;height:80px" onclick="document.getElementById('logoFileInput').click()">
+            ${logo ? `<img src="${esc(logo)}" alt="logo"/>` : `<span>Click to upload logo</span>`}
+          </div>
+          <input type="file" id="logoFileInput" accept="image/*" style="display:none"/>
+          <div class="text-xs text-dim" style="margin-top:4px">Recommended: PNG/SVG, 400×160px or wider</div>
+          ${logo ? `<button class="btn btn-sm btn-danger" style="margin-top:6px" id="removeLogoBtn">Remove Logo</button>` : ""}
+        </div>
+        <div>
+          <div class="text-sm text-muted" style="margin-bottom:6px;font-weight:600">Company Icon</div>
+          <div class="branding-logo-area" id="iconPreview" style="width:80px;height:80px" onclick="document.getElementById('iconFileInput').click()">
+            ${icon ? `<img src="${esc(icon)}" alt="icon"/>` : `<span style="text-align:center">Click to upload icon</span>`}
+          </div>
+          <input type="file" id="iconFileInput" accept="image/*" style="display:none"/>
+          <div class="text-xs text-dim" style="margin-top:4px">Square icon, 256×256px</div>
+          ${icon ? `<button class="btn btn-sm btn-danger" style="margin-top:6px" id="removeIconBtn">Remove Icon</button>` : ""}
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--card2);border-radius:var(--r2)">
+        <input type="checkbox" id="preferIconToggle" ${preferIcon?"checked":""}/>
+        <div>
+          <label for="preferIconToggle" style="font-weight:600;cursor:pointer">Prefer icon over logo</label>
+          <div class="text-sm text-muted">When enabled, the icon will be used instead of the logo on quotes and exports</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="card-header"><h2>Brand Colours</h2></div>
+    <div class="card-body" style="display:grid;gap:12px">
+      <div class="color-row">
+        <div>
+          <div style="font-weight:600">Primary Colour</div>
+          <div class="text-sm text-muted">Main accent colour used in quotes and exports</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:8px;background:${primaryColor};border:2px solid var(--line2)" id="primarySwatch"></div>
+          <input type="color" id="primaryColorInput" value="${primaryColor}" class="form-control" style="width:80px;height:36px;padding:2px;cursor:pointer"/>
+        </div>
+      </div>
+      <div class="color-row">
+        <div>
+          <div style="font-weight:600">Secondary / Background Colour</div>
+          <div class="text-sm text-muted">Background colour used in PDF quote headers</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:8px;background:${secondaryColor};border:2px solid var(--line2)" id="secondarySwatch"></div>
+          <input type="color" id="secondaryColorInput" value="${secondaryColor}" class="form-control" style="width:80px;height:36px;padding:2px;cursor:pointer"/>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="saveBrandingBtn" style="max-width:160px">Save Branding</button>
+    </div>
+  </div>`;
+}
+
+function buildTierTable() {
+  const sections = [
+    { label: "Core CRM", features: [
+      { key:"dashboard", label:"Dashboard" },
+      { key:"global_search", label:"Global Search" },
+      { key:"companies", label:"Companies" },
+      { key:"contacts", label:"Contacts" },
+      { key:"leads", label:"Leads" },
+      { key:"pipeline", label:"Pipeline (Kanban)" },
+      { key:"tasks", label:"Tasks" },
+      { key:"reminders", label:"Reminders" },
+      { key:"commands", label:"Quick Commands" },
+    ]},
+    { label: "Sales & Quoting", features: [
+      { key:"lead_scoring", label:"Lead Scoring" },
+      { key:"quotes", label:"Quotes & Invoicing" },
+      { key:"quote_acceptance", label:"Online Quote Acceptance" },
+      { key:"forecasting", label:"Revenue Forecasting" },
+      { key:"goals_targets", label:"Goals & Targets" },
+      { key:"leaderboard", label:"Sales Leaderboard" },
+    ]},
+    { label: "Productivity", features: [
+      { key:"calendar", label:"Calendar" },
+      { key:"email_templates", label:"Email Templates" },
+      { key:"documents", label:"Document Storage" },
+      { key:"support_tickets", label:"Support Tickets" },
+      { key:"messaging", label:"Customer Messaging" },
+    ]},
+    { label: "Reporting & Analytics", features: [
+      { key:"reports", label:"Reports" },
+      { key:"advanced_analytics", label:"Advanced Analytics" },
+      { key:"executive_dashboards", label:"Executive Dashboards" },
+    ]},
+    { label: "Portal & Projects", features: [
+      { key:"portal", label:"Customer Portal" },
+      { key:"projects", label:"Projects" },
+    ]},
+    { label: "Enterprise", features: [
+      { key:"bulk_actions", label:"Bulk Actions" },
+      { key:"company_team_notes", label:"Team Notes per Company" },
+      { key:"custom_pipelines", label:"Custom Pipelines" },
+      { key:"custom_fields", label:"Custom Fields" },
+      { key:"workflows", label:"Workflow Automation" },
+      { key:"advanced_permissions", label:"Advanced Permissions" },
+      { key:"multi_site", label:"Multi-Site Support" },
+      { key:"branch_mgmt", label:"Branch Management" },
+      { key:"department_mgmt", label:"Department Management" },
+      { key:"custom_branding", label:"Custom Branding" },
+      { key:"api_access", label:"API Access" },
+      { key:"audit_logs", label:"Audit Logs" },
+      { key:"data_import", label:"Data Import Tools" },
+      { key:"ai_support", label:"AI Assistant" },
+      { key:"priority_support", label:"Priority Support" },
+    ]},
+  ];
+
+  const tiers = ["lite","professional","business","enterprise"];
+  const check = (t, f) => (TIER_FEATURES[t]||[]).includes(f);
+
+  let html = `<table class="tier-table">
+    <thead>
+      <tr>
+        <th>Feature</th>
+        ${tiers.map(t => `<th class="${t===tier?"current-tier":""}">${TIER_LABELS[t]}<br/><small style="font-weight:400;color:var(--text3)">${TIER_PRICES[t]||""}</small>${t===tier?'<br/><span class="badge badge-blue" style="font-size:10px">Current</span>':""}</th>`).join("")}
+      </tr>
+    </thead>
+    <tbody>`;
+
+  for (const section of sections) {
+    html += `<tr class="section-row"><td colspan="5">${section.label}</td></tr>`;
+    for (const f of section.features) {
+      html += `<tr>
+        <td>${f.label}</td>
+        ${tiers.map(t => `<td class="${t===tier?"current-tier":""}">${check(t, f.key) ? '<span style="color:#10b981;font-size:16px">✓</span>' : '<span style="color:var(--text3);opacity:.4">—</span>'}</td>`).join("")}
+      </tr>`;
+    }
+  }
+
+  html += `</tbody></table>`;
+  return html;
+}
+
+function bindEvents() {
   // Tabs
   document.querySelectorAll(".tab").forEach(tab => {
     tab.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
-      ["general","plan","pipeline","templates","appearance"].forEach(t => {
+      ["general","plan","branding","pipeline","templates","appearance"].forEach(t => {
         const el = document.getElementById(`tab-${t}`);
         if (el) el.classList.toggle("hidden", t !== tab.dataset.tab);
       });
@@ -227,6 +445,7 @@ function renderSettings() {
     document.getElementById("themeToggleSettings").textContent = getTheme() === "dark" ? "☀️ Switch to Light" : "🌙 Switch to Dark";
   });
 
+  // Leaderboard toggle
   document.getElementById("lbToggle")?.addEventListener("change", async (e) => {
     const enabled = e.target.checked;
     document.getElementById("lbTrack").style.background = enabled ? "var(--blue)" : "var(--line)";
@@ -235,9 +454,206 @@ function renderSettings() {
     document.getElementById("lbLabel").textContent = enabled ? "On" : "Off";
     try {
       await sb().from("crm_settings").upsert({ tenant_id: profile.company_id, leaderboard_enabled: enabled }, { onConflict: "tenant_id" });
+      settings = { ...settings, leaderboard_enabled: enabled };
       toast("ok", enabled ? "Leaderboard enabled" : "Leaderboard disabled");
     } catch(err) { toast("bad", "Error", err.message); }
   });
+
+  // Pipeline stages
+  if (tierHasFeature(tier, "custom_pipelines")) {
+    document.getElementById("addStageBtn")?.addEventListener("click", () => {
+      const list = document.getElementById("stagesList");
+      const idx = list.querySelectorAll(".stage-item").length;
+      list.insertAdjacentHTML("beforeend", stageItem({ name:"New Stage", color:"#6366f1", order:idx }, idx));
+      bindStageEvents();
+    });
+
+    document.getElementById("saveStagesBtn")?.addEventListener("click", async () => {
+      const stages = [...document.querySelectorAll("#stagesList .stage-item")].map((el, i) => ({
+        name: el.querySelector(".stage-name-input").value.trim(),
+        color: el.querySelector(".stage-color-input").value,
+        order: i,
+      })).filter(s => s.name);
+      try {
+        await sb().from("crm_settings").upsert({ tenant_id: profile.company_id, pipeline_stages: stages }, { onConflict: "tenant_id" });
+        settings = { ...settings, pipeline_stages: stages };
+        toast("ok", "Pipeline stages saved");
+      } catch(err) { toast("bad", "Error", err.message); }
+    });
+
+    bindStageEvents();
+  }
+
+  // Email templates
+  document.getElementById("addTemplateBtn")?.addEventListener("click", () => openTemplateModal());
+  document.querySelectorAll(".edit-template-btn").forEach(b => {
+    b.addEventListener("click", () => openTemplateModal(parseInt(b.dataset.index)));
+  });
+  document.querySelectorAll(".del-template-btn").forEach(b => {
+    b.addEventListener("click", async () => {
+      if (!confirm("Delete this template?")) return;
+      const templates = [...(settings?.email_templates || [])];
+      templates.splice(parseInt(b.dataset.index), 1);
+      await saveTemplates(templates);
+    });
+  });
+
+  // Branding
+  bindBrandingEvents();
+}
+
+function bindStageEvents() {
+  document.querySelectorAll("#stagesList .stage-color-input").forEach(inp => {
+    inp.addEventListener("input", e => {
+      e.target.closest(".stage-item").querySelector(".stage-dot").style.background = e.target.value;
+    });
+  });
+  document.querySelectorAll("#stagesList .stage-del-btn").forEach(b => {
+    b.addEventListener("click", e => e.target.closest(".stage-item").remove());
+  });
+}
+
+function openTemplateModal(index = null) {
+  const templates = settings?.email_templates || [];
+  const t = index !== null ? templates[index] : null;
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>${t ? "Edit Template" : "New Email Template"}</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Template Name *</label>
+          <input class="form-control" id="tName" value="${esc(t?.name||"")}" placeholder="e.g. Follow-up after demo"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Subject</label>
+          <input class="form-control" id="tSubject" value="${esc(t?.subject||"")}" placeholder="Email subject line"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Body</label>
+          <textarea class="form-control" id="tBody" rows="8" placeholder="Write your email template here. Use {{name}}, {{company}} as placeholders.">${esc(t?.body||"")}</textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveTplBtn">${t ? "Save Changes" : "Create Template"}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector("#saveTplBtn").onclick = async () => {
+    const name = overlay.querySelector("#tName").value.trim();
+    if (!name) return toast("warn","Validation","Template name is required.");
+    const newTemplate = {
+      name,
+      subject: overlay.querySelector("#tSubject").value.trim(),
+      body: overlay.querySelector("#tBody").value.trim(),
+    };
+    const templates = [...(settings?.email_templates || [])];
+    if (index !== null) templates[index] = newTemplate;
+    else templates.push(newTemplate);
+    await saveTemplates(templates);
+    overlay.remove();
+  };
+}
+
+async function saveTemplates(templates) {
+  try {
+    await sb().from("crm_settings").upsert({ tenant_id: profile.company_id, email_templates: templates }, { onConflict: "tenant_id" });
+    settings = { ...settings, email_templates: templates };
+    document.getElementById("templatesList").innerHTML = buildTemplatesList();
+    document.querySelectorAll(".edit-template-btn").forEach(b => b.addEventListener("click", () => openTemplateModal(parseInt(b.dataset.index))));
+    document.querySelectorAll(".del-template-btn").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("Delete this template?")) return;
+      const tpls = [...(settings?.email_templates || [])];
+      tpls.splice(parseInt(b.dataset.index), 1);
+      await saveTemplates(tpls);
+    }));
+    toast("ok", "Templates saved");
+  } catch(err) { toast("bad","Error",err.message); }
+}
+
+function bindBrandingEvents() {
+  // Logo upload
+  document.getElementById("logoFileInput")?.addEventListener("change", async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const path = `branding/${profile.company_id}/logo_${Date.now()}.${file.name.split(".").pop()}`;
+      const { error } = await sb().storage.from("crm-documents").upload(path, file, { upsert: true });
+      if (error) throw error;
+      const { data: { publicUrl } } = sb().storage.from("crm-documents").getPublicUrl(path);
+      await saveBrandingField("company_logo_url", publicUrl);
+      const preview = document.getElementById("logoPreview");
+      preview.innerHTML = `<img src="${publicUrl}" alt="logo"/>`;
+      toast("ok","Logo uploaded");
+    } catch(err) { toast("bad","Upload failed",err.message); }
+  });
+
+  // Icon upload
+  document.getElementById("iconFileInput")?.addEventListener("change", async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const path = `branding/${profile.company_id}/icon_${Date.now()}.${file.name.split(".").pop()}`;
+      const { error } = await sb().storage.from("crm-documents").upload(path, file, { upsert: true });
+      if (error) throw error;
+      const { data: { publicUrl } } = sb().storage.from("crm-documents").getPublicUrl(path);
+      await saveBrandingField("company_icon_url", publicUrl);
+      const preview = document.getElementById("iconPreview");
+      preview.innerHTML = `<img src="${publicUrl}" alt="icon"/>`;
+      toast("ok","Icon uploaded");
+    } catch(err) { toast("bad","Upload failed",err.message); }
+  });
+
+  document.getElementById("removeLogoBtn")?.addEventListener("click", async () => {
+    await saveBrandingField("company_logo_url", null);
+    document.getElementById("logoPreview").innerHTML = "<span>Click to upload logo</span>";
+    toast("ok","Logo removed");
+  });
+
+  document.getElementById("removeIconBtn")?.addEventListener("click", async () => {
+    await saveBrandingField("company_icon_url", null);
+    document.getElementById("iconPreview").innerHTML = "<span style='text-align:center'>Click to upload icon</span>";
+    toast("ok","Icon removed");
+  });
+
+  document.getElementById("preferIconToggle")?.addEventListener("change", async e => {
+    await saveBrandingField("prefer_icon", e.target.checked);
+    toast("ok", e.target.checked ? "Icon preferred over logo" : "Logo preferred over icon");
+  });
+
+  document.getElementById("primaryColorInput")?.addEventListener("input", e => {
+    document.getElementById("primarySwatch").style.background = e.target.value;
+  });
+  document.getElementById("secondaryColorInput")?.addEventListener("input", e => {
+    document.getElementById("secondarySwatch").style.background = e.target.value;
+  });
+
+  document.getElementById("saveBrandingBtn")?.addEventListener("click", async () => {
+    const primary = document.getElementById("primaryColorInput").value;
+    const secondary = document.getElementById("secondaryColorInput").value;
+    try {
+      await sb().from("crm_settings").upsert({
+        tenant_id: profile.company_id,
+        brand_primary_color: primary,
+        brand_secondary_color: secondary,
+      }, { onConflict: "tenant_id" });
+      settings = { ...settings, brand_primary_color: primary, brand_secondary_color: secondary };
+      toast("ok","Brand colours saved");
+    } catch(err) { toast("bad","Error",err.message); }
+  });
+}
+
+async function saveBrandingField(field, value) {
+  await sb().from("crm_settings").upsert({ tenant_id: profile.company_id, [field]: value }, { onConflict: "tenant_id" });
+  settings = { ...settings, [field]: value };
 }
 </script>
 </body>

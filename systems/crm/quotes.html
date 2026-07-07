@@ -27,19 +27,21 @@
 <div id="toastwrap"></div>
 
 <script type="module">
-import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
+import { requireCRMAccess, tierHasFeature, getCRMSettings } from "/systems/crm/shared/auth.js?v=3";
 import { quotes, companies, leads } from "/systems/crm/shared/api.js";
+import { sb } from "/systems/crm/shared/supabase.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=10";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmt, fmtDate, toast, confirm, quoteBadge, tierGate, loading, setInner } from "/systems/crm/shared/ui.js";
 
 initTheme();
 
-let profile, tier, allQuotes = [], companiesList = [], leadsList = [];
+let profile, tier, crmSettings, allQuotes = [], companiesList = [], leadsList = [];
 
 try {
   ({ profile, tier } = await requireCRMAccess());
-  renderNav("quotes", profile, tier);
+  crmSettings = await getCRMSettings();
+  renderNav("quotes", profile, tier, crmSettings);
   initMobileNav();
   initTopbar(profile);
 
@@ -117,25 +119,35 @@ function renderPage(rows, selStatus) {
   document.getElementById("statusFilter").addEventListener("change", e => loadAndRender(e.target.value));
   document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteQuote(b.dataset.id)));
-  document.querySelectorAll(".status-btn").forEach(b => b.addEventListener("click", () => updateStatus(b.dataset.id, b.dataset.status)));
+  document.querySelectorAll(".pdf-btn").forEach(b => b.addEventListener("click", () => exportPDF(b.dataset.id)));
+  document.querySelectorAll(".inline-status").forEach(sel => {
+    sel.addEventListener("change", async e => {
+      await updateStatus(sel.dataset.id, sel.value);
+    });
+  });
 }
 
 function quoteRow(q) {
   const co = q.crm_companies?.name;
   const isExpired = q.status === "sent" && q.expiry_date && new Date(q.expiry_date) < new Date();
+  const effectiveStatus = isExpired ? "expired" : q.status;
+  const statuses = ["draft","sent","accepted","rejected","expired"];
   return `<tr>
     <td><span class="font-bold text-blue">${esc(q.quote_number)}</span></td>
     <td>${co ? esc(co) : '<span class="text-dim">—</span>'}</td>
     <td>${q.title ? esc(q.title) : '<span class="text-dim">—</span>'}</td>
-    <td>${quoteBadge(isExpired ? "expired" : q.status)}</td>
+    <td>
+      <select class="inline-status" data-id="${q.id}" style="background:var(--card2);border:1px solid var(--line2);border-radius:6px;padding:3px 6px;font-size:12px;color:var(--text1);cursor:pointer">
+        ${statuses.map(s => `<option value="${s}" ${effectiveStatus===s?"selected":""}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join("")}
+      </select>
+    </td>
     <td><strong>${fmt(q.total)}</strong></td>
     <td>${fmtDate(q.date_issued)}</td>
     <td>${q.expiry_date ? `<span style="${isExpired?"color:var(--bad)":""}">${fmtDate(q.expiry_date)}</span>` : '<span class="text-dim">—</span>'}</td>
     <td>
       <div class="tbl-actions">
         <button class="btn btn-sm edit-btn" data-id="${q.id}">Edit</button>
-        ${q.status === "draft" ? `<button class="btn btn-sm status-btn" data-id="${q.id}" data-status="sent">Send</button>` : ""}
-        ${q.status === "sent" ? `<button class="btn btn-sm status-btn badge-green" data-id="${q.id}" data-status="accepted">Accept</button>` : ""}
+        <button class="btn btn-sm pdf-btn" data-id="${q.id}" title="Export as PDF">📄 PDF</button>
         <button class="btn btn-sm btn-danger del-btn" data-id="${q.id}">Del</button>
       </div>
     </td>
@@ -301,6 +313,130 @@ function lineItemRow(li, i) {
 async function updateStatus(id, status) {
   try { await quotes.update(id, { status }); toast("ok","Status updated"); await loadAndRender(); }
   catch(e) { toast("bad","Error",e.message); }
+}
+
+function exportPDF(id) {
+  const q = allQuotes.find(x => x.id === id);
+  if (!q) return;
+  const co = q.crm_companies?.name || "";
+  const primary = crmSettings?.brand_primary_color || "#1e5cff";
+  const secondary = crmSettings?.brand_secondary_color || "#0a0f1e";
+  const prefer = crmSettings?.prefer_icon === true;
+  const logoUrl = prefer ? (crmSettings?.company_icon_url || crmSettings?.company_logo_url) : (crmSettings?.company_logo_url || crmSettings?.company_icon_url);
+
+  const lineItems = q.line_items || [];
+  const linesHtml = lineItems.map(li => `
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${li.description||""}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center">${li.qty||1}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${Number(li.unit_price||0).toFixed(2)}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${Number(li.total||((li.qty||1)*(li.unit_price||0))).toFixed(2)}</td>
+    </tr>`).join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Quote ${esc(q.quote_number||"")}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color:#1a1a2e; background:#fff; }
+  .header { background:${secondary}; color:#fff; padding:36px 40px; display:flex; justify-content:space-between; align-items:flex-start; }
+  .header-left img { max-height:60px; max-width:200px; object-fit:contain; }
+  .header-left .company-name { font-size:22px; font-weight:800; color:#fff; margin-top:4px; }
+  .quote-badge { background:${primary}; color:#fff; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:2px; padding:6px 16px; border-radius:4px; display:inline-block; margin-bottom:8px; }
+  .quote-number { font-size:26px; font-weight:900; color:#fff; }
+  .quote-status { background:rgba(255,255,255,.15); color:#fff; border:1px solid rgba(255,255,255,.3); border-radius:4px; padding:3px 12px; font-size:12px; font-weight:700; text-transform:uppercase; display:inline-block; margin-top:6px; }
+  .body { padding:32px 40px; }
+  .meta-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:28px; }
+  .meta-box { background:#f8f9fc; border-radius:8px; padding:16px; }
+  .meta-label { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; margin-bottom:6px; font-weight:600; }
+  .meta-value { font-size:14px; font-weight:600; color:#1a1a2e; }
+  table.items { width:100%; border-collapse:collapse; margin-bottom:20px; }
+  table.items thead tr { background:${primary}; color:#fff; }
+  table.items thead th { padding:10px 12px; font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
+  table.items thead th:last-child { text-align:right; }
+  table.items thead th:nth-child(2), table.items thead th:nth-child(3) { text-align:center; }
+  .totals { display:flex; justify-content:flex-end; margin-bottom:24px; }
+  .totals-box { min-width:260px; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; }
+  .totals-row { display:flex; justify-content:space-between; padding:10px 14px; border-bottom:1px solid #e5e7eb; font-size:13px; }
+  .totals-row.grand { background:${primary}; color:#fff; font-weight:800; font-size:15px; border-bottom:none; }
+  .notes-section { background:#f8f9fc; border-radius:8px; padding:16px; margin-bottom:16px; }
+  .notes-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; margin-bottom:6px; }
+  .notes-text { font-size:13px; color:#374151; line-height:1.6; }
+  .footer { border-top:1px solid #e5e7eb; padding:20px 40px; text-align:center; font-size:11px; color:#9ca3af; }
+  @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-left">
+    ${logoUrl ? `<img src="${logoUrl}" alt="logo"/>` : `<div class="company-name">SmartCore CRM</div>`}
+  </div>
+  <div style="text-align:right">
+    <div class="quote-badge">⚠ QUOTE — NOT AN INVOICE</div>
+    <div class="quote-number">${esc(q.quote_number||"QT-000")}</div>
+    <div class="quote-status">${(q.status||"draft").toUpperCase()}</div>
+  </div>
+</div>
+
+<div class="body">
+  <div class="meta-grid">
+    <div class="meta-box">
+      <div class="meta-label">Prepared for</div>
+      <div class="meta-value">${esc(co||"—")}</div>
+    </div>
+    <div class="meta-box">
+      <div class="meta-label">Quote Title</div>
+      <div class="meta-value">${esc(q.title||"—")}</div>
+    </div>
+    <div class="meta-box">
+      <div class="meta-label">Date Issued</div>
+      <div class="meta-value">${q.date_issued ? new Date(q.date_issued).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"}) : "—"}</div>
+    </div>
+    <div class="meta-box">
+      <div class="meta-label">Valid Until</div>
+      <div class="meta-value">${q.expiry_date ? new Date(q.expiry_date).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"}) : "—"}</div>
+    </div>
+  </div>
+
+  <table class="items">
+    <thead>
+      <tr>
+        <th style="text-align:left">Description</th>
+        <th style="text-align:center">Qty</th>
+        <th style="text-align:right">Unit Price</th>
+        <th style="text-align:right">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${linesHtml || `<tr><td colspan="4" style="padding:16px;text-align:center;color:#9ca3af">No line items</td></tr>`}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <div class="totals-box">
+      <div class="totals-row"><span>Subtotal</span><span>£${Number(q.subtotal||q.total||0).toFixed(2)}</span></div>
+      ${(q.discount_amount && Number(q.discount_amount)>0) ? `<div class="totals-row"><span>Discount</span><span>-£${Number(q.discount_amount).toFixed(2)}</span></div>` : ""}
+      <div class="totals-row grand"><span>TOTAL</span><span>£${Number(q.total||0).toFixed(2)}</span></div>
+    </div>
+  </div>
+
+  ${q.notes ? `<div class="notes-section"><div class="notes-label">Notes</div><div class="notes-text">${esc(q.notes)}</div></div>` : ""}
+  ${q.terms ? `<div class="notes-section"><div class="notes-label">Terms &amp; Conditions</div><div class="notes-text">${esc(q.terms)}</div></div>` : ""}
+</div>
+
+<div class="footer">
+  This document is a QUOTE only and does not constitute an invoice or demand for payment. Quote reference: ${esc(q.quote_number||"")} · Generated ${new Date().toLocaleDateString("en-GB")}
+</div>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank");
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 600);
 }
 
 async function deleteQuote(id) {

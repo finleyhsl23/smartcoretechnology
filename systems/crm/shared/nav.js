@@ -1,6 +1,6 @@
 import { initials, esc } from "./ui.js";
 import { toggleTheme } from "./theme.js";
-import { logout, tierHasFeature } from "./auth.js";
+import { logout, tierHasFeature, getCRMSettings } from "./auth.js";
 import { sb } from "./supabase.js";
 
 const NAV_LINKS = [
@@ -40,6 +40,15 @@ export function renderNav(currentPage, profile, tier, crmSettings) {
   function linkVisible(l) {
     if (l.featureFlag === "leaderboard" && crmSettings?.leaderboard_enabled === false) return false;
     return true;
+  }
+
+  // When crmSettings not provided, fetch it and patch nav if leaderboard needs hiding
+  if (crmSettings === undefined && tierHasFeature(tier, "leaderboard")) {
+    getCRMSettings().then(s => {
+      if (s?.leaderboard_enabled === false) {
+        nav.querySelectorAll('a[href*="leaderboard"]').forEach(el => el.remove());
+      }
+    }).catch(() => {});
   }
 
   nav.innerHTML = `
