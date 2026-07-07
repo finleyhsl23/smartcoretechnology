@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Projects — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
+  <style>
+    .project-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .project-card {
+      background: var(--card2);
+      border: 1px solid var(--line2);
+      border-radius: 12px;
+      padding: 18px;
+      cursor: pointer;
+      transition: box-shadow .15s, border-color .15s, transform .1s;
+    }
+    .project-card:hover {
+      box-shadow: 0 4px 18px rgba(0,0,0,.2);
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+    .project-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .project-card-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text1);
+      line-height: 1.3;
+    }
+    .project-card-company {
+      font-size: 12px;
+      color: var(--text3);
+      margin-bottom: 10px;
+    }
+    .project-card-desc {
+      font-size: 13px;
+      color: var(--text2);
+      line-height: 1.5;
+      margin-bottom: 12px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .project-card-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text3);
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .status-active    { background: color-mix(in srgb,#10b981 15%,transparent); color:#10b981 }
+    .status-planning  { background: color-mix(in srgb,#6366f1 15%,transparent); color:#6366f1 }
+    .status-on_hold   { background: color-mix(in srgb,#f59e0b 15%,transparent); color:#f59e0b }
+    .status-completed { background: color-mix(in srgb,#3b82f6 15%,transparent); color:#3b82f6 }
+    .status-cancelled { background: color-mix(in srgb,#ef4444 15%,transparent); color:#ef4444 }
+    .portal-chip {
+      background: color-mix(in srgb,#10b981 12%,transparent);
+      color: #10b981;
+      border: 1px solid color-mix(in srgb,#10b981 30%,transparent);
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+    }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Projects</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess } from "/systems/crm/shared/auth.js?v=3";
+import { sb } from "/systems/crm/shared/supabase.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=10";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmtDate, toast } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+const STATUS_LABELS = { active:"Active", planning:"Planning", on_hold:"On Hold", completed:"Completed", cancelled:"Cancelled" };
+const STATUS_ICONS  = { active:"🟢", planning:"🔵", on_hold:"🟡", completed:"✅", cancelled:"❌" };
+
+let profile, tier, allProjects = [], companiesList = [];
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("projects", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  await load();
+} catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session")) toast("bad","Error",e.message); }
+
+async function load(statusFilter = "") {
+  document.getElementById("content").innerHTML = `<div class="loading-spinner"><div class="spinner"></div></div>`;
+  try {
+    const { data: { session } } = await sb().auth.getSession();
+    const { data: emp } = await sb().from("core_employees").select("company_id").eq("auth_user_id", session.user.id).single();
+    const tenantId = emp?.company_id;
+    if (!tenantId) throw new Error("No employee profile found");
+
+    let q = sb().from("crm_projects")
+      .select("*, crm_companies(name)")
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false });
+    if (statusFilter) q = q.eq("status", statusFilter);
+    const { data, error } = await q;
+    if (error) throw error;
+    allProjects = data || [];
+
+    const { data: cos } = await sb().from("crm_companies").select("id,name").eq("tenant_id", tenantId).order("name");
+    companiesList = cos || [];
+
+    renderPage(statusFilter);
+  } catch(e) { toast("bad","Load error",e.message); }
+}
+
+function renderPage(selStatus) {
+  const content = document.getElementById("content");
+  const statuses = ["","active","planning","on_hold","completed","cancelled"];
+  content.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Projects</h1>
+        <p>${allProjects.length} project${allProjects.length!==1?"s":""}</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" id="newBtn">+ New Project</button>
+      </div>
+    </div>
+
+    <div class="filter-bar" style="margin-bottom:20px">
+      <select class="filter-select" id="statusFilter">
+        <option value="">All Statuses</option>
+        ${["active","planning","on_hold","completed","cancelled"].map(s =>
+          `<option value="${s}" ${selStatus===s?"selected":""}>${STATUS_ICONS[s]} ${STATUS_LABELS[s]}</option>`
+        ).join("")}
+      </select>
+    </div>
+
+    ${allProjects.length === 0
+      ? `<div class="empty-state"><div class="empty-icon">📋</div><h3>No projects yet</h3><p>Create your first project to track client work.</p></div>`
+      : `<div class="project-grid">${allProjects.map(p => projectCard(p)).join("")}</div>`}`;
+
+  document.getElementById("newBtn").onclick = () => openModal();
+  document.getElementById("statusFilter").onchange = e => load(e.target.value);
+  document.querySelectorAll(".project-card").forEach(c => {
+    c.addEventListener("click", () => openModal(allProjects.find(p => p.id === c.dataset.id)));
+  });
+}
+
+function projectCard(p) {
+  const co = p.crm_companies?.name;
+  const st = p.status || "active";
+  return `<div class="project-card" data-id="${p.id}">
+    <div class="project-card-header">
+      <div class="project-card-name">${esc(p.name)}</div>
+      <span class="status-badge status-${st}">${STATUS_ICONS[st]} ${STATUS_LABELS[st]||st}</span>
+    </div>
+    ${co ? `<div class="project-card-company">🏢 ${esc(co)}</div>` : ""}
+    ${p.description ? `<div class="project-card-desc">${esc(p.description)}</div>` : ""}
+    <div class="project-card-meta">
+      <span>${fmtDate(p.created_at)}</span>
+      ${p.visible_to_portal ? `<span class="portal-chip">Portal</span>` : ""}
+    </div>
+  </div>`;
+}
+
+function openModal(project = null) {
+  const isEdit = !!project;
+  const compOpts = companiesList.map(c => `<option value="${c.id}" ${project?.crm_company_id===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>${isEdit ? "Edit Project" : "New Project"}</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Project Name *</label>
+          <input class="form-control" id="mName" value="${esc(project?.name||"")}" placeholder="e.g. Website Rebuild Phase 2"/>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Company</label>
+            <select class="form-control" id="mCompany">
+              <option value="">None</option>${compOpts}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select class="form-control" id="mStatus">
+              ${["active","planning","on_hold","completed","cancelled"].map(s =>
+                `<option value="${s}" ${(project?.status||"active")===s?"selected":""}>${STATUS_LABELS[s]}</option>`
+              ).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" id="mDesc" rows="3" placeholder="What does this project cover?">${esc(project?.description||"")}</textarea>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+          <input type="checkbox" id="mPortal" ${project?.visible_to_portal?"checked":""}/>
+          <label for="mPortal" class="form-label" style="margin:0;cursor:pointer">Visible in customer portal</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        ${isEdit ? `<button class="btn btn-danger" id="delBtn">Delete</button>` : ""}
+        <button class="btn modal-close" style="margin-left:auto">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">${isEdit?"Save Changes":"Create Project"}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  if (isEdit) {
+    overlay.querySelector("#delBtn").onclick = async () => {
+      if (!confirm(`Delete "${project.name}"?`)) return;
+      const { data: { session } } = await sb().auth.getSession();
+      const { error } = await sb().from("crm_projects").delete().eq("id", project.id);
+      if (error) return toast("bad","Error",error.message);
+      overlay.remove();
+      toast("ok","Project deleted");
+      await load(document.getElementById("statusFilter")?.value || "");
+    };
+  }
+
+  overlay.querySelector("#saveBtn").onclick = async () => {
+    const name = overlay.querySelector("#mName").value.trim();
+    if (!name) return toast("warn","Validation","Project name is required.");
+    const btn = overlay.querySelector("#saveBtn");
+    btn.disabled = true;
+    try {
+      const { data: { session } } = await sb().auth.getSession();
+      const { data: emp } = await sb().from("core_employees").select("company_id").eq("auth_user_id", session.user.id).single();
+      const fields = {
+        name,
+        crm_company_id: overlay.querySelector("#mCompany").value || null,
+        status: overlay.querySelector("#mStatus").value,
+        description: overlay.querySelector("#mDesc").value.trim() || null,
+        visible_to_portal: overlay.querySelector("#mPortal").checked,
+        updated_at: new Date().toISOString(),
+      };
+      if (isEdit) {
+        const { error } = await sb().from("crm_projects").update(fields).eq("id", project.id);
+        if (error) throw error;
+        toast("ok","Project updated");
+      } else {
+        const { error } = await sb().from("crm_projects").insert({ ...fields, tenant_id: emp.company_id, created_by: session.user.id });
+        if (error) throw error;
+        toast("ok","Project created");
+      }
+      overlay.remove();
+      await load(document.getElementById("statusFilter")?.value || "");
+    } catch(e) {
+      toast("bad","Error",e.message);
+      btn.disabled = false;
+    }
+  };
+}
+</script>
+</body>
+</html>

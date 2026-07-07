@@ -5,6 +5,170 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Pipeline — SmartCore CRM</title>
   <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
+  <style>
+    .pipeline-wrap {
+      display: flex;
+      gap: 14px;
+      overflow-x: auto;
+      padding-bottom: 16px;
+      align-items: flex-start;
+    }
+    .pipeline-col {
+      flex: 0 0 240px;
+      min-width: 240px;
+      border-radius: 12px;
+      background: var(--card2);
+      border: 1px solid var(--line2);
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 200px);
+    }
+    .pipeline-col-header {
+      padding: 12px 14px 10px;
+      border-bottom: 1px solid var(--line2);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--card2);
+      border-radius: 12px 12px 0 0;
+    }
+    .pipeline-col-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .pipeline-col-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .3px;
+      text-transform: uppercase;
+      color: var(--text1);
+    }
+    .pipeline-col-count {
+      background: var(--card3);
+      color: var(--text2);
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+    }
+    .pipeline-col-value {
+      font-size: 12px;
+      color: var(--text3);
+      font-weight: 500;
+    }
+    .pipeline-col-body {
+      padding: 10px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+    }
+    .pipeline-card {
+      background: var(--card);
+      border: 1px solid var(--line2);
+      border-radius: 10px;
+      padding: 12px 13px;
+      cursor: pointer;
+      transition: transform .1s, box-shadow .1s, border-color .15s;
+      position: relative;
+    }
+    .pipeline-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(0,0,0,.2);
+      border-color: var(--accent);
+    }
+    .pipeline-card.dragging {
+      opacity: .4;
+    }
+    .pipeline-card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text1);
+      line-height: 1.35;
+      margin-bottom: 5px;
+    }
+    .pipeline-card-company {
+      font-size: 11px;
+      color: var(--text3);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .pipeline-card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+    .pipeline-card-value {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .pipeline-card-assignee {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--card3);
+      color: var(--text2);
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      border: 1.5px solid var(--line2);
+    }
+    .pipeline-prob-bar {
+      height: 3px;
+      border-radius: 2px;
+      background: var(--line2);
+      margin: 6px 0;
+      overflow: hidden;
+    }
+    .pipeline-prob-fill {
+      height: 100%;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+    .pipeline-drop-zone {
+      min-height: 40px;
+      border-radius: 8px;
+      border: 2px dashed transparent;
+      transition: border-color .15s, background .15s;
+    }
+    .pipeline-drop-zone.over, .pipeline-col-body.over {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 8%, transparent);
+    }
+    .pipeline-stage-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+      flex-shrink: 0;
+    }
+    .pipeline-summary {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .pipeline-stat {
+      background: var(--card2);
+      border: 1px solid var(--line2);
+      border-radius: 10px;
+      padding: 10px 16px;
+      min-width: 120px;
+    }
+    .pipeline-stat-label { font-size: 11px; color: var(--text3); margin-bottom: 2px; text-transform: uppercase; letter-spacing: .4px; }
+    .pipeline-stat-value { font-size: 18px; font-weight: 700; color: var(--text1); }
+  </style>
 </head>
 <body>
 <div class="crm-shell">
@@ -13,13 +177,13 @@
   <div class="crm-main">
     <div class="crm-topbar">
       <button class="hamburger" id="hamburger">☰</button>
-      <div class="topbar-title">Pipeline <span id="pipelineValue"></span></div>
+      <div class="topbar-title">Pipeline</div>
       <div class="topbar-actions">
         <button class="topbar-btn" id="themeToggle">☀️</button>
         <button class="topbar-btn" id="logoutBtn">🚪</button>
       </div>
     </div>
-    <div class="crm-content" id="content" style="padding:16px;overflow-x:auto">
+    <div class="crm-content" id="content" style="padding:20px;overflow-x:auto">
       <div class="loading-spinner"><div class="spinner"></div></div>
     </div>
   </div>
@@ -31,19 +195,29 @@ import { requireCRMAccess } from "/systems/crm/shared/auth.js?v=3";
 import { leads } from "/systems/crm/shared/api.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=10";
 import { initTheme } from "/systems/crm/shared/theme.js";
-import { esc, fmt, fmtDate, toast } from "/systems/crm/shared/ui.js";
+import { esc, toast } from "/systems/crm/shared/ui.js";
 
 initTheme();
 
 const STAGES = [
-  { id: "new",           label: "New",           color: "#6366f1" },
-  { id: "contacted",     label: "Contacted",      color: "#f59e0b" },
-  { id: "qualified",     label: "Qualified",      color: "#3b82f6" },
-  { id: "proposal_sent", label: "Proposal Sent",  color: "#8b5cf6" },
-  { id: "negotiation",   label: "Negotiation",    color: "#ec4899" },
-  { id: "won",           label: "Won",            color: "#10b981" },
-  { id: "lost",          label: "Lost",           color: "#ef4444" },
+  { id: "new",          label: "New",           color: "#6366f1" },
+  { id: "contacted",    label: "Contacted",      color: "#f59e0b" },
+  { id: "qualified",    label: "Qualified",      color: "#3b82f6" },
+  { id: "proposal",     label: "Proposal Sent",  color: "#8b5cf6" },
+  { id: "negotiation",  label: "Negotiation",    color: "#ec4899" },
+  { id: "won",          label: "Won",            color: "#10b981" },
+  { id: "lost",         label: "Lost",           color: "#ef4444" },
 ];
+
+function fmt(n) {
+  if (!n) return "—";
+  return "£" + Number(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function initials(name) {
+  if (!name) return "?";
+  return name.split(" ").slice(0,2).map(w=>w[0]).join("").toUpperCase();
+}
 
 let profile, tier, allLeads = [];
 let draggedId = null;
@@ -63,67 +237,90 @@ async function load() {
 }
 
 function renderBoard() {
-  const pipelineLeads = allLeads.filter(l => !["won","lost"].includes(l.status));
-  const totalValue = pipelineLeads.reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
-  document.getElementById("pipelineValue").textContent = `· ${fmt(totalValue)} pipeline`;
-
-  const board = document.createElement("div");
-  board.className = "kanban-board";
-  board.id = "kanbanBoard";
-
-  for (const stage of STAGES) {
-    const stageLeads = allLeads.filter(l => l.pipeline_stage === stage.id || l.status === stage.id);
-    const stageValue = stageLeads.reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
-
-    const col = document.createElement("div");
-    col.className = "kanban-col";
-    col.dataset.stage = stage.id;
-    col.innerHTML = `
-      <div class="kanban-col-header" style="border-top:3px solid ${stage.color}">
-        <span class="col-title">${stage.label}</span>
-        <span class="col-count">${stageLeads.length}</span>
-      </div>
-      <div style="padding:4px 10px;font-size:11px;color:var(--text3);border-bottom:1px solid var(--line2)">${fmt(stageValue)}</div>
-      <div class="kanban-col-body" id="col-${stage.id}">
-        ${stageLeads.map(l => cardHtml(l)).join("")}
-        <div class="kanban-drop-zone" data-stage="${stage.id}"></div>
-      </div>`;
-    board.appendChild(col);
-  }
+  const active = allLeads.filter(l => !["won","lost"].includes(l.status));
+  const totalValue = active.reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
+  const wonValue = allLeads.filter(l=>l.status==="won").reduce((s,l)=>s+(Number(l.estimated_value)||0),0);
+  const openCount = active.length;
 
   const content = document.getElementById("content");
   content.innerHTML = `
     <div class="page-header">
       <div class="page-header-left">
         <h1>Sales Pipeline</h1>
-        <p>Drag and drop leads between stages</p>
+        <p>Drag cards between stages to update — click to open</p>
       </div>
       <div class="page-header-actions">
         <button class="btn btn-primary" onclick="window.location.href='/systems/crm/leads.html'">+ New Lead</button>
       </div>
-    </div>`;
-  content.appendChild(board);
+    </div>
 
-  // Drag & drop
+    <div class="pipeline-summary">
+      <div class="pipeline-stat">
+        <div class="pipeline-stat-label">Active Pipeline</div>
+        <div class="pipeline-stat-value">${fmt(totalValue)}</div>
+      </div>
+      <div class="pipeline-stat">
+        <div class="pipeline-stat-label">Open Deals</div>
+        <div class="pipeline-stat-value">${openCount}</div>
+      </div>
+      <div class="pipeline-stat">
+        <div class="pipeline-stat-label">Won This Year</div>
+        <div class="pipeline-stat-value">${fmt(wonValue)}</div>
+      </div>
+    </div>
+
+    <div class="pipeline-wrap" id="pipelineBoard"></div>`;
+
+  const board = document.getElementById("pipelineBoard");
+
+  for (const stage of STAGES) {
+    const stageLeads = allLeads.filter(l => {
+      const ps = (l.pipeline_stage || "").toLowerCase();
+      const st = (l.status || "").toLowerCase();
+      return ps === stage.id || st === stage.id;
+    });
+    const stageValue = stageLeads.reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
+
+    const col = document.createElement("div");
+    col.className = "pipeline-col";
+    col.dataset.stage = stage.id;
+    col.innerHTML = `
+      <div class="pipeline-col-header" style="border-top:3px solid ${stage.color};border-radius:9px 9px 0 0">
+        <div class="pipeline-col-title-row">
+          <span class="pipeline-col-title">
+            <span class="pipeline-stage-dot" style="background:${stage.color}"></span>${stage.label}
+          </span>
+          <span class="pipeline-col-count">${stageLeads.length}</span>
+        </div>
+        <div class="pipeline-col-value">${fmt(stageValue)}</div>
+      </div>
+      <div class="pipeline-col-body" id="col-${stage.id}">
+        ${stageLeads.map(l => cardHtml(l)).join("")}
+        <div class="pipeline-drop-zone" data-stage="${stage.id}"></div>
+      </div>`;
+    board.appendChild(col);
+  }
+
   initDragDrop();
 }
 
 function cardHtml(l) {
   const co = l.crm_companies?.name;
-  const lastActivity = l.updated_at ? fmtDate(l.updated_at) : "—";
-  return `<div class="kanban-card" draggable="true" data-id="${l.id}" data-stage="${l.pipeline_stage || l.status}">
-    <div class="kcard-title">${esc(l.title)}</div>
-    ${co ? `<div class="kcard-company">🏢 ${esc(co)}</div>` : ""}
-    ${l.probability ? `<div style="margin-bottom:6px"><div class="progress-bar"><div class="progress-fill" style="width:${l.probability}%"></div></div></div>` : ""}
-    <div class="kcard-footer">
-      <span class="kcard-value">${l.estimated_value ? fmt(l.estimated_value) : "—"}</span>
-      <span class="kcard-date">${lastActivity}</span>
+  const assignee = l.core_employees?.full_name || l.assigned_name || "";
+  const prob = l.probability || 0;
+  return `<div class="pipeline-card" draggable="true" data-id="${l.id}" data-stage="${l.pipeline_stage || l.status}">
+    <div class="pipeline-card-title">${esc(l.title)}</div>
+    ${co ? `<div class="pipeline-card-company">🏢 ${esc(co)}</div>` : ""}
+    ${prob ? `<div class="pipeline-prob-bar"><div class="pipeline-prob-fill" style="width:${prob}%"></div></div>` : ""}
+    <div class="pipeline-card-footer">
+      <span class="pipeline-card-value">${l.estimated_value ? fmt(l.estimated_value) : "—"}</span>
+      ${assignee ? `<div class="pipeline-card-assignee" title="${esc(assignee)}">${initials(assignee)}</div>` : ""}
     </div>
   </div>`;
 }
 
 function initDragDrop() {
-  document.querySelectorAll(".kanban-card").forEach(card => {
+  document.querySelectorAll(".pipeline-card").forEach(card => {
     card.addEventListener("dragstart", e => {
       draggedId = card.dataset.id;
       card.classList.add("dragging");
@@ -131,14 +328,14 @@ function initDragDrop() {
     });
     card.addEventListener("dragend", () => {
       card.classList.remove("dragging");
-      document.querySelectorAll(".kanban-drop-zone").forEach(z => z.classList.remove("over"));
+      document.querySelectorAll(".pipeline-drop-zone,.pipeline-col-body").forEach(z => z.classList.remove("over"));
     });
     card.addEventListener("click", () => {
       window.location.href = `/systems/crm/leads.html`;
     });
   });
 
-  document.querySelectorAll(".kanban-col-body, .kanban-drop-zone").forEach(zone => {
+  document.querySelectorAll(".pipeline-col-body, .pipeline-drop-zone").forEach(zone => {
     zone.addEventListener("dragover", e => {
       e.preventDefault();
       zone.classList.add("over");
@@ -147,7 +344,7 @@ function initDragDrop() {
     zone.addEventListener("drop", async e => {
       e.preventDefault();
       zone.classList.remove("over");
-      const newStage = zone.dataset.stage || zone.closest(".kanban-col")?.dataset.stage;
+      const newStage = zone.dataset.stage || zone.closest(".pipeline-col")?.dataset.stage;
       if (!draggedId || !newStage) return;
       try {
         await leads.updateStage(draggedId, newStage);
