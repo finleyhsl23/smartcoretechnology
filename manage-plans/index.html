@@ -138,6 +138,28 @@
   <div class="spin" id="loader">Loading your plan…</div>
 </div>
 
+<!-- Confirm change modal -->
+<div class="modal-bg hide" id="confirmChangeModal">
+  <div class="modal">
+    <h3 id="confirmChangeTitle">Confirm change</h3>
+    <p id="confirmChangeBody" style="margin-bottom:8px"></p>
+    <div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.15);border-radius:10px;padding:14px 16px;margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px">
+        <span style="color:var(--muted)">Current total</span>
+        <span id="confirmOldPrice"></span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700">
+        <span>New total</span>
+        <span style="color:var(--accent)" id="confirmNewPrice"></span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeConfirmModal()">Cancel</button>
+      <button class="btn btn-primary" id="confirmChangeBtn">Confirm change</button>
+    </div>
+  </div>
+</div>
+
 <!-- Cancel whole subscription modal -->
 <div class="modal-bg hide" id="cancelModal">
   <div class="modal">
@@ -422,9 +444,10 @@
     let subtotal = 0;
     for (const mod of (purchased_modules || [])) {
       if (mod.module_slug === 'smartcore-core') continue;
-      const price = Number(mod.price || 0);
+      if (mod.status === 'cancelling') continue;
+      const base = Number(mod.price || 0);
       const isCrm = mod.module_slug?.startsWith('smartcore-crm');
-      subtotal += isCrm ? price : price / (order.size_multiplier || 1) * newMultiplier;
+      subtotal += isCrm ? base : base * newMultiplier;
     }
     const disc = subtotal * (order.discount_percent || 0) / 100;
     return Math.max(0, subtotal - disc);
@@ -454,48 +477,83 @@
     if (btn) btn.disabled = selectedCrmSlug === activeCrm?.module_slug;
   }
 
-  async function saveSize() {
-    const btn = document.getElementById('saveSizeBtn');
-    const msg = document.getElementById('sizeMsg');
-    btn.disabled = true; btn.textContent = 'Saving…';
-    msg.textContent = '';
+  let pendingAction = null;
 
-    const res = await fetch('/api/manage-plan', {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${jwtToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'change_size', new_tier_id: selectedTier })
-    });
-
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      toast('err', 'Could not update', data.error || 'Something went wrong');
-      btn.disabled = false; btn.textContent = 'Save size change';
-      return;
-    }
-
-    toast('ok', 'Size updated', `Now on ${data.new_tier?.label} tier — £${Number(data.new_total).toFixed(2)}/mo`);
-    await loadPlan();
+  function closeConfirmModal() {
+    document.getElementById('confirmChangeModal').classList.add('hide');
+    pendingAction = null;
   }
 
-  async function saveCrm() {
-    const btn = document.getElementById('saveCrmBtn');
-    btn.disabled = true; btn.textContent = 'Saving…';
+  function saveSize() {
+    const tier = SIZE_TIERS.find(t => t.id === selectedTier);
+    if (!tier) return;
+    const billing = planData.order.billing_type === 'yearly' ? '/yr' : '/mo';
+    const currentTotal = calcNewTotal(planData, planData.order.size_multiplier || 1);
+    const newTotal = calcNewTotal(planData, tier.multiplier);
 
-    const res = await fetch('/api/manage-plan', {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${jwtToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'change_crm_tier', new_crm_slug: selectedCrmSlug })
-    });
+    document.getElementById('confirmChangeTitle').textContent = `Switch to ${tier.label} tier?`;
+    document.getElementById('confirmChangeBody').textContent = `You're moving to the ${tier.label} plan (${tier.range} employees). Your billing will update immediately.`;
+    document.getElementById('confirmOldPrice').textContent = `£${currentTotal.toFixed(2)}${billing}`;
+    document.getElementById('confirmNewPrice').textContent = `£${newTotal.toFixed(2)}${billing}`;
 
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      toast('err', 'Could not update', data.error || 'Something went wrong');
-      btn.disabled = false; btn.textContent = 'Save CRM change';
-      return;
-    }
+    pendingAction = async () => {
+      const res = await fetch('/api/manage-plan', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${jwtToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'change_size', new_tier_id: selectedTier })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { toast('err', 'Could not update', data.error || 'Something went wrong'); return; }
+      toast('ok', 'Size updated', `Now on ${tier.label} tier — £${newTotal.toFixed(2)}${billing}`);
+      await loadPlan();
+    };
 
-    toast('ok', 'CRM tier updated', `Switched to ${data.new_module?.name}`);
-    await loadPlan();
+    document.getElementById('confirmChangeBtn').onclick = async () => {
+      const btn = document.getElementById('confirmChangeBtn');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      await pendingAction();
+      closeConfirmModal();
+      btn.disabled = false; btn.textContent = 'Confirm change';
+    };
+    document.getElementById('confirmChangeModal').classList.remove('hide');
+  }
+
+  function saveCrm() {
+    const ct = CRM_TIERS.find(c => c.slug === selectedCrmSlug);
+    if (!ct) return;
+    const billing = planData.order.billing_type === 'yearly' ? '/yr' : '/mo';
+    const currentCrm = (planData.purchased_modules || []).find(m => m.module_slug?.startsWith('smartcore-crm'));
+    const currentCrmLabel = CRM_TIERS.find(c => c.slug === currentCrm?.module_slug)?.label || 'current plan';
+    const currentTotal = calcNewTotal(planData, planData.order.size_multiplier || 1);
+    // Swap CRM price for new total estimate
+    const nonCrmTotal = currentTotal - Number(currentCrm?.price || 0);
+    const newTotal = nonCrmTotal + ct.price;
+
+    document.getElementById('confirmChangeTitle').textContent = `Switch to ${ct.label}?`;
+    document.getElementById('confirmChangeBody').textContent = `You're switching from ${currentCrmLabel} to ${ct.label}. The change takes effect immediately.`;
+    document.getElementById('confirmOldPrice').textContent = `£${currentTotal.toFixed(2)}${billing}`;
+    document.getElementById('confirmNewPrice').textContent = `£${newTotal.toFixed(2)}${billing}`;
+
+    pendingAction = async () => {
+      const res = await fetch('/api/manage-plan', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${jwtToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'change_crm_tier', new_crm_slug: selectedCrmSlug })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { toast('err', 'Could not update', data.error || 'Something went wrong'); return; }
+      toast('ok', 'CRM tier updated', `Switched to ${ct.label} — £${newTotal.toFixed(2)}${billing}`);
+      await loadPlan();
+    };
+
+    document.getElementById('confirmChangeBtn').onclick = async () => {
+      const btn = document.getElementById('confirmChangeBtn');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      await pendingAction();
+      closeConfirmModal();
+      btn.disabled = false; btn.textContent = 'Confirm change';
+    };
+    document.getElementById('confirmChangeModal').classList.remove('hide');
   }
 
   let pendingModuleSlug = null;

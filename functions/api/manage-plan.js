@@ -60,15 +60,10 @@ async function resolveOrder(env, request, url) {
   });
   if (!userRes.ok) return { error: 'Unauthorised', status: 401 };
   const user = await userRes.json();
-  // Find company via smartcore_core_employees or core_employees
+  // Find company via core_employees (user_id column)
   let companyId = null;
-  const empRows = await dbGet(env, `/smartcore_core_employees?user_id=eq.${enc(user.id)}&select=company_id&limit=1`);
-  if (empRows?.[0]?.company_id) {
-    companyId = empRows[0].company_id;
-  } else {
-    const hrRows = await dbGet(env, `/core_employees?auth_user_id=eq.${enc(user.id)}&select=company_id&limit=1`);
-    if (hrRows?.[0]?.company_id) companyId = hrRows[0].company_id;
-  }
+  const empRows = await dbGet(env, `/core_employees?user_id=eq.${enc(user.id)}&select=company_id&limit=1`);
+  if (empRows?.[0]?.company_id) companyId = empRows[0].company_id;
   if (!companyId) return { error: 'No company found for this user', status: 404 };
   const coRows = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(companyId)}&select=order_id&limit=1`);
   const orderId = coRows?.[0]?.order_id;
