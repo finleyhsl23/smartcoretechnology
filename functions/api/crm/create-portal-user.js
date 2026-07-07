@@ -79,7 +79,7 @@ export async function onRequestPost({ request, env }) {
       // Fetch branding for tenant
       let branding = {};
       try {
-        const bRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_settings?tenant_id=eq.${tenantId}&select=branding&limit=1`, {
+        const bRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_settings?tenant_id=eq.${encodeURIComponent(tenantId)}&select=branding&limit=1`, {
           headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
         });
         const [bRow] = await bRes.json();
