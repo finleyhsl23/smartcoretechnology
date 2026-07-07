@@ -298,9 +298,12 @@
     // SmartCore Core always included
     html += modRow({ module_slug:'smartcore-core', module_name:'SmartCore Core' }, 0, billing, order, false);
 
+    const multiplier = order.size_multiplier || 1;
     for (const mod of activeMods) {
       if (mod.module_slug === 'smartcore-core') continue;
-      const price = Number(mod.price || 0);
+      const basePrice = Number(mod.price || 0);
+      const isCrm = mod.module_slug?.startsWith('smartcore-crm');
+      const price = isCrm ? basePrice : basePrice * multiplier;
       html += modRow(mod, price, billing, order, true);
     }
 
@@ -323,13 +326,12 @@
 
       for (const t of SIZE_TIERS) {
         const isCurrent = t.id === order.size_tier;
-        const newTotal = calcNewTotal(planData, t.multiplier);
         html += `
           <div class="tier-card ${isCurrent ? 'current' : ''} ${selectedTier === t.id && !isCurrent ? 'selected' : ''}"
                onclick="selectTier('${t.id}')" id="tier-${t.id}">
             <div class="tier-label">${t.label}</div>
             <div class="tier-range">${t.range} staff</div>
-            <div class="tier-price">£${newTotal.toFixed(2)}${billing}</div>
+            <div class="tier-price">${t.multiplier}× multiplier</div>
             ${isCurrent ? `<div style="font-size:10px;color:#4ade80;margin-top:4px;font-weight:700">CURRENT</div>` : ''}
           </div>`;
       }
