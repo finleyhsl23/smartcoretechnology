@@ -93,7 +93,7 @@ export const TIER_FEATURES = {
     "leads","lead_scoring","pipeline","tasks",
     "calendar","quotes","quote_acceptance",
     "documents","reports","forecasting",
-    "email_templates","leaderboard","support_tickets",
+    "email_templates","leaderboard","support_tickets","newsletter",
     "reminders","commands",
   ],
   business: [
@@ -102,7 +102,7 @@ export const TIER_FEATURES = {
     "leads","lead_scoring","pipeline","tasks",
     "calendar","quotes","quote_acceptance",
     "documents","reports","forecasting",
-    "email_templates","leaderboard","support_tickets",
+    "email_templates","leaderboard","support_tickets","newsletter",
     "messaging","portal","projects",
     "custom_pipelines","department_mgmt",
     "reminders","commands",

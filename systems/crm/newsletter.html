@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Newsletter — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
+  <style>
+    .var-btn-wrap { position: relative; display: inline-block; }
+    .var-dropdown {
+      display: none; position: absolute; top: calc(100% + 4px); left: 0;
+      background: var(--card); border: 1px solid var(--line2); border-radius: 10px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.4); z-index: 200; min-width: 210px; overflow: hidden;
+    }
+    .var-dropdown.open { display: block; }
+    .var-option {
+      padding: 9px 14px; cursor: pointer; font-size: 13px;
+      display: flex; flex-direction: column; gap: 2px;
+      transition: background .1s; border-bottom: 1px solid var(--line2);
+    }
+    .var-option:last-child { border-bottom: none; }
+    .var-option:hover { background: var(--sb-hover); }
+    .var-option code { font-size: 11px; color: var(--accent, #5b8fff); font-family: monospace; }
+    .var-option span { font-size: 12px; color: var(--text3); }
+
+    .preview-wrap {
+      background: #f0f4ff; border-radius: 12px; padding: 24px;
+      font-family: 'Segoe UI', Arial, sans-serif; overflow: auto;
+    }
+    .preview-inner {
+      background: #fff; border-radius: 14px; max-width: 540px; margin: 0 auto;
+      box-shadow: 0 4px 24px rgba(0,0,0,.1); overflow: hidden;
+    }
+    .preview-header { padding: 26px 36px; text-align: center; }
+    .preview-body   { padding: 32px 36px 24px; color: #1a1a2e; }
+    .preview-footer { padding: 16px 36px; text-align: center; font-size: 12px; color: #9ca3af; background: #f8f9fc; border-top: 1px solid #e5e7eb; }
+
+    .recipient-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(30,92,255,.1); border: 1px solid rgba(30,92,255,.2);
+      border-radius: 99px; padding: 4px 12px; font-size: 12px; font-weight: 600; color: var(--blue2);
+    }
+    .progress-bar-wrap { height: 6px; background: var(--line2); border-radius: 99px; overflow: hidden; margin-top: 6px; }
+    .progress-bar-fill { height: 100%; background: #1e5cff; border-radius: 99px; transition: width .3s; }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Newsletter</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess, tierHasFeature, getCRMSettings } from "/systems/crm/shared/auth.js?v=3";
+import { sb } from "/systems/crm/shared/supabase.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=10";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, toast, tierGate, confirm } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier, crmSettings;
+let _recipientType = "contacts"; // "contacts" | "portal_users" | "both"
+let _recipientCount = 0;
+
+const VARIABLES = [
+  { tag: "{{name}}",         label: "Recipient name",       hint: "Full name of the recipient" },
+  { tag: "{{first_name}}",   label: "First name",           hint: "First name only" },
+  { tag: "{{company}}",      label: "Their company",        hint: "Recipient's company name" },
+  { tag: "{{your_company}}", label: "Your company name",    hint: "Your branding company name" },
+];
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  crmSettings = await getCRMSettings();
+  renderNav("newsletter", profile, tier, crmSettings);
+  initMobileNav();
+  initTopbar(profile);
+
+  if (!tierHasFeature(tier, "newsletter")) {
+    document.getElementById("content").innerHTML = tierGate("newsletter");
+  } else {
+    await renderPage();
+  }
+} catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session")) toast("bad","Error",e.message); }
+
+async function renderPage() {
+  const branding = crmSettings?.branding || {};
+  const companyName = branding.company_name || "SmartCore Technology";
+  const primaryColor = branding.primary_color || "#1e5cff";
+  const logoUrl = branding.prefer_icon ? (branding.icon_url || branding.logo_url) : (branding.logo_url || branding.icon_url);
+
+  await refreshCount();
+
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Newsletter</h1>
+        <p>Compose and send branded emails to your contacts or portal users</p>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+
+      <!-- Composer -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+
+        <!-- Recipients -->
+        <div class="card">
+          <div class="card-header"><h2>Recipients</h2></div>
+          <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              ${[
+                ["contacts",     "📋 Contacts"],
+                ["portal_users", "🌐 Portal Users"],
+                ["both",         "👥 Both"],
+              ].map(([v,l]) => `
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer;padding:8px 14px;border:1px solid var(--line2);border-radius:8px;font-size:13px;font-weight:600;transition:all .15s;${_recipientType===v?"background:rgba(30,92,255,.1);border-color:rgba(30,92,255,.4);color:var(--blue2)":""}">
+                  <input type="radio" name="recipType" value="${v}" ${_recipientType===v?"checked":""} style="display:none">
+                  ${l}
+                </label>`).join("")}
+            </div>
+            <div id="recipientCount" style="font-size:13px;color:var(--text3)">Loading recipient count…</div>
+          </div>
+        </div>
+
+        <!-- Subject -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Subject</h2>
+            <div class="var-btn-wrap">
+              <button class="btn btn-sm" onclick="toggleVarDrop('subjectVars')">+ Variable ▾</button>
+              <div class="var-dropdown" id="subjectVars">
+                ${VARIABLES.map(v => `
+                  <div class="var-option" onclick="insertVar('nlSubject','${v.tag}');closeAllVarDrops()">
+                    <code>${v.tag}</code>
+                    <span>${v.label}</span>
+                  </div>`).join("")}
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <input class="form-control" id="nlSubject" placeholder="e.g. Important update for {{company}}" oninput="updatePreview()"/>
+          </div>
+        </div>
+
+        <!-- Body -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Body</h2>
+            <div class="var-btn-wrap">
+              <button class="btn btn-sm" onclick="toggleVarDrop('bodyVars')">+ Variable ▾</button>
+              <div class="var-dropdown" id="bodyVars">
+                ${VARIABLES.map(v => `
+                  <div class="var-option" onclick="insertVar('nlBody','${v.tag}');closeAllVarDrops()">
+                    <code>${v.tag}</code>
+                    <span>${v.label}</span>
+                  </div>`).join("")}
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <textarea class="form-control" id="nlBody" rows="10" placeholder="Hi {{first_name}},&#10;&#10;We wanted to share some exciting news with you…" oninput="updatePreview()" style="resize:vertical;font-size:14px;line-height:1.6"></textarea>
+            <div style="margin-top:8px;font-size:12px;color:var(--text3)">Plain text — line breaks become paragraphs. Variables are replaced per recipient.</div>
+          </div>
+        </div>
+
+        <!-- Send button -->
+        <button class="btn btn-primary" id="sendBtn" style="padding:14px;font-size:15px;font-weight:700" onclick="sendNewsletter()">
+          📧 Send Newsletter
+        </button>
+        <div id="sendProgress" style="display:none">
+          <div style="font-size:13px;color:var(--text3);margin-bottom:4px" id="progressLabel">Sending…</div>
+          <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressFill" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <!-- Preview -->
+      <div class="card" style="position:sticky;top:20px">
+        <div class="card-header"><h2>Preview</h2><span style="font-size:12px;color:var(--text3)">Sample recipient</span></div>
+        <div class="card-body" style="padding:0">
+          <div class="preview-wrap" id="emailPreview">
+            <div class="preview-inner">
+              <div class="preview-header" style="background:${primaryColor}">
+                ${logoUrl
+                  ? `<img src="${logoUrl}" alt="${esc(companyName)}" style="max-height:48px;max-width:180px;object-fit:contain;display:block;margin:0 auto"/>`
+                  : `<div style="font-size:20px;font-weight:800;color:#fff">${esc(companyName)}</div>`}
+              </div>
+              <div class="preview-body" id="previewBody">
+                <p style="color:#9ca3af;font-size:14px">Start typing to preview your email…</p>
+              </div>
+              <div class="preview-footer">${esc(companyName)} · Sent via SmartCore CRM</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  // Radio change
+  document.querySelectorAll('input[name="recipType"]').forEach(r => {
+    r.addEventListener("change", async () => {
+      _recipientType = r.value;
+      // Update label styles
+      document.querySelectorAll('label[style]').forEach(l => {
+        const inp = l.querySelector('input[name="recipType"]');
+        if (inp) l.style.cssText = inp.value === _recipientType
+          ? "display:flex;align-items:center;gap:7px;cursor:pointer;padding:8px 14px;border:1px solid rgba(30,92,255,.4);border-radius:8px;font-size:13px;font-weight:600;background:rgba(30,92,255,.1);color:var(--blue2)"
+          : "display:flex;align-items:center;gap:7px;cursor:pointer;padding:8px 14px;border:1px solid var(--line2);border-radius:8px;font-size:13px;font-weight:600";
+      });
+      await refreshCount();
+    });
+  });
+
+  // Close dropdowns on outside click
+  document.addEventListener("click", e => {
+    if (!e.target.closest(".var-btn-wrap")) closeAllVarDrops();
+  }, { capture: true });
+
+  updatePreview();
+}
+
+async function refreshCount() {
+  const el = document.getElementById("recipientCount");
+  if (el) el.textContent = "Loading…";
+  try {
+    let count = 0;
+    if (_recipientType === "contacts" || _recipientType === "both") {
+      const { count: c } = await sb().from("crm_contacts").select("id", { count: "exact", head: true })
+        .eq("tenant_id", profile.company_id).not("email", "is", null).neq("email", "");
+      count += c || 0;
+    }
+    if (_recipientType === "portal_users" || _recipientType === "both") {
+      const { count: c } = await sb().from("crm_portal_users").select("id", { count: "exact", head: true })
+        .eq("tenant_id", profile.company_id).eq("status", "active");
+      count += c || 0;
+    }
+    _recipientCount = count;
+    if (el) el.innerHTML = `<span class="recipient-chip">📬 ${count} recipient${count===1?"":"s"}</span>`;
+  } catch { if (el) el.textContent = "Could not load count"; }
+}
+
+window.toggleVarDrop = (id) => {
+  const drop = document.getElementById(id);
+  const wasOpen = drop.classList.contains("open");
+  closeAllVarDrops();
+  if (!wasOpen) drop.classList.add("open");
+};
+window.closeAllVarDrops = () => {
+  document.querySelectorAll(".var-dropdown").forEach(d => d.classList.remove("open"));
+};
+
+window.insertVar = (fieldId, tag) => {
+  const el = document.getElementById(fieldId);
+  if (!el) return;
+  const start = el.selectionStart ?? el.value.length;
+  const end   = el.selectionEnd   ?? el.value.length;
+  el.value = el.value.slice(0, start) + tag + el.value.slice(end);
+  el.selectionStart = el.selectionEnd = start + tag.length;
+  el.focus();
+  updatePreview();
+};
+
+window.updatePreview = () => {
+  const branding = crmSettings?.branding || {};
+  const companyName = branding.company_name || "SmartCore Technology";
+  const subject = document.getElementById("nlSubject")?.value || "";
+  const body    = document.getElementById("nlBody")?.value || "";
+
+  // Sample values for preview
+  const sample = { name: "Jane Smith", first_name: "Jane", company: "Acme Ltd", your_company: companyName };
+  const filled = (s) => s
+    .replace(/\{\{name\}\}/g, sample.name)
+    .replace(/\{\{first_name\}\}/g, sample.first_name)
+    .replace(/\{\{company\}\}/g, sample.company)
+    .replace(/\{\{your_company\}\}/g, sample.your_company);
+
+  const bodyEl = document.getElementById("previewBody");
+  if (!bodyEl) return;
+  if (!body.trim()) {
+    bodyEl.innerHTML = `<p style="color:#9ca3af;font-size:14px">Start typing to preview your email…</p>`;
+    return;
+  }
+  const htmlBody = filled(esc(body)).replace(/\n{2,}/g, '</p><p style="margin:0 0 16px">').replace(/\n/g, "<br>");
+  bodyEl.innerHTML = subject ? `<h2 style="margin:0 0 16px;font-size:20px;font-weight:800;color:#0a0f2e">${esc(filled(subject))}</h2>` : "";
+  bodyEl.innerHTML += `<p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.7">${htmlBody}</p>`;
+};
+
+window.sendNewsletter = async () => {
+  const subject = document.getElementById("nlSubject")?.value.trim();
+  const body    = document.getElementById("nlBody")?.value.trim();
+  if (!subject) return toast("warn","Missing","Please enter a subject.");
+  if (!body)    return toast("warn","Missing","Please enter a body.");
+  if (!_recipientCount) return toast("warn","No recipients","No recipients found for the selected group.");
+
+  confirm(
+    "Send Newsletter",
+    `Send to ${_recipientCount} recipient${_recipientCount===1?"":"s"}? This cannot be undone.`,
+    async () => {
+      const btn = document.getElementById("sendBtn");
+      const prog = document.getElementById("sendProgress");
+      btn.disabled = true;
+      btn.textContent = "Sending…";
+      prog.style.display = "block";
+
+      const { data: { session } } = await sb().auth.getSession();
+      try {
+        const res = await fetch("/api/crm/send-newsletter", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ subject, body, recipient_type: _recipientType }),
+        });
+        const json = await res.json();
+        document.getElementById("progressFill").style.width = "100%";
+        document.getElementById("progressLabel").textContent = `Done — ${json.sent} sent${json.failed ? ", "+json.failed+" failed" : ""}`;
+        if (json.error) {
+          toast("bad","Error",json.error);
+          btn.disabled = false; btn.textContent = "📧 Send Newsletter";
+        } else {
+          toast("ok","Newsletter sent",`${json.sent} emails delivered`);
+          btn.textContent = "✅ Sent";
+        }
+      } catch(e) {
+        toast("bad","Error",e.message);
+        btn.disabled = false; btn.textContent = "📧 Send Newsletter";
+        prog.style.display = "none";
+      }
+    }
+  );
+};
+</script>
+</body>
+</html>
