@@ -28,16 +28,17 @@
 
 <script type="module">
 import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
-import { events, companies } from "/systems/crm/shared/api.js";
+import { events, companies, tasks } from "/systems/crm/shared/api.js";
+import { sb } from "/systems/crm/shared/supabase.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=10";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmtDateTime, toast, confirm, tierGate, loading } from "/systems/crm/shared/ui.js";
 
 initTheme();
 
-let profile, tier, allEvents = [], companiesList = [];
+let profile, tier, allEvents = [], allTasks = [], companiesList = [];
 let currentDate = new Date();
-let viewMode = "month"; // month | week | day
+let viewMode = "month";
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -54,9 +55,31 @@ try {
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
 async function loadAndRender() {
-  const start = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).toISOString();
-  const end   = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59).toISOString();
-  allEvents = await events.list({ from: start, to: end, limit: 300 });
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const start = new Date(year, month, 1).toISOString();
+  const end   = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
+  const monthStart = `${year}-${String(month+1).padStart(2,"0")}-01`;
+  const monthEnd   = `${year}-${String(month+1).padStart(2,"0")}-${String(new Date(year, month+1, 0).getDate()).padStart(2,"0")}`;
+
+  const [evRes, { data: { session } }] = await Promise.all([
+    events.list({ from: start, to: end, limit: 300 }),
+    sb().auth.getSession(),
+  ]);
+  allEvents = evRes;
+
+  // Fetch tasks with a due_date in this month that aren't completed
+  const { data: emp } = await sb().from("core_employees").select("company_id").eq("auth_user_id", session.user.id).single();
+  const tenantId = emp?.company_id;
+  const { data: taskData } = await sb().from("crm_tasks")
+    .select("id, title, due_date, status, priority")
+    .eq("tenant_id", tenantId)
+    .neq("status", "completed")
+    .gte("due_date", monthStart)
+    .lte("due_date", monthEnd)
+    .order("due_date");
+  allTasks = taskData || [];
+
   renderCalendar();
 }
 
@@ -80,14 +103,23 @@ function renderCalendar() {
     const isToday = today.getFullYear()===year && today.getMonth()===month && today.getDate()===d;
     const dateStr = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
     const dayEvents = allEvents.filter(e => e.start_time?.startsWith(dateStr));
-    const evHtml = dayEvents.slice(0,3).map(e => {
+    const dayTasks  = allTasks.filter(t => t.due_date === dateStr);
+
+    const evHtml = dayEvents.slice(0,2).map(e => {
       const col = e.type==="meeting"?"":"green";
       return `<div class="cal-event ${col}" title="${esc(e.title)}">${esc(e.title)}</div>`;
     }).join("");
-    const more = dayEvents.length > 3 ? `<div class="cal-event" style="opacity:.5">+${dayEvents.length-3} more</div>` : "";
+    const taskHtml = dayTasks.slice(0, 2).map(t =>
+      `<div class="cal-event" style="background:color-mix(in srgb,#f59e0b 18%,transparent);color:#f59e0b;border-left:2px solid #f59e0b" title="Task: ${esc(t.title)}">✅ ${esc(t.title)}</div>`
+    ).join("");
+
+    const total = dayEvents.length + dayTasks.length;
+    const shown = Math.min(dayEvents.length, 2) + Math.min(dayTasks.length, 2);
+    const more = total > shown ? `<div class="cal-event" style="opacity:.5">+${total-shown} more</div>` : "";
+
     days += `<div class="cal-day ${isToday?"today":""}" data-date="${dateStr}">
       <div class="cal-date">${d}</div>
-      <div class="cal-events">${evHtml}${more}</div>
+      <div class="cal-events">${evHtml}${taskHtml}${more}</div>
     </div>`;
   }
 
@@ -127,19 +159,51 @@ function renderCalendar() {
 
     <!-- Upcoming list -->
     <div class="card" style="margin-top:16px">
-      <div class="card-header"><h2>Upcoming Events</h2></div>
+      <div class="card-header"><h2>Upcoming Events &amp; Tasks</h2></div>
       <div class="card-body" style="padding:0">
-        ${allEvents.filter(e => new Date(e.start_time) >= new Date()).slice(0,8).map(e => `
-          <div style="padding:12px 18px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;align-items:center">
-            <div>
-              <div style="font-weight:600">${esc(e.title)}</div>
-              <div class="text-muted text-sm">${fmtDateTime(e.start_time)} ${e.crm_companies?.name ? "· "+esc(e.crm_companies.name) : ""}</div>
-            </div>
-            <div style="display:flex;gap:6px">
-              <span class="badge badge-blue">${esc(e.type)}</span>
-              <button class="btn btn-sm btn-danger" onclick="delEvent('${e.id}')">Del</button>
-            </div>
-          </div>`).join("") || `<div class="empty-state" style="padding:24px"><p>No upcoming events</p></div>`}
+        ${(() => {
+          const now = new Date();
+          const upcomingEvents = allEvents
+            .filter(e => new Date(e.start_time) >= now)
+            .map(e => ({ _type:"event", _sort: e.start_time, ...e }));
+          const upcomingTasks = allTasks
+            .map(t => ({ _type:"task", _sort: t.due_date + "T00:00:00", ...t }));
+          const combined = [...upcomingEvents, ...upcomingTasks]
+            .sort((a,b) => a._sort.localeCompare(b._sort))
+            .slice(0, 10);
+          if (!combined.length) return `<div class="empty-state" style="padding:24px"><p>No upcoming events or tasks</p></div>`;
+          return combined.map(item => {
+            if (item._type === "event") {
+              return `<div style="padding:12px 18px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;align-items:center">
+                <div style="display:flex;gap:10px;align-items:center">
+                  <span style="font-size:18px">📅</span>
+                  <div>
+                    <div style="font-weight:600">${esc(item.title)}</div>
+                    <div class="text-muted text-sm">${fmtDateTime(item.start_time)} ${item.crm_companies?.name ? "· "+esc(item.crm_companies.name) : ""}</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px">
+                  <span class="badge badge-blue">${esc(item.type)}</span>
+                  <button class="btn btn-sm btn-danger" onclick="delEvent('${item.id}')">Del</button>
+                </div>
+              </div>`;
+            } else {
+              const overdue = item.due_date < now.toISOString().slice(0,10);
+              return `<div style="padding:12px 18px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;align-items:center">
+                <div style="display:flex;gap:10px;align-items:center">
+                  <span style="font-size:18px">✅</span>
+                  <div>
+                    <div style="font-weight:600">${esc(item.title)}</div>
+                    <div class="text-muted text-sm" style="${overdue?"color:var(--bad)":""}">Due ${item.due_date}${overdue?" · Overdue":""}</div>
+                  </div>
+                </div>
+                <div>
+                  <a href="/systems/crm/tasks.html" class="badge badge-yellow" style="text-decoration:none">${item.priority||"task"}</a>
+                </div>
+              </div>`;
+            }
+          }).join("");
+        })()}
       </div>
     </div>`;
 
