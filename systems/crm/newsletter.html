@@ -77,6 +77,84 @@ const VARIABLES = [
   { tag: "{{your_company}}", label: "Your Company Name" },
 ];
 
+window.insertVar = (fieldId, tag) => {
+  const el = document.getElementById(fieldId);
+  if (!el) return;
+  const start = el.selectionStart ?? el.value.length;
+  const end   = el.selectionEnd   ?? el.value.length;
+  el.value = el.value.slice(0, start) + tag + el.value.slice(end);
+  el.selectionStart = el.selectionEnd = start + tag.length;
+  el.focus();
+  window.updatePreview();
+};
+
+window.updatePreview = () => {
+  const branding = crmSettings?.branding || {};
+  const companyName = branding.company_name || "SmartCore Technology";
+  const subject = document.getElementById("nlSubject")?.value || "";
+  const body    = document.getElementById("nlBody")?.value || "";
+
+  const sample = { name: "Jane Smith", first_name: "Jane", company: "Acme Ltd", your_company: companyName };
+  const filled = (s) => s
+    .replace(/\{\{name\}\}/g, sample.name)
+    .replace(/\{\{first_name\}\}/g, sample.first_name)
+    .replace(/\{\{company\}\}/g, sample.company)
+    .replace(/\{\{your_company\}\}/g, sample.your_company);
+
+  const bodyEl = document.getElementById("previewBody");
+  if (!bodyEl) return;
+  if (!body.trim()) {
+    bodyEl.innerHTML = `<p style="color:#9ca3af;font-size:14px">Start typing to preview your email…</p>`;
+    return;
+  }
+  const htmlBody = filled(esc(body)).replace(/\n{2,}/g, '</p><p style="margin:0 0 16px">').replace(/\n/g, "<br>");
+  bodyEl.innerHTML = subject ? `<h2 style="margin:0 0 16px;font-size:20px;font-weight:800;color:#0a0f2e">${esc(filled(subject))}</h2>` : "";
+  bodyEl.innerHTML += `<p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.7">${htmlBody}</p>`;
+};
+
+window.sendNewsletter = async () => {
+  const subject = document.getElementById("nlSubject")?.value.trim();
+  const body    = document.getElementById("nlBody")?.value.trim();
+  if (!subject) return toast("warn","Missing","Please enter a subject.");
+  if (!body)    return toast("warn","Missing","Please enter a body.");
+  if (!_recipientCount) return toast("warn","No recipients","No recipients found for the selected group.");
+
+  confirm(
+    "Send Newsletter",
+    `Send to ${_recipientCount} recipient${_recipientCount===1?"":"s"}? This cannot be undone.`,
+    async () => {
+      const btn = document.getElementById("sendBtn");
+      const prog = document.getElementById("sendProgress");
+      btn.disabled = true;
+      btn.textContent = "Sending…";
+      prog.style.display = "block";
+
+      const { data: { session } } = await sb().auth.getSession();
+      try {
+        const res = await fetch("/api/crm/send-newsletter", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ subject, body, recipient_type: _recipientType }),
+        });
+        const json = await res.json();
+        document.getElementById("progressFill").style.width = "100%";
+        document.getElementById("progressLabel").textContent = `Done — ${json.sent} sent${json.failed ? ", "+json.failed+" failed" : ""}`;
+        if (json.error) {
+          toast("bad","Error",json.error);
+          btn.disabled = false; btn.textContent = "📧 Send Newsletter";
+        } else {
+          toast("ok","Newsletter sent",`${json.sent} emails delivered`);
+          btn.textContent = "✅ Sent";
+        }
+      } catch(e) {
+        toast("bad","Error",e.message);
+        btn.disabled = false; btn.textContent = "📧 Send Newsletter";
+        prog.style.display = "none";
+      }
+    }
+  );
+};
+
 try {
   ({ profile, tier } = await requireCRMAccess());
   crmSettings = await getCRMSettings();
@@ -224,84 +302,6 @@ async function refreshCount() {
   } catch { if (el) el.textContent = "Could not load count"; }
 }
 
-window.insertVar = (fieldId, tag) => {
-  const el = document.getElementById(fieldId);
-  if (!el) return;
-  const start = el.selectionStart ?? el.value.length;
-  const end   = el.selectionEnd   ?? el.value.length;
-  el.value = el.value.slice(0, start) + tag + el.value.slice(end);
-  el.selectionStart = el.selectionEnd = start + tag.length;
-  el.focus();
-  window.updatePreview();
-};
-
-window.updatePreview = () => {
-  const branding = crmSettings?.branding || {};
-  const companyName = branding.company_name || "SmartCore Technology";
-  const subject = document.getElementById("nlSubject")?.value || "";
-  const body    = document.getElementById("nlBody")?.value || "";
-
-  // Sample values for preview
-  const sample = { name: "Jane Smith", first_name: "Jane", company: "Acme Ltd", your_company: companyName };
-  const filled = (s) => s
-    .replace(/\{\{name\}\}/g, sample.name)
-    .replace(/\{\{first_name\}\}/g, sample.first_name)
-    .replace(/\{\{company\}\}/g, sample.company)
-    .replace(/\{\{your_company\}\}/g, sample.your_company);
-
-  const bodyEl = document.getElementById("previewBody");
-  if (!bodyEl) return;
-  if (!body.trim()) {
-    bodyEl.innerHTML = `<p style="color:#9ca3af;font-size:14px">Start typing to preview your email…</p>`;
-    return;
-  }
-  const htmlBody = filled(esc(body)).replace(/\n{2,}/g, '</p><p style="margin:0 0 16px">').replace(/\n/g, "<br>");
-  bodyEl.innerHTML = subject ? `<h2 style="margin:0 0 16px;font-size:20px;font-weight:800;color:#0a0f2e">${esc(filled(subject))}</h2>` : "";
-  bodyEl.innerHTML += `<p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.7">${htmlBody}</p>`;
-};
-
-window.sendNewsletter = async () => {
-  const subject = document.getElementById("nlSubject")?.value.trim();
-  const body    = document.getElementById("nlBody")?.value.trim();
-  if (!subject) return toast("warn","Missing","Please enter a subject.");
-  if (!body)    return toast("warn","Missing","Please enter a body.");
-  if (!_recipientCount) return toast("warn","No recipients","No recipients found for the selected group.");
-
-  confirm(
-    "Send Newsletter",
-    `Send to ${_recipientCount} recipient${_recipientCount===1?"":"s"}? This cannot be undone.`,
-    async () => {
-      const btn = document.getElementById("sendBtn");
-      const prog = document.getElementById("sendProgress");
-      btn.disabled = true;
-      btn.textContent = "Sending…";
-      prog.style.display = "block";
-
-      const { data: { session } } = await sb().auth.getSession();
-      try {
-        const res = await fetch("/api/crm/send-newsletter", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ subject, body, recipient_type: _recipientType }),
-        });
-        const json = await res.json();
-        document.getElementById("progressFill").style.width = "100%";
-        document.getElementById("progressLabel").textContent = `Done — ${json.sent} sent${json.failed ? ", "+json.failed+" failed" : ""}`;
-        if (json.error) {
-          toast("bad","Error",json.error);
-          btn.disabled = false; btn.textContent = "📧 Send Newsletter";
-        } else {
-          toast("ok","Newsletter sent",`${json.sent} emails delivered`);
-          btn.textContent = "✅ Sent";
-        }
-      } catch(e) {
-        toast("bad","Error",e.message);
-        btn.disabled = false; btn.textContent = "📧 Send Newsletter";
-        prog.style.display = "none";
-      }
-    }
-  );
-};
 </script>
 </body>
 </html>
