@@ -88,6 +88,7 @@ let profile, tier;
 let _statusFilter = "open";
 let _typeFilter = "all";
 let _msgPollInterval = null;
+let _employees = [];
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -97,13 +98,15 @@ try {
   if (!tierHasFeature(tier, "support_tickets")) {
     document.getElementById("content").innerHTML = tierGate("support_tickets");
   } else {
+    const { data: emps } = await sb().from("core_employees").select("id,full_name").eq("company_id", profile.company_id).order("full_name");
+    _employees = emps || [];
     await loadTickets();
   }
 } catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session")) toast("bad","Error",e.message); }
 
 async function loadTickets() {
   let q = sb().from("crm_tickets")
-    .select("*, crm_portal_users(name,email), crm_companies(name)")
+    .select("*, crm_portal_users(name,email), crm_companies(name), core_employees(full_name)")
     .eq("tenant_id", profile.company_id)
     .order("updated_at", { ascending: false });
 
@@ -176,6 +179,7 @@ async function loadTickets() {
 function ticketRow(t) {
   const company = t.crm_companies?.name || t.crm_portal_users?.name || "—";
   const ago = timeAgo(t.updated_at || t.created_at);
+  const assignee = t.core_employees?.full_name;
   return `<div class="ticket-row" data-id="${t.id}">
     <div style="flex:1;min-width:0">
       <div class="ticket-subject">${esc(t.subject)}</div>
@@ -183,6 +187,7 @@ function ticketRow(t) {
         <span>${esc(company)}</span>
         <span class="t-dot"></span>
         <span>${ago}</span>
+        ${assignee ? `<span class="t-dot"></span><span>👤 ${esc(assignee)}</span>` : ""}
         ${t.priority && t.priority !== "normal" ? `<span class="t-dot"></span><span class="tbadge tbadge-${t.priority}">${t.priority}</span>` : ""}
       </div>
     </div>
@@ -196,7 +201,7 @@ function ticketRow(t) {
 async function openTicket(id) {
   clearInterval(_msgPollInterval);
   const { data: ticket } = await sb().from("crm_tickets")
-    .select("*, crm_portal_users(name,email), crm_companies(name)")
+    .select("*, crm_portal_users(name,email), crm_companies(name), core_employees(full_name)")
     .eq("id", id).single();
   if (!ticket) return;
 
@@ -218,7 +223,11 @@ async function openTicket(id) {
               ${customer ? `<span class="text-sm text-muted">· ${esc(customer.email)}</span>` : ""}
             </div>
           </div>
-          <div style="display:flex;gap:8px;flex-shrink:0;align-items:center">
+          <div style="display:flex;gap:8px;flex-shrink:0;align-items:center;flex-wrap:wrap">
+            <select class="form-select" id="assignSel" style="font-size:12px;padding:6px 28px 6px 10px;width:auto">
+              <option value="">Unassigned</option>
+              ${_employees.map(e => `<option value="${e.id}"${ticket.assigned_to===e.id?" selected":""}>${esc(e.full_name)}</option>`).join("")}
+            </select>
             ${isOpen ? `
               <select class="form-select" id="statusSel" style="font-size:12px;padding:6px 28px 6px 10px;width:auto">
                 <option value="open"${ticket.status==="open"?" selected":""}>Open</option>
@@ -262,6 +271,12 @@ async function openTicket(id) {
 
   await renderMessages(id);
   _msgPollInterval = setInterval(() => renderMessages(id), 6000);
+
+  document.getElementById("assignSel")?.addEventListener("change", async (e) => {
+    const val = e.target.value || null;
+    await sb().from("crm_tickets").update({ assigned_to: val, updated_at: new Date().toISOString() }).eq("id", id);
+    toast("ok", val ? "Ticket assigned" : "Assignment removed");
+  });
 
   document.getElementById("statusSel")?.addEventListener("change", async (e) => {
     await sb().from("crm_tickets").update({ status: e.target.value, updated_at: new Date().toISOString(), closed_at: e.target.value==="closed" ? new Date().toISOString() : null }).eq("id", id);
@@ -355,6 +370,13 @@ function showNewTicketModal() {
             </div>
           </div>
           <div>
+            <label class="form-label">Assign To</label>
+            <select class="form-select" id="ntAssign">
+              <option value="">Unassigned</option>
+              ${_employees.map(e => `<option value="${e.id}">${esc(e.full_name)}</option>`).join("")}
+            </select>
+          </div>
+          <div>
             <label class="form-label">Description</label>
             <textarea class="form-input" id="ntDesc" rows="4" placeholder="Details about the issue…"></textarea>
           </div>
@@ -381,6 +403,7 @@ function showNewTicketModal() {
       subject,
       type: document.getElementById("ntType").value,
       priority: document.getElementById("ntPriority").value,
+      assigned_to: document.getElementById("ntAssign").value || null,
       description: document.getElementById("ntDesc").value.trim() || null,
       status: "open",
     });

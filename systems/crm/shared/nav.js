@@ -25,6 +25,7 @@ const NAV_LINKS = [
 ];
 
 const TIER_ORDER = { lite: 0, professional: 1, business: 2, enterprise: 3 };
+let _badgeInterval = null;
 function tierAllows(userTier, requiredTier) {
   if (!requiredTier) return true;
   return (TIER_ORDER[userTier] || 0) >= (TIER_ORDER[requiredTier] || 0);
@@ -89,6 +90,42 @@ export function renderNav(currentPage, profile, tier, crmSettings) {
     </div>`;
 
   document.getElementById("supportBtn")?.addEventListener("click", () => openSupport(tier));
+
+  // Start unread badge polling
+  if (profile?.company_id) {
+    if (_badgeInterval) clearInterval(_badgeInterval);
+    const pollBadges = async () => {
+      try {
+        const [msgRes, ticketRes] = await Promise.all([
+          sb().from("crm_messages").select("id", { count: "exact", head: true })
+            .eq("tenant_id", profile.company_id).eq("sender_type","customer").is("read_at", null),
+          sb().from("crm_tickets").select("id", { count: "exact", head: true })
+            .eq("tenant_id", profile.company_id).eq("status","open"),
+        ]);
+        setNavBadge('a[href*="messaging.html"]', msgRes.count || 0);
+        setNavBadge('a[href*="tickets.html"]', ticketRes.count || 0);
+      } catch {}
+    };
+    pollBadges();
+    _badgeInterval = setInterval(pollBadges, 5000);
+  }
+}
+
+function setNavBadge(selector, count) {
+  const link = document.querySelector(selector);
+  if (!link) return;
+  let badge = link.querySelector(".nav-count-badge");
+  if (count > 0) {
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "nav-count-badge";
+      badge.style.cssText = "margin-left:auto;background:#ef4444;color:#fff;font-size:10px;font-weight:700;min-width:18px;height:18px;padding:0 5px;border-radius:99px;display:flex;align-items:center;justify-content:center;flex-shrink:0";
+      link.appendChild(badge);
+    }
+    badge.textContent = count > 9 ? "9+" : String(count);
+  } else {
+    badge?.remove();
+  }
 }
 
 function navItem(link, currentPage, tier) {
