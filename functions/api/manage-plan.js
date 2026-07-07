@@ -15,7 +15,45 @@
  *               STRIPE_SECRET_KEY
  */
 
-import { updateStripeSubscription } from './_stripe.js';
+import { updateStripeSubscription, stripeRequest } from './_stripe.js';
+
+const FROM_BILLING = 'SmartCore Billing <noreply@smartcoretechnology.co.uk>';
+
+async function sendPlanChangeEmail(env, order, subject, html) {
+  const recipients = [...new Set([order.email, order.accounts_email].filter(Boolean))];
+  if (!recipients.length || !env.RESEND_API_KEY) return;
+  await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: FROM_BILLING, to: recipients, subject, html }),
+  });
+}
+
+function planChangeEmailHtml({ title, body, order, items, newTotal }) {
+  const billing = order.billing_type === 'yearly' ? '/yr' : '/mo';
+  const rows = items.map(([label, val]) =>
+    `<tr><td style="padding:6px 0;color:#64748b;font-size:13px">${label}</td><td style="padding:6px 0;font-size:13px;text-align:right">${val}</td></tr>`
+  ).join('');
+  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f8fafc;font-family:Inter,Arial,sans-serif">
+  <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)">
+    <div style="background:linear-gradient(135deg,#1e40af,#4f46e5);padding:32px 36px">
+      <div style="font-size:22px;font-weight:800;color:#fff">SmartCore</div>
+      <div style="font-size:14px;color:rgba(255,255,255,.7);margin-top:4px">Plan Update</div>
+    </div>
+    <div style="padding:32px 36px">
+      <h2 style="margin:0 0 8px;font-size:20px;font-weight:800;color:#0f172a">${title}</h2>
+      <p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 24px">${body}</p>
+      <table style="width:100%;border-collapse:collapse;border-top:1px solid #e2e8f0">
+        ${rows}
+        <tr style="border-top:2px solid #e2e8f0">
+          <td style="padding:12px 0;font-size:15px;font-weight:800;color:#0f172a">New monthly total</td>
+          <td style="padding:12px 0;font-size:15px;font-weight:800;text-align:right;color:#2563eb">£${Number(newTotal).toFixed(2)}${billing}</td>
+        </tr>
+      </table>
+      <p style="color:#94a3b8;font-size:12px;margin-top:24px">If you didn't request this change or have questions, contact us at <a href="mailto:support@smartcoretechnology.co.uk" style="color:#2563eb">support@smartcoretechnology.co.uk</a></p>
+    </div>
+  </div></body></html>`;
+}
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -314,6 +352,24 @@ async function handleChangeSize(env, order, body) {
     }
   }
 
+  // Send plan change email
+  try {
+    await sendPlanChangeEmail(env, order,
+      `Your SmartCore plan has been updated — ${order.company_name}`,
+      planChangeEmailHtml({
+        title: 'Company size updated',
+        body:  `Your plan has been moved to the <strong>${tier.label}</strong> tier (${tier.range} employees). Your Stripe subscription has been updated and your next payment will reflect the new amount.`,
+        order,
+        items: [
+          ['Company',     order.company_name],
+          ['New tier',    `${tier.label} (${tier.range} employees)`],
+          ['Billing',     order.billing_type === 'yearly' ? 'Yearly' : 'Monthly'],
+        ],
+        newTotal: total,
+      })
+    );
+  } catch(e) { console.error('Plan change email error:', e); }
+
   return json({ success: true, scheduled: false, new_total: total, new_tier: tier }, 200, CORS);
 }
 
@@ -396,6 +452,25 @@ async function handleChangeCrmTier(env, order, body) {
       console.error('Stripe revise error:', e);
     }
   }
+
+  // Send plan change email
+  try {
+    const oldCrmName = CRM_SLUGS.find(s => s !== newMod.slug && parseModules(order.modules).some(m => m.slug === s)) || 'previous plan';
+    await sendPlanChangeEmail(env, order,
+      `Your SmartCore CRM tier has been updated — ${order.company_name}`,
+      planChangeEmailHtml({
+        title: 'CRM tier updated',
+        body:  `Your CRM has been switched to <strong>${newMod.name}</strong>. Your Stripe subscription has been updated immediately.`,
+        order,
+        items: [
+          ['Company',   order.company_name],
+          ['New CRM',   newMod.name],
+          ['Billing',   order.billing_type === 'yearly' ? 'Yearly' : 'Monthly'],
+        ],
+        newTotal: total,
+      })
+    );
+  } catch(e) { console.error('CRM change email error:', e); }
 
   return json({ success: true, scheduled: false, new_total: total, new_module: newMod }, 200, CORS);
 }
