@@ -93,7 +93,7 @@ export const TIER_FEATURES = {
     "leads","lead_scoring","pipeline","tasks",
     "calendar","quotes","quote_acceptance",
     "documents","reports","forecasting",
-    "goals_targets","email_templates","leaderboard","support_tickets",
+    "email_templates","leaderboard","support_tickets",
     "reminders","commands",
   ],
   business: [
@@ -102,8 +102,9 @@ export const TIER_FEATURES = {
     "leads","lead_scoring","pipeline","tasks",
     "calendar","quotes","quote_acceptance",
     "documents","reports","forecasting",
-    "goals_targets","email_templates","leaderboard","support_tickets",
+    "email_templates","leaderboard","support_tickets",
     "messaging","portal","projects",
+    "custom_pipelines","department_mgmt",
     "reminders","commands",
   ],
   enterprise: [
@@ -112,13 +113,10 @@ export const TIER_FEATURES = {
     "leads","lead_scoring","pipeline","tasks",
     "calendar","quotes","quote_acceptance",
     "documents","reports","forecasting",
-    "goals_targets","email_templates","leaderboard","support_tickets",
+    "email_templates","leaderboard","support_tickets",
     "messaging","portal","projects",
+    "custom_pipelines","department_mgmt",
     "reminders","commands",
-    "ai_support","audit_logs","data_import","priority_support",
-    "custom_pipelines","multi_site","advanced_permissions","custom_branding",
-    "api_access","branch_mgmt","department_mgmt","advanced_analytics",
-    "executive_dashboards","workflows","custom_fields",
   ],
 };
 
