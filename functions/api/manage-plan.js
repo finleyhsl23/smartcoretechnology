@@ -62,7 +62,7 @@ async function resolveOrder(env, request, url) {
   const user = await userRes.json();
   // Find company via core_employees (user_id column)
   let companyId = null;
-  const empRows = await dbGet(env, `/core_employees?user_id=eq.${enc(user.id)}&select=company_id&limit=1`);
+  const empRows = await dbGet(env, `/core_employees?auth_user_id=eq.${enc(user.id)}&select=company_id&limit=1`);
   if (empRows?.[0]?.company_id) companyId = empRows[0].company_id;
   if (!companyId) return { error: 'No company found for this user', status: 404 };
   const coRows = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(companyId)}&select=order_id&limit=1`);
