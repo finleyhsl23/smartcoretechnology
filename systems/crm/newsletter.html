@@ -6,22 +6,15 @@
   <title>Newsletter — SmartCore CRM</title>
   <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
   <style>
-    .var-btn-wrap { position: relative; display: inline-block; }
-    .var-dropdown {
-      display: none; position: absolute; top: calc(100% + 4px); left: 0;
-      background: var(--card); border: 1px solid var(--line2); border-radius: 10px;
-      box-shadow: 0 8px 32px rgba(0,0,0,.4); z-index: 200; min-width: 210px; overflow: hidden;
+    .var-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 11px; border-radius: 99px; cursor: pointer;
+      border: 1px solid rgba(91,143,255,.3); background: rgba(91,143,255,.08);
+      color: #5b8fff; font-size: 12px; font-weight: 600; font-family: monospace;
+      transition: background .12s, border-color .12s; white-space: nowrap; user-select: none;
     }
-    .var-dropdown.open { display: block; }
-    .var-option {
-      padding: 9px 14px; cursor: pointer; font-size: 13px;
-      display: flex; flex-direction: column; gap: 2px;
-      transition: background .1s; border-bottom: 1px solid var(--line2);
-    }
-    .var-option:last-child { border-bottom: none; }
-    .var-option:hover { background: var(--sb-hover); }
-    .var-option code { font-size: 11px; color: var(--accent, #5b8fff); font-family: monospace; }
-    .var-option span { font-size: 12px; color: var(--text3); }
+    .var-pill:hover { background: rgba(91,143,255,.18); border-color: rgba(91,143,255,.5); }
+    .var-pills { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px 12px; border-top: 1px solid var(--line2); }
 
     .preview-wrap {
       background: #f0f4ff; border-radius: 12px; padding: 24px;
@@ -140,43 +133,25 @@ async function renderPage() {
 
         <!-- Subject -->
         <div class="card">
-          <div class="card-header">
-            <h2>Subject</h2>
-            <div class="var-btn-wrap">
-              <button class="btn btn-sm" onclick="toggleVarDrop('subjectVars')">+ Variable ▾</button>
-              <div class="var-dropdown" id="subjectVars">
-                ${VARIABLES.map(v => `
-                  <div class="var-option" onclick="insertVar('nlSubject','${v.tag}');closeAllVarDrops()">
-                    <code>${v.tag}</code>
-                    <span>${v.label}</span>
-                  </div>`).join("")}
-              </div>
-            </div>
-          </div>
-          <div class="card-body">
+          <div class="card-header"><h2>Subject</h2></div>
+          <div class="card-body" style="padding-bottom:0">
             <input class="form-control" id="nlSubject" placeholder="e.g. Important update for {{company}}" oninput="updatePreview()"/>
+          </div>
+          <div class="var-pills">
+            ${VARIABLES.map(v => `<button type="button" class="var-pill" title="${v.label}" onclick="insertVar('nlSubject','${v.tag}')">${v.tag}</button>`).join("")}
           </div>
         </div>
 
         <!-- Body -->
         <div class="card">
-          <div class="card-header">
-            <h2>Body</h2>
-            <div class="var-btn-wrap">
-              <button class="btn btn-sm" onclick="toggleVarDrop('bodyVars')">+ Variable ▾</button>
-              <div class="var-dropdown" id="bodyVars">
-                ${VARIABLES.map(v => `
-                  <div class="var-option" onclick="insertVar('nlBody','${v.tag}');closeAllVarDrops()">
-                    <code>${v.tag}</code>
-                    <span>${v.label}</span>
-                  </div>`).join("")}
-              </div>
-            </div>
-          </div>
-          <div class="card-body">
+          <div class="card-header"><h2>Body</h2></div>
+          <div class="card-body" style="padding-bottom:0">
             <textarea class="form-control" id="nlBody" rows="10" placeholder="Hi {{first_name}},&#10;&#10;We wanted to share some exciting news with you…" oninput="updatePreview()" style="resize:vertical;font-size:14px;line-height:1.6"></textarea>
-            <div style="margin-top:8px;font-size:12px;color:var(--text3)">Plain text — line breaks become paragraphs. Variables are replaced per recipient.</div>
           </div>
+          <div class="var-pills">
+            ${VARIABLES.map(v => `<button type="button" class="var-pill" title="${v.label}" onclick="insertVar('nlBody','${v.tag}')">${v.tag}</button>`).join("")}
+          </div>
+          <div style="padding:0 16px 12px;font-size:12px;color:var(--text3)">Click a variable to insert it at the cursor. Line breaks become paragraphs.</div>
         </div>
 
         <!-- Send button -->
@@ -225,11 +200,6 @@ async function renderPage() {
     });
   });
 
-  // Close dropdowns on outside click
-  document.addEventListener("click", e => {
-    if (!e.target.closest(".var-btn-wrap")) closeAllVarDrops();
-  }, { capture: true });
-
   updatePreview();
 }
 
@@ -252,16 +222,6 @@ async function refreshCount() {
     if (el) el.innerHTML = `<span class="recipient-chip">📬 ${count} recipient${count===1?"":"s"}</span>`;
   } catch { if (el) el.textContent = "Could not load count"; }
 }
-
-window.toggleVarDrop = (id) => {
-  const drop = document.getElementById(id);
-  const wasOpen = drop.classList.contains("open");
-  closeAllVarDrops();
-  if (!wasOpen) drop.classList.add("open");
-};
-window.closeAllVarDrops = () => {
-  document.querySelectorAll(".var-dropdown").forEach(d => d.classList.remove("open"));
-};
 
 window.insertVar = (fieldId, tag) => {
   const el = document.getElementById(fieldId);
