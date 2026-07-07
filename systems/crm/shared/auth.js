@@ -117,6 +117,7 @@ export const TIER_FEATURES = {
     "messaging","portal","projects",
     "custom_pipelines","department_mgmt",
     "reminders","commands",
+    "ai_support","priority_support","audit_logs","data_import",
   ],
 };
 
