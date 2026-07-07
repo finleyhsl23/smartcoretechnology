@@ -137,7 +137,10 @@ export function tierGate(feature) {
       <div class="tier-gate-icon">🔒</div>
       <h2>Upgrade Required</h2>
       <p>This feature requires a higher SmartCore CRM plan. Contact your administrator to upgrade.</p>
-      <a href="/shop/index.html" class="btn btn-primary upgrade-btn">View Plans →</a>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:4px">
+        <a href="/shop/index.html" class="btn btn-primary upgrade-btn">View Plans →</a>
+        <a href="/systems/crm/settings.html#tiers" class="btn upgrade-btn">Compare Tiers</a>
+      </div>
     </div>`;
 }
 

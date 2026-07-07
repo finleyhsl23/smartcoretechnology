@@ -36,6 +36,12 @@
     .progress-bar-wrap { height: 6px; background: var(--line2); border-radius: 99px; overflow: hidden; margin-top: 6px; }
     .progress-bar-fill { height: 100%; background: #1e5cff; border-radius: 99px; transition: width .3s; }
 
+    .quota-bar-wrap { height: 5px; background: var(--line2); border-radius: 99px; overflow: hidden; margin-top: 5px; }
+    .quota-bar-fill { height: 100%; border-radius: 99px; transition: width .4s; }
+    .quota-ok   { background: #22c55e; }
+    .quota-warn { background: #f59e0b; }
+    .quota-full { background: #ef4444; }
+
     .mode-pill {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 7px 14px; border-radius: 8px; cursor: pointer;
@@ -199,8 +205,10 @@ window.sendNewsletter = async () => {
           toast("bad","Error",json.error);
           btn.disabled = false; btn.textContent = "📧 Send Newsletter";
         } else {
-          toast("ok","Newsletter sent",`${json.sent} emails delivered`);
+          const cappedMsg = json.capped ? ` (${json.capped} skipped — quota)` : "";
+          toast("ok","Newsletter sent",`${json.sent} emails delivered${cappedMsg}`);
           btn.textContent = "✅ Sent";
+          loadQuota();
         }
       } catch(e) {
         toast("bad","Error",e.message);
@@ -241,6 +249,7 @@ async function renderPage() {
         <h1>Newsletter</h1>
         <p>Compose and send branded emails to your contacts or portal users</p>
       </div>
+      <div id="quotaBadge" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:180px"></div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
@@ -339,6 +348,7 @@ async function renderPage() {
 
   await switchMode(); // initial load — count + picker
   window.updatePreview();
+  loadQuota();
 }
 
 // ── Mode switching ──
@@ -561,6 +571,41 @@ function updateContactCount() {
   } else {
     setCountEl(_recipientCount, true);
   }
+}
+
+// ── Monthly quota ──
+
+async function loadQuota() {
+  const el = document.getElementById("quotaBadge");
+  if (!el) return;
+  try {
+    const { data: { session } } = await sb().auth.getSession();
+    const res = await fetch("/api/crm/newsletter-usage", {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    const q = await res.json();
+    if (!res.ok || !q.limit) return;
+
+    const pct = Math.min(100, Math.round((q.used / q.limit) * 100));
+    const cls = pct >= 100 ? "quota-full" : pct >= 80 ? "quota-warn" : "quota-ok";
+    const remaining = Math.max(0, q.limit - q.used);
+
+    el.innerHTML = `
+      <div style="font-size:12px;color:var(--text3);text-align:right">
+        <span style="font-weight:700;color:var(--text1)">${remaining}</span> of ${q.limit} emails remaining this month
+      </div>
+      <div style="width:180px">
+        <div class="quota-bar-wrap">
+          <div class="quota-bar-fill ${cls}" style="width:${pct}%"></div>
+        </div>
+      </div>`;
+
+    // Disable send if quota exhausted
+    if (remaining === 0) {
+      const btn = document.getElementById("sendBtn");
+      if (btn) { btn.disabled = true; btn.textContent = "Monthly limit reached"; }
+    }
+  } catch (_) {}
 }
 
 </script>

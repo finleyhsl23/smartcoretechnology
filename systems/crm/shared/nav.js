@@ -136,10 +136,11 @@ function navItem(link, currentPage, tier) {
   const cls = ["nav-link", active ? "active" : "", locked ? "nav-locked" : ""].filter(Boolean).join(" ");
 
   if (locked) {
-    return `<div class="${cls}" title="Requires ${link.tier} plan" style="opacity:.45;cursor:not-allowed">
+    const tierLabel = link.tier ? link.tier.charAt(0).toUpperCase() + link.tier.slice(1) : "";
+    return `<div class="${cls}" title="Requires ${tierLabel} plan or above" style="opacity:.4;cursor:not-allowed;pointer-events:none">
       <span class="nav-icon">${link.icon}</span>
-      <span>${link.label}</span>
-      <span class="nav-badge warn">↑</span>
+      <span style="flex:1">${link.label}</span>
+      <span style="font-size:9px;font-weight:700;letter-spacing:.04em;background:rgba(255,180,0,.15);color:#f59e0b;border:1px solid rgba(255,180,0,.25);border-radius:4px;padding:1px 5px;white-space:nowrap">${tierLabel}+</span>
     </div>`;
   }
 
