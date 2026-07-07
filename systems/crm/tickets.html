@@ -87,8 +87,10 @@ initTheme();
 let profile, tier;
 let _statusFilter = "open";
 let _typeFilter = "all";
+let _assignFilter = "all"; // "all" | "mine"
 let _msgPollInterval = null;
 let _employees = [];
+let _myEmpId = null; // core_employees.id of the logged-in user
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -98,28 +100,36 @@ try {
   if (!tierHasFeature(tier, "support_tickets")) {
     document.getElementById("content").innerHTML = tierGate("support_tickets");
   } else {
-    const { data: emps } = await sb().from("core_employees").select("id,full_name").eq("company_id", profile.company_id).order("full_name");
+    const { data: emps } = await sb().from("core_employees").select("id,full_name,auth_user_id").eq("company_id", profile.company_id).order("full_name");
     _employees = emps || [];
+    const { data: { session } } = await sb().auth.getSession();
+    const me = _employees.find(e => e.auth_user_id === session?.user?.id);
+    _myEmpId = me?.id || null;
     await loadTickets();
   }
 } catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session")) toast("bad","Error",e.message); }
 
 async function loadTickets() {
   let q = sb().from("crm_tickets")
-    .select("*, crm_portal_users(name,email), crm_companies(name), core_employees(full_name)")
+    .select("*, crm_portal_users(name,email), crm_companies(name)")
     .eq("tenant_id", profile.company_id)
     .order("updated_at", { ascending: false });
 
   if (_statusFilter !== "all") q = q.eq("status", _statusFilter);
   if (_typeFilter !== "all") q = q.eq("type", _typeFilter);
+  if (_assignFilter === "mine" && _myEmpId) q = q.eq("assigned_to", _myEmpId);
 
   const { data: tickets, error } = await q;
   if (error) { toast("bad","Error loading tickets",error.message); return; }
 
-  // Count all for stat tiles regardless of filter
-  const { data: all } = await sb().from("crm_tickets").select("status").eq("tenant_id", profile.company_id);
+  // Count all + mine for stat tiles
+  const { data: all } = await sb().from("crm_tickets").select("status,assigned_to").eq("tenant_id", profile.company_id);
   const counts = { open: 0, in_progress: 0, closed: 0 };
-  (all || []).forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
+  let mineOpen = 0;
+  (all || []).forEach(t => {
+    if (counts[t.status] !== undefined) counts[t.status]++;
+    if (t.assigned_to === _myEmpId && (t.status === "open" || t.status === "in_progress")) mineOpen++;
+  });
 
   document.getElementById("content").innerHTML = `
     <div class="page-header">
@@ -132,9 +142,14 @@ async function loadTickets() {
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;max-width:480px">
-      ${[["Open",counts.open,"#1e5cff"],["In Progress",counts.in_progress,"#f59e0b"],["Closed",counts.closed,"#6b7280"]].map(([l,v,c])=>`
-        <div style="padding:16px;background:var(--card);border:1px solid var(--line);border-radius:12px;text-align:center;cursor:pointer" onclick="document.querySelector('[data-status=${l.toLowerCase().replace(" ","_")}]')?.click()">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+      ${[
+        ["Open", counts.open, "#1e5cff", "open"],
+        ["In Progress", counts.in_progress, "#f59e0b", "in_progress"],
+        ["Closed", counts.closed, "#6b7280", "closed"],
+        ["My Tickets", mineOpen, "#10b981", "mine"],
+      ].map(([l,v,c,action])=>`
+        <div style="padding:16px;background:var(--card);border:1px solid var(--line);border-radius:12px;text-align:center;cursor:pointer${_assignFilter==="mine"&&action==="mine"?";border-color:"+c:""}${_statusFilter===action?";border-color:"+c:""}" data-tile="${action}">
           <div style="font-size:28px;font-weight:900;color:${c};line-height:1">${v}</div>
           <div style="font-size:11px;color:var(--text3);margin-top:4px">${l}</div>
         </div>`).join("")}
@@ -142,10 +157,14 @@ async function loadTickets() {
 
     <div class="card">
       <div class="card-header" style="gap:10px;flex-wrap:wrap">
-        <h2>Tickets</h2>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto">
+        <h2>${_assignFilter==="mine" ? "My Tickets" : "All Tickets"}</h2>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto;align-items:center">
+          ${_myEmpId ? `
+            <button class="btn btn-sm${_assignFilter==="mine"?" btn-primary":""}" data-assign="mine">👤 My Tickets</button>
+            <button class="btn btn-sm${_assignFilter==="all"?" btn-primary":""}" data-assign="all">All</button>
+            <div style="width:1px;background:var(--line);align-self:stretch;margin:0 2px"></div>` : ""}
           ${["all","open","in_progress","closed"].map(s =>
-            `<button class="btn btn-sm${_statusFilter===s?" btn-primary":""}" data-status="${s}">${s==="all"?"All":s==="in_progress"?"In Progress":s.charAt(0).toUpperCase()+s.slice(1)}</button>`
+            `<button class="btn btn-sm${_statusFilter===s?" btn-primary":""}" data-status="${s}">${s==="all"?"Any Status":s==="in_progress"?"In Progress":s.charAt(0).toUpperCase()+s.slice(1)}</button>`
           ).join("")}
           <div style="width:1px;background:var(--line);align-self:stretch;margin:0 2px"></div>
           ${["all","support","sales"].map(s =>
@@ -158,12 +177,23 @@ async function loadTickets() {
           <div class="empty-state" style="padding:48px">
             <div class="empty-icon">🎫</div>
             <h3>No tickets</h3>
-            <p>Customer tickets appear here when submitted via the portal or created manually.</p>
+            <p>${_assignFilter==="mine" ? "No tickets are currently assigned to you." : "Customer tickets appear here when submitted via the portal or created manually."}</p>
           </div>`
         : tickets.map(t => ticketRow(t)).join("")}
       </div>
     </div>`;
 
+  document.querySelectorAll("[data-tile]").forEach(tile => {
+    tile.addEventListener("click", () => {
+      const a = tile.dataset.tile;
+      if (a === "mine") { _assignFilter = "mine"; _statusFilter = "all"; }
+      else { _assignFilter = "all"; _statusFilter = a; }
+      loadTickets();
+    });
+  });
+  document.querySelectorAll("[data-assign]").forEach(btn => {
+    btn.addEventListener("click", () => { _assignFilter = btn.dataset.assign; loadTickets(); });
+  });
   document.querySelectorAll("[data-status]").forEach(btn => {
     btn.addEventListener("click", () => { _statusFilter = btn.dataset.status; loadTickets(); });
   });
@@ -179,7 +209,7 @@ async function loadTickets() {
 function ticketRow(t) {
   const company = t.crm_companies?.name || t.crm_portal_users?.name || "—";
   const ago = timeAgo(t.updated_at || t.created_at);
-  const assignee = t.core_employees?.full_name;
+  const assignee = t.assigned_to ? (_employees.find(e => e.id === t.assigned_to)?.full_name || null) : null;
   return `<div class="ticket-row" data-id="${t.id}">
     <div style="flex:1;min-width:0">
       <div class="ticket-subject">${esc(t.subject)}</div>
@@ -201,7 +231,7 @@ function ticketRow(t) {
 async function openTicket(id) {
   clearInterval(_msgPollInterval);
   const { data: ticket } = await sb().from("crm_tickets")
-    .select("*, crm_portal_users(name,email), crm_companies(name), core_employees(full_name)")
+    .select("*, crm_portal_users(name,email), crm_companies(name)")
     .eq("id", id).single();
   if (!ticket) return;
 
