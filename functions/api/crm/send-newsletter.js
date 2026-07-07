@@ -32,7 +32,7 @@ export async function onRequestPost({ request, env }) {
   if (!emp) return new Response(JSON.stringify({ error: 'Employee not found' }), { status: 403, headers: CORS });
   const tenantId = emp.company_id;
 
-  const { subject, body, recipient_type } = await request.json();
+  const { subject, body, recipient_type, company_ids, contact_ids } = await request.json();
   if (!subject || !body) return new Response(JSON.stringify({ error: 'Subject and body are required' }), { status: 400, headers: CORS });
 
   // Fetch branding
@@ -52,21 +52,23 @@ export async function onRequestPost({ request, env }) {
   // Collect recipients
   const recipients = [];
 
-  if (recipient_type === 'contacts' || recipient_type === 'both') {
+  // Helper: fetch company map for a tenant
+  async function fetchCompanyMap() {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/crm_companies?tenant_id=eq.${encodeURIComponent(tenantId)}&select=id,name&limit=500`,
+      { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
+    );
+    const rows = await r.json();
+    return Object.fromEntries((rows || []).map(c => [c.id, c.name]));
+  }
+
+  if (recipient_type === 'all_contacts' || recipient_type === 'contacts' || recipient_type === 'both') {
     const r = await fetch(
       `${SUPABASE_URL}/rest/v1/crm_contacts?tenant_id=eq.${encodeURIComponent(tenantId)}&email=not.is.null&email=neq.&select=first_name,last_name,email,crm_company_id&limit=2000`,
       { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
     );
     const contacts = await r.json();
-
-    // Fetch companies for name resolution
-    const compRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/crm_companies?tenant_id=eq.${encodeURIComponent(tenantId)}&select=id,name&limit=500`,
-      { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
-    );
-    const companies = await compRes.json();
-    const compMap = Object.fromEntries((companies || []).map(c => [c.id, c.name]));
-
+    const compMap = await fetchCompanyMap();
     for (const c of contacts || []) {
       if (!c.email) continue;
       recipients.push({
@@ -84,18 +86,7 @@ export async function onRequestPost({ request, env }) {
       { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
     );
     const users = await r.json();
-
-    // Fetch companies if not already fetched
-    let compMap = {};
-    if (recipient_type === 'portal_users') {
-      const compRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/crm_companies?tenant_id=eq.${encodeURIComponent(tenantId)}&select=id,name&limit=500`,
-        { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
-      );
-      const companies = await compRes.json();
-      compMap = Object.fromEntries((companies || []).map(c => [c.id, c.name]));
-    }
-
+    const compMap = await fetchCompanyMap();
     for (const u of users || []) {
       if (!u.email) continue;
       const parts = (u.name || '').split(' ');
@@ -104,6 +95,44 @@ export async function onRequestPost({ request, env }) {
         name: u.name || u.email,
         first_name: parts[0] || '',
         company: u.crm_company_id ? (compMap[u.crm_company_id] || '') : '',
+      });
+    }
+  }
+
+  if (recipient_type === 'by_company' && Array.isArray(company_ids) && company_ids.length) {
+    const inFilter = `crm_company_id=in.(${company_ids.map(id => encodeURIComponent(id)).join(',')})`;
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/crm_contacts?tenant_id=eq.${encodeURIComponent(tenantId)}&email=not.is.null&email=neq.&${inFilter}&select=first_name,last_name,email,crm_company_id&limit=2000`,
+      { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
+    );
+    const contacts = await r.json();
+    const compMap = await fetchCompanyMap();
+    for (const c of contacts || []) {
+      if (!c.email) continue;
+      recipients.push({
+        email: c.email,
+        name: [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email,
+        first_name: c.first_name || '',
+        company: c.crm_company_id ? (compMap[c.crm_company_id] || '') : '',
+      });
+    }
+  }
+
+  if (recipient_type === 'select_contacts' && Array.isArray(contact_ids) && contact_ids.length) {
+    const inFilter = `id=in.(${contact_ids.map(id => encodeURIComponent(id)).join(',')})`;
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/crm_contacts?tenant_id=eq.${encodeURIComponent(tenantId)}&${inFilter}&select=first_name,last_name,email,crm_company_id&limit=2000`,
+      { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
+    );
+    const contacts = await r.json();
+    const compMap = await fetchCompanyMap();
+    for (const c of contacts || []) {
+      if (!c.email) continue;
+      recipients.push({
+        email: c.email,
+        name: [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email,
+        first_name: c.first_name || '',
+        company: c.crm_company_id ? (compMap[c.crm_company_id] || '') : '',
       });
     }
   }

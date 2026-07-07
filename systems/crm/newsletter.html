@@ -35,6 +35,51 @@
     }
     .progress-bar-wrap { height: 6px; background: var(--line2); border-radius: 99px; overflow: hidden; margin-top: 6px; }
     .progress-bar-fill { height: 100%; background: #1e5cff; border-radius: 99px; transition: width .3s; }
+
+    .mode-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 14px; border-radius: 8px; cursor: pointer;
+      border: 1px solid var(--line2); font-size: 13px; font-weight: 600;
+      transition: all .15s; white-space: nowrap; background: none; color: var(--text1);
+    }
+    .mode-pill.active { background: rgba(30,92,255,.1); border-color: rgba(30,92,255,.4); color: var(--blue2); }
+    .mode-pill:hover:not(.active) { border-color: var(--line3); }
+
+    .picker-search {
+      width: 100%; box-sizing: border-box;
+      padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line2);
+      background: var(--bg2); color: var(--text1); font-size: 13px;
+      outline: none; transition: border-color .15s;
+    }
+    .picker-search:focus { border-color: rgba(30,92,255,.5); }
+
+    .picker-list {
+      max-height: 200px; overflow-y: auto; display: flex; flex-direction: column;
+      gap: 2px; margin-top: 8px;
+    }
+    .picker-item {
+      display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+      border-radius: 8px; cursor: pointer; transition: background .1s;
+      font-size: 13px; user-select: none;
+    }
+    .picker-item:hover { background: var(--bg3); }
+    .picker-item input[type="checkbox"] { accent-color: #1e5cff; width: 15px; height: 15px; flex-shrink: 0; }
+    .picker-item-main { flex: 1; min-width: 0; }
+    .picker-item-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .picker-item-sub { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .picker-empty { text-align: center; padding: 20px; font-size: 13px; color: var(--text3); }
+
+    .select-all-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 0; border-bottom: 1px solid var(--line2); margin-bottom: 4px;
+      font-size: 12px; color: var(--text3);
+    }
+    .select-all-row button {
+      background: none; border: none; color: var(--blue2); font-size: 12px;
+      font-weight: 600; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+    }
+    .select-all-row button:hover { background: rgba(30,92,255,.1); }
   </style>
 </head>
 <body>
@@ -67,8 +112,14 @@ import { esc, toast, tierGate, confirm } from "/systems/crm/shared/ui.js";
 initTheme();
 
 let profile, tier, crmSettings;
-let _recipientType = "contacts"; // "contacts" | "portal_users" | "both"
+let _mode = "all_contacts"; // "all_contacts" | "portal_users" | "both" | "by_company" | "select_contacts"
 let _recipientCount = 0;
+let _selectedCompanyIds = new Set();
+let _selectedContactIds = new Set();
+let _allCompanies = null;  // loaded lazily
+let _allContacts  = null;  // loaded lazily
+let _contactSearch = "";
+let _companySearch = "";
 
 const VARIABLES = [
   { tag: "{{name}}",         label: "Their Name" },
@@ -76,6 +127,8 @@ const VARIABLES = [
   { tag: "{{company}}",      label: "Their Company Name" },
   { tag: "{{your_company}}", label: "Your Company Name" },
 ];
+
+// ── Functions defined before try block so they're available when renderPage runs ──
 
 window.insertVar = (fieldId, tag) => {
   const el = document.getElementById(fieldId);
@@ -119,14 +172,17 @@ window.sendNewsletter = async () => {
   if (!body)    return toast("warn","Missing","Please enter a body.");
   if (!_recipientCount) return toast("warn","No recipients","No recipients found for the selected group.");
 
+  const payload = { subject, body, recipient_type: _mode };
+  if (_mode === "by_company")       payload.company_ids      = [..._selectedCompanyIds];
+  if (_mode === "select_contacts")  payload.contact_ids      = [..._selectedContactIds];
+
   confirm(
     "Send Newsletter",
     `Send to ${_recipientCount} recipient${_recipientCount===1?"":"s"}? This cannot be undone.`,
     async () => {
       const btn = document.getElementById("sendBtn");
       const prog = document.getElementById("sendProgress");
-      btn.disabled = true;
-      btn.textContent = "Sending…";
+      btn.disabled = true; btn.textContent = "Sending…";
       prog.style.display = "block";
 
       const { data: { session } } = await sb().auth.getSession();
@@ -134,7 +190,7 @@ window.sendNewsletter = async () => {
         const res = await fetch("/api/crm/send-newsletter", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ subject, body, recipient_type: _recipientType }),
+          body: JSON.stringify(payload),
         });
         const json = await res.json();
         document.getElementById("progressFill").style.width = "100%";
@@ -155,6 +211,8 @@ window.sendNewsletter = async () => {
   );
 };
 
+// ── Bootstrap ──
+
 try {
   ({ profile, tier } = await requireCRMAccess());
   crmSettings = await getCRMSettings();
@@ -169,14 +227,13 @@ try {
   }
 } catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session")) toast("bad","Error",e.message); }
 
+// ── Page render ──
+
 async function renderPage() {
   const branding = crmSettings?.branding || {};
   const companyName = branding.company_name || "SmartCore Technology";
   const primaryColor = branding.primary_color || "#1e5cff";
   const logoUrl = branding.prefer_icon ? (branding.icon_url || branding.logo_url) : (branding.logo_url || branding.icon_url);
-
-  // Render immediately, load count in background
-  refreshCount();
 
   document.getElementById("content").innerHTML = `
     <div class="page-header">
@@ -195,18 +252,23 @@ async function renderPage() {
         <div class="card">
           <div class="card-header"><h2>Recipients</h2></div>
           <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
+
+            <!-- Mode selector -->
+            <div style="display:flex;gap:6px;flex-wrap:wrap" id="modePills">
               ${[
-                ["contacts",     "📋 Contacts"],
-                ["portal_users", "🌐 Portal Users"],
-                ["both",         "👥 Both"],
-              ].map(([v,l]) => `
-                <label style="display:flex;align-items:center;gap:7px;cursor:pointer;padding:8px 14px;border:1px solid var(--line2);border-radius:8px;font-size:13px;font-weight:600;transition:all .15s;${_recipientType===v?"background:rgba(30,92,255,.1);border-color:rgba(30,92,255,.4);color:var(--blue2)":""}">
-                  <input type="radio" name="recipType" value="${v}" ${_recipientType===v?"checked":""} style="display:none">
-                  ${l}
-                </label>`).join("")}
+                ["all_contacts",    "📋 All Contacts"],
+                ["portal_users",    "🌐 Portal Users"],
+                ["both",            "👥 Both"],
+                ["by_company",      "🏢 By Company"],
+                ["select_contacts", "👤 Select Contacts"],
+              ].map(([v,l]) => `<button class="mode-pill${_mode===v?" active":""}" data-mode="${v}">${l}</button>`).join("")}
             </div>
-            <div id="recipientCount" style="font-size:13px;color:var(--text3)">Loading recipient count…</div>
+
+            <!-- Picker panel (hidden unless by_company or select_contacts) -->
+            <div id="pickerPanel" style="display:none"></div>
+
+            <!-- Count display -->
+            <div id="recipientCount" style="font-size:13px;color:var(--text3)">Loading…</div>
           </div>
         </div>
 
@@ -234,7 +296,7 @@ async function renderPage() {
         </div>
 
         <!-- Send button -->
-        <button class="btn btn-primary" id="sendBtn" style="padding:14px;font-size:15px;font-weight:700" onclick="sendNewsletter()">
+        <button class="btn btn-primary" id="sendBtn" style="padding:14px;font-size:15px;font-weight:700" onclick="window.sendNewsletter()">
           📧 Send Newsletter
         </button>
         <div id="sendProgress" style="display:none">
@@ -264,42 +326,241 @@ async function renderPage() {
       </div>
     </div>`;
 
-  // Radio change
-  document.querySelectorAll('input[name="recipType"]').forEach(r => {
-    r.addEventListener("change", async () => {
-      _recipientType = r.value;
-      // Update label styles
-      document.querySelectorAll('label[style]').forEach(l => {
-        const inp = l.querySelector('input[name="recipType"]');
-        if (inp) l.style.cssText = inp.value === _recipientType
-          ? "display:flex;align-items:center;gap:7px;cursor:pointer;padding:8px 14px;border:1px solid rgba(30,92,255,.4);border-radius:8px;font-size:13px;font-weight:600;background:rgba(30,92,255,.1);color:var(--blue2)"
-          : "display:flex;align-items:center;gap:7px;cursor:pointer;padding:8px 14px;border:1px solid var(--line2);border-radius:8px;font-size:13px;font-weight:600";
-      });
-      refreshCount();
-    });
+  // Mode pill clicks
+  document.getElementById("modePills").addEventListener("click", async e => {
+    const btn = e.target.closest(".mode-pill");
+    if (!btn) return;
+    const newMode = btn.dataset.mode;
+    if (newMode === _mode) return;
+    _mode = newMode;
+    document.querySelectorAll(".mode-pill").forEach(p => p.classList.toggle("active", p.dataset.mode === _mode));
+    await switchMode();
   });
 
+  await switchMode(); // initial load — count + picker
   window.updatePreview();
 }
 
-async function refreshCount() {
-  const el = document.getElementById("recipientCount");
-  if (el) el.textContent = "Loading…";
+// ── Mode switching ──
+
+async function switchMode() {
+  const panel = document.getElementById("pickerPanel");
+  if (_mode === "by_company") {
+    panel.style.display = "block";
+    await renderCompanyPicker();
+  } else if (_mode === "select_contacts") {
+    panel.style.display = "block";
+    await renderContactPicker();
+  } else {
+    panel.style.display = "none";
+    await refreshSimpleCount();
+  }
+}
+
+// ── Simple count (all_contacts / portal_users / both) ──
+
+async function refreshSimpleCount() {
+  setCountEl("Loading…", false);
   try {
     let count = 0;
-    if (_recipientType === "contacts" || _recipientType === "both") {
+    if (_mode === "all_contacts" || _mode === "both") {
       const { count: c } = await sb().from("crm_contacts").select("id", { count: "exact", head: true })
         .eq("tenant_id", profile.company_id).not("email", "is", null).neq("email", "");
       count += c || 0;
     }
-    if (_recipientType === "portal_users" || _recipientType === "both") {
+    if (_mode === "portal_users" || _mode === "both") {
       const { count: c } = await sb().from("crm_portal_users").select("id", { count: "exact", head: true })
         .eq("tenant_id", profile.company_id).eq("status", "active");
       count += c || 0;
     }
     _recipientCount = count;
-    if (el) el.innerHTML = `<span class="recipient-chip">📬 ${count} recipient${count===1?"":"s"}</span>`;
-  } catch { if (el) el.textContent = "Could not load count"; }
+    setCountEl(count, true);
+  } catch { setCountEl("Could not load count", false); }
+}
+
+function setCountEl(val, isCount) {
+  const el = document.getElementById("recipientCount");
+  if (!el) return;
+  if (isCount) {
+    _recipientCount = val;
+    el.innerHTML = `<span class="recipient-chip">📬 ${val} recipient${val===1?"":"s"}</span>`;
+  } else {
+    el.textContent = val;
+  }
+}
+
+// ── Company picker ──
+
+async function renderCompanyPicker() {
+  const panel = document.getElementById("pickerPanel");
+  panel.innerHTML = `<div style="font-size:13px;color:var(--text3);padding:8px 0">Loading companies…</div>`;
+  setCountEl("Select companies below", false);
+
+  if (!_allCompanies) {
+    const { data } = await sb().from("crm_companies").select("id,name")
+      .eq("tenant_id", profile.company_id).order("name");
+    _allCompanies = data || [];
+  }
+  renderCompanyList();
+}
+
+function renderCompanyList() {
+  const panel = document.getElementById("pickerPanel");
+  const q = _companySearch.toLowerCase();
+  const filtered = _allCompanies.filter(c => c.name.toLowerCase().includes(q));
+  const selCount = _selectedCompanyIds.size;
+
+  panel.innerHTML = `
+    <input class="picker-search" id="companySearch" placeholder="Search companies…" value="${esc(_companySearch)}"/>
+    <div class="select-all-row">
+      <span>${selCount} selected</span>
+      <div style="display:flex;gap:4px">
+        <button onclick="window._companySelectAll()">Select all</button>
+        <button onclick="window._companyClearAll()">Clear</button>
+      </div>
+    </div>
+    <div class="picker-list" id="companyPickerList">
+      ${filtered.length ? filtered.map(c => `
+        <label class="picker-item">
+          <input type="checkbox" value="${c.id}" ${_selectedCompanyIds.has(c.id)?"checked":""} onchange="window._companyToggle('${c.id}')"/>
+          <div class="picker-item-main">
+            <div class="picker-item-name">${esc(c.name)}</div>
+          </div>
+        </label>`).join("") : `<div class="picker-empty">No companies found</div>`}
+    </div>`;
+
+  document.getElementById("companySearch").addEventListener("input", e => {
+    _companySearch = e.target.value;
+    renderCompanyList();
+  });
+
+  updateCompanyCount();
+}
+
+window._companyToggle = async (id) => {
+  if (_selectedCompanyIds.has(id)) _selectedCompanyIds.delete(id);
+  else _selectedCompanyIds.add(id);
+  renderCompanyList();
+};
+window._companySelectAll = () => {
+  _allCompanies.forEach(c => _selectedCompanyIds.add(c.id));
+  renderCompanyList();
+};
+window._companyClearAll = () => {
+  _selectedCompanyIds.clear();
+  renderCompanyList();
+};
+
+async function updateCompanyCount() {
+  if (!_selectedCompanyIds.size) {
+    _recipientCount = 0;
+    setCountEl("Select companies above to see recipient count", false);
+    return;
+  }
+  setCountEl("Counting…", false);
+  try {
+    const { count } = await sb().from("crm_contacts").select("id", { count: "exact", head: true })
+      .eq("tenant_id", profile.company_id)
+      .in("crm_company_id", [..._selectedCompanyIds])
+      .not("email", "is", null).neq("email", "");
+    _recipientCount = count || 0;
+    setCountEl(_recipientCount, true);
+  } catch { setCountEl("Could not count", false); }
+}
+
+// ── Contact picker ──
+
+async function renderContactPicker() {
+  const panel = document.getElementById("pickerPanel");
+  panel.innerHTML = `<div style="font-size:13px;color:var(--text3);padding:8px 0">Loading contacts…</div>`;
+  setCountEl("Select contacts below", false);
+
+  if (!_allContacts) {
+    // Load contacts + companies for display
+    const [cRes, compRes] = await Promise.all([
+      sb().from("crm_contacts").select("id,first_name,last_name,email,crm_company_id")
+        .eq("tenant_id", profile.company_id).not("email","is",null).neq("email","").order("first_name").limit(2000),
+      sb().from("crm_companies").select("id,name").eq("tenant_id", profile.company_id),
+    ]);
+    const compMap = Object.fromEntries((compRes.data || []).map(c => [c.id, c.name]));
+    _allContacts = (cRes.data || []).map(c => ({
+      id: c.id,
+      name: [c.first_name, c.last_name].filter(Boolean).join(" ") || c.email,
+      email: c.email,
+      company: c.crm_company_id ? (compMap[c.crm_company_id] || "") : "",
+    }));
+  }
+  renderContactList();
+}
+
+function renderContactList() {
+  const panel = document.getElementById("pickerPanel");
+  const q = _contactSearch.toLowerCase();
+  const filtered = _allContacts.filter(c =>
+    c.name.toLowerCase().includes(q) ||
+    c.email.toLowerCase().includes(q) ||
+    c.company.toLowerCase().includes(q)
+  );
+  const selCount = _selectedContactIds.size;
+
+  panel.innerHTML = `
+    <input class="picker-search" id="contactSearch" placeholder="Search by name, email or company…" value="${esc(_contactSearch)}"/>
+    <div class="select-all-row">
+      <span>${selCount} selected</span>
+      <div style="display:flex;gap:4px">
+        <button onclick="window._contactSelectAll()">Select all visible</button>
+        <button onclick="window._contactClearAll()">Clear</button>
+      </div>
+    </div>
+    <div class="picker-list" id="contactPickerList">
+      ${filtered.length ? filtered.map(c => `
+        <label class="picker-item">
+          <input type="checkbox" value="${c.id}" ${_selectedContactIds.has(c.id)?"checked":""} onchange="window._contactToggle('${c.id}')"/>
+          <div class="picker-item-main">
+            <div class="picker-item-name">${esc(c.name)}</div>
+            <div class="picker-item-sub">${esc(c.email)}${c.company ? " · "+esc(c.company) : ""}</div>
+          </div>
+        </label>`).join("") : `<div class="picker-empty">No contacts found</div>`}
+    </div>`;
+
+  document.getElementById("contactSearch").addEventListener("input", e => {
+    _contactSearch = e.target.value;
+    renderContactList();
+  });
+
+  updateContactCount();
+}
+
+window._contactToggle = (id) => {
+  if (_selectedContactIds.has(id)) _selectedContactIds.delete(id);
+  else _selectedContactIds.add(id);
+  // update checkbox without full re-render
+  const cb = document.querySelector(`#contactPickerList input[value="${id}"]`);
+  if (cb) cb.checked = _selectedContactIds.has(id);
+  updateContactCount();
+  // update selected count label
+  const row = document.querySelector(".select-all-row span");
+  if (row) row.textContent = `${_selectedContactIds.size} selected`;
+};
+window._contactSelectAll = () => {
+  const q = _contactSearch.toLowerCase();
+  _allContacts.filter(c =>
+    c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q) || c.company.toLowerCase().includes(q)
+  ).forEach(c => _selectedContactIds.add(c.id));
+  renderContactList();
+};
+window._contactClearAll = () => {
+  _selectedContactIds.clear();
+  renderContactList();
+};
+
+function updateContactCount() {
+  _recipientCount = _selectedContactIds.size;
+  if (!_recipientCount) {
+    setCountEl("Select contacts above to see recipient count", false);
+  } else {
+    setCountEl(_recipientCount, true);
+  }
 }
 
 </script>
