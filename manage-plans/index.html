@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Manage Plans — SmartCore</title>
+  <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#03060f;--bg1:#080f1f;--bg2:#0c1628;
+      --border:rgba(255,255,255,.07);--border-hi:rgba(99,160,255,.25);
+      --text:#e2e8f0;--muted:#475569;--accent:#3b82f6;--accent2:#6366f1;
+      --success:#22c55e;--warn:#f59e0b;--danger:#ef4444;
+      --glow:rgba(59,130,246,.18);
+    }
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;min-height:100vh;overflow-x:hidden}
+    body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(59,130,246,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(59,130,246,.03) 1px,transparent 1px);background-size:60px 60px;pointer-events:none;z-index:0}
+
+    /* Nav */
+    .nav{position:sticky;top:0;z-index:50;background:rgba(3,6,15,.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;gap:16px;height:56px}
+    .nav-brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:15px;letter-spacing:-.02em}
+    .nav-brand img{width:28px;height:28px;border-radius:7px}
+    .nav-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+    .nav-company{font-size:13px;color:var(--muted)}
+    .nav-btn{background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;transition:background .15s}
+    .nav-btn:hover{background:rgba(255,255,255,.1)}
+
+    /* Layout */
+    .page{max-width:900px;margin:0 auto;padding:40px 20px 80px;position:relative;z-index:1}
+    .page-title{font-size:28px;font-weight:800;letter-spacing:-.03em;margin-bottom:4px}
+    .page-sub{font-size:14px;color:var(--muted);margin-bottom:32px}
+
+    /* Cards */
+    .card{background:var(--bg1);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:16px}
+    .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    .card-title{font-size:15px;font-weight:700}
+    .card-sub{font-size:12px;color:var(--muted);margin-top:2px}
+
+    /* Module rows */
+    .mod-row{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--border)}
+    .mod-row:last-child{border-bottom:none;padding-bottom:0}
+    .mod-row:first-child{padding-top:0}
+    .mod-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+    .mod-icon.blue{background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.2)}
+    .mod-icon.green{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.2)}
+    .mod-icon.purple{background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.2)}
+    .mod-icon.amber{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.2)}
+    .mod-info{flex:1}
+    .mod-name{font-size:14px;font-weight:600}
+    .mod-desc{font-size:12px;color:var(--muted);margin-top:2px}
+    .mod-price{font-size:14px;font-weight:700;color:var(--accent);white-space:nowrap}
+    .mod-actions{display:flex;gap:8px;flex-shrink:0}
+
+    /* Badges */
+    .badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.02em}
+    .badge-green{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.2);color:#4ade80}
+    .badge-amber{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.2);color:#fbbf24}
+    .badge-red{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#fca5a5}
+    .badge-blue{background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.2);color:#93c5fd}
+
+    /* Buttons */
+    .btn{border-radius:9px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid transparent;white-space:nowrap}
+    .btn-ghost{background:rgba(255,255,255,.05);border-color:var(--border);color:var(--text)}
+    .btn-ghost:hover{background:rgba(255,255,255,.09)}
+    .btn-primary{background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;border-color:transparent}
+    .btn-primary:hover{opacity:.9}
+    .btn-danger{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.25);color:#fca5a5}
+    .btn-danger:hover{background:rgba(239,68,68,.18)}
+    .btn-sm{padding:6px 12px;font-size:12px;border-radius:7px}
+    .btn:disabled{opacity:.4;cursor:not-allowed}
+
+    /* Tier selector */
+    .tier-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-top:14px}
+    .tier-card{padding:14px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.03);cursor:pointer;transition:all .15s;text-align:center}
+    .tier-card:hover{border-color:var(--border-hi);background:rgba(59,130,246,.05)}
+    .tier-card.selected{border-color:var(--accent);background:rgba(59,130,246,.1)}
+    .tier-card.current{border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.06)}
+    .tier-label{font-size:13px;font-weight:700;margin-bottom:2px}
+    .tier-range{font-size:11px;color:var(--muted)}
+    .tier-price{font-size:12px;color:var(--accent);margin-top:4px;font-weight:600}
+
+    /* Divider */
+    .divider{height:1px;background:var(--border);margin:20px 0}
+
+    /* Summary row */
+    .summary-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;font-size:14px}
+    .summary-row.total{border-top:1px solid var(--border);margin-top:8px;padding-top:14px;font-weight:700;font-size:16px}
+
+    /* Modal overlay */
+    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+    .modal{background:var(--bg1);border:1px solid var(--border);border-radius:20px;padding:32px;max-width:480px;width:calc(100% - 32px)}
+    .modal h3{font-size:18px;font-weight:800;margin-bottom:8px}
+    .modal p{font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:20px}
+    .modal-actions{display:flex;gap:10px;justify-content:flex-end}
+
+    /* Toast */
+    #toast{position:fixed;bottom:28px;right:24px;z-index:999;display:flex;flex-direction:column;gap:8px}
+    .t{display:flex;align-items:flex-start;gap:12px;background:var(--bg1);border:1px solid var(--border);border-radius:12px;padding:14px 16px;min-width:280px;max-width:360px;animation:tin .25s ease;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+    @keyframes tin{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+    .t-dot{width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0}
+    .t-dot.ok{background:var(--success)}.t-dot.err{background:var(--danger)}.t-dot.warn{background:var(--warn)}
+    .t-title{font-size:13px;font-weight:700;margin-bottom:2px}
+    .t-msg{font-size:12px;color:var(--muted)}
+
+    /* Spinner */
+    .spin{display:flex;align-items:center;justify-content:center;padding:60px 20px;color:var(--muted);font-size:14px;gap:10px}
+    .spin::before{content:'';width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;flex-shrink:0}
+    @keyframes sp{to{transform:rotate(360deg)}}
+
+    /* CRM tier pills */
+    .crm-pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+    .crm-pill{padding:8px 16px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.04);cursor:pointer;font-size:13px;font-weight:600;transition:all .15s}
+    .crm-pill:hover{border-color:var(--border-hi);background:rgba(59,130,246,.07)}
+    .crm-pill.selected{border-color:var(--accent);background:rgba(59,130,246,.12);color:var(--accent)}
+    .crm-pill.current{border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.07);color:#4ade80}
+
+    .hide{display:none!important}
+    .info-box{background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.15);border-radius:10px;padding:12px 14px;font-size:13px;color:#93c5fd;margin-bottom:16px;line-height:1.5}
+    .warn-box{background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.15);border-radius:10px;padding:12px 14px;font-size:13px;color:#fbbf24;margin-bottom:16px;line-height:1.5}
+  </style>
+</head>
+<body>
+
+<nav class="nav" id="navBar" style="display:none">
+  <div class="nav-brand">
+    <img src="/SmartCore Official Logos/SC Icon - Black Background.png" alt="SmartCore" onerror="this.style.display='none'">
+    SmartCore
+  </div>
+  <div class="nav-right">
+    <span class="nav-company" id="navCompany"></span>
+    <button class="nav-btn" onclick="signOut()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page" id="pageWrap">
+  <div class="spin" id="loader">Loading your plan…</div>
+</div>
+
+<!-- Cancel confirmation modal -->
+<div class="modal-bg hide" id="cancelModal">
+  <div class="modal">
+    <h3>Cancel subscription?</h3>
+    <p>Your subscription will be cancelled and no further payments will be taken. You'll keep full access until <strong id="cancelDate">the end of your current billing period</strong>, then all modules will be deactivated.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Keep subscription</button>
+      <button class="btn btn-danger" id="confirmCancelBtn" onclick="confirmCancel()">Yes, cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  const sb = window.supabase.createClient(
+    'https://hjdpcfhozhoyeqevnupm.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts'
+  );
+
+  const SIZE_TIERS = [
+    { id:'micro',      label:'Micro',      range:'1–10',        multiplier:1.00  },
+    { id:'small',      label:'Small',      range:'11–15',       multiplier:0.71  },
+    { id:'growing',    label:'Growing',    range:'16–50',       multiplier:1.43  },
+    { id:'medium',     label:'Medium',     range:'51–100',      multiplier:2.86  },
+    { id:'large',      label:'Large',      range:'101–250',     multiplier:6.72  },
+    { id:'corporate',  label:'Corporate',  range:'251–500',     multiplier:14.44 },
+    { id:'enterprise', label:'Enterprise', range:'501–999',     multiplier:28.92 },
+    { id:'global',     label:'Global',     range:'1,000–1,500', multiplier:38.57 },
+  ];
+
+  const CRM_TIERS = [
+    { slug:'smartcore-crm-lite',         label:'CRM Lite',         price:19.99 },
+    { slug:'smartcore-crm-professional', label:'CRM Professional', price:39.99 },
+    { slug:'smartcore-crm-business',     label:'CRM Business',     price:69.99 },
+    { slug:'smartcore-crm-enterprise',   label:'CRM Enterprise',   price:149.99 },
+  ];
+
+  const MOD_META = {
+    'smartcore-core':            { icon:'🏢', color:'blue' },
+    'holiday-management':        { icon:'🌴', color:'green' },
+    'smartcore-crm-lite':        { icon:'📊', color:'purple' },
+    'smartcore-crm-professional':{ icon:'📊', color:'purple' },
+    'smartcore-crm-business':    { icon:'📊', color:'purple' },
+    'smartcore-crm-enterprise':  { icon:'📊', color:'purple' },
+  };
+
+  let planData = null;
+  let jwtToken = null;
+  let selectedTier = null;
+  let selectedCrmSlug = null;
+
+  async function init() {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) {
+      window.location.href = '/modules/?redirect=/manage-plans/';
+      return;
+    }
+    jwtToken = session.access_token;
+
+    document.getElementById('navBar').style.display = 'flex';
+
+    await loadPlan();
+  }
+
+  async function loadPlan() {
+    document.getElementById('pageWrap').innerHTML = '<div class="spin">Loading your plan…</div>';
+
+    const res = await fetch('/api/manage-plan', {
+      headers: { Authorization: `Bearer ${jwtToken}`, 'Content-Type': 'application/json' }
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      document.getElementById('pageWrap').innerHTML = `
+        <div style="text-align:center;padding:60px 20px">
+          <div style="font-size:32px;margin-bottom:12px">😕</div>
+          <div style="font-size:16px;font-weight:700;margin-bottom:8px">No active subscription found</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:24px">${err.error || 'Could not load your plan details.'}</div>
+          <a href="/shop/" style="display:inline-block;background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;border-radius:10px;padding:11px 24px;font-weight:700;text-decoration:none;font-size:14px">View plans</a>
+        </div>`;
+      return;
+    }
+
+    planData = await res.json();
+    const { order, company, purchased_modules, employee_count } = planData;
+
+    document.getElementById('navCompany').textContent = order.company_name || '';
+
+    selectedTier    = order.size_tier || 'micro';
+    selectedCrmSlug = (purchased_modules || []).find(m => m.module_slug?.startsWith('smartcore-crm'))?.module_slug || null;
+
+    render();
+  }
+
+  function render() {
+    const { order, company, purchased_modules, employee_count, modules: allMods } = planData;
+    const isCancelling = order.status === 'cancelling';
+    const billing = order.billing_type === 'yearly' ? '/yr' : '/mo';
+    const billingLabel = order.billing_type === 'yearly' ? 'Yearly' : 'Monthly';
+
+    const activeMods = (purchased_modules || []).filter(m => m.status === 'active');
+    const hasCrm = activeMods.some(m => m.module_slug?.startsWith('smartcore-crm'));
+    const currentCrmSlug = activeMods.find(m => m.module_slug?.startsWith('smartcore-crm'))?.module_slug;
+    const sizeTierObj = SIZE_TIERS.find(t => t.id === order.size_tier) || SIZE_TIERS[0];
+
+    let html = `
+      <h1 class="page-title">Manage Plans</h1>
+      <p class="page-sub">View and manage your active SmartCore subscriptions.</p>
+    `;
+
+    if (isCancelling) {
+      html += `<div class="warn-box">⚠️ Your subscription is set to cancel at the end of your current billing period. You'll keep access until then.</div>`;
+    }
+
+    // ── Subscription overview ──
+    html += `
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Subscription overview</div>
+            <div class="card-sub">${order.order_reference} · ${billingLabel} billing</div>
+          </div>
+          <span class="badge ${isCancelling ? 'badge-amber' : 'badge-green'}">${isCancelling ? '● Cancelling' : '● Active'}</span>
+        </div>
+
+        <div class="summary-row"><span style="color:var(--muted)">Company</span><span>${order.company_name}</span></div>
+        <div class="summary-row"><span style="color:var(--muted)">Billing</span><span>${billingLabel}</span></div>
+        <div class="summary-row"><span style="color:var(--muted)">Employees</span><span>${employee_count} active</span></div>
+        <div class="summary-row"><span style="color:var(--muted)">Company size tier</span><span>${sizeTierObj.label} (${sizeTierObj.range} employees)</span></div>
+        <div class="summary-row total"><span>Total</span><span style="color:var(--accent)">£${Number(order.total || 0).toFixed(2)}${billing}</span></div>
+      </div>
+    `;
+
+    // ── Active modules ──
+    html += `
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Active modules</div>
+            <div class="card-sub">${activeMods.length + 1} module${activeMods.length !== 0 ? 's' : ''} active</div>
+          </div>
+        </div>
+    `;
+
+    // SmartCore Core always included
+    html += modRow({ module_slug:'smartcore-core', module_name:'SmartCore Core' }, 0, billing, order, false);
+
+    for (const mod of activeMods) {
+      if (mod.module_slug === 'smartcore-core') continue;
+      const price = Number(mod.price || 0);
+      html += modRow(mod, price, billing, order, true);
+    }
+
+    html += `</div>`;
+
+    // ── Change company size ──
+    const nonFlatMods = activeMods.filter(m => !m.module_slug?.startsWith('smartcore-crm') && m.module_slug !== 'smartcore-core');
+    if (nonFlatMods.length > 0) {
+      html += `
+        <div class="card" id="sizeCard">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Change company size</div>
+              <div class="card-sub">Pricing scales with your headcount. Current: <strong>${sizeTierObj.label}</strong></div>
+            </div>
+          </div>
+          <div class="info-box">You currently have <strong>${employee_count}</strong> active employee${employee_count !== 1 ? 's' : ''}. Choose the tier that matches your headcount.</div>
+          <div class="tier-grid" id="tierGrid">
+      `;
+
+      for (const t of SIZE_TIERS) {
+        const isCurrent = t.id === order.size_tier;
+        const newTotal = calcNewTotal(planData, t.multiplier);
+        html += `
+          <div class="tier-card ${isCurrent ? 'current' : ''} ${selectedTier === t.id && !isCurrent ? 'selected' : ''}"
+               onclick="selectTier('${t.id}')" id="tier-${t.id}">
+            <div class="tier-label">${t.label}</div>
+            <div class="tier-range">${t.range} staff</div>
+            <div class="tier-price">£${newTotal.toFixed(2)}${billing}</div>
+            ${isCurrent ? `<div style="font-size:10px;color:#4ade80;margin-top:4px;font-weight:700">CURRENT</div>` : ''}
+          </div>`;
+      }
+
+      html += `</div>
+          <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-primary" id="saveSizeBtn" onclick="saveSize()" disabled>Save size change</button>
+            <span id="sizeMsg" style="font-size:13px;color:var(--muted)"></span>
+          </div>
+        </div>
+      `;
+    }
+
+    // ── Change CRM tier ──
+    if (hasCrm) {
+      html += `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Change CRM tier</div>
+              <div class="card-sub">Upgrade or downgrade your CRM plan</div>
+            </div>
+          </div>
+          <div class="crm-pills">
+      `;
+
+      for (const ct of CRM_TIERS) {
+        const isCurrent = ct.slug === currentCrmSlug;
+        html += `<div class="crm-pill ${isCurrent ? 'current' : ''} ${selectedCrmSlug === ct.slug && !isCurrent ? 'selected' : ''}"
+          onclick="selectCrm('${ct.slug}')" id="crm-${ct.slug}">
+          ${ct.label} — £${ct.price}${billing}
+          ${isCurrent ? ' ✓' : ''}
+        </div>`;
+      }
+
+      html += `</div>
+          <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-primary" id="saveCrmBtn" onclick="saveCrm()" disabled>Save CRM change</button>
+            <span id="crmMsg" style="font-size:13px;color:var(--muted)"></span>
+          </div>
+        </div>
+      `;
+    }
+
+    // ── Cancel ──
+    if (!isCancelling) {
+      html += `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title" style="color:var(--danger)">Cancel subscription</div>
+              <div class="card-sub">You'll keep access until the end of your billing period</div>
+            </div>
+          </div>
+          <p style="font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:16px">
+            Cancelling will stop all future payments. Your team will retain full access to all modules until your next payment date, after which all modules will be deactivated.
+          </p>
+          <button class="btn btn-danger" onclick="openCancelModal()">Cancel subscription</button>
+        </div>
+      `;
+    }
+
+    document.getElementById('pageWrap').innerHTML = html;
+  }
+
+  function modRow(mod, price, billing, order, showPrice) {
+    const meta = MOD_META[mod.module_slug] || { icon:'📦', color:'blue' };
+    return `
+      <div class="mod-row">
+        <div class="mod-icon ${meta.color}">${meta.icon}</div>
+        <div class="mod-info">
+          <div class="mod-name">${mod.module_name || mod.module_slug}</div>
+          ${mod.module_slug === 'smartcore-core' ? `<div class="mod-desc">Included with all plans</div>` : ''}
+        </div>
+        ${showPrice ? `<div class="mod-price">£${price.toFixed(2)}${billing}</div>` : `<span class="badge badge-green">Included</span>`}
+      </div>`;
+  }
+
+  function calcNewTotal(data, newMultiplier) {
+    const { order, purchased_modules } = data;
+    let subtotal = 0;
+    for (const mod of (purchased_modules || [])) {
+      if (mod.module_slug === 'smartcore-core') continue;
+      const price = Number(mod.price || 0);
+      const isCrm = mod.module_slug?.startsWith('smartcore-crm');
+      subtotal += isCrm ? price : price / (order.size_multiplier || 1) * newMultiplier;
+    }
+    const disc = subtotal * (order.discount_percent || 0) / 100;
+    return Math.max(0, subtotal - disc);
+  }
+
+  function selectTier(id) {
+    selectedTier = id;
+    document.querySelectorAll('.tier-card').forEach(el => {
+      const tid = el.id.replace('tier-','');
+      const isCurrent = tid === planData.order.size_tier;
+      el.className = 'tier-card' + (isCurrent ? ' current' : '') + (selectedTier === tid && !isCurrent ? ' selected' : '');
+    });
+    const btn = document.getElementById('saveSizeBtn');
+    if (btn) btn.disabled = selectedTier === planData.order.size_tier;
+  }
+
+  function selectCrm(slug) {
+    selectedCrmSlug = slug;
+    document.querySelectorAll('.crm-pill').forEach(el => {
+      const s = el.id.replace('crm-','');
+      const activeMods = (planData.purchased_modules || []);
+      const isCurrent = activeMods.some(m => m.module_slug === s && m.status === 'active');
+      el.className = 'crm-pill' + (isCurrent ? ' current' : '') + (selectedCrmSlug === s && !isCurrent ? ' selected' : '');
+    });
+    const activeCrm = (planData.purchased_modules || []).find(m => m.module_slug?.startsWith('smartcore-crm'));
+    const btn = document.getElementById('saveCrmBtn');
+    if (btn) btn.disabled = selectedCrmSlug === activeCrm?.module_slug;
+  }
+
+  async function saveSize() {
+    const btn = document.getElementById('saveSizeBtn');
+    const msg = document.getElementById('sizeMsg');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    msg.textContent = '';
+
+    const res = await fetch('/api/manage-plan', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${jwtToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'change_size', new_tier_id: selectedTier })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      toast('err', 'Could not update', data.error || 'Something went wrong');
+      btn.disabled = false; btn.textContent = 'Save size change';
+      return;
+    }
+
+    toast('ok', 'Size updated', `Now on ${data.new_tier?.label} tier — £${Number(data.new_total).toFixed(2)}/mo`);
+    await loadPlan();
+  }
+
+  async function saveCrm() {
+    const btn = document.getElementById('saveCrmBtn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+
+    const res = await fetch('/api/manage-plan', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${jwtToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'change_crm_tier', new_crm_slug: selectedCrmSlug })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      toast('err', 'Could not update', data.error || 'Something went wrong');
+      btn.disabled = false; btn.textContent = 'Save CRM change';
+      return;
+    }
+
+    toast('ok', 'CRM tier updated', `Switched to ${data.new_module?.name}`);
+    await loadPlan();
+  }
+
+  function openCancelModal() {
+    // Try to show next billing date if available
+    const order = planData?.order;
+    const label = order?.next_payment_date
+      ? new Date(order.next_payment_date).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' })
+      : 'the end of your current billing period';
+    document.getElementById('cancelDate').textContent = label;
+    document.getElementById('cancelModal').classList.remove('hide');
+  }
+
+  function closeModal() {
+    document.getElementById('cancelModal').classList.add('hide');
+  }
+
+  async function confirmCancel() {
+    const btn = document.getElementById('confirmCancelBtn');
+    btn.disabled = true; btn.textContent = 'Cancelling…';
+
+    const res = await fetch('/api/manage-plan', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${jwtToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cancel_subscription' })
+    });
+
+    const data = await res.json();
+    closeModal();
+
+    if (!res.ok || !data.success) {
+      toast('err', 'Cancellation failed', data.error || 'Please contact support');
+      btn.disabled = false; btn.textContent = 'Yes, cancel';
+      return;
+    }
+
+    toast('ok', 'Subscription cancelled', 'No further payments will be taken. Access continues until end of period.');
+    await loadPlan();
+  }
+
+  function toast(type, title, msg) {
+    const wrap = document.getElementById('toast');
+    const el = document.createElement('div');
+    el.className = 't';
+    el.innerHTML = `<div class="t-dot ${type === 'ok' ? 'ok' : type === 'warn' ? 'warn' : 'err'}"></div><div><div class="t-title">${title}</div><div class="t-msg">${msg}</div></div>`;
+    wrap.appendChild(el);
+    setTimeout(() => { el.style.opacity='0'; el.style.transition='opacity .3s'; }, 3800);
+    setTimeout(() => el.remove(), 4200);
+  }
+
+  async function signOut() {
+    await sb.auth.signOut();
+    window.location.href = '/modules/';
+  }
+
+  init();
+</script>
+</body>
+</html>

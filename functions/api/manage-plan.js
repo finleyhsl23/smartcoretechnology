@@ -143,9 +143,10 @@ export async function onRequestPatch(context) {
     if (resolved.error) return json({ error: resolved.error }, resolved.status, CORS);
     const order = resolved.order;
 
-    if (action === 'change_size')          return handleChangeSize(env, order, body);
-    if (action === 'change_crm_tier')      return handleChangeCrmTier(env, order, body);
+    if (action === 'change_size')           return handleChangeSize(env, order, body);
+    if (action === 'change_crm_tier')       return handleChangeCrmTier(env, order, body);
     if (action === 'cancel_pending_change') return handleCancelPendingChange(env, order);
+    if (action === 'cancel_subscription')   return handleCancelSubscription(env, order);
 
     return json({ error: `Unknown action: ${action}` }, 400, CORS);
   } catch (err) {
@@ -160,6 +161,31 @@ export async function onRequestOptions() {
     'Access-Control-Allow-Methods': 'GET, PATCH, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   }});
+}
+
+// ---------------------------------------------------------------------------
+// Action: cancel_subscription
+// ---------------------------------------------------------------------------
+async function handleCancelSubscription(env, order) {
+  // Cancel in Stripe at period end so access continues until next billing date
+  if (order.stripe_subscription_id) {
+    try {
+      await stripeRequest(env, 'POST', `/subscriptions/${enc(order.stripe_subscription_id)}`, {
+        cancel_at_period_end: 'true',
+      });
+    } catch (e) {
+      console.error('Stripe cancel error:', e);
+      return json({ error: `Stripe error: ${e.message}` }, 500, CORS);
+    }
+  }
+
+  // Mark order as cancelling in DB
+  await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, {
+    status:       'cancelling',
+    cancelled_at: new Date().toISOString(),
+  });
+
+  return json({ success: true }, 200, CORS);
 }
 
 // ---------------------------------------------------------------------------
