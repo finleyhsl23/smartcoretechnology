@@ -35,6 +35,22 @@
       display: flex; align-items: center; justify-content: center;
       font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0;
     }
+
+    /* Searchable select */
+    .ss-wrap { position: relative; }
+    .ss-dropdown {
+      position: absolute; top: 100%; left: 0; right: 0; z-index: 300;
+      background: var(--bg2); border: 1px solid var(--line1); border-radius: 8px;
+      max-height: 180px; overflow-y: auto; margin-top: 3px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    }
+    .ss-option {
+      padding: 9px 12px; cursor: pointer; font-size: 13px;
+      border-bottom: 1px solid var(--line2);
+    }
+    .ss-option:last-child { border-bottom: none; }
+    .ss-option:hover { background: rgba(30,92,255,.1); color: var(--blue2); }
+    .ss-option[data-empty] { color: var(--text3); cursor: default; font-style: italic; }
   </style>
 </head>
 <body>
@@ -321,7 +337,6 @@ function openEditModal() {
 // ── Log conversation modal ──
 
 function openConvModal(prefill = {}) {
-  const staffOpts = staff.map(s => `<option value="${s.id}" ${s.id === profile.id ? "selected" : ""}>${esc(s.full_name)}</option>`).join("");
   const now = new Date();
   const localNow = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0,16);
 
@@ -359,25 +374,31 @@ function openConvModal(prefill = {}) {
         <label class="form-label">Summary / Notes *</label>
         <textarea class="form-control" id="cSummary" rows="4" placeholder="What was discussed, agreed, or decided…">${esc(prefill.summary||"")}</textarea>
       </div>
-      <div style="border-top:1px solid var(--line2);padding-top:14px;margin-top:4px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;margin-bottom:10px">
+      <div class="form-group">
+        <label class="form-label">Logged By</label>
+        <div class="ss-wrap" id="cLoggedByWrap">
+          <input type="text" class="form-control" id="cLoggedBySearch" placeholder="Search staff…" autocomplete="off"/>
+          <input type="hidden" id="cLoggedBy"/>
+          <div class="ss-dropdown" id="cLoggedByDropdown" style="display:none"></div>
+        </div>
+      </div>
+      <div style="border-top:1px solid var(--line2);padding-top:14px;margin-top:8px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600">
           <input type="checkbox" id="cSetReminder" style="accent-color:#1e5cff;width:15px;height:15px"/>
           Set a follow-up reminder
         </label>
-        <div id="cReminderFields" style="display:none;display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div class="form-group">
-            <label class="form-label">Follow-up Date</label>
-            <input class="form-control" id="cFollowDate" type="date"/>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Reminder Note</label>
-            <input class="form-control" id="cFollowNote" placeholder="e.g. Chase quote decision"/>
+        <div id="cReminderFields" style="display:none;margin-top:12px;display:none">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="form-group">
+              <label class="form-label">Follow-up Date *</label>
+              <input class="form-control" id="cFollowDate" type="date"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Reminder Note</label>
+              <input class="form-control" id="cFollowNote" placeholder="e.g. Chase quote decision"/>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="form-group" style="margin-top:4px">
-        <label class="form-label">Logged By</label>
-        <select class="form-control" id="cLoggedBy"><option value="">— Select —</option>${staffOpts}</select>
       </div>
     </div>
     <div class="modal-footer">
@@ -385,11 +406,48 @@ function openConvModal(prefill = {}) {
       <button class="btn btn-primary" id="cSaveBtn">Save Conversation</button>
     </div>`, { size: "modal-lg" });
 
-  // Toggle reminder fields
+  // ── Searchable staff dropdown ──
+  const searchInput = o.querySelector("#cLoggedBySearch");
+  const hiddenInput = o.querySelector("#cLoggedBy");
+  const dropdown = o.querySelector("#cLoggedByDropdown");
+
+  // Pre-select current user if in staff list
+  const currentStaff = staff.find(s => s.id === profile.id);
+  if (currentStaff) {
+    searchInput.value = currentStaff.full_name;
+    hiddenInput.value = currentStaff.id;
+  }
+
+  function renderDropdown(query) {
+    const q = query.toLowerCase();
+    const filtered = q ? staff.filter(s => s.full_name.toLowerCase().includes(q)) : staff;
+    if (!filtered.length) {
+      dropdown.innerHTML = `<div class="ss-option" data-empty>No staff found</div>`;
+    } else {
+      dropdown.innerHTML = filtered.map(s =>
+        `<div class="ss-option" data-id="${s.id}" data-name="${esc(s.full_name)}">${esc(s.full_name)}</div>`
+      ).join("");
+      dropdown.querySelectorAll(".ss-option[data-id]").forEach(el => {
+        el.addEventListener("mousedown", e => {
+          e.preventDefault();
+          searchInput.value = el.dataset.name;
+          hiddenInput.value = el.dataset.id;
+          dropdown.style.display = "none";
+        });
+      });
+    }
+    dropdown.style.display = "block";
+  }
+
+  searchInput.addEventListener("focus", () => renderDropdown(searchInput.value));
+  searchInput.addEventListener("input", () => { hiddenInput.value = ""; renderDropdown(searchInput.value); });
+  searchInput.addEventListener("blur", () => setTimeout(() => { dropdown.style.display = "none"; }, 150));
+
+  // ── Toggle reminder fields ──
   const reminderCb = o.querySelector("#cSetReminder");
   const reminderFields = o.querySelector("#cReminderFields");
   reminderCb.addEventListener("change", () => {
-    reminderFields.style.display = reminderCb.checked ? "grid" : "none";
+    reminderFields.style.display = reminderCb.checked ? "block" : "none";
   });
 
   o.querySelector("#cSaveBtn").onclick = async () => {
@@ -397,11 +455,13 @@ function openConvModal(prefill = {}) {
     const summary = document.getElementById("cSummary").value.trim();
     if (!occurred_at) return toast("warn","Required","Please enter a date and time.");
     if (!summary) return toast("warn","Required","Please enter a summary.");
-    const btn = o.querySelector("#cSaveBtn");
-    btn.disabled = true; btn.textContent = "Saving…";
 
     const follow_up_date = reminderCb.checked ? document.getElementById("cFollowDate").value || null : null;
     const follow_up_note = reminderCb.checked ? document.getElementById("cFollowNote").value.trim() || null : null;
+    if (reminderCb.checked && !follow_up_date) return toast("warn","Required","Please enter a follow-up date.");
+
+    const btn = o.querySelector("#cSaveBtn");
+    btn.disabled = true; btn.textContent = "Saving…";
 
     try {
       await sb().from("crm_company_conversations").insert({
@@ -412,21 +472,37 @@ function openConvModal(prefill = {}) {
         our_attendees: document.getElementById("cOurs").value.trim() || null,
         their_attendees: document.getElementById("cTheirs").value.trim() || null,
         summary,
-        logged_by: document.getElementById("cLoggedBy").value || null,
+        logged_by: hiddenInput.value || null,
         follow_up_date,
         follow_up_note,
       });
 
-      // Also write to crm_reminders if follow-up set
       if (follow_up_date) {
+        const followUpIso = new Date(follow_up_date).toISOString();
+        const reminderTitle = `Follow up with ${company.name}`;
+        const reminderBody = follow_up_note || `Follow up on conversation with ${company.name}`;
+
+        // Write to reminders
         await sb().from("crm_reminders").insert({
           tenant_id: profile.company_id,
-          title: `Follow up with ${company.name}`,
-          body: follow_up_note || `Follow up on conversation with ${company.name}`,
-          remind_at: new Date(follow_up_date).toISOString(),
+          title: reminderTitle,
+          body: reminderBody,
+          remind_at: followUpIso,
           crm_company_id: companyId,
           created_by: profile.id,
-        }).throwOnError().then(() => {}).catch(() => {});
+        }).then(() => {}).catch(() => {});
+
+        // Write to calendar events
+        await sb().from("crm_events").insert({
+          tenant_id: profile.company_id,
+          title: reminderTitle,
+          description: reminderBody,
+          start_time: followUpIso,
+          end_time: new Date(new Date(follow_up_date).getTime() + 60 * 60 * 1000).toISOString(),
+          type: "follow_up",
+          crm_company_id: companyId,
+          created_by: profile.id,
+        }).then(() => {}).catch(() => {});
       }
 
       o.remove();
