@@ -36,7 +36,7 @@ import { esc, fmt, fmtDate, toast, confirm, quoteBadge, tierGate, loading, setIn
 
 initTheme();
 
-let profile, tier, crmSettings, allQuotes = [], companiesList = [], leadsList = [];
+let profile, tier, crmSettings, allQuotes = [], companiesList = [], leadsList = [], productsList = [];
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -52,6 +52,8 @@ try {
       companies.list({ limit: 500 }).then(r => r.data),
       leads.list({ limit: 500 }).then(r => r.data),
     ]);
+    const { data: prods } = await sb().from("crm_products").select("id,name,price,description,sku").eq("active", true).order("name");
+    productsList = prods || [];
     await loadAndRender();
   }
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
@@ -206,6 +208,8 @@ function openModal(id) {
           </div>
         </div>
 
+        <datalist id="prodList">${productsList.map(p => `<option value="${esc(p.name)}"/>`).join("")}</datalist>
+
         <div class="section-title" style="margin-top:16px">Line Items</div>
         <div id="lineItems">
           ${lineItems.map((li, i) => lineItemRow(li, i)).join("")}
@@ -258,6 +262,18 @@ function openModal(id) {
     overlay.querySelector("#totalDisp").textContent = "£"+(Math.max(0,sub-disc)).toFixed(2);
   }
   overlay.addEventListener("input", recalc);
+
+  // Auto-fill cost when a product name is selected from the datalist
+  overlay.querySelector("#lineItems").addEventListener("change", e => {
+    if (!e.target.classList.contains("li-desc")) return;
+    const match = productsList.find(p => p.name.toLowerCase() === e.target.value.toLowerCase());
+    if (match && match.price != null) {
+      const row = e.target.closest(".line-row");
+      row.querySelector(".li-price").value = Number(match.price).toFixed(2);
+      recalc();
+    }
+  });
+
   recalc();
 
   overlay.querySelector("#addLine").onclick = () => {
@@ -303,9 +319,9 @@ function openModal(id) {
 
 function lineItemRow(li, i) {
   return `<div class="line-row" style="display:grid;grid-template-columns:1fr 80px 100px 32px;gap:8px;margin-bottom:6px;align-items:center">
-    <input class="form-control li-desc" placeholder="Description" value="${esc(li.description||"")}"/>
+    <input class="form-control li-desc" list="prodList" placeholder="Description or pick a product…" value="${esc(li.description||"")}"/>
     <input class="form-control li-qty" type="number" min="0" placeholder="Qty" value="${li.qty||1}" style="text-align:center"/>
-    <input class="form-control li-price" type="number" min="0" step="0.01" placeholder="£ Unit price" value="${li.unit_price||0}"/>
+    <input class="form-control li-price" type="number" min="0" step="0.01" placeholder="Cost (£)" value="${li.unit_price||0}"/>
     <button class="btn btn-icon btn-danger li-remove" title="Remove">✕</button>
   </div>`;
 }
@@ -331,7 +347,7 @@ function exportPDF(id) {
     <tr>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${li.description||""}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center">${li.qty||1}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${Number(li.unit_price||0).toFixed(2)}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${Number(li.cost||li.unit_price||0).toFixed(2)}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${Number(li.total||((li.qty||1)*(li.unit_price||0))).toFixed(2)}</td>
     </tr>`).join("");
 
@@ -407,7 +423,7 @@ function exportPDF(id) {
       <tr>
         <th style="text-align:left">Description</th>
         <th style="text-align:center">Qty</th>
-        <th style="text-align:right">Unit Price</th>
+        <th style="text-align:right">Cost</th>
         <th style="text-align:right">Total</th>
       </tr>
     </thead>

@@ -86,6 +86,7 @@
     </div>
   </div>
 </div>
+<a id="dlLink" style="display:none"></a>
 <div id="toastwrap"></div>
 
 <script type="module">
@@ -226,6 +227,7 @@ function render() {
             <option value="inactive" ${filterStatus==="inactive"?"selected":""}>Inactive</option>
             <option value="all"      ${filterStatus==="all"     ?"selected":""}>All</option>
           </select>
+          <button class="btn btn-sm" id="exportBtn" title="Export to Excel">📊 Export</button>
         </div>
 
         <div class="product-grid" id="productGrid">
@@ -240,6 +242,9 @@ function render() {
   document.getElementById("searchInput").addEventListener("input", e => { searchQ = e.target.value; rerenderGrid(); });
   document.getElementById("catFilter").addEventListener("change", e => { filterCat = e.target.value; rerenderGrid(); });
   document.getElementById("statusFilter").addEventListener("change", e => { filterStatus = e.target.value; rerenderGrid(); });
+
+  // Export
+  document.getElementById("exportBtn").onclick = exportExcel;
 
   // Form save
   document.getElementById("saveBtn").onclick = saveProduct;
@@ -355,6 +360,33 @@ async function saveProduct() {
     toast("bad","Error",err.message);
     btn.disabled = false; btn.textContent = editingId ? "Save Changes" : "Add Product";
   }
+}
+
+// ── Export ────────────────────────────────────────────────
+
+function exportExcel() {
+  const list = filteredProducts();
+  const headers = ["Name","Price (£)","SKU","Category","Description","Status"];
+  const rows = list.map(p => [
+    p.name,
+    p.price != null ? Number(p.price).toFixed(2) : "",
+    p.sku || "",
+    p.category || "",
+    (p.description || "").replace(/\r?\n/g, " "),
+    p.active ? "Active" : "Inactive",
+  ]);
+  const csvRows = [headers, ...rows].map(r =>
+    r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")
+  );
+  const csv = "﻿" + csvRows.join("\r\n"); // BOM for Excel UTF-8
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.getElementById("dlLink");
+  a.href = url;
+  a.download = `products-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  toast("ok","Exported",`${list.length} product${list.length !== 1 ? "s" : ""} exported.`);
 }
 
 // ── Edit / Delete ─────────────────────────────────────────
