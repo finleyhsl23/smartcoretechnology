@@ -443,8 +443,8 @@ function openConvModal(prefill = {}) {
         <div id="cReminderFields" style="display:none;margin-top:12px">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
             <div class="form-group">
-              <label class="form-label">Follow-up Date *</label>
-              <input class="form-control" id="cFollowDate" type="date"/>
+              <label class="form-label">Follow-up Date & Time *</label>
+              <input class="form-control" id="cFollowDate" type="datetime-local"/>
             </div>
             <div class="form-group">
               <label class="form-label">Reminder Note</label>
@@ -557,6 +557,12 @@ function openConvModal(prefill = {}) {
   const reminderFields = o.querySelector("#cReminderFields");
   reminderCb.addEventListener("change", () => {
     reminderFields.style.display = reminderCb.checked ? "block" : "none";
+    if (reminderCb.checked && !document.getElementById("cFollowDate").value) {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      d.setHours(8, 0, 0, 0);
+      document.getElementById("cFollowDate").value = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    }
   });
 
   o.querySelector("#cSaveBtn").onclick = async () => {
@@ -567,7 +573,7 @@ function openConvModal(prefill = {}) {
 
     const follow_up_date = reminderCb.checked ? document.getElementById("cFollowDate").value || null : null;
     const follow_up_note = reminderCb.checked ? document.getElementById("cFollowNote").value.trim() || null : null;
-    if (reminderCb.checked && !follow_up_date) return toast("warn","Required","Please enter a follow-up date.");
+    if (reminderCb.checked && !follow_up_date) return toast("warn","Required","Please enter a follow-up date and time.");
 
     const btn = o.querySelector("#cSaveBtn");
     btn.disabled = true; btn.textContent = "Saving…";
@@ -587,7 +593,7 @@ function openConvModal(prefill = {}) {
       });
 
       if (follow_up_date) {
-        const followUpIso = new Date(follow_up_date).toISOString();
+        const followUpIso = new Date(follow_up_date).toISOString(); // follow_up_date is datetime-local string
         const reminderTitle = `Follow up with ${company.name}`;
         const reminderBody = follow_up_note || `Follow up on conversation with ${company.name}`;
 
