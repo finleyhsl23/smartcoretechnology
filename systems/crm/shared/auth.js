@@ -32,8 +32,49 @@ export async function getProfile() {
   return _profile;
 }
 
+function wireEscapeButtons() {
+  // Always wire logout + theme so user can exit even when access checks fail
+  const logoutBtn = document.getElementById("logoutBtn");
+  if (logoutBtn && !logoutBtn._wired) {
+    logoutBtn._wired = true;
+    logoutBtn.addEventListener("click", async () => {
+      if (confirm("Sign out of SmartCore CRM?")) {
+        await sb().auth.signOut();
+        window.location.href = "/modules/";
+      }
+    });
+  }
+  const themeBtn = document.getElementById("themeToggle");
+  if (themeBtn && !themeBtn._wired) {
+    themeBtn._wired = true;
+    themeBtn.addEventListener("click", () => {
+      const cur = document.documentElement.getAttribute("data-theme") || "dark";
+      const next = cur === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      themeBtn.textContent = next === "dark" ? "☀️" : "🌙";
+      localStorage.setItem("smartcore-crm-theme", next);
+    });
+  }
+}
+
 export async function requireCRMAccess() {
-  const profile = await getProfile();
+  let profile;
+  try {
+    profile = await getProfile();
+  } catch (e) {
+    wireEscapeButtons();
+    document.body.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#05081a;color:#e9f0ff;font-family:system-ui">
+        <div style="text-align:center">
+          <div style="font-size:48px;margin-bottom:16px">⚠️</div>
+          <h2 style="font-size:20px;margin-bottom:8px">Profile Not Found</h2>
+          <p style="color:rgba(233,240,255,.6);margin-bottom:20px">Your employee profile hasn't been set up yet. Contact your administrator.</p>
+          <a href="/modules/" style="background:#1e3a8a;color:#fff;padding:10px 24px;border-radius:99px;text-decoration:none;font-weight:600;margin-right:8px">← Back to Modules</a>
+          <button onclick="(async()=>{await (await import('/systems/crm/shared/supabase.js')).sb().auth.signOut();window.location.href='/modules/';})()" style="background:#374151;color:#fff;padding:10px 24px;border-radius:99px;border:none;cursor:pointer;font-weight:600">Sign Out</button>
+        </div>
+      </div>`;
+    throw e;
+  }
 
   const { data: mod, error } = await sb()
     .from("company_modules")
@@ -43,6 +84,7 @@ export async function requireCRMAccess() {
     .maybeSingle();
 
   if (error || !mod?.enabled) {
+    wireEscapeButtons();
     document.body.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#05081a;color:#e9f0ff;font-family:system-ui">
         <div style="text-align:center">
