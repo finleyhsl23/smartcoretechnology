@@ -144,14 +144,14 @@ function renderFolders() {
       <input class="form-control" id="searchInput" placeholder="🔍 Search folders…" value="${esc(searchQ)}"/>
     </div>
 
-    <div class="folder-grid">
+    <div class="folder-grid" id="folderGrid">
       ${visible.length === 0
         ? `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">📁</div><h3>No folders yet</h3><p>Upload a document and assign it to a company to create a folder.</p></div>`
         : visible.map(f => folderCard(f)).join("")}
     </div>`;
 
   document.getElementById("uploadBtn").onclick = () => openUploadModal();
-  document.getElementById("searchInput").addEventListener("input", e => { searchQ = e.target.value; renderFolders(); });
+  document.getElementById("searchInput").addEventListener("input", e => { searchQ = e.target.value; rerenderFolderGrid(); });
   document.querySelectorAll(".folder-card").forEach(card => {
     card.addEventListener("click", () => {
       const id = card.dataset.id;
@@ -159,6 +159,33 @@ function renderFolders() {
       activeFolder = { id, name };
       searchQ = "";
       catFilter = "";
+      renderFolder(activeFolder);
+    });
+  });
+}
+
+function rerenderFolderGrid() {
+  const groups = {};
+  for (const d of allDocs) {
+    const key = d.crm_company_id || "__none__";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(d);
+  }
+  const folders = companiesList
+    .filter(c => groups[c.id]?.length)
+    .map(c => ({ id: c.id, name: c.name, count: groups[c.id].length }));
+  if (groups["__none__"]?.length) folders.push({ id: "__none__", name: "Unassigned", count: groups["__none__"].length });
+  const q = searchQ.toLowerCase();
+  const visible = q ? folders.filter(f => f.name.toLowerCase().includes(q)) : folders;
+  const grid = document.getElementById("folderGrid");
+  if (!grid) return;
+  grid.innerHTML = visible.length === 0
+    ? `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">📁</div><h3>No folders found</h3><p>No folders match your search.</p></div>`
+    : visible.map(f => folderCard(f)).join("");
+  document.querySelectorAll(".folder-card").forEach(card => {
+    card.addEventListener("click", () => {
+      activeFolder = { id: card.dataset.id, name: card.dataset.name };
+      searchQ = ""; catFilter = "";
       renderFolder(activeFolder);
     });
   });

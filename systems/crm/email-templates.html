@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Email Templates — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
+  <style>
+    .template-row { padding:14px 16px; background:var(--card2); border-radius:var(--r2); border:1px solid var(--line); margin-bottom:8px; }
+    .template-row-header { display:flex; align-items:center; justify-content:space-between; }
+    .template-name { font-weight:600; font-size:14px; }
+    .template-subject { font-size:12px; color:var(--text3); margin-top:2px; }
+    .template-body-preview { font-size:12px; color:var(--text2); margin-top:8px; padding-top:8px; border-top:1px solid var(--line); white-space:pre-wrap; max-height:60px; overflow:hidden; }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Email Templates</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess, getCRMSettings, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
+import { sb } from "/systems/crm/shared/supabase.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, toast, tierGate } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier, settings;
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("email-templates", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+
+  if (!tierHasFeature(tier, "email_templates")) {
+    document.getElementById("content").innerHTML = tierGate("email_templates");
+  } else {
+    settings = await getCRMSettings();
+    renderPage();
+  }
+} catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session")) toast("bad","Error",e.message); }
+
+function renderPage() {
+  const templates = settings?.email_templates || [];
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Email Templates</h1>
+        <p>${templates.length} template${templates.length !== 1 ? "s" : ""}</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" id="addBtn">+ New Template</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <p class="text-muted" style="margin-bottom:16px;font-size:13px">
+          Create reusable email templates for follow-ups, quotes, and onboarding messages.
+          Use <code>{{name}}</code>, <code>{{company}}</code>, <code>{{email}}</code> as placeholders.
+        </p>
+        <div id="templatesList">
+          ${buildList(templates)}
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById("addBtn").onclick = () => openModal();
+  bindListEvents();
+}
+
+function buildList(templates) {
+  if (templates.length === 0) {
+    return `<div class="empty-state"><div class="empty-icon">📧</div><h3>No templates yet</h3><p>Create your first email template to save time on follow-ups and outreach.</p></div>`;
+  }
+  return templates.map((t, i) => `
+    <div class="template-row">
+      <div class="template-row-header">
+        <div>
+          <div class="template-name">${esc(t.name)}</div>
+          <div class="template-subject">Subject: ${esc(t.subject || "—")}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm edit-tpl-btn" data-index="${i}">Edit</button>
+          <button class="btn btn-sm btn-danger del-tpl-btn" data-index="${i}">Delete</button>
+        </div>
+      </div>
+      ${t.body ? `<div class="template-body-preview">${esc(t.body)}</div>` : ""}
+    </div>`).join("");
+}
+
+function bindListEvents() {
+  document.querySelectorAll(".edit-tpl-btn").forEach(b =>
+    b.addEventListener("click", () => openModal(parseInt(b.dataset.index)))
+  );
+  document.querySelectorAll(".del-tpl-btn").forEach(b =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Delete this template?")) return;
+      const tpls = [...(settings?.email_templates || [])];
+      tpls.splice(parseInt(b.dataset.index), 1);
+      await saveTemplates(tpls);
+    })
+  );
+}
+
+function openModal(index = null) {
+  const templates = settings?.email_templates || [];
+  const t = index !== null ? templates[index] : null;
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>${t ? "Edit Template" : "New Email Template"}</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Template Name *</label>
+          <input class="form-control" id="tName" value="${esc(t?.name || "")}" placeholder="e.g. Follow-up after demo"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Subject</label>
+          <input class="form-control" id="tSubject" value="${esc(t?.subject || "")}" placeholder="Email subject line"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Body</label>
+          <textarea class="form-control" id="tBody" rows="10" placeholder="Write your email template here. Use {{name}}, {{company}}, {{email}} as placeholders.">${esc(t?.body || "")}</textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveTplBtn">${t ? "Save Changes" : "Create Template"}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector("#saveTplBtn").onclick = async () => {
+    const name = overlay.querySelector("#tName").value.trim();
+    if (!name) return toast("warn","Validation","Template name is required.");
+    const newTemplate = {
+      name,
+      subject: overlay.querySelector("#tSubject").value.trim(),
+      body: overlay.querySelector("#tBody").value.trim(),
+    };
+    const tpls = [...(settings?.email_templates || [])];
+    if (index !== null) tpls[index] = newTemplate;
+    else tpls.push(newTemplate);
+    await saveTemplates(tpls);
+    overlay.remove();
+  };
+}
+
+async function saveTemplates(templates) {
+  try {
+    const { data: { session } } = await sb().auth.getSession();
+    const { data: emp } = await sb().from("core_employees").select("company_id").eq("auth_user_id", session.user.id).single();
+    await sb().from("crm_settings").upsert({ tenant_id: emp.company_id, email_templates: templates }, { onConflict: "tenant_id" });
+    settings = { ...settings, email_templates: templates };
+    document.getElementById("templatesList").innerHTML = buildList(templates);
+    document.querySelector(".page-header p").textContent = `${templates.length} template${templates.length !== 1 ? "s" : ""}`;
+    bindListEvents();
+    toast("ok","Templates saved");
+  } catch(err) { toast("bad","Error",err.message); }
+}
+</script>
+</body>
+</html>

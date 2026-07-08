@@ -24,6 +24,7 @@ const NAV_LINKS = [
   { id: "messaging",  icon: "💬", label: "Messaging",       href: "/systems/crm/messaging.html",  tier: "business",     section: "customer" },
   { id: "projects",   icon: "📋", label: "Projects",        href: "/systems/crm/projects.html",   tier: "business",     section: "customer" },
   { id: "newsletter", icon: "📧", label: "Newsletter",      href: "/systems/crm/newsletter.html", tier: "professional", section: "customer" },
+  { id: "email-templates", icon: "✉️", label: "Email Templates", href: "/systems/crm/email-templates.html", tier: "professional", section: "customer" },
   // System
   { id: "reminders",  icon: "🔔", label: "Reminders",       href: "/systems/crm/reminders.html",  system: true },
   { id: "commands",   icon: "⚡", label: "Commands",        href: "/systems/crm/commands.html",   system: true },

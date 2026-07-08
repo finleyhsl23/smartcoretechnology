@@ -66,11 +66,16 @@ const TIER_COLORS = { lite:"badge-blue", professional:"badge-green", business:"b
 
 try {
   ({ profile, tier } = await requireCRMAccess());
-  settings = await getCRMSettings();
-  renderNav("settings", profile, tier, settings);
+  renderNav("settings", profile, tier);
   initMobileNav();
   initTopbar(profile);
-  renderSettings();
+  if (profile.role !== "owner" && profile.role !== "admin") {
+    document.getElementById("content").innerHTML = `<div class="empty-state"><div class="empty-icon">🔒</div><h3>Access Denied</h3><p>Settings are restricted to admins and owners.</p></div>`;
+  } else {
+    settings = await getCRMSettings();
+    renderNav("settings", profile, tier, settings);
+    renderSettings();
+  }
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
 function renderSettings() {
@@ -88,7 +93,6 @@ function renderSettings() {
       <button class="tab" data-tab="plan">Plan &amp; Features</button>
       <button class="tab" data-tab="branding">Branding</button>
       <button class="tab" data-tab="pipeline">Pipeline Stages</button>
-      ${tierHasFeature(tier,"email_templates") ? '<button class="tab" data-tab="templates">Email Templates</button>' : ""}
       <button class="tab" data-tab="appearance">Appearance</button>
     </div>
 
@@ -121,7 +125,7 @@ function renderSettings() {
         <div class="card-header"><h2>Quick Links</h2></div>
         <div class="card-body" style="display:flex;flex-wrap:wrap;gap:10px">
           <a href="/app/dashboard.html" class="btn">← SmartCore Dashboard</a>
-          <a href="/shop/index.html" class="btn btn-primary">Manage Plan</a>
+          <a href="https://smartcoretechnology.co.uk/manage-plans" class="btn btn-primary">Manage Plan</a>
           <a href="https://smartcoretechnology.co.uk/systems/core/" target="_blank" class="btn">Manage Team ↗</a>
           <button class="btn btn-danger" id="signOutBtn">Sign Out</button>
         </div>
@@ -133,7 +137,7 @@ function renderSettings() {
       <div class="card">
         <div class="card-header">
           <h2>Current Plan: <span class="badge ${TIER_COLORS[tier]||"badge-blue"}">${TIER_LABELS[tier]||tier}</span></h2>
-          <a href="/shop/index.html" class="btn btn-primary btn-sm">Manage Plan →</a>
+          <a href="https://smartcoretechnology.co.uk/manage-plans" class="btn btn-primary btn-sm">Manage Plan →</a>
         </div>
         <div class="card-body" style="overflow-x:auto">
           ${buildTierTable()}
@@ -167,22 +171,6 @@ function renderSettings() {
         </div>
       </div>
     </div>
-
-    <!-- Templates Tab -->
-    ${tierHasFeature(tier,"email_templates") ? `
-    <div id="tab-templates" class="hidden">
-      <div class="card">
-        <div class="card-header">
-          <h2>Email Templates</h2>
-          <button class="btn btn-primary btn-sm" id="addTemplateBtn">+ Add Template</button>
-        </div>
-        <div class="card-body">
-          <div id="templatesList">
-            ${buildTemplatesList()}
-          </div>
-        </div>
-      </div>
-    </div>` : ""}
 
     <!-- Appearance Tab -->
     <div id="tab-appearance" class="hidden">
@@ -503,20 +491,6 @@ function bindEvents() {
 
     bindStageEvents();
   }
-
-  // Email templates
-  document.getElementById("addTemplateBtn")?.addEventListener("click", () => openTemplateModal());
-  document.querySelectorAll(".edit-template-btn").forEach(b => {
-    b.addEventListener("click", () => openTemplateModal(parseInt(b.dataset.index)));
-  });
-  document.querySelectorAll(".del-template-btn").forEach(b => {
-    b.addEventListener("click", async () => {
-      if (!confirm("Delete this template?")) return;
-      const templates = [...(settings?.email_templates || [])];
-      templates.splice(parseInt(b.dataset.index), 1);
-      await saveTemplates(templates);
-    });
-  });
 
   // Branding
   bindBrandingEvents();

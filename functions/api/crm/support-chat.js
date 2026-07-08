@@ -383,6 +383,114 @@ const BASE_TOOLS = [
   },
 ];
 
+const EXTRA_TOOLS = [
+  {
+    name: "list_projects",
+    description: "List or search projects",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: { type: "string", description: "active, planning, on_hold, completed, cancelled" },
+        company_id: { type: "string" },
+        limit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "create_project",
+    description: "Create a new project",
+    input_schema: {
+      type: "object",
+      required: ["name"],
+      properties: {
+        name: { type: "string" },
+        description: { type: "string" },
+        status: { type: "string", description: "active, planning, on_hold, completed, cancelled" },
+        crm_company_id: { type: "string" },
+        visible_to_portal: { type: "boolean" },
+      },
+    },
+  },
+  {
+    name: "update_project",
+    description: "Update a project",
+    input_schema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        description: { type: "string" },
+        status: { type: "string" },
+        crm_company_id: { type: "string" },
+        visible_to_portal: { type: "boolean" },
+      },
+    },
+  },
+  {
+    name: "delete_project",
+    description: "Delete a project by ID",
+    input_schema: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
+  },
+  {
+    name: "list_documents",
+    description: "List documents, optionally filtered by company",
+    input_schema: {
+      type: "object",
+      properties: {
+        company_id: { type: "string" },
+        category: { type: "string", description: "general, contract, quote, proposal, photo, form, report, other" },
+        limit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "list_products",
+    description: "List products/services in the catalogue",
+    input_schema: {
+      type: "object",
+      properties: {
+        search: { type: "string" },
+        category: { type: "string" },
+        active_only: { type: "boolean" },
+        limit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "list_staff",
+    description: "List all staff/employees in the organisation",
+    input_schema: {
+      type: "object",
+      properties: {
+        department: { type: "string" },
+        limit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "list_pipeline",
+    description: "List pipeline stages and lead counts per stage",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "create_ticket",
+    description: "Create a new support ticket",
+    input_schema: {
+      type: "object",
+      required: ["subject"],
+      properties: {
+        subject: { type: "string" },
+        description: { type: "string" },
+        priority: { type: "string", description: "low, medium, high, urgent" },
+        type: { type: "string", description: "bug, feature_request, support, billing, other" },
+        crm_company_id: { type: "string" },
+        assigned_to: { type: "string", description: "Employee ID" },
+      },
+    },
+  },
+];
+
 const LEADERBOARD_TOOL = {
   name: "list_leaderboard",
   description: "Show the sales leaderboard — who has won the most leads and highest value in a given period",
@@ -631,12 +739,74 @@ async function executeTool(name, input, env, tenantId, userId) {
       return r?.id ? { ok: true, id: r.id, title: r.title } : { error: r?.message || JSON.stringify(r) };
     }
 
+    case 'list_projects': {
+      let p = `?tenant_id=eq.${tenantId}&order=created_at.desc&limit=${input.limit || 50}&select=*,crm_companies(name)`;
+      if (input.status) p += `&status=eq.${input.status}`;
+      if (input.company_id) p += `&crm_company_id=eq.${input.company_id}`;
+      const data = await sbGet(env, 'crm_projects', p);
+      return Array.isArray(data) ? data.map(p => ({ id: p.id, name: p.name, status: p.status, description: p.description, company: p.crm_companies?.name, created_at: p.created_at })) : data;
+    }
+    case 'create_project': {
+      const data = await sbPost(env, 'crm_projects', { ...base, status: 'active', ...input });
+      const r = Array.isArray(data) ? data[0] : data;
+      return r?.id ? { ok: true, id: r.id, name: r.name } : { error: r?.message || JSON.stringify(r) };
+    }
+    case 'update_project': {
+      const { id, ...fields } = input;
+      const r = await sbPatch(env, 'crm_projects', id, { ...fields, updated_at: new Date().toISOString() });
+      return r?.id ? { ok: true, id: r.id } : { error: r?.message || JSON.stringify(r) };
+    }
+    case 'delete_project':
+      return sbDelete(env, 'crm_projects', input.id);
+
+    case 'list_documents': {
+      let p = `?tenant_id=eq.${tenantId}&order=created_at.desc&limit=${input.limit || 50}&select=*,crm_companies(name)`;
+      if (input.company_id) p += `&crm_company_id=eq.${input.company_id}`;
+      if (input.category) p += `&category=eq.${input.category}`;
+      const data = await sbGet(env, 'crm_documents', p);
+      return Array.isArray(data) ? data.map(d => ({ id: d.id, name: d.name, category: d.category, file_type: d.file_type, company: d.crm_companies?.name, created_at: d.created_at })) : data;
+    }
+
+    case 'list_products': {
+      let p = `?tenant_id=eq.${tenantId}&order=name&limit=${input.limit || 50}`;
+      if (input.active_only !== false) p += `&active=eq.true`;
+      if (input.search) p += `&name=ilike.*${encodeURIComponent(input.search)}*`;
+      if (input.category) p += `&category=eq.${input.category}`;
+      const data = await sbGet(env, 'crm_products', p);
+      return Array.isArray(data) ? data.map(p => ({ id: p.id, name: p.name, sku: p.sku, price: p.price, category: p.category, active: p.active })) : data;
+    }
+
+    case 'list_staff': {
+      let p = `?company_id=eq.${tenantId}&order=full_name&limit=${input.limit || 100}&select=id,auth_user_id,full_name,email,role,department,job_title`;
+      if (input.department) p += `&department=eq.${input.department}`;
+      const data = await sbGet(env, 'core_employees', p);
+      return Array.isArray(data) ? data.map(e => ({ id: e.id, name: e.full_name, email: e.email, role: e.role, department: e.department, job_title: e.job_title })) : data;
+    }
+
+    case 'list_pipeline': {
+      const data = await sbGet(env, 'crm_leads', `?tenant_id=eq.${tenantId}&select=pipeline_stage,status,estimated_value`);
+      if (!Array.isArray(data)) return data;
+      const stages = {};
+      for (const l of data) {
+        const s = l.pipeline_stage || 'unknown';
+        if (!stages[s]) stages[s] = { stage: s, count: 0, total_value: 0 };
+        stages[s].count++;
+        stages[s].total_value += l.estimated_value || 0;
+      }
+      return Object.values(stages).sort((a, b) => b.count - a.count);
+    }
+
+    case 'create_ticket': {
+      const data = await sbPost(env, 'crm_tickets', { ...base, status: 'open', priority: 'medium', ...input });
+      const r = Array.isArray(data) ? data[0] : data;
+      return r?.id ? { ok: true, id: r.id, subject: r.subject } : { error: r?.message || JSON.stringify(r) };
+    }
+
     case 'list_leaderboard': {
       const days = input.days || 30;
       const since = new Date(Date.now() - days * 86400000).toISOString();
       const data = await sbGet(env, 'crm_leads', `?tenant_id=eq.${tenantId}&status=eq.won&updated_at=gte.${since}&select=assigned_to,estimated_value`);
       if (!Array.isArray(data)) return data;
-      // Aggregate by assigned_to
       const map = {};
       for (const l of data) {
         const k = l.assigned_to || 'unassigned';
@@ -644,19 +814,18 @@ async function executeTool(name, input, env, tenantId, userId) {
         map[k].won++;
         map[k].value += l.estimated_value || 0;
       }
-      // Fetch employee names
-      const ids = Object.keys(map).filter(k => k !== 'unassigned');
-      if (ids.length) {
-        const empData = await sbGet(env, 'core_employees', `?id=in.(${ids.join(',')})&select=id,first_name,last_name`);
-        if (Array.isArray(empData)) {
-          for (const e of empData) {
-            if (map[e.id]) map[e.id].name = `${e.first_name} ${e.last_name}`;
-          }
+      // Fetch employees and build lookup by both id and auth_user_id
+      const empData = await sbGet(env, 'core_employees', `?company_id=eq.${tenantId}&select=id,auth_user_id,full_name`);
+      const nameMap = {};
+      if (Array.isArray(empData)) {
+        for (const e of empData) {
+          if (e.id) nameMap[e.id] = e.full_name;
+          if (e.auth_user_id) nameMap[e.auth_user_id] = e.full_name;
         }
       }
       return Object.values(map)
         .sort((a, b) => b.won - a.won || b.value - a.value)
-        .map((e, i) => ({ rank: i + 1, name: e.name || e.assigned_to, won: e.won, value: e.value }));
+        .map((e, i) => ({ rank: i + 1, name: nameMap[e.assigned_to] || e.assigned_to || 'Unassigned', won: e.won, value: `£${e.value.toLocaleString()}` }));
     }
 
     default:
@@ -707,7 +876,7 @@ export async function onRequestPost(context) {
     const settings = Array.isArray(settingsData) ? settingsData[0] : null;
     const leaderboardEnabled = settings?.leaderboard_enabled !== false;
 
-    const tools = leaderboardEnabled ? [...BASE_TOOLS, LEADERBOARD_TOOL] : BASE_TOOLS;
+    const tools = leaderboardEnabled ? [...BASE_TOOLS, ...EXTRA_TOOLS, LEADERBOARD_TOOL] : [...BASE_TOOLS, ...EXTRA_TOOLS];
 
     const apiKey = env.ANTHROPIC_API_KEY;
     if (!apiKey) return json({ ok: false, error: 'AI not configured' }, 500);
