@@ -107,11 +107,14 @@ export async function onRequestPost(context) {
       'Content-Type': 'application/json',
     };
 
-    // Verify caller
-    const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${token}` } });
-    if (!userRes.ok) return json({ ok: false, error: 'Unauthorized' }, 401);
-    const userData = await userRes.json();
-    if (!userData?.id) return json({ ok: false, error: 'Unauthorized' }, 401);
+    // Verify caller — accept service key (server-to-server) or a valid user JWT
+    const isServiceCall = token === env.SUPABASE_SERVICE_KEY;
+    if (!isServiceCall) {
+      const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${token}` } });
+      if (!userRes.ok) return json({ ok: false, error: 'Unauthorized' }, 401);
+      const userData = await userRes.json();
+      if (!userData?.id) return json({ ok: false, error: 'Unauthorized' }, 401);
+    }
 
     // Fetch matching active commands
     const cmdUrl = `${SUPABASE_URL}/rest/v1/crm_commands`

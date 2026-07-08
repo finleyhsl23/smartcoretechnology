@@ -127,7 +127,7 @@ export async function onRequestPost({ request, env }) {
   if (action === 'sign_quote') {
     const { quote_id, signer_name } = body;
     if (!signer_name?.trim()) return json({ error: 'Full name required to sign' }, 400);
-    const qRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${quote_id}&crm_company_id=eq.${user.crm_company_id}&select=id,status&limit=1`, { headers: h });
+    const qRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${quote_id}&crm_company_id=eq.${user.crm_company_id}&select=id,status,title,total_amount,crm_companies(name,email)&limit=1`, { headers: h });
     const [quote] = await qRes.json();
     if (!quote) return json({ error: 'Quote not found' }, 404);
     if (quote.status === 'accepted') return json({ error: 'Already signed' }, 400);
@@ -141,6 +141,23 @@ export async function onRequestPost({ request, env }) {
         signature_data: `Signed by ${signer_name.trim()} on ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })} at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`,
       }),
     });
+
+    // Fire quote_accepted commands (non-blocking)
+    const cmdCtx = {
+      quote_id,
+      quote_title: quote.title || '',
+      quote_amount: quote.total_amount ? `£${Number(quote.total_amount).toFixed(2)}` : '',
+      company_name: quote.crm_companies?.name || '',
+      company_email: quote.crm_companies?.email || '',
+      contact_name: signer_name.trim(),
+      contact_email: user.email || '',
+    };
+    fetch(`https://smartcoretechnology.co.uk/api/crm/commands-run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ tenant_id: user.tenant_id, trigger_type: 'quote_accepted', ctx: cmdCtx }),
+    }).catch(() => {});
+
     return json({ success: true });
   }
 

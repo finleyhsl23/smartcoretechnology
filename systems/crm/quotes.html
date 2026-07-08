@@ -397,8 +397,35 @@ function lineItemRow(li, i) {
 }
 
 async function updateStatus(id, status) {
-  try { await quotes.update(id, { status }); toast("ok","Status updated"); await loadAndRender(); }
-  catch(e) { toast("bad","Error",e.message); }
+  try {
+    await quotes.update(id, { status });
+    toast("ok","Status updated");
+    if (status === 'accepted') {
+      const q = allQuotes.find(x => x.id === id);
+      fireQuoteAccepted(q).catch(() => {});
+    }
+    await loadAndRender();
+  } catch(e) { toast("bad","Error",e.message); }
+}
+
+async function fireQuoteAccepted(q) {
+  if (!q || !profile?.company_id) return;
+  const { data: { session } } = await sb().auth.getSession();
+  if (!session?.access_token) return;
+  const ctx = {
+    quote_id: q.id,
+    quote_title: q.title || '',
+    quote_amount: q.total_amount ? `£${Number(q.total_amount).toFixed(2)}` : '',
+    company_name: q.crm_companies?.name || '',
+    company_email: q.crm_companies?.email || '',
+    contact_name: q.contact_name || '',
+    contact_email: q.contact_email || '',
+  };
+  await fetch('/api/crm/commands-run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ tenant_id: profile.company_id, trigger_type: 'quote_accepted', ctx }),
+  });
 }
 
 function exportPDF(id) {
