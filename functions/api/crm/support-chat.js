@@ -7,13 +7,13 @@ const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 
 const SYSTEM_PROMPT = `You are the SmartCore CRM AI assistant. You have full access to the user's CRM data and can read, create, update, and delete records on their behalf.
 
-When users ask you to do something (add a company, create a task, schedule a meeting, etc.) — do it immediately using the available tools. Don't just explain how; take action.
+When users ask you to do something (add a company, create a task, schedule a meeting, log a conversation, etc.) — do it immediately using the available tools. Don't just explain how; take action.
 
 Be concise and friendly. After completing an action, confirm what you did in one sentence. Use **bold** for company names, lead titles, and key values.
 
 Today's date: ${new Date().toISOString().slice(0, 10)}`;
 
-const TOOLS = [
+const BASE_TOOLS = [
   {
     name: "list_companies",
     description: "List or search companies in the CRM",
@@ -295,7 +295,104 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "list_tickets",
+    description: "List support tickets",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: { type: "string", description: "open, in_progress, resolved, closed" },
+        priority: { type: "string", description: "low, medium, high, urgent" },
+        company_id: { type: "string" },
+        limit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "update_ticket",
+    description: "Update a support ticket (change status, priority, assignee, add notes)",
+    input_schema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string" },
+        status: { type: "string", description: "open, in_progress, resolved, closed" },
+        priority: { type: "string", description: "low, medium, high, urgent" },
+        assigned_to: { type: "string", description: "Employee ID" },
+        resolution_notes: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "list_conversations",
+    description: "List logged conversations for a company",
+    input_schema: {
+      type: "object",
+      required: ["company_id"],
+      properties: {
+        company_id: { type: "string" },
+        limit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "log_conversation",
+    description: "Log a conversation/interaction with a company",
+    input_schema: {
+      type: "object",
+      required: ["company_id", "summary", "method"],
+      properties: {
+        company_id: { type: "string" },
+        method: { type: "string", description: "call, email, meeting, video_call, in_person, other" },
+        occurred_at: { type: "string", description: "ISO datetime (defaults to now)" },
+        our_attendees: { type: "string" },
+        their_attendees: { type: "string" },
+        summary: { type: "string" },
+        follow_up_date: { type: "string", description: "ISO date for follow-up reminder" },
+        follow_up_note: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "list_reminders",
+    description: "List upcoming reminders",
+    input_schema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "ISO date, start of range (default today)" },
+        to: { type: "string", description: "ISO date, end of range" },
+        limit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "create_reminder",
+    description: "Create a follow-up reminder",
+    input_schema: {
+      type: "object",
+      required: ["title", "remind_at"],
+      properties: {
+        title: { type: "string" },
+        remind_at: { type: "string", description: "ISO datetime" },
+        note: { type: "string" },
+        crm_company_id: { type: "string" },
+        crm_lead_id: { type: "string" },
+        crm_contact_id: { type: "string" },
+      },
+    },
+  },
 ];
+
+const LEADERBOARD_TOOL = {
+  name: "list_leaderboard",
+  description: "Show the sales leaderboard — who has won the most leads and highest value in a given period",
+  input_schema: {
+    type: "object",
+    properties: {
+      days: { type: "number", description: "Number of past days to include (default 30)" },
+    },
+  },
+};
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -473,6 +570,95 @@ async function executeTool(name, input, env, tenantId, userId) {
       return Array.isArray(data) ? data.map(q => ({ id: q.id, title: q.title, status: q.status, total: q.total, company: q.crm_companies?.name, created_at: q.created_at })) : data;
     }
 
+    case 'list_tickets': {
+      let p = `?tenant_id=eq.${tenantId}&order=created_at.desc&limit=${input.limit || 50}&select=*,crm_companies(name)`;
+      if (input.status) p += `&status=eq.${input.status}`;
+      if (input.priority) p += `&priority=eq.${input.priority}`;
+      if (input.company_id) p += `&crm_company_id=eq.${input.company_id}`;
+      const data = await sbGet(env, 'crm_tickets', p);
+      return Array.isArray(data) ? data.map(t => ({ id: t.id, subject: t.subject, status: t.status, priority: t.priority, company: t.crm_companies?.name, created_at: t.created_at })) : data;
+    }
+    case 'update_ticket': {
+      const { id, ...fields } = input;
+      const r = await sbPatch(env, 'crm_tickets', id, { ...fields, updated_at: new Date().toISOString() });
+      return r?.id ? { ok: true, id: r.id } : { error: r?.message || JSON.stringify(r) };
+    }
+
+    case 'list_conversations': {
+      let p = `?tenant_id=eq.${tenantId}&crm_company_id=eq.${input.company_id}&order=occurred_at.desc&limit=${input.limit || 50}`;
+      const data = await sbGet(env, 'crm_company_conversations', p);
+      return Array.isArray(data) ? data.map(c => ({ id: c.id, method: c.method, occurred_at: c.occurred_at, summary: c.summary, our_attendees: c.our_attendees, their_attendees: c.their_attendees, follow_up_date: c.follow_up_date })) : data;
+    }
+    case 'log_conversation': {
+      const payload = {
+        ...base,
+        crm_company_id: input.company_id,
+        method: input.method,
+        occurred_at: input.occurred_at || new Date().toISOString(),
+        summary: input.summary,
+        our_attendees: input.our_attendees || null,
+        their_attendees: input.their_attendees || null,
+        follow_up_date: input.follow_up_date || null,
+        follow_up_note: input.follow_up_note || null,
+        logged_by: userId,
+      };
+      const data = await sbPost(env, 'crm_company_conversations', payload);
+      const r = Array.isArray(data) ? data[0] : data;
+      if (!r?.id) return { error: r?.message || JSON.stringify(r) };
+      // If follow-up requested, also create a reminder
+      if (input.follow_up_date) {
+        await sbPost(env, 'crm_reminders', {
+          tenant_id: tenantId,
+          created_by: userId,
+          title: `Follow up: ${input.follow_up_note || 'Company conversation follow-up'}`,
+          remind_at: input.follow_up_date,
+          crm_company_id: input.company_id,
+        });
+      }
+      return { ok: true, id: r.id };
+    }
+
+    case 'list_reminders': {
+      const from = input.from || new Date().toISOString().slice(0, 10);
+      let p = `?tenant_id=eq.${tenantId}&remind_at=gte.${from}&order=remind_at&limit=${input.limit || 50}`;
+      if (input.to) p += `&remind_at=lte.${input.to}`;
+      const data = await sbGet(env, 'crm_reminders', p);
+      return Array.isArray(data) ? data.map(r => ({ id: r.id, title: r.title, remind_at: r.remind_at, note: r.note })) : data;
+    }
+    case 'create_reminder': {
+      const data = await sbPost(env, 'crm_reminders', { ...base, ...input });
+      const r = Array.isArray(data) ? data[0] : data;
+      return r?.id ? { ok: true, id: r.id, title: r.title } : { error: r?.message || JSON.stringify(r) };
+    }
+
+    case 'list_leaderboard': {
+      const days = input.days || 30;
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+      const data = await sbGet(env, 'crm_leads', `?tenant_id=eq.${tenantId}&status=eq.won&updated_at=gte.${since}&select=assigned_to,estimated_value`);
+      if (!Array.isArray(data)) return data;
+      // Aggregate by assigned_to
+      const map = {};
+      for (const l of data) {
+        const k = l.assigned_to || 'unassigned';
+        if (!map[k]) map[k] = { assigned_to: k, won: 0, value: 0 };
+        map[k].won++;
+        map[k].value += l.estimated_value || 0;
+      }
+      // Fetch employee names
+      const ids = Object.keys(map).filter(k => k !== 'unassigned');
+      if (ids.length) {
+        const empData = await sbGet(env, 'core_employees', `?id=in.(${ids.join(',')})&select=id,first_name,last_name`);
+        if (Array.isArray(empData)) {
+          for (const e of empData) {
+            if (map[e.id]) map[e.id].name = `${e.first_name} ${e.last_name}`;
+          }
+        }
+      }
+      return Object.values(map)
+        .sort((a, b) => b.won - a.won || b.value - a.value)
+        .map((e, i) => ({ rank: i + 1, name: e.name || e.assigned_to, won: e.won, value: e.value }));
+    }
+
     default:
       return { error: `Unknown tool: ${name}` };
   }
@@ -496,8 +682,7 @@ export async function onRequestPost(context) {
     const userData = await userRes.json();
     if (!userData?.id) return json({ ok: false, error: 'Unauthorized' }, 401);
 
-    // Get tenant_id using service key (bypasses RLS)
-    // Try smartcore_core_employees first (user_id), then core_employees (auth_user_id)
+    // Get tenant_id
     let tenantId = null;
     const p1 = await fetch(
       `${SUPABASE_URL}/rest/v1/smartcore_core_employees?user_id=eq.${userData.id}&select=company_id&limit=1`,
@@ -516,6 +701,13 @@ export async function onRequestPost(context) {
     }
 
     if (!tenantId) return json({ ok: false, error: 'No tenant' }, 403);
+
+    // Check leaderboard setting server-side
+    const settingsData = await sbGet(env, `crm_settings?tenant_id=eq.${tenantId}&limit=1`);
+    const settings = Array.isArray(settingsData) ? settingsData[0] : null;
+    const leaderboardEnabled = settings?.leaderboard_enabled !== false;
+
+    const tools = leaderboardEnabled ? [...BASE_TOOLS, LEADERBOARD_TOOL] : BASE_TOOLS;
 
     const apiKey = env.ANTHROPIC_API_KEY;
     if (!apiKey) return json({ ok: false, error: 'AI not configured' }, 500);
@@ -540,7 +732,7 @@ export async function onRequestPost(context) {
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 1024,
           system: SYSTEM_PROMPT,
-          tools: TOOLS,
+          tools,
           messages,
         }),
       });
@@ -559,10 +751,8 @@ export async function onRequestPost(context) {
       }
 
       if (aiJson.stop_reason === 'tool_use') {
-        // Add assistant message with tool use blocks
         messages.push({ role: 'assistant', content: aiJson.content });
 
-        // Execute all tool calls and collect results
         const toolResults = [];
         for (const block of aiJson.content) {
           if (block.type !== 'tool_use') continue;
@@ -583,7 +773,6 @@ export async function onRequestPost(context) {
         continue;
       }
 
-      // Unexpected stop reason
       const reply = aiJson.content?.find(b => b.type === 'text')?.text || '';
       return json({ ok: true, reply });
     }

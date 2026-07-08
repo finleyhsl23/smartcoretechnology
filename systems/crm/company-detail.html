@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Company — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
+  <style>
+    .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+    .detail-field { display: flex; flex-direction: column; gap: 4px; }
+    .detail-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text3); }
+    .detail-value { font-size: 14px; color: var(--text1); font-weight: 500; }
+    .detail-value a { color: var(--blue2); text-decoration: none; }
+    .detail-value a:hover { text-decoration: underline; }
+
+    .conv-item { padding: 14px 16px; border-bottom: 1px solid var(--line2); }
+    .conv-item:last-child { border-bottom: none; }
+    .conv-method-pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 700;
+      background: rgba(30,92,255,.1); color: var(--blue2); border: 1px solid rgba(30,92,255,.2);
+    }
+    .conv-attendees { display: flex; gap: 16px; font-size: 12px; color: var(--text3); margin-top: 6px; }
+    .conv-attendees span { display: flex; align-items: center; gap: 4px; }
+    .conv-summary { font-size: 13px; color: var(--text1); margin-top: 8px; line-height: 1.55; white-space: pre-wrap; }
+    .conv-followup { margin-top: 8px; font-size: 12px; color: var(--amber, #f59e0b); display: flex; align-items: center; gap: 5px; }
+
+    .contact-chip {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; border-radius: 10px; background: var(--bg2);
+      border: 1px solid var(--line2);
+    }
+    .contact-chip-avatar {
+      width: 32px; height: 32px; border-radius: 50%; background: var(--blue2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title" id="topbarTitle">Company</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess } from "/systems/crm/shared/auth.js?v=3";
+import { sb } from "/systems/crm/shared/supabase.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=10";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmt, fmtDate, fmtDateTime, timeAgo, toast, confirm, modal, companyStatusBadge, initials } from "/systems/crm/shared/ui.js";
+import { loadStatusLabels, getCompanyStatuses } from "/systems/crm/shared/statusLabels.js?v=2";
+
+initTheme();
+
+const params = new URLSearchParams(location.search);
+const companyId = params.get("id");
+if (!companyId) { location.href = "/systems/crm/companies.html"; throw new Error("No ID"); }
+
+let profile, tier, company, contacts = [], conversations = [], staff = [];
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("companies", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+  await loadStatusLabels(profile.company_id);
+  await loadAll();
+} catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session")) toast("bad","Error",e.message); }
+
+async function loadAll() {
+  const client = sb();
+  const [compRes, contactRes, convRes, staffRes] = await Promise.all([
+    client.from("crm_companies").select("*").eq("id", companyId).eq("tenant_id", profile.company_id).single(),
+    client.from("crm_contacts").select("*").eq("crm_company_id", companyId).eq("tenant_id", profile.company_id).order("first_name"),
+    client.from("crm_company_conversations").select("*").eq("company_id", companyId).eq("tenant_id", profile.company_id).order("occurred_at", { ascending: false }),
+    client.from("core_employees").select("id,full_name").eq("company_id", profile.company_id).order("full_name"),
+  ]);
+  if (compRes.error || !compRes.data) { toast("bad","Not found","Company not found."); location.href = "/systems/crm/companies.html"; return; }
+  company = compRes.data;
+  contacts = contactRes.data || [];
+  conversations = convRes.data || [];
+  staff = staffRes.data || [];
+  document.getElementById("topbarTitle").textContent = company.name;
+  renderPage();
+}
+
+function renderPage() {
+  const assignedStaff = staff.find(s => s.id === company.assigned_to);
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <a href="/systems/crm/companies.html" style="font-size:13px;color:var(--text3);text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-bottom:6px">← Back to Companies</a>
+        <h1 style="display:flex;align-items:center;gap:10px">${esc(company.name)} ${companyStatusBadge(company.status)}</h1>
+        ${company.industry ? `<p>${esc(company.industry)}</p>` : ""}
+      </div>
+      <div class="page-header-actions">
+        <button class="btn" id="editBtn">✏️ Edit Details</button>
+        <button class="btn btn-danger" id="deleteBtn">Delete</button>
+      </div>
+    </div>
+
+    <div class="detail-grid">
+      <!-- Left column -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+
+        <!-- Details card -->
+        <div class="card">
+          <div class="card-header"><h2>Details</h2></div>
+          <div class="card-body">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+              <div class="detail-field">
+                <div class="detail-label">Email</div>
+                <div class="detail-value">${company.email ? `<a href="mailto:${esc(company.email)}">${esc(company.email)}</a>` : "—"}</div>
+              </div>
+              <div class="detail-field">
+                <div class="detail-label">Phone</div>
+                <div class="detail-value">${company.phone ? `<a href="tel:${esc(company.phone)}">${esc(company.phone)}</a>` : "—"}</div>
+              </div>
+              <div class="detail-field">
+                <div class="detail-label">Website</div>
+                <div class="detail-value">${company.website ? `<a href="${esc(company.website)}" target="_blank" rel="noopener">${esc(company.website)}</a>` : "—"}</div>
+              </div>
+              <div class="detail-field">
+                <div class="detail-label">Value</div>
+                <div class="detail-value">${company.company_value ? fmt(company.company_value) : "—"}</div>
+              </div>
+              <div class="detail-field">
+                <div class="detail-label">Assigned To</div>
+                <div class="detail-value">${assignedStaff ? esc(assignedStaff.full_name) : "Unassigned"}</div>
+              </div>
+              <div class="detail-field">
+                <div class="detail-label">Customer Since</div>
+                <div class="detail-value">${company.customer_since ? fmtDate(company.customer_since) : "—"}</div>
+              </div>
+              ${company.address_line1 || company.city || company.postcode ? `
+              <div class="detail-field" style="grid-column:span 2">
+                <div class="detail-label">Address</div>
+                <div class="detail-value">${[company.address_line1, company.city, company.postcode].filter(Boolean).map(esc).join(", ")}</div>
+              </div>` : ""}
+              ${company.notes ? `
+              <div class="detail-field" style="grid-column:span 2">
+                <div class="detail-label">Notes</div>
+                <div class="detail-value" style="white-space:pre-wrap;font-size:13px;color:var(--text2)">${esc(company.notes)}</div>
+              </div>` : ""}
+            </div>
+          </div>
+        </div>
+
+        <!-- Contacts card -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Contacts <span style="font-size:13px;font-weight:500;color:var(--text3)">${contacts.length}</span></h2>
+            <button class="btn btn-sm btn-primary" id="addContactBtn">+ Add Contact</button>
+          </div>
+          <div class="card-body" style="display:flex;flex-direction:column;gap:8px" id="contactsList">
+            ${contacts.length === 0
+              ? `<div class="empty-state" style="padding:20px 0"><div class="empty-icon">👤</div><p>No contacts yet</p></div>`
+              : contacts.map(c => `
+                <div class="contact-chip">
+                  <div class="contact-chip-avatar">${esc(initials(`${c.first_name} ${c.last_name}`))}</div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-weight:600;font-size:13px">${esc(c.first_name)} ${esc(c.last_name)}</div>
+                    ${c.job_title ? `<div style="font-size:11px;color:var(--text3)">${esc(c.job_title)}</div>` : ""}
+                    ${c.email ? `<div style="font-size:11px;color:var(--text3)">${esc(c.email)}</div>` : ""}
+                  </div>
+                  ${c.phone ? `<a href="tel:${esc(c.phone)}" style="font-size:12px;color:var(--blue2);text-decoration:none">${esc(c.phone)}</a>` : ""}
+                  <button class="btn btn-sm btn-danger" onclick="window._deleteContact('${c.id}','${esc(c.first_name)} ${esc(c.last_name)}')">Del</button>
+                </div>`).join("")}
+          </div>
+        </div>
+      </div>
+
+      <!-- Right column -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+
+        <!-- Conversation log -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Conversation Log <span style="font-size:13px;font-weight:500;color:var(--text3)">${conversations.length}</span></h2>
+            <button class="btn btn-sm btn-primary" id="logConvBtn">+ Log Conversation</button>
+          </div>
+          <div id="convList" style="min-height:60px">
+            ${conversations.length === 0
+              ? `<div class="empty-state" style="padding:24px"><div class="empty-icon">💬</div><p>No conversations logged yet</p></div>`
+              : conversations.map(convItem).join("")}
+          </div>
+        </div>
+
+      </div>
+    </div>`;
+
+  document.getElementById("editBtn").onclick = () => openEditModal();
+  document.getElementById("deleteBtn").onclick = () => deleteCompany();
+  document.getElementById("logConvBtn").onclick = () => openConvModal();
+  document.getElementById("addContactBtn").onclick = () => openContactModal();
+
+  window._deleteContact = (id, name) => {
+    confirm("Remove Contact", `Remove ${name} from this company?`, async () => {
+      try {
+        await sb().from("crm_contacts").delete().eq("id", id).eq("tenant_id", profile.company_id);
+        toast("ok","Contact removed");
+        await loadAll();
+      } catch(e) { toast("bad","Error",e.message); }
+    });
+  };
+}
+
+function convItem(c) {
+  const methodIcons = { call:"📞", email:"📧", meeting:"🤝", video_call:"📹", in_person:"🏢", other:"💬" };
+  const methodLabels = { call:"Phone Call", email:"Email", meeting:"Meeting", video_call:"Video Call", in_person:"In Person", other:"Other" };
+  const loggedBy = staff.find(s => s.id === c.logged_by);
+  return `
+    <div class="conv-item">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="conv-method-pill">${methodIcons[c.method] || "💬"} ${methodLabels[c.method] || c.method}</span>
+        <span style="font-size:12px;color:var(--text3)">${fmtDateTime(c.occurred_at)}</span>
+        ${loggedBy ? `<span style="font-size:11px;color:var(--text3)">· logged by ${esc(loggedBy.full_name)}</span>` : ""}
+        <button class="btn btn-sm btn-danger" style="margin-left:auto;padding:2px 8px;font-size:11px" onclick="window._deleteConv('${c.id}')">Delete</button>
+      </div>
+      ${(c.our_attendees || c.their_attendees) ? `
+      <div class="conv-attendees">
+        ${c.our_attendees ? `<span>🏢 Us: ${esc(c.our_attendees)}</span>` : ""}
+        ${c.their_attendees ? `<span>👤 Them: ${esc(c.their_attendees)}</span>` : ""}
+      </div>` : ""}
+      <div class="conv-summary">${esc(c.summary)}</div>
+      ${c.follow_up_date ? `<div class="conv-followup">🔔 Follow up: ${fmtDate(c.follow_up_date)}${c.follow_up_note ? " — "+esc(c.follow_up_note) : ""}</div>` : ""}
+    </div>`;
+}
+
+// ── Edit company modal ──
+
+function openEditModal() {
+  const staffOpts = staff.map(s => `<option value="${s.id}" ${company.assigned_to === s.id ? "selected" : ""}>${esc(s.full_name)}</option>`).join("");
+  const o = modal(`
+    <div class="modal-header"><h3>Edit Company</h3><button class="btn btn-ghost btn-sm modal-close">✕</button></div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Company Name *</label><input class="form-control" id="eName" value="${esc(company.name)}"/></div>
+        <div class="form-group"><label class="form-label">Industry</label>
+          <select class="form-control" id="eIndustry">
+            <option value="">Select…</option>
+            ${["Construction","Technology","Healthcare","Finance","Retail","Manufacturing","Education","Property","Legal","Hospitality","Transport","Other"].map(i=>`<option value="${i}" ${company.industry===i?"selected":""}>${i}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Email</label><input class="form-control" id="eEmail" type="email" value="${esc(company.email||"")}"/></div>
+        <div class="form-group"><label class="form-label">Phone</label><input class="form-control" id="ePhone" value="${esc(company.phone||"")}"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Website</label><input class="form-control" id="eWebsite" value="${esc(company.website||"")}"/></div>
+        <div class="form-group"><label class="form-label">Status</label>
+          <select class="form-control" id="eStatus">
+            ${getCompanyStatuses().map(s=>`<option value="${s.value}" ${company.status===s.value?"selected":""}>${esc(s.label)}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Company Value (£)</label><input class="form-control" id="eValue" type="number" value="${company.company_value||""}"/></div>
+        <div class="form-group"><label class="form-label">Assigned To</label><select class="form-control" id="eAssigned"><option value="">Unassigned</option>${staffOpts}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Address</label><input class="form-control" id="eAddr" value="${esc(company.address_line1||"")}"/></div>
+        <div class="form-group"><label class="form-label">City</label><input class="form-control" id="eCity" value="${esc(company.city||"")}"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Postcode</label><input class="form-control" id="ePostcode" value="${esc(company.postcode||"")}"/></div>
+        <div class="form-group"><label class="form-label">Customer Since</label><input class="form-control" id="eSince" type="date" value="${company.customer_since||""}"/></div>
+      </div>
+      <div class="form-group"><label class="form-label">Notes</label><textarea class="form-control" id="eNotes" rows="3">${esc(company.notes||"")}</textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn modal-close">Cancel</button>
+      <button class="btn btn-primary" id="eSaveBtn">Save Changes</button>
+    </div>`, { size: "modal-lg" });
+
+  o.querySelector("#eSaveBtn").onclick = async () => {
+    const name = document.getElementById("eName").value.trim();
+    if (!name) return toast("warn","Required","Company name is required.");
+    const btn = o.querySelector("#eSaveBtn");
+    btn.disabled = true; btn.textContent = "Saving…";
+    try {
+      await sb().from("crm_companies").update({
+        name,
+        industry: document.getElementById("eIndustry").value || null,
+        email: document.getElementById("eEmail").value.trim() || null,
+        phone: document.getElementById("ePhone").value.trim() || null,
+        website: document.getElementById("eWebsite").value.trim() || null,
+        status: document.getElementById("eStatus").value,
+        company_value: parseFloat(document.getElementById("eValue").value) || null,
+        assigned_to: document.getElementById("eAssigned").value || null,
+        address_line1: document.getElementById("eAddr").value.trim() || null,
+        city: document.getElementById("eCity").value.trim() || null,
+        postcode: document.getElementById("ePostcode").value.trim() || null,
+        customer_since: document.getElementById("eSince").value || null,
+        notes: document.getElementById("eNotes").value.trim() || null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", companyId).eq("tenant_id", profile.company_id);
+      o.remove();
+      toast("ok","Saved");
+      await loadAll();
+    } catch(e) { toast("bad","Error",e.message); btn.disabled=false; btn.textContent="Save Changes"; }
+  };
+}
+
+// ── Log conversation modal ──
+
+function openConvModal(prefill = {}) {
+  const staffOpts = staff.map(s => `<option value="${s.id}" ${s.id === profile.id ? "selected" : ""}>${esc(s.full_name)}</option>`).join("");
+  const now = new Date();
+  const localNow = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0,16);
+
+  const o = modal(`
+    <div class="modal-header"><h3>Log Conversation</h3><button class="btn btn-ghost btn-sm modal-close">✕</button></div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Date & Time *</label>
+          <input class="form-control" id="cDate" type="datetime-local" value="${prefill.occurred_at || localNow}"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Method *</label>
+          <select class="form-control" id="cMethod">
+            <option value="call">📞 Phone Call</option>
+            <option value="email">📧 Email</option>
+            <option value="meeting">🤝 Meeting</option>
+            <option value="video_call">📹 Video Call</option>
+            <option value="in_person">🏢 In Person</option>
+            <option value="other">💬 Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Our Attendees</label>
+          <input class="form-control" id="cOurs" placeholder="e.g. John Smith, Sarah Jones" value="${esc(prefill.our_attendees||"")}"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Their Attendees</label>
+          <input class="form-control" id="cTheirs" placeholder="e.g. Mike Brown (CEO)" value="${esc(prefill.their_attendees||"")}"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Summary / Notes *</label>
+        <textarea class="form-control" id="cSummary" rows="4" placeholder="What was discussed, agreed, or decided…">${esc(prefill.summary||"")}</textarea>
+      </div>
+      <div style="border-top:1px solid var(--line2);padding-top:14px;margin-top:4px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;margin-bottom:10px">
+          <input type="checkbox" id="cSetReminder" style="accent-color:#1e5cff;width:15px;height:15px"/>
+          Set a follow-up reminder
+        </label>
+        <div id="cReminderFields" style="display:none;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group">
+            <label class="form-label">Follow-up Date</label>
+            <input class="form-control" id="cFollowDate" type="date"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reminder Note</label>
+            <input class="form-control" id="cFollowNote" placeholder="e.g. Chase quote decision"/>
+          </div>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:4px">
+        <label class="form-label">Logged By</label>
+        <select class="form-control" id="cLoggedBy"><option value="">— Select —</option>${staffOpts}</select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn modal-close">Cancel</button>
+      <button class="btn btn-primary" id="cSaveBtn">Save Conversation</button>
+    </div>`, { size: "modal-lg" });
+
+  // Toggle reminder fields
+  const reminderCb = o.querySelector("#cSetReminder");
+  const reminderFields = o.querySelector("#cReminderFields");
+  reminderCb.addEventListener("change", () => {
+    reminderFields.style.display = reminderCb.checked ? "grid" : "none";
+  });
+
+  o.querySelector("#cSaveBtn").onclick = async () => {
+    const occurred_at = document.getElementById("cDate").value;
+    const summary = document.getElementById("cSummary").value.trim();
+    if (!occurred_at) return toast("warn","Required","Please enter a date and time.");
+    if (!summary) return toast("warn","Required","Please enter a summary.");
+    const btn = o.querySelector("#cSaveBtn");
+    btn.disabled = true; btn.textContent = "Saving…";
+
+    const follow_up_date = reminderCb.checked ? document.getElementById("cFollowDate").value || null : null;
+    const follow_up_note = reminderCb.checked ? document.getElementById("cFollowNote").value.trim() || null : null;
+
+    try {
+      await sb().from("crm_company_conversations").insert({
+        tenant_id: profile.company_id,
+        company_id: companyId,
+        occurred_at: new Date(occurred_at).toISOString(),
+        method: document.getElementById("cMethod").value,
+        our_attendees: document.getElementById("cOurs").value.trim() || null,
+        their_attendees: document.getElementById("cTheirs").value.trim() || null,
+        summary,
+        logged_by: document.getElementById("cLoggedBy").value || null,
+        follow_up_date,
+        follow_up_note,
+      });
+
+      // Also write to crm_reminders if follow-up set
+      if (follow_up_date) {
+        await sb().from("crm_reminders").insert({
+          tenant_id: profile.company_id,
+          title: `Follow up with ${company.name}`,
+          body: follow_up_note || `Follow up on conversation with ${company.name}`,
+          remind_at: new Date(follow_up_date).toISOString(),
+          crm_company_id: companyId,
+          created_by: profile.id,
+        }).throwOnError().then(() => {}).catch(() => {});
+      }
+
+      o.remove();
+      toast("ok","Conversation logged");
+      await loadAll();
+    } catch(e) { toast("bad","Error",e.message); btn.disabled=false; btn.textContent="Save Conversation"; }
+  };
+}
+
+// ── Add contact modal ──
+
+function openContactModal() {
+  const o = modal(`
+    <div class="modal-header"><h3>Add Contact</h3><button class="btn btn-ghost btn-sm modal-close">✕</button></div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">First Name *</label><input class="form-control" id="ctFirst" placeholder="Jane"/></div>
+        <div class="form-group"><label class="form-label">Last Name *</label><input class="form-control" id="ctLast" placeholder="Smith"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Email</label><input class="form-control" id="ctEmail" type="email" placeholder="jane@company.com"/></div>
+        <div class="form-group"><label class="form-label">Phone</label><input class="form-control" id="ctPhone" placeholder="+44…"/></div>
+      </div>
+      <div class="form-group"><label class="form-label">Job Title</label><input class="form-control" id="ctTitle" placeholder="e.g. Operations Manager"/></div>
+      <div class="form-group"><label class="form-label">Notes</label><textarea class="form-control" id="ctNotes" rows="2"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn modal-close">Cancel</button>
+      <button class="btn btn-primary" id="ctSaveBtn">Add Contact</button>
+    </div>`);
+
+  o.querySelector("#ctSaveBtn").onclick = async () => {
+    const first = document.getElementById("ctFirst").value.trim();
+    const last  = document.getElementById("ctLast").value.trim();
+    if (!first || !last) return toast("warn","Required","First and last name required.");
+    const btn = o.querySelector("#ctSaveBtn");
+    btn.disabled=true; btn.textContent="Saving…";
+    try {
+      await sb().from("crm_contacts").insert({
+        tenant_id: profile.company_id,
+        crm_company_id: companyId,
+        first_name: first,
+        last_name: last,
+        email: document.getElementById("ctEmail").value.trim() || null,
+        phone: document.getElementById("ctPhone").value.trim() || null,
+        job_title: document.getElementById("ctTitle").value.trim() || null,
+        notes: document.getElementById("ctNotes").value.trim() || null,
+      });
+      o.remove();
+      toast("ok","Contact added");
+      await loadAll();
+    } catch(e) { toast("bad","Error",e.message); btn.disabled=false; btn.textContent="Add Contact"; }
+  };
+}
+
+// ── Delete conversation ──
+
+window._deleteConv = (id) => {
+  confirm("Delete Conversation", "Remove this conversation log entry? This cannot be undone.", async () => {
+    try {
+      await sb().from("crm_company_conversations").delete().eq("id", id).eq("tenant_id", profile.company_id);
+      toast("ok","Deleted");
+      await loadAll();
+    } catch(e) { toast("bad","Error",e.message); }
+  });
+};
+
+// ── Delete company ──
+
+function deleteCompany() {
+  confirm("Delete Company", `Delete "${company.name}"? This will also remove all associated conversations. This cannot be undone.`, async () => {
+    try {
+      await sb().from("crm_company_conversations").delete().eq("company_id", companyId).eq("tenant_id", profile.company_id);
+      await sb().from("crm_companies").delete().eq("id", companyId).eq("tenant_id", profile.company_id);
+      toast("ok","Company deleted");
+      location.href = "/systems/crm/companies.html";
+    } catch(e) { toast("bad","Error",e.message); }
+  });
+}
+</script>
+</body>
+</html>
