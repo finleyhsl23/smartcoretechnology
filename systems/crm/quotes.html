@@ -122,6 +122,7 @@ function renderPage(rows, selStatus) {
   document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteQuote(b.dataset.id)));
   document.querySelectorAll(".pdf-btn").forEach(b => b.addEventListener("click", () => exportPDF(b.dataset.id)));
+  document.querySelectorAll(".send-btn").forEach(b => b.addEventListener("click", () => openSendModal(b.dataset.id)));
   document.querySelectorAll(".inline-status").forEach(sel => {
     sel.addEventListener("change", async e => {
       await updateStatus(sel.dataset.id, sel.value);
@@ -150,6 +151,7 @@ function quoteRow(q) {
       <div class="tbl-actions">
         <button class="btn btn-sm edit-btn" data-id="${q.id}">Edit</button>
         <button class="btn btn-sm pdf-btn" data-id="${q.id}" title="Export as PDF">📄 PDF</button>
+        ${q.status === "draft" || q.status === "sent" ? `<button class="btn btn-sm send-btn" data-id="${q.id}" style="background:var(--accent);color:#fff;border:none">📧 Send</button>` : ""}
         <button class="btn btn-sm btn-danger del-btn" data-id="${q.id}">Del</button>
       </div>
     </td>
@@ -466,6 +468,80 @@ function exportPDF(id) {
   win.document.close();
   win.focus();
   setTimeout(() => win.print(), 600);
+}
+
+function openSendModal(id) {
+  const q = allQuotes.find(x => x.id === id);
+  if (!q) return;
+
+  // Pre-fill contact email from linked company contacts if available
+  const co = q.crm_companies?.name || "";
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Send Quote ${esc(q.quote_number || "")}</h3>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:14px;color:var(--text2);margin-bottom:20px;line-height:1.6">
+          The customer will receive a branded email with a link to view and electronically sign the quote.
+          Once accepted, all team members will be notified automatically.
+        </p>
+        <div class="form-group">
+          <label class="form-label">Customer Email *</label>
+          <input class="form-control" id="sendEmail" type="email" value="${esc(q.contact_email || "")}" placeholder="customer@example.com"/>
+          <div style="margin-top:5px;font-size:12px;color:var(--text3)">This is who will receive the quote and sign it.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Recipient Name</label>
+          <input class="form-control" id="sendName" type="text" placeholder="e.g. Jane Smith${co ? " at "+co : ""}"/>
+        </div>
+        <div style="background:color-mix(in srgb,var(--accent) 8%,transparent);border:1px solid color-mix(in srgb,var(--accent) 20%,transparent);border-radius:8px;padding:12px 14px;font-size:13px;color:var(--text2);line-height:1.6;margin-top:4px">
+          <strong style="color:var(--text1)">What happens next:</strong><br/>
+          • Quote is marked as <em>Sent</em><br/>
+          • Customer gets a branded email with the quote + signature link<br/>
+          • Once they sign, you'll all receive an acceptance notification
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="sendQuoteBtn">📧 Send Quote</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector("#sendQuoteBtn").onclick = async () => {
+    const email = overlay.querySelector("#sendEmail").value.trim();
+    const name  = overlay.querySelector("#sendName").value.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return toast("warn", "Validation", "Please enter a valid email address.");
+    }
+    const btn = overlay.querySelector("#sendQuoteBtn");
+    btn.disabled = true;
+    btn.textContent = "Sending…";
+    try {
+      const { data: { session } } = await sb().auth.getSession();
+      const res = await fetch("/api/crm/send-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ quote_id: id, contact_email: email, recipient_name: name || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to send");
+      overlay.remove();
+      toast("ok", "Quote Sent", `Email delivered to ${email}`);
+      await loadAndRender();
+    } catch(e) {
+      toast("bad", "Send Failed", e.message);
+      btn.disabled = false;
+      btn.textContent = "📧 Send Quote";
+    }
+  };
 }
 
 async function deleteQuote(id) {
