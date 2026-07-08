@@ -68,6 +68,14 @@
     .btn-accept:active:not(:disabled) { transform: translateY(0); }
     .btn-accept:disabled { opacity: .5; cursor: not-allowed; }
 
+    .sig-wrap { border: 2px dashed #d1d5db; border-radius: 10px; background: #fff; position: relative; overflow: hidden; touch-action: none; cursor: crosshair; }
+    .sig-wrap:focus-within, .sig-wrap.active { border-color: var(--primary, #1e5cff); border-style: solid; }
+    .sig-canvas { display: block; width: 100%; height: 160px; }
+    .sig-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; font-size: 13px; color: #9ca3af; gap: 6px; transition: opacity .2s; }
+    .sig-toolbar { display: flex; justify-content: flex-end; margin-top: 6px; }
+    .sig-clear { background: none; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; color: #6b7280; padding: 4px 10px; cursor: pointer; }
+    .sig-clear:hover { border-color: #ef4444; color: #ef4444; }
+
     .accepted-state { text-align: center; padding: 32px; }
     .accepted-state .big-check { font-size: 56px; margin-bottom: 12px; }
     .accepted-state h2 { font-size: 22px; font-weight: 800; color: #059669; margin-bottom: 8px; }
@@ -173,13 +181,21 @@
   const signSection = canAccept ? `
     <div class="sign-section">
       <h3>Accept this Quote</h3>
-      <p>By submitting below, you confirm that you have read and agree to the terms of this quote. Your acceptance is legally binding and will notify the ${esc(issuerName)} team immediately.</p>
+      <p>Enter your full name and draw your signature below to electronically accept this quote. The ${esc(issuerName)} team will be notified immediately.</p>
       <div class="form-group">
         <label class="form-label" for="signerName">Your Full Name *</label>
         <input class="form-control" id="signerName" type="text" placeholder="e.g. Jane Smith" autocomplete="name"/>
       </div>
+      <div class="form-group">
+        <label class="form-label">Signature *</label>
+        <div class="sig-wrap" id="sigWrap">
+          <canvas class="sig-canvas" id="sigCanvas"></canvas>
+          <div class="sig-hint" id="sigHint">✍️ Draw your signature here</div>
+        </div>
+        <div class="sig-toolbar"><button class="sig-clear" id="sigClear">Clear</button></div>
+      </div>
       <div class="legal-notice">
-        <strong>Electronic Signature Notice:</strong> By entering your name and clicking "Accept &amp; Sign Quote", you are providing your electronic signature and agreeing to the terms stated in this quote. This acceptance is legally binding under the Electronic Communications Act 2000.
+        <strong>Electronic Signature Notice:</strong> By entering your name, drawing your signature, and clicking "Accept &amp; Sign Quote", you are providing your electronic signature and agreeing to the terms stated in this quote. This is legally binding under the Electronic Communications Act 2000.
       </div>
       <button class="btn-accept" id="acceptBtn" style="background:${primary}">
         Accept &amp; Sign Quote →
@@ -257,6 +273,81 @@
 
   if (!canAccept) return;
 
+  // ── Signature pad ──────────────────────────────────────────
+  const canvas  = document.getElementById('sigCanvas');
+  const ctx     = canvas.getContext('2d');
+  const hint    = document.getElementById('sigHint');
+  const sigWrap = document.getElementById('sigWrap');
+  let drawing = false, hasSig = false;
+
+  function resizeCanvas() {
+    const ratio = window.devicePixelRatio || 1;
+    const rect  = canvas.getBoundingClientRect();
+    // Save current drawing
+    const img = canvas.toDataURL();
+    canvas.width  = rect.width  * ratio;
+    canvas.height = rect.height * ratio;
+    ctx.scale(ratio, ratio);
+    ctx.strokeStyle = '#1a1a2e';
+    ctx.lineWidth   = 2.2;
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
+    // Restore drawing after resize
+    if (hasSig) {
+      const image = new Image();
+      image.onload = () => ctx.drawImage(image, 0, 0, rect.width, rect.height);
+      image.src = img;
+    }
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  function getPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const src  = e.touches ? e.touches[0] : e;
+    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+  }
+
+  function startDraw(e) {
+    e.preventDefault();
+    drawing = true;
+    const { x, y } = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    sigWrap.classList.add('active');
+  }
+  function draw(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const { x, y } = getPos(e);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    if (!hasSig) { hasSig = true; hint.style.opacity = '0'; }
+  }
+  function endDraw(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    drawing = false;
+    ctx.beginPath();
+  }
+
+  canvas.addEventListener('mousedown',  startDraw);
+  canvas.addEventListener('mousemove',  draw);
+  canvas.addEventListener('mouseup',    endDraw);
+  canvas.addEventListener('mouseleave', endDraw);
+  canvas.addEventListener('touchstart', startDraw, { passive: false });
+  canvas.addEventListener('touchmove',  draw,      { passive: false });
+  canvas.addEventListener('touchend',   endDraw,   { passive: false });
+
+  document.getElementById('sigClear').addEventListener('click', () => {
+    const rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    hasSig = false;
+    hint.style.opacity = '1';
+    sigWrap.classList.remove('active');
+  });
+  // ── End signature pad ──────────────────────────────────────
+
   document.getElementById('acceptBtn').addEventListener('click', async () => {
     const name = document.getElementById('signerName').value.trim();
     if (!name) {
@@ -264,26 +355,39 @@
       document.getElementById('signerName').style.borderColor = '#ef4444';
       return;
     }
+    if (!hasSig) {
+      sigWrap.style.borderColor = '#ef4444';
+      sigWrap.style.borderStyle = 'solid';
+      setTimeout(() => { sigWrap.style.borderColor = ''; sigWrap.style.borderStyle = ''; }, 2000);
+      return;
+    }
 
     const btn = document.getElementById('acceptBtn');
     btn.disabled = true;
     btn.textContent = 'Processing…';
 
+    // Capture signature as base64
+    const signatureData = canvas.toDataURL('image/png');
+
     try {
       const res = await fetch('/api/crm/accept-quote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, signer_name: name }),
+        body: JSON.stringify({ token, signer_name: name, signature_data: signatureData }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
 
-      // Show confirmed state
+      // Show confirmed state with embedded signature
       document.querySelector('.sign-section').innerHTML = `
         <div class="accepted-state">
           <div class="big-check">✅</div>
           <h2>Quote Accepted!</h2>
           <p>Thank you, <strong>${esc(name)}</strong>. Your acceptance has been recorded and the ${esc(issuerName)} team has been notified. You'll receive a confirmation email shortly.</p>
+          <div style="margin-top:16px;display:inline-block;border:1px solid #e5e7eb;border-radius:8px;padding:10px 16px;background:#f8f9fc">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:6px">Your Signature</div>
+            <img src="${signatureData}" style="max-width:240px;max-height:80px;display:block"/>
+          </div>
         </div>`;
 
       // Update status banner
@@ -298,7 +402,7 @@
       btn.disabled = false;
       btn.textContent = 'Accept & Sign Quote →';
       btn.style.background = '#ef4444';
-      setTimeout(() => { btn.style.background = primary; }, 2000);
+      setTimeout(() => { btn.style.background = primary; }, 2500);
       alert('Something went wrong: ' + e.message);
     }
   });

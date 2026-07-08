@@ -36,7 +36,7 @@ import { esc, fmt, fmtDate, toast, confirm, quoteBadge, tierGate, loading, setIn
 
 initTheme();
 
-let profile, tier, crmSettings, allQuotes = [], companiesList = [], leadsList = [], productsList = [];
+let profile, tier, crmSettings, allQuotes = [], companiesList = [], leadsList = [], productsList = [], searchQ = "", currentStatus = "";
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -59,15 +59,42 @@ try {
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
 async function loadAndRender(status="") {
+  currentStatus = status;
   setInner("content", loading());
   try {
     const res = await quotes.list({ status, limit: 200 });
     allQuotes = res.data;
+    searchQ = "";
     renderPage(allQuotes, status);
   } catch(e) { toast("bad","Load error",e.message); }
 }
 
+function filteredQuotes() {
+  if (!searchQ) return allQuotes;
+  const lq = searchQ.toLowerCase();
+  return allQuotes.filter(q =>
+    (q.quote_number||"").toLowerCase().includes(lq) ||
+    (q.title||"").toLowerCase().includes(lq) ||
+    (q.crm_companies?.name||"").toLowerCase().includes(lq)
+  );
+}
+
+function rerenderTable() {
+  const rows = filteredQuotes();
+  const tbody = document.querySelector(".tbl tbody");
+  if (!tbody) return;
+  tbody.innerHTML = rows.length === 0
+    ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">🔍</div><h3>No quotes match</h3><p>Try a different search term.</p></div></td></tr>`
+    : rows.map(q => quoteRow(q)).join("");
+  document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
+  document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteQuote(b.dataset.id)));
+  document.querySelectorAll(".pdf-btn").forEach(b => b.addEventListener("click", () => exportPDF(b.dataset.id)));
+  document.querySelectorAll(".send-btn").forEach(b => b.addEventListener("click", () => openSendModal(b.dataset.id)));
+  document.querySelectorAll(".inline-status").forEach(sel => sel.addEventListener("change", () => updateStatus(sel.dataset.id, sel.value)));
+}
+
 function renderPage(rows, selStatus) {
+  const displayRows = filteredQuotes();
   const totalValue = rows.reduce((s,q) => s + (Number(q.total)||0), 0);
   const accepted = rows.filter(q => q.status === "accepted").length;
 
@@ -83,6 +110,10 @@ function renderPage(rows, selStatus) {
     </div>
 
     <div class="filter-bar">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input class="search-input" type="text" id="quoteSearch" placeholder="Search quotes…" value="${esc(searchQ)}"/>
+      </div>
       <select class="filter-select" id="statusFilter">
         <option value="" ${!selStatus?"selected":""}>All Statuses</option>
         <option value="draft" ${selStatus==="draft"?"selected":""}>Draft</option>
@@ -109,9 +140,9 @@ function renderPage(rows, selStatus) {
             </tr>
           </thead>
           <tbody>
-            ${rows.length === 0
+            ${displayRows.length === 0
               ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">💰</div><h3>No quotes yet</h3><p>Create a quote to send to a prospect.</p></div></td></tr>`
-              : rows.map(q => quoteRow(q)).join("")}
+              : displayRows.map(q => quoteRow(q)).join("")}
           </tbody>
         </table>
       </div>
@@ -119,6 +150,10 @@ function renderPage(rows, selStatus) {
 
   document.getElementById("addBtn").onclick = () => openModal();
   document.getElementById("statusFilter").addEventListener("change", e => loadAndRender(e.target.value));
+  document.getElementById("quoteSearch").addEventListener("input", e => {
+    searchQ = e.target.value;
+    rerenderTable();
+  });
   document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteQuote(b.dataset.id)));
   document.querySelectorAll(".pdf-btn").forEach(b => b.addEventListener("click", () => exportPDF(b.dataset.id)));
