@@ -493,7 +493,7 @@ const EXTRA_TOOLS = [
 
 const LEADERBOARD_TOOL = {
   name: "list_leaderboard",
-  description: "Show the sales leaderboard — who has won the most leads and highest value in a given period",
+  description: "Show the sales leaderboard — who has the most accepted quotes and highest value in a given period",
   input_schema: {
     type: "object",
     properties: {
@@ -805,14 +805,14 @@ async function executeTool(name, input, env, tenantId, userId) {
     case 'list_leaderboard': {
       const days = input.days || 30;
       const since = new Date(Date.now() - days * 86400000).toISOString();
-      const data = await sbGet(env, 'crm_leads', `?tenant_id=eq.${tenantId}&status=eq.won&updated_at=gte.${since}&select=assigned_to,estimated_value`);
+      const data = await sbGet(env, 'crm_quotes', `?tenant_id=eq.${tenantId}&status=eq.accepted&accepted_at=gte.${since}&select=assigned_to,total`);
       if (!Array.isArray(data)) return data;
       const map = {};
-      for (const l of data) {
-        const k = l.assigned_to || 'unassigned';
+      for (const q of data) {
+        const k = q.assigned_to || 'unassigned';
         if (!map[k]) map[k] = { assigned_to: k, won: 0, value: 0 };
         map[k].won++;
-        map[k].value += l.estimated_value || 0;
+        map[k].value += q.total || 0;
       }
       // Fetch employees and build lookup by both id and auth_user_id
       const empData = await sbGet(env, 'core_employees', `?company_id=eq.${tenantId}&select=id,auth_user_id,full_name`);
@@ -824,8 +824,8 @@ async function executeTool(name, input, env, tenantId, userId) {
         }
       }
       return Object.values(map)
-        .sort((a, b) => b.won - a.won || b.value - a.value)
-        .map((e, i) => ({ rank: i + 1, name: nameMap[e.assigned_to] || e.assigned_to || 'Unassigned', won: e.won, value: `£${e.value.toLocaleString()}` }));
+        .sort((a, b) => b.value - a.value || b.won - a.won)
+        .map((e, i) => ({ rank: i + 1, name: nameMap[e.assigned_to] || e.assigned_to || 'Unassigned', accepted_quotes: e.won, value: `£${e.value.toLocaleString()}` }));
     }
 
     default:
