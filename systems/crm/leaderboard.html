@@ -330,21 +330,21 @@ try {
 async function loadLeaderboard(profile) {
   const tenantId = profile.company_id;
 
-  // Fetch all won leads + employee names in parallel
-  const [leadsRes, staffRes] = await Promise.all([
-    sb().from("crm_leads")
-      .select("assigned_to, estimated_value, actual_close_date, updated_at, created_at")
+  // Fetch all accepted quotes + employee names in parallel
+  const [quotesRes, staffRes] = await Promise.all([
+    sb().from("crm_quotes")
+      .select("assigned_to, total, accepted_at")
       .eq("tenant_id", tenantId)
-      .eq("status", "won"),
+      .eq("status", "accepted"),
     sb().from("core_employees")
       .select("id, auth_user_id, full_name")
       .eq("company_id", tenantId),
   ]);
 
-  if (leadsRes.error) { toast("bad", "Error loading leads", leadsRes.error.message); }
+  if (quotesRes.error) { toast("bad", "Error loading quotes", quotesRes.error.message); }
   if (staffRes.error) { toast("bad", "Error loading staff", staffRes.error.message); }
 
-  const leads = leadsRes.data || [];
+  const leads = quotesRes.data || [];
   const staff = staffRes.data || [];
   // Build lookup by both auth_user_id and employee id to handle either being stored
   const staffMap = {};
@@ -363,7 +363,7 @@ function buildRankings(leads, staffMap, period) {
   const now = new Date();
   const filtered = leads.filter(l => {
     if (period === "all") return true;
-    const date = new Date(l.actual_close_date || l.updated_at || l.created_at);
+    const date = new Date(l.accepted_at);
     if (period === "month") {
       return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
     }
@@ -383,7 +383,7 @@ function buildRankings(leads, staffMap, period) {
     if (!l.assigned_to) continue;
     if (!map[l.assigned_to]) map[l.assigned_to] = { id: l.assigned_to, name: staffMap[l.assigned_to] || "Unknown", wins: 0, value: 0 };
     map[l.assigned_to].wins++;
-    map[l.assigned_to].value += Number(l.estimated_value) || 0;
+    map[l.assigned_to].value += Number(l.total) || 0;
   }
 
   return Object.values(map).sort((a, b) => b.value - a.value);
@@ -412,7 +412,7 @@ function renderPage(ranked, profile) {
           <div class="lb-podium-avatar">${initials(p.name)}</div>
           <div class="lb-podium-name">${esc(p.name)}</div>
           <div class="lb-podium-wins">${fmtCompact(p.value)}</div>
-          <div class="lb-podium-value">${p.wins} win${p.wins!==1?"s":""}</div>
+          <div class="lb-podium-value">${p.wins} quote${p.wins!==1?"s":""}</div>
           <div style="margin-top:8px">
             <span class="level-badge" style="background:${lv.bg};color:${lv.color};border:1px solid ${lv.color}40">
               ${lv.icon} ${lv.name}
@@ -451,7 +451,7 @@ function renderPage(ranked, profile) {
         </div>
         <div class="lb-row-stats">
           <div class="lb-row-value">${fmtCompact(p.value)}</div>
-          <div class="lb-row-wins">${p.wins} win${p.wins!==1?"s":""}</div>
+          <div class="lb-row-wins">${p.wins} quote${p.wins!==1?"s":""}</div>
         </div>
       </div>`;
   }).join("");
@@ -469,7 +469,7 @@ function renderPage(ranked, profile) {
       <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px">
         <div>
           <div class="lb-hero-title">🏆 Sales Leaderboard</div>
-          <div class="lb-hero-sub">Compete. Win. Dominate. Based on total won deal value.</div>
+          <div class="lb-hero-sub">Compete. Win. Dominate. Based on total accepted quote value.</div></div>
         </div>
         <div class="lb-period-btns">
           <button class="lb-period-btn ${currentPeriod==="month"?"active":""}" data-period="month">This Month</button>
@@ -505,20 +505,20 @@ function renderPage(ranked, profile) {
           </div>
           <div style="text-align:right">
             <div style="font-size:22px;font-weight:900;color:#ffd700">${fmtCompact(me.value)}</div>
-            <div style="font-size:12px;color:var(--text3)">${me.wins} deal${me.wins!==1?"s":""} won</div>
+            <div style="font-size:12px;color:var(--text3)">${me.wins} accepted quote${me.wins!==1?"s":""}</div>
           </div>
         </div>
       </div>` : `
       <div style="margin-top:16px;padding:12px 16px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:12px;font-size:13px;color:var(--text3)">
-        🎯 You haven't won any deals yet. Close your first deal to appear on the board!
+        🎯 You don't have any accepted quotes yet. Get a quote signed to appear on the board!
       </div>`}
     </div>
 
     ${ranked.length === 0 ? `
     <div style="text-align:center;padding:60px 20px">
       <div style="font-size:48px;margin-bottom:12px">🎯</div>
-      <h3 style="font-size:18px;font-weight:700;margin-bottom:6px">No won deals yet</h3>
-      <p style="color:var(--text3)">Be the first to win a deal and claim the top spot!</p>
+      <h3 style="font-size:18px;font-weight:700;margin-bottom:6px">No accepted quotes yet</h3>
+      <p style="color:var(--text3)">Be the first to get a quote accepted and claim the top spot!</p>
     </div>` : `
 
     <!-- Podium (top 3) -->
@@ -539,7 +539,7 @@ function renderPage(ranked, profile) {
     <div class="card">
       <div class="card-header">
         <h2>🗺️ Level Guide</h2>
-        <span style="font-size:12px;color:var(--text3)">50 levels based on total won deal value</span>
+        <span style="font-size:12px;color:var(--text3)">50 levels based on total accepted quote value</span>
       </div>
       <div class="card-body">
         <div class="level-guide-grid">
