@@ -5,6 +5,36 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Documents — SmartCore CRM</title>
   <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
+  <style>
+    /* Folder grid */
+    .folder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+
+    .folder-card {
+      background: var(--card); border: 1px solid var(--line2); border-radius: 14px;
+      padding: 20px 18px; cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .1s;
+      display: flex; flex-direction: column; gap: 10px; user-select: none;
+    }
+    .folder-card:hover  { border-color: rgba(30,92,255,.4); box-shadow: 0 4px 18px rgba(30,92,255,.09); transform: translateY(-1px); }
+    .folder-card:active { transform: translateY(0); }
+
+    .folder-icon { font-size: 36px; line-height: 1; }
+    .folder-name { font-size: 14px; font-weight: 600; color: var(--text1); line-height: 1.3; }
+    .folder-count { font-size: 12px; color: var(--text3); }
+
+    /* Breadcrumb */
+    .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text3); margin-bottom: 20px; flex-wrap: wrap; }
+    .breadcrumb a { color: var(--blue2); cursor: pointer; text-decoration: none; }
+    .breadcrumb a:hover { text-decoration: underline; }
+    .breadcrumb span { color: var(--text1); font-weight: 600; }
+
+    /* Doc card */
+    .doc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+    .doc-card { background: var(--card); border: 1px solid var(--line2); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+
+    /* Search */
+    .docs-toolbar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+    .docs-toolbar .form-control { flex: 1; min-width: 200px; }
+  </style>
 </head>
 <body>
 <div class="crm-shell">
@@ -37,10 +67,13 @@ import { esc, fmtDate, toast, confirm, tierGate, loading, setInner } from "/syst
 initTheme();
 
 const CATEGORIES = ["general","contract","quote","proposal","photo","form","report","other"];
-const CAT_ICONS = { general:"📄", contract:"📜", quote:"💰", proposal:"📋", photo:"🖼️", form:"📝", report:"📊", other:"📁" };
-const FILE_ICONS = { "application/pdf":"📕", "image/png":"🖼️", "image/jpeg":"🖼️", "application/msword":"📄", "application/vnd.openxmlformats-officedocument.wordprocessingml.document":"📄" };
+const CAT_ICONS  = { general:"📄", contract:"📜", quote:"💰", proposal:"📋", photo:"🖼️", form:"📝", report:"📊", other:"📁" };
 
 let profile, tier, allDocs = [], companiesList = [];
+// view state
+let activeFolder = null; // null = folder list; { id, name } = inside a company folder
+let searchQ = "";
+let catFilter = "";
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -52,83 +85,201 @@ try {
     document.getElementById("content").innerHTML = tierGate("documents");
   } else {
     companiesList = await companies.list({ limit: 500 }).then(r => r.data);
-    await loadAndRender();
+    await loadAll();
   }
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
-async function loadAndRender(category="") {
+async function loadAll() {
   setInner("content", loading());
   try {
-    const res = await documents.list({ category, limit: 200 });
+    const res = await documents.list({ limit: 500 });
     allDocs = res.data;
-    renderPage(allDocs, category);
+    render();
   } catch(e) { toast("bad","Load error",e.message); }
 }
 
-function fileIcon(type) { return FILE_ICONS[type] || "📄"; }
-function fileSize(bytes) {
-  if (!bytes) return "";
-  if (bytes < 1024) return bytes+"B";
-  if (bytes < 1048576) return (bytes/1024).toFixed(1)+"KB";
-  return (bytes/1048576).toFixed(1)+"MB";
+// ── Render dispatcher ─────────────────────────────────────
+
+function render() {
+  if (activeFolder === null) renderFolders();
+  else renderFolder(activeFolder);
 }
 
-function renderPage(rows, selCat) {
+// ── Folder list view ──────────────────────────────────────
+
+function renderFolders() {
+  // Group docs by company
+  const groups = {};
+  for (const d of allDocs) {
+    const key = d.crm_company_id || "__none__";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(d);
+  }
+
+  // Build folder list: one entry per company that has docs, sorted by name
+  const folders = companiesList
+    .filter(c => groups[c.id]?.length)
+    .map(c => ({ id: c.id, name: c.name, count: groups[c.id].length }));
+
+  if (groups["__none__"]?.length) {
+    folders.push({ id: "__none__", name: "Unassigned", count: groups["__none__"].length });
+  }
+
+  // Filter by search
+  const q = searchQ.toLowerCase();
+  const visible = q ? folders.filter(f => f.name.toLowerCase().includes(q)) : folders;
+
   document.getElementById("content").innerHTML = `
     <div class="page-header">
       <div class="page-header-left">
         <h1>Documents</h1>
-        <p>${rows.length} document${rows.length!==1?"s":""}</p>
+        <p>${allDocs.length} document${allDocs.length !== 1 ? "s" : ""} across ${folders.length} folder${folders.length !== 1 ? "s" : ""}</p>
       </div>
       <div class="page-header-actions">
         <button class="btn btn-primary" id="uploadBtn">📤 Upload Document</button>
       </div>
     </div>
 
-    <div class="filter-bar">
-      <select class="filter-select" id="catFilter">
-        <option value="" ${!selCat?"selected":""}>All Categories</option>
-        ${CATEGORIES.map(c => `<option value="${c}" ${selCat===c?"selected":""}>${CAT_ICONS[c]} ${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join("")}
-      </select>
+    <div class="docs-toolbar">
+      <input class="form-control" id="searchInput" placeholder="🔍 Search folders…" value="${esc(searchQ)}"/>
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px" id="docsGrid">
-      ${rows.length === 0
-        ? `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">📁</div><h3>No documents yet</h3><p>Upload contracts, proposals, photos and more.</p></div>`
-        : rows.map(d => docCard(d)).join("")}
+    <div class="folder-grid">
+      ${visible.length === 0
+        ? `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">📁</div><h3>No folders yet</h3><p>Upload a document and assign it to a company to create a folder.</p></div>`
+        : visible.map(f => folderCard(f)).join("")}
     </div>`;
 
   document.getElementById("uploadBtn").onclick = () => openUploadModal();
-  document.getElementById("catFilter").addEventListener("change", e => loadAndRender(e.target.value));
+  document.getElementById("searchInput").addEventListener("input", e => { searchQ = e.target.value; renderFolders(); });
+  document.querySelectorAll(".folder-card").forEach(card => {
+    card.addEventListener("click", () => {
+      const id = card.dataset.id;
+      const name = card.dataset.name;
+      activeFolder = { id, name };
+      searchQ = "";
+      catFilter = "";
+      renderFolder(activeFolder);
+    });
+  });
+}
+
+function folderCard(f) {
+  const icon = f.id === "__none__" ? "📂" : "🗂️";
+  return `<div class="folder-card" data-id="${esc(f.id)}" data-name="${esc(f.name)}">
+    <div class="folder-icon">${icon}</div>
+    <div class="folder-name">${esc(f.name)}</div>
+    <div class="folder-count">${f.count} document${f.count !== 1 ? "s" : ""}</div>
+  </div>`;
+}
+
+// ── Folder contents view ──────────────────────────────────
+
+function renderFolder(folder) {
+  const docsInFolder = allDocs.filter(d =>
+    folder.id === "__none__" ? !d.crm_company_id : d.crm_company_id === folder.id
+  );
+
+  const q = searchQ.toLowerCase();
+  const visible = docsInFolder.filter(d => {
+    if (catFilter && d.category !== catFilter) return false;
+    if (q && !(d.name.toLowerCase().includes(q) || d.description?.toLowerCase().includes(q) || d.category?.toLowerCase().includes(q))) return false;
+    return true;
+  });
+
+  document.getElementById("content").innerHTML = `
+    <div class="breadcrumb">
+      <a id="backBtn">📁 Documents</a>
+      <span style="color:var(--text3)">›</span>
+      <span>${esc(folder.name)}</span>
+    </div>
+
+    <div class="page-header" style="margin-bottom:16px">
+      <div class="page-header-left">
+        <h1>${esc(folder.name)}</h1>
+        <p>${docsInFolder.length} document${docsInFolder.length !== 1 ? "s" : ""}</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" id="uploadBtn">📤 Upload Document</button>
+      </div>
+    </div>
+
+    <div class="docs-toolbar">
+      <input class="form-control" id="searchInput" placeholder="🔍 Search documents…" value="${esc(searchQ)}"/>
+      <select class="form-control" id="catFilter" style="max-width:180px">
+        <option value="" ${!catFilter?"selected":""}>All categories</option>
+        ${CATEGORIES.map(c => `<option value="${c}" ${catFilter===c?"selected":""}>${CAT_ICONS[c]} ${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join("")}
+      </select>
+    </div>
+
+    <div class="doc-grid">
+      ${visible.length === 0
+        ? `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">📄</div><h3>No documents</h3><p>${searchQ||catFilter ? "No documents match your filters." : "Upload a document to get started."}</p></div>`
+        : visible.map(d => docCard(d)).join("")}
+    </div>`;
+
+  document.getElementById("backBtn").onclick = () => { activeFolder = null; searchQ = ""; catFilter = ""; renderFolders(); };
+  document.getElementById("uploadBtn").onclick = () => openUploadModal(folder.id === "__none__" ? null : folder.id);
+  document.getElementById("searchInput").addEventListener("input", e => { searchQ = e.target.value; renderFolder(folder); });
+  document.getElementById("catFilter").addEventListener("change", e => { catFilter = e.target.value; renderFolder(folder); });
   document.querySelectorAll(".del-doc").forEach(b => b.addEventListener("click", () => deleteDoc(b.dataset.id, b.dataset.name)));
 }
 
+// ── Doc card ──────────────────────────────────────────────
+
+function fileExt(name) {
+  const m = name?.match(/\.([^.]+)$/);
+  return m ? m[1].toUpperCase() : "FILE";
+}
+function fileSize(bytes) {
+  if (!bytes) return "";
+  if (bytes < 1024) return bytes+"B";
+  if (bytes < 1048576) return (bytes/1024).toFixed(1)+"KB";
+  return (bytes/1048576).toFixed(1)+"MB";
+}
+function extIcon(name, type) {
+  const ext = (name?.match(/\.([^.]+)$/)?.[1] || "").toLowerCase();
+  if (["pdf"].includes(ext)) return "📕";
+  if (["png","jpg","jpeg","gif","webp"].includes(ext)) return "🖼️";
+  if (["doc","docx"].includes(ext)) return "📄";
+  if (["xls","xlsx","csv"].includes(ext)) return "📊";
+  if (["ppt","pptx"].includes(ext)) return "📑";
+  return "📄";
+}
+
 function docCard(d) {
-  const co = d.crm_companies?.name;
-  const icon = fileIcon(d.file_type);
-  return `<div class="card" style="padding:16px">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <div style="font-size:28px">${icon}</div>
+  const icon = extIcon(d.name, d.file_type);
+  const isDemo = d.file_path?.startsWith("demo/");
+  return `<div class="doc-card">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="font-size:28px;flex-shrink:0">${icon}</div>
       <div style="min-width:0">
-        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(d.name)}">${esc(d.name)}</div>
-        <div class="text-sm text-muted">${fileSize(d.file_size)}</div>
+        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.name)}">${esc(d.name)}</div>
+        <div class="text-sm text-muted">${fileExt(d.name)} · ${fileSize(d.file_size)}</div>
       </div>
     </div>
-    <div style="margin-bottom:8px">
-      <span class="badge badge-blue">${CAT_ICONS[d.category]||""} ${esc(d.category)}</span>
-      ${d.is_portal_visible ? '<span class="badge badge-green" style="margin-left:4px">Portal</span>' : ""}
+    ${d.description ? `<div class="text-sm text-muted" style="line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(d.description)}</div>` : ""}
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <span class="badge badge-blue">${CAT_ICONS[d.category]||""} ${esc(d.category||"general")}</span>
+      ${d.is_portal_visible ? '<span class="badge badge-green">Portal</span>' : ""}
     </div>
-    ${co ? `<div class="text-sm text-muted" style="margin-bottom:8px">🏢 ${esc(co)}</div>` : ""}
-    <div class="text-xs text-dim" style="margin-bottom:12px">${fmtDate(d.created_at)}</div>
-    <div style="display:flex;gap:6px">
-      <a href="${esc(d.file_path)}" target="_blank" class="btn btn-sm btn-primary" style="flex:1;justify-content:center">Download</a>
+    <div class="text-xs text-dim">${fmtDate(d.created_at)}</div>
+    <div style="display:flex;gap:6px;margin-top:4px">
+      ${isDemo
+        ? `<span class="btn btn-sm" style="flex:1;justify-content:center;opacity:.5;cursor:default">Demo file</span>`
+        : `<a href="${esc(d.file_path)}" target="_blank" class="btn btn-sm btn-primary" style="flex:1;justify-content:center">⬇ Download</a>`}
       <button class="btn btn-sm btn-danger del-doc" data-id="${d.id}" data-name="${esc(d.name)}">Del</button>
     </div>
   </div>`;
 }
 
-function openUploadModal() {
-  const compOpts = companiesList.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+// ── Upload modal ──────────────────────────────────────────
+
+function openUploadModal(preselectedCompanyId = null) {
+  const compOpts = companiesList.map(c =>
+    `<option value="${c.id}" ${c.id === preselectedCompanyId ? "selected" : ""}>${esc(c.name)}</option>`
+  ).join("");
+
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
@@ -140,7 +291,7 @@ function openUploadModal() {
       <div class="modal-body">
         <div class="form-group">
           <label class="form-label">File *</label>
-          <input class="form-control" id="mFile" type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.xlsx,.csv"/>
+          <input class="form-control" id="mFile" type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.xlsx,.csv,.pptx"/>
         </div>
         <div class="form-group">
           <label class="form-label">Document Name</label>
@@ -154,8 +305,8 @@ function openUploadModal() {
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Company</label>
-            <select class="form-control" id="mCompany"><option value="">None</option>${compOpts}</select>
+            <label class="form-label">Company Folder</label>
+            <select class="form-control" id="mCompany"><option value="">None (Unassigned)</option>${compOpts}</select>
           </div>
         </div>
         <div class="form-group">
@@ -176,15 +327,13 @@ function openUploadModal() {
   overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
   overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
 
-  // Auto-fill name from file
   overlay.querySelector("#mFile").addEventListener("change", e => {
     const f = e.target.files[0];
     if (f && !overlay.querySelector("#mName").value) overlay.querySelector("#mName").value = f.name.replace(/\.[^.]+$/,"");
   });
 
   overlay.querySelector("#saveBtn").onclick = async () => {
-    const fileInput = overlay.querySelector("#mFile");
-    const file = fileInput.files[0];
+    const file = overlay.querySelector("#mFile").files[0];
     if (!file) return toast("warn","Validation","Please select a file.");
     const btn = overlay.querySelector("#saveBtn");
     btn.disabled = true; btn.textContent = "Uploading…";
@@ -194,30 +343,41 @@ function openUploadModal() {
       const { error: upErr } = await sb().storage.from("crm-documents").upload(path, file, { cacheControl: "3600", upsert: false });
       if (upErr) throw upErr;
       const { data: { publicUrl } } = sb().storage.from("crm-documents").getPublicUrl(path);
+      const companyId = overlay.querySelector("#mCompany").value || null;
       await documents.create({
         name: overlay.querySelector("#mName").value.trim() || file.name,
         file_path: publicUrl,
         file_type: file.type,
         file_size: file.size,
         category: overlay.querySelector("#mCat").value,
-        crm_company_id: overlay.querySelector("#mCompany").value || null,
+        crm_company_id: companyId,
         description: overlay.querySelector("#mDesc").value.trim() || null,
         is_portal_visible: overlay.querySelector("#mPortal").checked,
       });
       overlay.remove();
       toast("ok","Document uploaded");
-      await loadAndRender();
+      // Navigate into the folder it was uploaded to
+      if (companyId) {
+        const co = companiesList.find(c => c.id === companyId);
+        activeFolder = co ? { id: co.id, name: co.name } : null;
+      }
+      await loadAll();
     } catch(e) {
-      toast("bad","Upload failed",e.message);
+      toast("bad","Upload failed", e.message);
       btn.disabled = false; btn.textContent = "Upload";
     }
   };
 }
 
+// ── Delete ────────────────────────────────────────────────
+
 async function deleteDoc(id, name) {
   confirm("Delete Document", `Delete "${name}"?`, async () => {
-    try { await documents.delete(id); toast("ok","Deleted"); await loadAndRender(); }
-    catch(e) { toast("bad","Error",e.message); }
+    try {
+      await documents.delete(id);
+      toast("ok","Deleted");
+      await loadAll();
+    } catch(e) { toast("bad","Error",e.message); }
   });
 }
 </script>
