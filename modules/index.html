@@ -697,11 +697,14 @@ async function fetchData() {
 // ── Render ─────────────────────────────────────────────────────────────────
 function render() {
   const purchasedSlugs = new Set(state.purchased.map(p => p.module_slug));
-  purchasedSlugs.add('smartcore-core'); // always active
 
-  // Build active list — core first, then purchased
+  // Only show SmartCore Core if they have at least one other active module
+  const hasOtherModules = state.purchased.some(p => p.module_slug !== 'smartcore-core');
+  if (hasOtherModules) purchasedSlugs.add('smartcore-core');
+
+  // Build active list — core first (if applicable), then purchased
   const activeOrdered = [
-    'smartcore-core',
+    ...(hasOtherModules ? ['smartcore-core'] : []),
     ...state.purchased.map(p => p.module_slug).filter(s => s !== 'smartcore-core'),
   ];
 
