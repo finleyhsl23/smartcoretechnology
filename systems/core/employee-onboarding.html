@@ -122,6 +122,58 @@ a{color:var(--blue);text-decoration:none}
     <div style="font-size:14px;color:var(--muted2)" id="errorMsg">This invite link is invalid or has expired.</div>
   </div>
 
+  <!-- EXISTING ACCOUNT SCREEN -->
+  <div class="ob-card" id="existingCard" style="display:none">
+    <div class="ob-body" style="padding:32px 28px">
+      <div style="font-size:36px;margin-bottom:16px">👋</div>
+      <div class="step-title">Welcome back!</div>
+      <div class="step-desc" id="existingDesc">It looks like you already have a SmartCore account. You can log in with your existing account, or set a new password.</div>
+
+      <!-- Option A: log in -->
+      <div id="existingLoginPanel">
+        <div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:12px;margin-top:20px">Log in with your existing account</div>
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="exEmail" placeholder="your@email.com">
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="exPassword" placeholder="Your current password">
+        </div>
+        <div id="exLoginErr" style="font-size:13px;color:var(--red);display:none;margin-top:8px"></div>
+        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn primary" id="exLoginBtn" onclick="loginExisting()">Log In & Continue →</button>
+        </div>
+        <div style="margin-top:20px;border-top:1px solid var(--line2);padding-top:16px">
+          <div style="font-size:13px;color:var(--muted2)">Or if you'd prefer to set a new password for this workspace:</div>
+          <button class="btn" style="margin-top:10px" onclick="showNewPasswordFlow()">Set a new password instead</button>
+        </div>
+      </div>
+
+      <!-- Option B: new password -->
+      <div id="existingNewPwPanel" style="display:none">
+        <div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:12px;margin-top:20px">Set a new password</div>
+        <div class="field">
+          <label>New Password</label>
+          <input type="password" id="exNewPw" placeholder="Minimum 8 characters" oninput="checkExPwStrength()">
+          <div class="pw-strength"><div class="pw-strength-fill" id="exPwFill"></div></div>
+        </div>
+        <div class="field">
+          <label>Confirm Password</label>
+          <input type="password" id="exNewPwConfirm" placeholder="Repeat your password">
+          <div class="error-msg" id="exPwMatchError">Passwords do not match</div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn primary" onclick="confirmNewPassword()">Set Password & Continue →</button>
+          <button class="btn" onclick="skipNewPassword()">Skip — keep existing password</button>
+        </div>
+        <div style="margin-top:10px">
+          <button class="btn" style="font-size:12px;padding:8px 14px" onclick="showLoginFlow()">← Back to log in</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- MAIN CARD -->
   <div class="ob-card" id="mainCard" style="display:none">
 
@@ -394,20 +446,23 @@ a{color:var(--blue);text-decoration:none}
 </div>
 
 <script>
-const STEPS = [
-  { label: 'Account' },
-  { label: 'Personal' },
-  { label: 'Contact' },
-  { label: 'Emergency' },
-  { label: 'Financial' },
-  { label: 'Additional' },
-  { label: 'Review' },
+const ALL_STEPS = [
+  { label: 'Account',   num: 1 },
+  { label: 'Personal',  num: 2 },
+  { label: 'Contact',   num: 3 },
+  { label: 'Emergency', num: 4 },
+  { label: 'Financial', num: 5 },
+  { label: 'Additional',num: 6 },
+  { label: 'Review',    num: 7 },
 ];
+let STEPS = ALL_STEPS; // may be overridden when skipping account step
 
 let currentStep = 1;
 let token = null;
 let employeeData = {};
 let requiredFields = {};
+let existingUserId = null;    // set when user logs in with existing account
+let existingNewPw = null;     // set if they chose to update their password
 
 // Parse token from URL
 const params = new URLSearchParams(location.search);
@@ -469,13 +524,105 @@ async function init() {
     document.getElementById('fPersonalEmail').value = data.personal_email || '';
 
     document.getElementById('loadingView').style.display = 'none';
-    document.getElementById('mainCard').style.display = 'block';
-    renderStepsBar();
-    applyRequiredFields();
-    goToStep(1);
+
+    if (data.existing_account) {
+      // Pre-fill the login email field
+      const inviteEmail = data.invite_email || data.personal_email || data.work_email || '';
+      document.getElementById('exEmail').value = inviteEmail;
+      document.getElementById('existingDesc').textContent =
+        `It looks like there is already a SmartCore account under ${inviteEmail}. You can log in with your existing account to continue, or set a new password.`;
+      document.getElementById('existingCard').style.display = 'block';
+    } else {
+      startMainWizard(false);
+    }
   } catch(e) {
     showError('Error', 'Could not verify your invite. Please try again.');
   }
+}
+
+function startMainWizard(skipAccountStep) {
+  if (skipAccountStep) {
+    // Remove the Account step from the wizard
+    STEPS = ALL_STEPS.filter(s => s.label !== 'Account');
+  } else {
+    STEPS = ALL_STEPS;
+  }
+  document.getElementById('existingCard').style.display = 'none';
+  document.getElementById('mainCard').style.display = 'block';
+  renderStepsBar();
+  applyRequiredFields();
+  goToStep(STEPS[0].num);
+}
+
+function showLoginFlow() {
+  document.getElementById('existingLoginPanel').style.display = 'block';
+  document.getElementById('existingNewPwPanel').style.display = 'none';
+}
+
+function showNewPasswordFlow() {
+  document.getElementById('existingLoginPanel').style.display = 'none';
+  document.getElementById('existingNewPwPanel').style.display = 'block';
+}
+
+async function loginExisting() {
+  const btn = document.getElementById('exLoginBtn');
+  const errEl = document.getElementById('exLoginErr');
+  errEl.style.display = 'none';
+  const email = document.getElementById('exEmail').value.trim();
+  const password = document.getElementById('exPassword').value;
+  if (!email || !password) { errEl.textContent = 'Please enter your email and password.'; errEl.style.display = 'block'; return; }
+
+  btn.disabled = true; btn.textContent = 'Logging in…';
+  try {
+    // Use Supabase anon key to sign in
+    const SUPABASE_URL = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
+    const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts';
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.user) throw new Error(data.error_description || data.msg || 'Incorrect email or password.');
+    existingUserId = data.user.id;
+    startMainWizard(true);
+  } catch(e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Log In & Continue →';
+  }
+}
+
+function confirmNewPassword() {
+  const pw = document.getElementById('exNewPw').value;
+  const cpw = document.getElementById('exNewPwConfirm').value;
+  const errEl = document.getElementById('exPwMatchError');
+  if (!pw || pw.length < 8) { toast('error','Too short','Password must be at least 8 characters'); return; }
+  if (pw !== cpw) { errEl.style.display = 'block'; return; }
+  errEl.style.display = 'none';
+  // They want a new password but we still need to verify their identity via the token
+  // We'll collect the new password and prompt them to log in first
+  existingNewPw = pw;
+  showLoginFlow();
+  toast('success','Password set','Now log in to confirm your identity, then we\'ll update your password.');
+}
+
+function skipNewPassword() {
+  // They want to keep their existing password — just need to log in
+  showLoginFlow();
+}
+
+function checkExPwStrength() {
+  const pw = document.getElementById('exNewPw').value;
+  const fill = document.getElementById('exPwFill');
+  let strength = 0;
+  if (pw.length >= 8) strength++;
+  if (/[A-Z]/.test(pw)) strength++;
+  if (/[0-9]/.test(pw)) strength++;
+  if (/[^A-Za-z0-9]/.test(pw)) strength++;
+  const colours = ['','#ef4444','#f59e0b','#3b82f6','#22c55e'];
+  fill.style.width = (strength * 25) + '%';
+  fill.style.background = colours[strength] || '';
 }
 
 function showError(title, msg) {
@@ -487,40 +634,48 @@ function showError(title, msg) {
 
 function renderStepsBar() {
   document.getElementById('stepsBar').innerHTML = STEPS.map((s, i) => {
-    const n = i + 1;
-    return `<div class="step-dot" id="stepDot${n}">
-      <div class="step-num">${n}</div>
+    return `<div class="step-dot" id="stepDot${s.num}">
+      <div class="step-num">${i + 1}</div>
       <div class="step-label">${s.label}</div>
     </div>`;
   }).join('');
 }
+
+function stepIndex(num) { return STEPS.findIndex(s => s.num === num); }
+function lastStepNum() { return STEPS[STEPS.length - 1].num; }
 
 function goToStep(n) {
   currentStep = n;
   document.querySelectorAll('.ob-step').forEach(el => el.classList.remove('active'));
   document.querySelector(`[data-step="${n}"]`).classList.add('active');
 
-  STEPS.forEach((_, i) => {
-    const dot = document.getElementById(`stepDot${i+1}`);
+  const idx = stepIndex(n);
+  STEPS.forEach((s, i) => {
+    const dot = document.getElementById(`stepDot${s.num}`);
+    if (!dot) return;
     dot.classList.remove('active','done');
-    if (i + 1 === n) dot.classList.add('active');
-    else if (i + 1 < n) dot.classList.add('done');
+    if (i === idx) dot.classList.add('active');
+    else if (i < idx) dot.classList.add('done');
   });
 
-  document.getElementById('btnBack').style.display = n > 1 ? 'inline-flex' : 'none';
-  document.getElementById('btnNext').textContent = n === STEPS.length ? 'Submit →' : 'Next →';
-  document.getElementById('stepCounter').textContent = `Step ${n} of ${STEPS.length}`;
+  document.getElementById('btnBack').style.display = idx > 0 ? 'inline-flex' : 'none';
+  document.getElementById('btnNext').textContent = n === lastStepNum() ? 'Submit →' : 'Next →';
+  document.getElementById('stepCounter').textContent = `Step ${idx + 1} of ${STEPS.length}`;
 
-  if (n === STEPS.length) buildReview();
+  if (n === lastStepNum()) buildReview();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-function goBack() { if (currentStep > 1) goToStep(currentStep - 1); }
+function goBack() {
+  const idx = stepIndex(currentStep);
+  if (idx > 0) goToStep(STEPS[idx - 1].num);
+}
 
 function goNext() {
   if (!validateStep(currentStep)) return;
-  if (currentStep === STEPS.length) { submitOnboarding(); return; }
-  goToStep(currentStep + 1);
+  if (currentStep === lastStepNum()) { submitOnboarding(); return; }
+  const idx = stepIndex(currentStep);
+  goToStep(STEPS[idx + 1].num);
 }
 
 function chk(id) { const el = document.getElementById(id); return el ? (el.value||'').trim() : ''; }
@@ -585,7 +740,7 @@ function buildReview() {
   const rows = (items) => items.filter(([,val])=>val).map(([lbl,val])=>`<div class="review-row"><span>${lbl}</span><span>${val}</span></div>`).join('');
 
   document.getElementById('reviewContent').innerHTML = `
-    <div class="review-section"><h4>Account</h4>${rows([['Password','●●●●●●●●']])}</div>
+    ${!existingUserId ? `<div class="review-section"><h4>Account</h4>${rows([['Password','●●●●●●●●']])}</div>` : `<div class="review-section"><h4>Account</h4>${rows([['Account','Linked to existing SmartCore account']])}</div>`}
     <div class="review-section"><h4>Personal Details</h4>${rows([['Title',v('fTitleSel')],['Full Name',v('fFullName')],['Preferred Name',v('fPreferredName')],['Date of Birth',v('fDob')],['Gender',v('fGender')],['Pronouns',v('fPronouns')]])}</div>
     <div class="review-section"><h4>Contact & Address</h4>${rows([['Personal Email',v('fPersonalEmail')],['Phone',v('fCountryCode')+' '+v('fPhone')],['Address',[v('fAddr1'),v('fAddr2'),v('fCity'),v('fCounty'),v('fPostcode'),v('fCountry')].filter(Boolean).join(', ')]])}</div>
     <div class="review-section"><h4>Emergency Contact 1</h4>${rows([['Name',v('fEc1Name')],['Relationship',v('fEc1Rel')],['Phone',v('fEc1Phone')],['Email',v('fEc1Email')]])}</div>
@@ -602,7 +757,9 @@ async function submitOnboarding() {
   const v = id => document.getElementById(id)?.value || '';
   const body = {
     token,
-    password: v('fPassword'),
+    ...(existingUserId
+      ? { existing_user_id: existingUserId, ...(existingNewPw ? { new_password: existingNewPw } : {}) }
+      : { password: v('fPassword') }),
     title: v('fTitleSel'),
     full_name: v('fFullName'),
     preferred_name: v('fPreferredName') || null,

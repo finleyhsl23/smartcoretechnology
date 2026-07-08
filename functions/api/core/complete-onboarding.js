@@ -6,10 +6,13 @@ export async function onRequestPost(context) {
   const { request, env } = context;
   try {
     const body = await request.json();
-    const { token, password, ...fields } = body;
+    const { token, password, existing_user_id, new_password, ...fields } = body;
 
     if (!token) return json({ error: 'Token required' }, 400);
-    if (!password || password.length < 8) return json({ error: 'Password must be at least 8 characters' }, 400);
+    // Must provide either an existing_user_id (already-authenticated user) or a new password
+    if (!existing_user_id && (!password || password.length < 8)) {
+      return json({ error: 'Password must be at least 8 characters' }, 400);
+    }
 
     // Validate token
     const tokens = await sbGet(env, `/core_onboarding_tokens?token=eq.${encodeURIComponent(token)}&limit=1`);
@@ -22,27 +25,54 @@ export async function onRequestPost(context) {
     if (!emps?.length) return json({ error: 'Employee not found' }, 404);
     const emp = emps[0];
 
-    // Create Supabase auth user
-    const authRes = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users`, {
-      method: 'POST',
-      headers: {
-        apikey: env.SUPABASE_SERVICE_KEY,
-        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        email: fields.personal_email || t.email,
-        password,
-        email_confirm: true,
-        user_metadata: { full_name: fields.full_name || emp.full_name },
-      }),
-    });
+    let authUserId;
 
-    if (!authRes.ok) {
-      const err = await authRes.json();
-      return json({ error: err.message || 'Failed to create account' }, 400);
+    if (existing_user_id) {
+      // Existing account: verify the user ID is real by fetching from admin API
+      const checkRes = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${existing_user_id}`, {
+        headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+      });
+      if (!checkRes.ok) return json({ error: 'Could not verify existing account' }, 400);
+      authUserId = existing_user_id;
+
+      // Optionally update their password if they chose to set a new one
+      if (new_password && new_password.length >= 8) {
+        await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${existing_user_id}`, {
+          method: 'PUT',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ password: new_password }),
+        });
+      }
+    } else {
+      // New account: create Supabase auth user
+      const authRes = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: fields.personal_email || t.email,
+          password,
+          email_confirm: true,
+          user_metadata: { full_name: fields.full_name || emp.full_name },
+        }),
+      });
+
+      if (!authRes.ok) {
+        const err = await authRes.json();
+        return json({ error: err.message || 'Failed to create account' }, 400);
+      }
+      const authUser = await authRes.json();
+      authUserId = authUser.id;
     }
-    const authUser = await authRes.json();
+
+    const authUser = { id: authUserId };
 
     // Update employee record
     const updateData = {
@@ -65,7 +95,7 @@ export async function onRequestPost(context) {
 
     await sbPatch(env, `/core_employees?id=eq.${emp.id}`, updateData);
 
-    // Create user_profiles record
+    // Upsert user_profiles record (existing users may already have one)
     const profileData = {
       user_id: authUser.id,
       company_id: emp.company_id,
@@ -79,7 +109,7 @@ export async function onRequestPost(context) {
         apikey: env.SUPABASE_SERVICE_KEY,
         Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
         'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
+        Prefer: 'resolution=merge-duplicates,return=minimal',
       },
       body: JSON.stringify(profileData),
     });

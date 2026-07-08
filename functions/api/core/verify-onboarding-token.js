@@ -26,6 +26,22 @@ export async function onRequestGet(context) {
     const companyName = companies?.[0]?.company_name || '';
     const requiredFields = configRows?.[0]?.required_fields || {};
 
+    // Check if the invite email already has a Supabase auth account
+    const inviteEmail = t.email || emp.personal_email || emp.work_email || '';
+    let existingAccount = false;
+    if (inviteEmail) {
+      try {
+        const usersRes = await fetch(
+          `${env.SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(inviteEmail)}&page=1&per_page=1`,
+          { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } }
+        );
+        if (usersRes.ok) {
+          const usersData = await usersRes.json();
+          existingAccount = (usersData?.users?.length > 0);
+        }
+      } catch (_) { /* non-fatal */ }
+    }
+
     return json({
       employee_id: emp.id,
       company_id: emp.company_id,
@@ -33,8 +49,10 @@ export async function onRequestGet(context) {
       full_name: emp.full_name,
       personal_email: emp.personal_email,
       work_email: emp.work_email,
+      invite_email: inviteEmail,
       role: emp.role,
       required_fields: requiredFields,
+      existing_account: existingAccount,
     });
   } catch (e) {
     return json({ error: e.message }, 500);
