@@ -105,6 +105,12 @@ export async function onRequestPost({ request, env }) {
 
     const tenantId = q.tenant_id;
 
+    // Upload signature to Storage so email clients (Gmail) can load it via https://
+    let signatureUrl = null;
+    if (signature_data && signature_data.startsWith('data:image/png;base64,')) {
+      signatureUrl = await uploadSignature(signature_data, q.id, SERVICE_KEY);
+    }
+
     // Mark accepted + save signature
     const patchRes = await fetch(
       `${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${q.id}`,
@@ -208,12 +214,13 @@ export async function onRequestPost({ request, env }) {
     const acceptedFormatted = new Date(acceptedAt).toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' });
     const total = Number(q.total || 0);
 
-    // Signature block (embedded as base64 data URI — modern email clients render it)
-    const sigBlock = signature_data
+    // Use hosted URL for signature (data: URIs are blocked by Gmail)
+    const sigImgSrc = signatureUrl || signature_data || null;
+    const sigBlock = sigImgSrc
       ? `<tr><td style="padding:16px 0 0">
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:8px">Electronic Signature</div>
           <div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;background:#f8f9fc;display:inline-block">
-            <img src="${signature_data}" alt="Signature" style="max-width:280px;max-height:90px;display:block"/>
+            <img src="${esc(sigImgSrc)}" alt="Signature" style="max-width:280px;max-height:90px;display:block"/>
           </div>
           <div style="margin-top:6px;font-size:11px;color:#9ca3af">Signed by ${esc(signer_name || 'customer')} &middot; ${acceptedFormatted}</div>
         </td></tr>`
@@ -297,10 +304,10 @@ export async function onRequestPost({ request, env }) {
       `<tr><td style="padding:8px 0;font-size:13px;color:#6b7280;border-top:1px solid #e5e7eb">Total</td>`,
       `<td style="padding:8px 0;font-size:18px;font-weight:800;color:#1a1a2e;text-align:right;border-top:1px solid #e5e7eb">&#163;${total.toFixed(2)}</td></tr>`,
       `</table></div>`,
-      signature_data ? `<div style="margin-bottom:16px">
+      sigImgSrc ? `<div style="margin-bottom:16px">
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:8px">Your Signature on File</div>
         <div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;background:#f8f9fc;display:inline-block">
-          <img src="${signature_data}" alt="Your signature" style="max-width:240px;max-height:80px;display:block"/>
+          <img src="${esc(sigImgSrc)}" alt="Your signature" style="max-width:240px;max-height:80px;display:block"/>
         </div>
       </div>` : '',
       `<p style="font-size:13px;color:#374151;line-height:1.6;margin:0 0 20px">`,
@@ -355,6 +362,31 @@ export async function onRequestPost({ request, env }) {
 
   } catch (err) {
     return json({ error: err.message || 'Internal server error' }, 500);
+  }
+}
+
+async function uploadSignature(dataUri, quoteId, serviceKey) {
+  try {
+    const base64 = dataUri.split(',')[1];
+    if (!base64) return null;
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const path = `quotes/${quoteId}.png`;
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/signatures/${path}`, {
+      method: 'POST',
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        'Content-Type': 'image/png',
+        'x-upsert': 'true',
+      },
+      body: bytes,
+    });
+    if (!res.ok) return null;
+    return `${SUPABASE_URL}/storage/v1/object/public/signatures/${path}`;
+  } catch (_) {
+    return null;
   }
 }
 
