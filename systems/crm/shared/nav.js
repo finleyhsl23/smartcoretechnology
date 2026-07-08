@@ -4,22 +4,27 @@ import { logout, tierHasFeature, getCRMSettings } from "./auth.js";
 import { sb } from "./supabase.js";
 
 const NAV_LINKS = [
-  { id: "dashboard",  icon: "📊", label: "Dashboard",       href: "/systems/crm/dashboard.html" },
-  { id: "companies",  icon: "🏢", label: "Companies",       href: "/systems/crm/companies.html" },
-  { id: "contacts",   icon: "👥", label: "Contacts",        href: "/systems/crm/contacts.html" },
-  { id: "leads",      icon: "🎯", label: "Leads",           href: "/systems/crm/leads.html" },
-  { id: "pipeline",   icon: "📋", label: "Pipeline",        href: "/systems/crm/pipeline.html" },
-  { id: "tasks",      icon: "✅", label: "Tasks",           href: "/systems/crm/tasks.html" },
-  { id: "calendar",   icon: "📅", label: "Calendar",        href: "/systems/crm/calendar.html",   tier: "professional" },
-  { id: "quotes",     icon: "💰", label: "Quotes",          href: "/systems/crm/quotes.html",     tier: "professional" },
-  { id: "documents",  icon: "📁", label: "Documents",       href: "/systems/crm/documents.html",  tier: "professional" },
-  { id: "reports",    icon: "📈", label: "Reports",         href: "/systems/crm/reports.html",    tier: "professional" },
-  { id: "tickets",      icon: "🎫", label: "Tickets",          href: "/systems/crm/tickets.html",      tier: "professional" },
-  { id: "newsletter",  icon: "📧", label: "Newsletter",      href: "/systems/crm/newsletter.html",   tier: "professional" },
-  { id: "portal",      icon: "🌐", label: "Customer Portal", href: "/systems/crm/portal.html",       tier: "business" },
-  { id: "messaging",  icon: "💬", label: "Messaging",       href: "/systems/crm/messaging.html",  tier: "business" },
-  { id: "projects",     icon: "📋", label: "Projects",      href: "/systems/crm/projects.html",     tier: "business" },
-  { id: "leaderboard", icon: "🏆", label: "Leaderboard",   href: "/systems/crm/leaderboard.html",  tier: "professional", featureFlag: "leaderboard" },
+  // Main
+  { id: "dashboard",  icon: "📊", label: "Dashboard",       href: "/systems/crm/dashboard.html",                        section: "main" },
+  { id: "companies",  icon: "🏢", label: "Companies",       href: "/systems/crm/companies.html",                        section: "main" },
+  { id: "contacts",   icon: "👥", label: "Contacts",        href: "/systems/crm/contacts.html",                         section: "main" },
+  { id: "leads",      icon: "🎯", label: "Leads",           href: "/systems/crm/leads.html",                            section: "main" },
+  { id: "pipeline",   icon: "📋", label: "Pipeline",        href: "/systems/crm/pipeline.html",                         section: "main" },
+  { id: "tasks",      icon: "✅", label: "Tasks",           href: "/systems/crm/tasks.html",                            section: "main" },
+  // Features
+  { id: "calendar",   icon: "📅", label: "Calendar",        href: "/systems/crm/calendar.html",   tier: "professional", section: "features" },
+  { id: "quotes",     icon: "💰", label: "Quotes",          href: "/systems/crm/quotes.html",     tier: "professional", section: "features" },
+  { id: "products",   icon: "📦", label: "Products",        href: "/systems/crm/products.html",   tier: "professional", section: "features" },
+  { id: "documents",  icon: "📁", label: "Documents",       href: "/systems/crm/documents.html",  tier: "professional", section: "features" },
+  { id: "reports",    icon: "📈", label: "Reports",         href: "/systems/crm/reports.html",    tier: "professional", section: "features" },
+  { id: "leaderboard",icon: "🏆", label: "Leaderboard",    href: "/systems/crm/leaderboard.html",tier: "professional", section: "features", featureFlag: "leaderboard" },
+  // Customer
+  { id: "portal",     icon: "🌐", label: "Customer Portal", href: "/systems/crm/portal.html",     tier: "business",     section: "customer" },
+  { id: "tickets",    icon: "🎫", label: "Tickets",         href: "/systems/crm/tickets.html",    tier: "professional", section: "customer" },
+  { id: "messaging",  icon: "💬", label: "Messaging",       href: "/systems/crm/messaging.html",  tier: "business",     section: "customer" },
+  { id: "projects",   icon: "📋", label: "Projects",        href: "/systems/crm/projects.html",   tier: "business",     section: "customer" },
+  { id: "newsletter", icon: "📧", label: "Newsletter",      href: "/systems/crm/newsletter.html", tier: "professional", section: "customer" },
+  // System
   { id: "reminders",  icon: "🔔", label: "Reminders",       href: "/systems/crm/reminders.html",  system: true },
   { id: "commands",   icon: "⚡", label: "Commands",        href: "/systems/crm/commands.html",   system: true },
   { id: "settings",   icon: "⚙️",  label: "Settings",       href: "/systems/crm/settings.html",   system: true },
@@ -53,6 +58,8 @@ export function renderNav(currentPage, profile, tier, crmSettings) {
     }).catch(() => {});
   }
 
+  const bySection = s => NAV_LINKS.filter(l => l.section === s && linkVisible(l)).map(l => navItem(l, currentPage, tier)).join("");
+
   nav.innerHTML = `
     <div class="sidebar-logo">
       <div class="logo-dot">SC</div>
@@ -65,11 +72,15 @@ export function renderNav(currentPage, profile, tier, crmSettings) {
       <div class="sidebar-section">
         <div class="sidebar-section-label">Main</div>
       </div>
-      ${NAV_LINKS.filter(l => !l.tier && !l.system && linkVisible(l)).map(l => navItem(l, currentPage, tier)).join("")}
+      ${bySection("main")}
       <div class="sidebar-section" style="margin-top:8px">
         <div class="sidebar-section-label">Features</div>
       </div>
-      ${NAV_LINKS.filter(l => l.tier && l.id !== "settings" && linkVisible(l)).map(l => navItem(l, currentPage, tier)).join("")}
+      ${bySection("features")}
+      <div class="sidebar-section" style="margin-top:8px">
+        <div class="sidebar-section-label">Customer</div>
+      </div>
+      ${bySection("customer")}
       <div class="sidebar-section" style="margin-top:8px">
         <div class="sidebar-section-label">System</div>
       </div>

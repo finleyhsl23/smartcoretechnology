@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Products — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
+  <style>
+    .products-layout { display: grid; grid-template-columns: 360px 1fr; gap: 24px; align-items: start; }
+    @media (max-width: 900px) { .products-layout { grid-template-columns: 1fr; } }
+
+    /* Product card grid */
+    .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+
+    .product-card {
+      background: var(--card); border: 1px solid var(--line2); border-radius: 16px;
+      overflow: hidden; transition: border-color .15s, box-shadow .15s; cursor: pointer;
+      display: flex; flex-direction: column;
+    }
+    .product-card:hover { border-color: rgba(30,92,255,.35); box-shadow: 0 4px 20px rgba(30,92,255,.08); }
+
+    .product-img {
+      width: 100%; aspect-ratio: 16/9; object-fit: cover; background: var(--bg2);
+      display: flex; align-items: center; justify-content: center; font-size: 40px;
+      color: var(--text3); flex-shrink: 0;
+    }
+    .product-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .product-body { padding: 14px 16px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+    .product-name { font-size: 15px; font-weight: 700; color: var(--text1); line-height: 1.3; }
+    .product-price { font-size: 18px; font-weight: 800; color: var(--blue2); font-variant-numeric: tabular-nums; }
+    .product-price.no-price { font-size: 13px; font-weight: 500; color: var(--text3); }
+    .product-desc { font-size: 12px; color: var(--text2); line-height: 1.5;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .product-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+    .product-sku { font-size: 10px; font-weight: 600; letter-spacing: .06em; color: var(--text3); font-family: monospace; }
+
+    .product-footer {
+      padding: 10px 16px; border-top: 1px solid var(--line2);
+      display: flex; gap: 6px; justify-content: flex-end;
+    }
+
+    /* Form card */
+    .form-card { background: var(--card); border: 1px solid var(--line2); border-radius: 18px; padding: 24px; position: sticky; top: 24px; }
+    .form-card h2 { font-size: 15px; font-weight: 700; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+
+    /* Image upload preview */
+    .img-upload-wrap {
+      border: 2px dashed var(--line1); border-radius: 12px; padding: 20px;
+      text-align: center; cursor: pointer; transition: border-color .15s;
+      background: var(--bg2);
+    }
+    .img-upload-wrap:hover { border-color: var(--blue2); }
+    .img-upload-wrap.has-img { padding: 0; overflow: hidden; }
+    .img-upload-wrap img { width: 100%; border-radius: 10px; display: block; max-height: 180px; object-fit: cover; }
+    .img-upload-label { font-size: 12px; color: var(--text3); margin-top: 6px; }
+
+    /* Search / filter bar */
+    .products-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .products-toolbar .form-control { flex: 1; min-width: 180px; }
+
+    /* Status badge */
+    .badge-active   { background: rgba(34,197,94,.12);  color: #22c55e; }
+    .badge-inactive { background: rgba(107,114,128,.12); color: #6b7280; }
+
+    /* Empty */
+    .empty-products { text-align: center; padding: 64px 20px; color: var(--text3); grid-column: 1/-1; }
+    .empty-products .ei { font-size: 48px; display: block; margin-bottom: 12px; opacity: .4; }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Products</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
+import { sb } from "/systems/crm/shared/supabase.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, fmt, toast, confirm, modal, tierGate } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier, products = [], editingId = null;
+let searchQ = "", filterCat = "", filterStatus = "active";
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("products", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+
+  if (!tierHasFeature(tier, "products")) {
+    document.getElementById("content").innerHTML = tierGate("products");
+  } else {
+    await load();
+  }
+} catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session")) toast("bad","Error",e.message); }
+
+async function load() {
+  const { data, error } = await sb().from("crm_products")
+    .select("*").order("name");
+  if (error) { toast("bad","Load error",error.message); return; }
+  products = data || [];
+  render();
+}
+
+function filteredProducts() {
+  return products.filter(p => {
+    if (filterStatus === "active"   && !p.active) return false;
+    if (filterStatus === "inactive" &&  p.active) return false;
+    if (filterCat && p.category !== filterCat) return false;
+    if (searchQ) {
+      const q = searchQ.toLowerCase();
+      if (!(p.name?.toLowerCase().includes(q) ||
+            p.description?.toLowerCase().includes(q) ||
+            p.sku?.toLowerCase().includes(q) ||
+            p.category?.toLowerCase().includes(q))) return false;
+    }
+    return true;
+  });
+}
+
+function allCategories() {
+  return [...new Set(products.map(p => p.category).filter(Boolean))].sort();
+}
+
+function render() {
+  const editing = editingId ? products.find(p => p.id === editingId) : null;
+  const list = filteredProducts();
+  const cats = allCategories();
+
+  document.getElementById("content").innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Products</h1>
+        <p>${products.length} product${products.length !== 1 ? "s" : ""} in your catalogue</p>
+      </div>
+    </div>
+
+    <div class="products-layout">
+      <!-- Left: form -->
+      <div>
+        <div class="form-card">
+          <h2>${editing ? "✏️ Edit Product" : "📦 Add Product"}</h2>
+
+          <div class="form-group" style="margin-bottom:14px">
+            <label class="form-label">Image (optional)</label>
+            <div class="img-upload-wrap${editing?.image_url ? " has-img" : ""}" id="imgWrap" onclick="document.getElementById('imgFile').click()">
+              ${editing?.image_url
+                ? `<img id="imgPreview" src="${esc(editing.image_url)}" alt=""/>`
+                : `<div style="font-size:32px;margin-bottom:6px">🖼️</div>
+                   <div class="img-upload-label">Click to upload image</div>`}
+            </div>
+            <input type="file" id="imgFile" accept="image/*" style="display:none"/>
+            <input type="hidden" id="pImageUrl" value="${esc(editing?.image_url || "")}"/>
+            ${editing?.image_url ? `<button class="btn btn-sm" style="margin-top:6px;width:100%" onclick="clearImg()">Remove image</button>` : ""}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Product Name *</label>
+            <input class="form-control" id="pName" placeholder="e.g. Starter Kit" value="${esc(editing?.name || "")}"/>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Price (£)</label>
+              <input class="form-control" id="pPrice" type="number" step="0.01" min="0" placeholder="0.00" value="${editing?.price ?? ""}"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">SKU / Code</label>
+              <input class="form-control" id="pSku" placeholder="e.g. SKU-001" value="${esc(editing?.sku || "")}"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Category</label>
+            <input class="form-control" id="pCategory" list="catList" placeholder="e.g. Hardware, Software…" value="${esc(editing?.category || "")}"/>
+            <datalist id="catList">${cats.map(c => `<option value="${esc(c)}"/>`).join("")}</datalist>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea class="form-control" id="pDesc" rows="4" placeholder="What does this product do or include?">${esc(editing?.description || "")}</textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select class="form-control" id="pActive">
+              <option value="true"  ${!editing || editing.active  ? "selected" : ""}>Active</option>
+              <option value="false" ${editing && !editing.active  ? "selected" : ""}>Inactive</option>
+            </select>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <button class="btn btn-primary" style="flex:1" id="saveBtn">
+              ${editing ? "Save Changes" : "Add Product"}
+            </button>
+            ${editing ? `<button class="btn" id="cancelBtn">Cancel</button>` : ""}
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: list -->
+      <div>
+        <div class="products-toolbar">
+          <input class="form-control" id="searchInput" placeholder="🔍 Search products…" value="${esc(searchQ)}"/>
+          <select class="form-control" id="catFilter" style="max-width:160px">
+            <option value="">All categories</option>
+            ${cats.map(c => `<option value="${esc(c)}" ${filterCat===c?"selected":""}>${esc(c)}</option>`).join("")}
+          </select>
+          <select class="form-control" id="statusFilter" style="max-width:130px">
+            <option value="active"   ${filterStatus==="active"  ?"selected":""}>Active</option>
+            <option value="inactive" ${filterStatus==="inactive"?"selected":""}>Inactive</option>
+            <option value="all"      ${filterStatus==="all"     ?"selected":""}>All</option>
+          </select>
+        </div>
+
+        <div class="product-grid" id="productGrid">
+          ${list.length === 0
+            ? `<div class="empty-products"><span class="ei">📦</span><p>${searchQ||filterCat ? "No products match your search." : "No products yet — add your first one."}</p></div>`
+            : list.map(productCard).join("")}
+        </div>
+      </div>
+    </div>`;
+
+  // Toolbar events
+  document.getElementById("searchInput").addEventListener("input", e => { searchQ = e.target.value; rerenderGrid(); });
+  document.getElementById("catFilter").addEventListener("change", e => { filterCat = e.target.value; rerenderGrid(); });
+  document.getElementById("statusFilter").addEventListener("change", e => { filterStatus = e.target.value; rerenderGrid(); });
+
+  // Form save
+  document.getElementById("saveBtn").onclick = saveProduct;
+  document.getElementById("cancelBtn")?.addEventListener("click", () => { editingId = null; render(); });
+
+  // Image upload
+  document.getElementById("imgFile").addEventListener("change", handleImageUpload);
+}
+
+function rerenderGrid() {
+  const list = filteredProducts();
+  document.getElementById("productGrid").innerHTML = list.length === 0
+    ? `<div class="empty-products"><span class="ei">📦</span><p>No products match your search.</p></div>`
+    : list.map(productCard).join("");
+}
+
+function productCard(p) {
+  const priceHtml = p.price != null
+    ? `<div class="product-price">£${Number(p.price).toLocaleString("en-GB",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>`
+    : `<div class="product-price no-price">No price set</div>`;
+  return `
+    <div class="product-card" onclick="window._editProduct('${p.id}')">
+      <div class="product-img">
+        ${p.image_url
+          ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy"/>`
+          : `📦`}
+      </div>
+      <div class="product-body">
+        <div class="product-name">${esc(p.name)}</div>
+        ${priceHtml}
+        ${p.description ? `<div class="product-desc">${esc(p.description)}</div>` : ""}
+        <div class="product-meta">
+          ${p.category ? `<span class="badge badge-blue" style="font-size:10px">${esc(p.category)}</span>` : ""}
+          ${p.sku ? `<span class="product-sku">${esc(p.sku)}</span>` : ""}
+          ${!p.active ? `<span class="badge badge-inactive" style="font-size:10px">Inactive</span>` : ""}
+        </div>
+      </div>
+      <div class="product-footer" onclick="event.stopPropagation()">
+        <button class="btn btn-sm" onclick="window._editProduct('${p.id}')">✏️ Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="window._deleteProduct('${p.id}','${esc(p.name)}')">Delete</button>
+      </div>
+    </div>`;
+}
+
+// ── Image upload ──────────────────────────────────────────
+
+async function handleImageUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { toast("warn","Too large","Max image size is 5 MB."); return; }
+
+  const btn = document.getElementById("saveBtn");
+  btn.disabled = true; btn.textContent = "Uploading…";
+
+  try {
+    const ext = file.name.split(".").pop();
+    const path = `products/${profile.company_id}/${Date.now()}.${ext}`;
+    const { error: upErr } = await sb().storage.from("crm-assets").upload(path, file, { upsert: true });
+    if (upErr) throw upErr;
+    const { data: { publicUrl } } = sb().storage.from("crm-assets").getPublicUrl(path);
+    document.getElementById("pImageUrl").value = publicUrl;
+
+    const wrap = document.getElementById("imgWrap");
+    wrap.classList.add("has-img");
+    wrap.innerHTML = `<img id="imgPreview" src="${esc(publicUrl)}" alt=""/>`;
+  } catch(err) {
+    toast("bad","Upload failed", err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = editingId ? "Save Changes" : "Add Product";
+  }
+}
+
+window.clearImg = () => {
+  document.getElementById("pImageUrl").value = "";
+  const wrap = document.getElementById("imgWrap");
+  wrap.classList.remove("has-img");
+  wrap.innerHTML = `<div style="font-size:32px;margin-bottom:6px">🖼️</div><div class="img-upload-label">Click to upload image</div>`;
+};
+
+// ── Save ──────────────────────────────────────────────────
+
+async function saveProduct() {
+  const name = document.getElementById("pName").value.trim();
+  if (!name) return toast("warn","Required","Product name is required.");
+
+  const btn = document.getElementById("saveBtn");
+  btn.disabled = true; btn.textContent = "Saving…";
+
+  const fields = {
+    name,
+    price:       parseFloat(document.getElementById("pPrice").value) || null,
+    sku:         document.getElementById("pSku").value.trim() || null,
+    category:    document.getElementById("pCategory").value.trim() || null,
+    description: document.getElementById("pDesc").value.trim() || null,
+    image_url:   document.getElementById("pImageUrl").value || null,
+    active:      document.getElementById("pActive").value === "true",
+    updated_at:  new Date().toISOString(),
+  };
+
+  try {
+    if (editingId) {
+      const { error } = await sb().from("crm_products").update(fields).eq("id", editingId);
+      if (error) throw error;
+      toast("ok","Saved","Product updated.");
+    } else {
+      const { error } = await sb().from("crm_products").insert({ ...fields, tenant_id: profile.company_id, created_by: profile.id });
+      if (error) throw error;
+      toast("ok","Added","Product added to catalogue.");
+    }
+    editingId = null;
+    await load();
+  } catch(err) {
+    toast("bad","Error",err.message);
+    btn.disabled = false; btn.textContent = editingId ? "Save Changes" : "Add Product";
+  }
+}
+
+// ── Edit / Delete ─────────────────────────────────────────
+
+window._editProduct = (id) => {
+  editingId = id;
+  render();
+  document.querySelector(".form-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+};
+
+window._deleteProduct = (id, name) => {
+  confirm("Delete Product", `Delete "${name}"? This cannot be undone.`, async () => {
+    try {
+      const { error } = await sb().from("crm_products").delete().eq("id", id);
+      if (error) throw error;
+      if (editingId === id) editingId = null;
+      toast("ok","Deleted");
+      await load();
+    } catch(err) { toast("bad","Error",err.message); }
+  });
+};
+</script>
+</body>
+</html>

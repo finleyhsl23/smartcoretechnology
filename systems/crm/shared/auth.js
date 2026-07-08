@@ -136,6 +136,7 @@ export const TIER_FEATURES = {
     "calendar","quotes","quote_acceptance",
     "documents","reports","forecasting",
     "email_templates","leaderboard","support_tickets","newsletter",
+    "products",
     "reminders","commands",
   ],
   business: [
@@ -146,6 +147,7 @@ export const TIER_FEATURES = {
     "documents","reports","forecasting",
     "email_templates","leaderboard","support_tickets","newsletter",
     "messaging","portal","projects",
+    "products",
     "custom_pipelines","department_mgmt",
     "reminders","commands",
   ],
@@ -157,6 +159,7 @@ export const TIER_FEATURES = {
     "documents","reports","forecasting",
     "email_templates","leaderboard","support_tickets","newsletter",
     "messaging","portal","projects",
+    "products",
     "custom_pipelines","department_mgmt",
     "reminders","commands",
     "ai_support","priority_support","audit_logs","data_import",
