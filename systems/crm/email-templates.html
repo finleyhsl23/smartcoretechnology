@@ -6,11 +6,112 @@
   <title>Email Templates — SmartCore CRM</title>
   <link rel="stylesheet" href="/systems/crm/crm.css?v=2"/>
   <style>
-    .template-row { padding:14px 16px; background:var(--card2); border-radius:var(--r2); border:1px solid var(--line); margin-bottom:8px; }
-    .template-row-header { display:flex; align-items:center; justify-content:space-between; }
-    .template-name { font-weight:600; font-size:14px; }
-    .template-subject { font-size:12px; color:var(--text3); margin-top:2px; }
-    .template-body-preview { font-size:12px; color:var(--text2); margin-top:8px; padding-top:8px; border-top:1px solid var(--line); white-space:pre-wrap; max-height:60px; overflow:hidden; }
+    .tpl-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 14px;
+    }
+    .tpl-card {
+      background: var(--card);
+      border: 1px solid var(--line2);
+      border-radius: 14px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .tpl-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 4px 18px rgba(0,0,0,.15);
+    }
+    .tpl-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .tpl-icon {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0;
+    }
+    .tpl-name {
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text1);
+      line-height: 1.3;
+      flex: 1;
+    }
+    .tpl-subject {
+      font-size: 12px;
+      color: var(--text3);
+      background: var(--card2);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-family: var(--mono, monospace);
+      border-left: 3px solid var(--accent);
+    }
+    .tpl-subject-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      color: var(--text3);
+      margin-bottom: 2px;
+    }
+    .tpl-body-preview {
+      font-size: 13px;
+      color: var(--text2);
+      line-height: 1.6;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      white-space: pre-wrap;
+    }
+    .tpl-actions {
+      display: flex;
+      gap: 6px;
+      padding-top: 6px;
+      border-top: 1px solid var(--line2);
+    }
+    .tpl-count-badge {
+      font-size: 11px;
+      color: var(--text3);
+      background: var(--card2);
+      border: 1px solid var(--line2);
+      border-radius: 6px;
+      padding: 2px 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* View modal body */
+    .view-body-wrap {
+      background: var(--card2);
+      border: 1px solid var(--line2);
+      border-radius: 10px;
+      padding: 16px;
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text2);
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 360px;
+      overflow-y: auto;
+    }
+    .placeholder-chip {
+      display: inline-block;
+      background: color-mix(in srgb, #6366f1 15%, transparent);
+      color: #6366f1;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 12px;
+      font-family: var(--mono, monospace);
+    }
   </style>
 </head>
 <body>
@@ -42,7 +143,15 @@ import { esc, toast, tierGate } from "/systems/crm/shared/ui.js";
 
 initTheme();
 
-let profile, tier, settings;
+const TEMPLATE_ICONS = ["✉️","📧","📨","💌","📬","🗂️","📋","📝","🔔","💼"];
+function templateIcon(i) { return TEMPLATE_ICONS[i % TEMPLATE_ICONS.length]; }
+
+function wordCount(str) {
+  if (!str) return 0;
+  return str.trim().split(/\s+/).filter(Boolean).length;
+}
+
+let profile, tier, settings, searchQ = "";
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -58,8 +167,10 @@ try {
   }
 } catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session")) toast("bad","Error",e.message); }
 
+function getTemplates() { return settings?.email_templates || []; }
+
 function renderPage() {
-  const templates = settings?.email_templates || [];
+  const templates = getTemplates();
   document.getElementById("content").innerHTML = `
     <div class="page-header">
       <div class="page-header-left">
@@ -71,63 +182,147 @@ function renderPage() {
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-body">
-        <p class="text-muted" style="margin-bottom:16px;font-size:13px">
-          Create reusable email templates for follow-ups, quotes, and onboarding messages.
-          Use <code>{{name}}</code>, <code>{{company}}</code>, <code>{{email}}</code> as placeholders.
-        </p>
-        <div id="templatesList">
-          ${buildList(templates)}
-        </div>
+    <div class="filter-bar" style="margin-bottom:20px">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input class="search-input" type="text" id="tplSearch" placeholder="Search templates…" value="${esc(searchQ)}"/>
       </div>
+    </div>
+
+    <div style="margin-bottom:14px;font-size:13px;color:var(--text3)">
+      Use <span style="background:color-mix(in srgb,#6366f1 15%,transparent);color:#6366f1;border-radius:4px;padding:1px 6px;font-family:monospace">{{name}}</span>
+      <span style="background:color-mix(in srgb,#6366f1 15%,transparent);color:#6366f1;border-radius:4px;padding:1px 6px;font-family:monospace">{{company}}</span>
+      <span style="background:color-mix(in srgb,#6366f1 15%,transparent);color:#6366f1;border-radius:4px;padding:1px 6px;font-family:monospace">{{email}}</span>
+      as placeholders in subject and body.
+    </div>
+
+    <div class="tpl-grid" id="tplGrid">
+      ${buildGrid(templates, searchQ)}
     </div>`;
 
   document.getElementById("addBtn").onclick = () => openModal();
-  bindListEvents();
+  document.getElementById("tplSearch").addEventListener("input", e => {
+    searchQ = e.target.value;
+    document.getElementById("tplGrid").innerHTML = buildGrid(getTemplates(), searchQ);
+    bindCardEvents();
+  });
+  bindCardEvents();
 }
 
-function buildList(templates) {
-  if (templates.length === 0) {
-    return `<div class="empty-state"><div class="empty-icon">📧</div><h3>No templates yet</h3><p>Create your first email template to save time on follow-ups and outreach.</p></div>`;
+function buildGrid(templates, q) {
+  const lq = q.toLowerCase();
+  const visible = lq
+    ? templates.filter((t, i) => t.name.toLowerCase().includes(lq) || t.subject?.toLowerCase().includes(lq) || t.body?.toLowerCase().includes(lq))
+    : templates;
+
+  if (visible.length === 0) {
+    return `<div class="empty-state" style="grid-column:1/-1">
+      <div class="empty-icon">✉️</div>
+      <h3>${q ? "No templates match your search" : "No templates yet"}</h3>
+      <p>${q ? "Try a different search term." : "Create reusable email templates to save time on follow-ups, quotes, and onboarding."}</p>
+    </div>`;
   }
-  return templates.map((t, i) => `
-    <div class="template-row">
-      <div class="template-row-header">
-        <div>
-          <div class="template-name">${esc(t.name)}</div>
-          <div class="template-subject">Subject: ${esc(t.subject || "—")}</div>
-        </div>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-sm edit-tpl-btn" data-index="${i}">Edit</button>
-          <button class="btn btn-sm btn-danger del-tpl-btn" data-index="${i}">Delete</button>
+
+  return visible.map((t, i) => {
+    const realIndex = templates.indexOf(t);
+    const words = wordCount(t.body);
+    return `<div class="tpl-card">
+      <div class="tpl-header">
+        <div class="tpl-icon">${templateIcon(realIndex)}</div>
+        <div style="flex:1;min-width:0">
+          <div class="tpl-name">${esc(t.name)}</div>
+          ${words ? `<div class="tpl-count-badge" style="margin-top:4px">📝 ${words} words</div>` : ""}
         </div>
       </div>
-      ${t.body ? `<div class="template-body-preview">${esc(t.body)}</div>` : ""}
-    </div>`).join("");
+      ${t.subject ? `
+        <div>
+          <div class="tpl-subject-label">Subject line</div>
+          <div class="tpl-subject">${esc(t.subject)}</div>
+        </div>` : ""}
+      ${t.body ? `<div class="tpl-body-preview">${esc(t.body)}</div>` : ""}
+      <div class="tpl-actions">
+        <button class="btn btn-sm view-tpl-btn" data-index="${realIndex}">👁 View</button>
+        <button class="btn btn-sm edit-tpl-btn" data-index="${realIndex}">Edit</button>
+        <button class="btn btn-sm btn-danger del-tpl-btn" data-index="${realIndex}" style="margin-left:auto">Delete</button>
+      </div>
+    </div>`;
+  }).join("");
 }
 
-function bindListEvents() {
+function bindCardEvents() {
+  document.querySelectorAll(".view-tpl-btn").forEach(b =>
+    b.addEventListener("click", () => openViewModal(parseInt(b.dataset.index)))
+  );
   document.querySelectorAll(".edit-tpl-btn").forEach(b =>
     b.addEventListener("click", () => openModal(parseInt(b.dataset.index)))
   );
   document.querySelectorAll(".del-tpl-btn").forEach(b =>
     b.addEventListener("click", async () => {
       if (!confirm("Delete this template?")) return;
-      const tpls = [...(settings?.email_templates || [])];
+      const tpls = [...getTemplates()];
       tpls.splice(parseInt(b.dataset.index), 1);
       await saveTemplates(tpls);
     })
   );
 }
 
+function openViewModal(index) {
+  const t = getTemplates()[index];
+  if (!t) return;
+
+  function highlightPlaceholders(str) {
+    return esc(str).replace(/\{\{(\w+)\}\}/g, `<span class="placeholder-chip">{{$1}}</span>`);
+  }
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="tpl-icon">${templateIcon(index)}</div>
+          <div>
+            <h3 style="margin:0">${esc(t.name)}</h3>
+            ${t.subject ? `<div style="font-size:12px;color:var(--text3);margin-top:3px">Subject: ${esc(t.subject)}</div>` : ""}
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        ${t.subject ? `
+          <div style="margin-bottom:16px">
+            <div class="tpl-subject-label">Subject</div>
+            <div style="padding:10px 14px;background:var(--card2);border:1px solid var(--line2);border-radius:8px;font-size:14px;border-left:3px solid var(--accent)">${highlightPlaceholders(t.subject)}</div>
+          </div>` : ""}
+        <div>
+          <div class="tpl-subject-label">Body</div>
+          <div class="view-body-wrap">${t.body ? highlightPlaceholders(t.body) : '<span style="color:var(--text3)">No body content</span>'}</div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--text3)">Placeholders:</span>
+          <span class="placeholder-chip">{{name}}</span>
+          <span class="placeholder-chip">{{company}}</span>
+          <span class="placeholder-chip">{{email}}</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Close</button>
+        <button class="btn btn-primary edit-from-view-btn">Edit Template</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+  overlay.querySelector(".edit-from-view-btn").onclick = () => { overlay.remove(); openModal(index); };
+}
+
 function openModal(index = null) {
-  const templates = settings?.email_templates || [];
+  const templates = getTemplates();
   const t = index !== null ? templates[index] : null;
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
-    <div class="modal">
+    <div class="modal modal-lg">
       <div class="modal-header">
         <h3>${t ? "Edit Template" : "New Email Template"}</h3>
         <button class="btn btn-ghost btn-sm modal-close">✕</button>
@@ -138,12 +333,15 @@ function openModal(index = null) {
           <input class="form-control" id="tName" value="${esc(t?.name || "")}" placeholder="e.g. Follow-up after demo"/>
         </div>
         <div class="form-group">
-          <label class="form-label">Subject</label>
-          <input class="form-control" id="tSubject" value="${esc(t?.subject || "")}" placeholder="Email subject line"/>
+          <label class="form-label">Subject Line</label>
+          <input class="form-control" id="tSubject" value="${esc(t?.subject || "")}" placeholder="e.g. Following up on our call, {{name}}"/>
         </div>
         <div class="form-group">
           <label class="form-label">Body</label>
-          <textarea class="form-control" id="tBody" rows="10" placeholder="Write your email template here. Use {{name}}, {{company}}, {{email}} as placeholders.">${esc(t?.body || "")}</textarea>
+          <textarea class="form-control" id="tBody" rows="12" placeholder="Hi {{name}},&#10;&#10;Thanks for your time earlier...">${esc(t?.body || "")}</textarea>
+          <div style="margin-top:6px;font-size:12px;color:var(--text3)">
+            Use <code>{{name}}</code>, <code>{{company}}</code>, <code>{{email}}</code> as dynamic placeholders.
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -163,7 +361,7 @@ function openModal(index = null) {
       subject: overlay.querySelector("#tSubject").value.trim(),
       body: overlay.querySelector("#tBody").value.trim(),
     };
-    const tpls = [...(settings?.email_templates || [])];
+    const tpls = [...getTemplates()];
     if (index !== null) tpls[index] = newTemplate;
     else tpls.push(newTemplate);
     await saveTemplates(tpls);
@@ -177,9 +375,8 @@ async function saveTemplates(templates) {
     const { data: emp } = await sb().from("core_employees").select("company_id").eq("auth_user_id", session.user.id).single();
     await sb().from("crm_settings").upsert({ tenant_id: emp.company_id, email_templates: templates }, { onConflict: "tenant_id" });
     settings = { ...settings, email_templates: templates };
-    document.getElementById("templatesList").innerHTML = buildList(templates);
-    document.querySelector(".page-header p").textContent = `${templates.length} template${templates.length !== 1 ? "s" : ""}`;
-    bindListEvents();
+    searchQ = "";
+    renderPage();
     toast("ok","Templates saved");
   } catch(err) { toast("bad","Error",err.message); }
 }
