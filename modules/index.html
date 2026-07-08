@@ -535,6 +535,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 const CATALOG = {
   'smartcore-core':            { name:'SmartCore Core',       desc:'Employee management, departments, shift patterns & onboarding', icon:'🏢', color:'blue',   href:'/systems/core/',                alwaysActive:true },
   'holiday-management':        { name:'Holiday Management',   desc:'Leave requests, approvals & team calendar',                     icon:'🌴', color:'green',  href:'/systems/holidaymanagement/' },
+  'smartcore-crm':             { name:'SmartCore CRM',             desc:'Contacts, leads, pipeline & full CRM suite — choose your tier in the shop', icon:'📊', color:'purple', href:'/shop/' },
   'smartcore-crm-lite':        { name:'SmartCore CRM Lite',        desc:'Contacts, leads & basic pipeline management',             icon:'📊', color:'purple', href:'/systems/crm/' },
   'smartcore-crm-professional':{ name:'SmartCore CRM Professional', desc:'Advanced pipeline, documents & quote builder',           icon:'📊', color:'purple', href:'/systems/crm/' },
   'smartcore-crm-business':    { name:'SmartCore CRM Business',     desc:'Full CRM suite with projects & goals',                   icon:'📊', color:'purple', href:'/systems/crm/' },
@@ -657,11 +658,12 @@ async function loadDashboard(user) {
 }
 
 async function fetchData() {
-  // All real shop modules (used for "available to add" section)
+  // All real shop modules (used for "available to add" section) — published only
   const { data: shopMods } = await sb
     .from('marketplace_modules')
     .select('slug, name, monthly_price, is_flat_rate')
     .neq('slug', 'smartcore-core')
+    .eq('status', 'published')
     .order('name');
   state.shopModules = shopMods || [];
 
@@ -713,14 +715,19 @@ function render() {
 
   // Not-purchased — from real shop modules only
   const hasCrm = [...purchasedSlugs].some(s => s.startsWith('smartcore-crm'));
-  const notOwnedFiltered = state.shopModules
-    .map(m => m.slug)
-    .filter(s => !purchasedSlugs.has(s))
-    .filter(s => {
-      // If they already have any CRM tier, hide all other CRM tiers
-      if (s.startsWith('smartcore-crm')) return !hasCrm;
-      return true;
-    });
+  const notOwnedFiltered = [];
+  let crmAdded = false;
+  for (const m of state.shopModules) {
+    if (purchasedSlugs.has(m.slug)) continue;
+    if (m.slug.startsWith('smartcore-crm')) {
+      // If they already own a CRM tier, hide all; otherwise show one entry
+      if (hasCrm || crmAdded) continue;
+      crmAdded = true;
+      notOwnedFiltered.push('smartcore-crm'); // synthetic slug for display
+      continue;
+    }
+    notOwnedFiltered.push(m.slug);
+  }
 
   let html = '';
 
