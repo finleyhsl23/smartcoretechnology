@@ -180,7 +180,7 @@
   <button class="tab-btn" data-tab="tickets">🎫 Tickets <span class="tab-badge" id="badge-tickets" style="display:none"></span></button>
   <button class="tab-btn" data-tab="messages">💬 Messages <span class="tab-badge" id="badge-messages" style="display:none"></span></button>
   <button class="tab-btn" data-tab="documents">📁 Documents</button>
-  <button class="tab-btn" data-tab="quotes">✍️ Quotes <span class="tab-badge" id="badge-quotes" style="display:none"></span></button>
+  <button class="tab-btn" data-tab="quotes">📋 Quotes <span class="tab-badge" id="badge-quotes" style="display:none"></span></button>
 </nav>
 
 <div class="main">
@@ -263,7 +263,6 @@ async function loadHome(){
 
   // Update badges
   if(openTickets.length){document.getElementById("badge-tickets").textContent=openTickets.length;document.getElementById("badge-tickets").style.display=""}
-  if(pendingSig.length){document.getElementById("badge-quotes").textContent=pendingSig.length;document.getElementById("badge-quotes").style.display=""}
 
   document.getElementById("sec-home").innerHTML=`
     <div style="margin-bottom:24px">
@@ -277,8 +276,8 @@ async function loadHome(){
         <div class="stat-label">Open Tickets</div>
       </div>
       <div class="stat-tile" style="cursor:pointer" onclick="switchTab('quotes')">
-        <div class="stat-val" style="color:var(--warn)">${pendingSig.length}</div>
-        <div class="stat-label">Awaiting Signature</div>
+        <div class="stat-val" style="color:var(--warn)">${quotes.length}</div>
+        <div class="stat-label">Quotes</div>
       </div>
       <div class="stat-tile" style="cursor:pointer" onclick="switchTab('documents')">
         <div class="stat-val" style="color:#8b5cf6">${docs.length}</div>
@@ -291,19 +290,19 @@ async function loadHome(){
     </div>
 
     ${pendingSig.length?`
-    <div class="card" style="border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.04);margin-bottom:16px">
-      <div class="card-header" style="border-color:rgba(245,158,11,.2)">
-        <h2>✍️ Signature Required</h2>
+    <div class="card" style="border-color:rgba(30,92,255,.2);background:rgba(30,92,255,.03);margin-bottom:16px">
+      <div class="card-header" style="border-color:rgba(30,92,255,.1)">
+        <h2>📋 Quotes Awaiting Review</h2>
         <button class="btn btn-sm btn-primary" onclick="switchTab('quotes')">View Quotes</button>
       </div>
       <div class="card-body" style="padding:14px 20px">
         ${pendingSig.map(q=>`
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(245,158,11,.15)">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(30,92,255,.08)">
             <div>
               <div style="font-weight:600;font-size:13px">${esc(q.title||q.quote_number)}</div>
               <div style="font-size:12px;color:var(--text3)">${fmt(q.total)} · Expires ${q.expiry_date?fmtDate(q.expiry_date):"—"}</div>
             </div>
-            <button class="btn btn-sm btn-success" onclick="switchTab('quotes')">Sign →</button>
+            <button class="btn btn-sm" onclick="switchTab('quotes')">View →</button>
           </div>`).join("")}
       </div>
     </div>`:``}
@@ -589,25 +588,25 @@ async function loadDocuments(){
         </a>`).join("")}</div>`}`;
 }
 
-// ── Quotes / E-signatures ─────────────────────────────────────────────────
+// ── Quotes ────────────────────────────────────────────────────────────────
 async function loadQuotes(){
   document.getElementById("sec-quotes").innerHTML=`<div class="empty"><div class="spin"></div></div>`;
   const {quotes}=await api("quotes");
   const list=quotes||[];
-  const pending=list.filter(q=>q.status==="sent");
+  const accepted=list.filter(q=>q.status==="accepted").length;
 
   document.getElementById("sec-quotes").innerHTML=`
     <div style="margin-bottom:20px">
-      <h1 style="font-size:20px;font-weight:800">Quotes & Signatures</h1>
-      <p style="font-size:13px;color:var(--text3);margin-top:3px">${pending.length} awaiting signature</p>
+      <h1 style="font-size:20px;font-weight:800">Your Quotes</h1>
+      <p style="font-size:13px;color:var(--text3);margin-top:3px">${list.length} quote${list.length!==1?"s":""} · ${accepted} accepted</p>
     </div>
-    ${!list.length?`<div class="empty"><div class="empty-icon">📋</div><h3>No quotes yet</h3><p>Quotes sent to you will appear here for review and signing.</p></div>`
+    ${!list.length?`<div class="empty"><div class="empty-icon">📋</div><h3>No quotes yet</h3><p>Quotes sent to you will appear here.</p></div>`
     :`<div class="card"><div>${list.map(q=>`
         <div class="quote-row">
           <div class="quote-info">
             <div class="quote-title">${esc(q.title||q.quote_number)}</div>
             <div class="quote-meta">
-              ${q.quote_number?" #"+esc(q.quote_number)+" ·":""}
+              ${q.quote_number?"#"+esc(q.quote_number)+" · ":""}
               Issued ${fmtDate(q.date_issued||q.created_at)}
               ${q.expiry_date?" · Expires "+fmtDate(q.expiry_date):""}
               ${q.status==="accepted"&&q.signed_by_name?" · Signed by "+esc(q.signed_by_name):""}
@@ -615,71 +614,89 @@ async function loadQuotes(){
           </div>
           <div class="quote-amount">${fmt(q.total)}</div>
           <span class="badge badge-${q.status}">${q.status.charAt(0).toUpperCase()+q.status.slice(1)}</span>
-          ${q.status==="sent"?`<button class="btn btn-success btn-sm" data-qid="${q.id}" data-qtitle="${esc(q.title||q.quote_number)}" data-qtotal="${q.total}">✍️ Sign</button>`:
-            q.status==="accepted"?`<span style="font-size:11px;color:var(--good);font-weight:700">✅ Signed</span>`:""}
+          <button class="btn btn-sm" data-view="${esc(q.id)}">View</button>
         </div>`).join("")}</div></div>`}`;
 
-  document.querySelectorAll("[data-qid]").forEach(btn=>{
-    btn.addEventListener("click",()=>openSignModal(btn.dataset.qid,btn.dataset.qtitle,btn.dataset.qtotal));
+  // Store quotes list for modal lookup
+  window._portalQuotes=list;
+  document.querySelectorAll("[data-view]").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      const q=window._portalQuotes.find(x=>x.id===btn.dataset.view);
+      if(q)openQuoteModal(q);
+    });
   });
 }
 
-function openSignModal(quoteId,title,total){
+function openQuoteModal(q){
+  const items=Array.isArray(q.line_items)?q.line_items:[];
+  const linesHtml=items.length?`
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px">
+      <thead>
+        <tr style="border-bottom:2px solid var(--line)">
+          <th style="padding:8px 0;text-align:left;color:var(--text3);font-weight:600">Item</th>
+          <th style="padding:8px 0;text-align:right;color:var(--text3);font-weight:600">Qty</th>
+          <th style="padding:8px 0;text-align:right;color:var(--text3);font-weight:600">Unit</th>
+          <th style="padding:8px 0;text-align:right;color:var(--text3);font-weight:600">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map(it=>`
+          <tr style="border-bottom:1px solid var(--line)">
+            <td style="padding:9px 0">
+              <div style="font-weight:600">${esc(it.name||it.description||"")}</div>
+              ${it.description&&it.name?`<div style="font-size:11px;color:var(--text3)">${esc(it.description)}</div>`:""}
+            </td>
+            <td style="padding:9px 0;text-align:right">${it.qty??it.quantity??1}</td>
+            <td style="padding:9px 0;text-align:right">${fmt(it.unit_price??it.price??0)}</td>
+            <td style="padding:9px 0;text-align:right;font-weight:700">${fmt((it.qty??it.quantity??1)*(it.unit_price??it.price??0))}</td>
+          </tr>`).join("")}
+      </tbody>
+    </table>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;font-size:13px;margin-bottom:16px">
+      ${q.subtotal!=null?`<div style="color:var(--text2)">Subtotal: <strong>${fmt(q.subtotal)}</strong></div>`:""}
+      ${q.discount_amount?`<div style="color:var(--bad)">Discount: <strong>-${fmt(q.discount_amount)}</strong></div>`:""}
+      <div style="font-size:16px;font-weight:900;color:var(--blue)">Total: ${fmt(q.total)}</div>
+    </div>`:
+    `<div style="font-size:13px;color:var(--text3);margin-bottom:16px">No line items.</div>`;
+
+  const sigBlock=q.signature_data?`
+    <div style="margin-top:16px;padding:14px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:10px">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:700;margin-bottom:8px">Electronic Signature on File</div>
+      <img src="${esc(q.signature_data)}" alt="Signature" style="max-width:240px;max-height:80px;display:block;background:#fff;border-radius:6px;padding:6px"/>
+      ${q.signed_by_name?`<div style="font-size:12px;color:var(--text2);margin-top:6px">Signed by <strong>${esc(q.signed_by_name)}</strong>${q.accepted_at?" on "+fmtDate(q.accepted_at):""}</div>`:""}
+    </div>`:"";
+
   document.getElementById("modalWrap").innerHTML=`
     <div class="modal-overlay" id="mOverlay">
-      <div class="modal" style="max-width:520px">
+      <div class="modal" style="max-width:640px">
         <div class="modal-hdr">
-          <div>
-            <div style="font-size:15px;font-weight:700">Sign Quote</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:3px">${esc(title)} · ${fmt(total)}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:700">${esc(q.title||q.quote_number||"Quote")}</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:5px;flex-wrap:wrap">
+              ${q.quote_number?`<span style="font-size:12px;color:var(--text3)">#${esc(q.quote_number)}</span>`:""}
+              <span class="badge badge-${q.status}">${q.status.charAt(0).toUpperCase()+q.status.slice(1)}</span>
+              ${q.date_issued?`<span style="font-size:12px;color:var(--text3)">Issued ${fmtDate(q.date_issued)}</span>`:""}
+              ${q.expiry_date?`<span style="font-size:12px;color:var(--text3)">Expires ${fmtDate(q.expiry_date)}</span>`:""}
+            </div>
           </div>
           <button class="btn btn-sm" id="closeModal">✕</button>
         </div>
         <div class="modal-body">
-          <div style="padding:16px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:10px;margin-bottom:20px;font-size:13px;line-height:1.6;color:var(--text2)">
-            By signing this quote you confirm acceptance of the stated terms and authorise SmartCore to proceed with the work described.
-          </div>
-          <div class="form-row">
-            <label>Your full name (acts as your electronic signature) *</label>
-            <input id="signerName" placeholder="${esc(portalUser.name||"Enter your full name")}" value="${esc(portalUser.name||"")}"/>
-          </div>
-          <div class="sign-box" id="signBox">
-            <div style="font-size:13px;color:var(--text3);margin-bottom:10px">Your signature will appear as:</div>
-            <div id="sigPreview" style="font-size:22px;font-style:italic;color:var(--text2);font-family:Georgia,serif;min-height:34px"></div>
-            <div style="font-size:11px;color:var(--text3);margin-top:10px">Digitally signed · ${new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</div>
-          </div>
+          ${linesHtml}
+          ${q.notes?`<div style="padding:12px 14px;background:var(--card2);border:1px solid var(--line);border-radius:8px;font-size:13px;color:var(--text2);margin-bottom:12px"><strong>Notes:</strong> ${esc(q.notes)}</div>`:""}
+          ${q.terms?`<div style="padding:12px 14px;background:var(--card2);border:1px solid var(--line);border-radius:8px;font-size:13px;color:var(--text2);margin-bottom:12px"><strong>Terms:</strong> ${esc(q.terms)}</div>`:""}
+          ${sigBlock}
         </div>
-        <div class="modal-ftr" style="display:flex;justify-content:flex-end;gap:8px">
-          <button class="btn" id="cancelBtn">Cancel</button>
-          <button class="btn btn-success" id="confirmSign">✍️ Confirm &amp; Sign</button>
+        <div class="modal-ftr" style="display:flex;justify-content:flex-end">
+          <button class="btn" id="closeModalBtn">Close</button>
         </div>
       </div>
     </div>`;
 
   const close=()=>{document.getElementById("modalWrap").innerHTML=""};
   document.getElementById("closeModal").onclick=close;
-  document.getElementById("cancelBtn").onclick=close;
+  document.getElementById("closeModalBtn").onclick=close;
   document.getElementById("mOverlay").onclick=(e)=>{if(e.target.id==="mOverlay")close()};
-
-  const nameInput=document.getElementById("signerName");
-  const preview=document.getElementById("sigPreview");
-  const updatePreview=()=>{preview.textContent=nameInput.value.trim()||"Your name here"};
-  nameInput.addEventListener("input",updatePreview);
-  updatePreview();
-
-  document.getElementById("confirmSign").onclick=async()=>{
-    const name=nameInput.value.trim();
-    if(!name){toast("bad","Please enter your full name");return}
-    const btn=document.getElementById("confirmSign");
-    btn.disabled=true;btn.textContent="Signing…";
-    const r=await api("sign_quote",{quote_id:quoteId,signer_name:name});
-    if(r.error){toast("bad",r.error);btn.disabled=false;btn.textContent="✍️ Confirm & Sign";return}
-    toast("ok","Quote signed successfully!");
-    close();
-    loadQuotes();
-    // Update badge
-    document.getElementById("badge-quotes").style.display="none";
-  };
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────
