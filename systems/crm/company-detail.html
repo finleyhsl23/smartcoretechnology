@@ -36,8 +36,23 @@
       font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0;
     }
 
-    /* Searchable select */
+    /* Searchable / multi-select */
     .ss-wrap { position: relative; }
+    .ss-chips {
+      display: flex; flex-wrap: wrap; gap: 5px; min-height: 0;
+    }
+    .ss-chips:not(:empty) { margin-bottom: 6px; }
+    .ss-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px; border-radius: 99px; font-size: 12px; font-weight: 600;
+      background: rgba(30,92,255,.15); color: var(--blue2);
+      border: 1px solid rgba(30,92,255,.25);
+    }
+    .ss-chip button {
+      background: none; border: none; cursor: pointer; color: inherit;
+      padding: 0; font-size: 13px; line-height: 1; opacity: .7;
+    }
+    .ss-chip button:hover { opacity: 1; }
     .ss-dropdown {
       position: absolute; top: 100%; left: 0; right: 0; z-index: 300;
       background: var(--bg2); border: 1px solid var(--line1); border-radius: 8px;
@@ -51,6 +66,7 @@
     .ss-option:last-child { border-bottom: none; }
     .ss-option:hover { background: rgba(30,92,255,.1); color: var(--blue2); }
     .ss-option[data-empty] { color: var(--text3); cursor: default; font-style: italic; }
+    .ss-option.selected { opacity: .4; cursor: default; }
   </style>
 </head>
 <body>
@@ -363,11 +379,19 @@ function openConvModal(prefill = {}) {
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Our Attendees</label>
-          <input class="form-control" id="cOurs" placeholder="e.g. John Smith, Sarah Jones" value="${esc(prefill.our_attendees||"")}"/>
+          <div class="ss-wrap" id="oursWrap">
+            <div class="ss-chips" id="oursChips"></div>
+            <input type="text" class="form-control" id="oursSearch" placeholder="Search staff…" autocomplete="off"/>
+            <div class="ss-dropdown" id="oursDropdown" style="display:none"></div>
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label">Their Attendees</label>
-          <input class="form-control" id="cTheirs" placeholder="e.g. Mike Brown (CEO)" value="${esc(prefill.their_attendees||"")}"/>
+          <div class="ss-wrap" id="theirsWrap">
+            <div class="ss-chips" id="theirsChips"></div>
+            <input type="text" class="form-control" id="theirsSearch" placeholder="Search contacts…" autocomplete="off"/>
+            <div class="ss-dropdown" id="theirsDropdown" style="display:none"></div>
+          </div>
         </div>
       </div>
       <div class="form-group">
@@ -387,7 +411,7 @@ function openConvModal(prefill = {}) {
           <input type="checkbox" id="cSetReminder" style="accent-color:#1e5cff;width:15px;height:15px"/>
           Set a follow-up reminder
         </label>
-        <div id="cReminderFields" style="display:none;margin-top:12px;display:none">
+        <div id="cReminderFields" style="display:none;margin-top:12px">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
             <div class="form-group">
               <label class="form-label">Follow-up Date *</label>
@@ -406,42 +430,98 @@ function openConvModal(prefill = {}) {
       <button class="btn btn-primary" id="cSaveBtn">Save Conversation</button>
     </div>`, { size: "modal-lg" });
 
-  // ── Searchable staff dropdown ──
-  const searchInput = o.querySelector("#cLoggedBySearch");
-  const hiddenInput = o.querySelector("#cLoggedBy");
-  const dropdown = o.querySelector("#cLoggedByDropdown");
+  // ── Multi-select builder ──
+  function makeMultiSelect({ searchEl, chipsEl, dropdownEl, options, placeholder }) {
+    const selected = new Set(); // Set of names (stored as plain text)
 
-  // Pre-select current user if in staff list
-  const currentStaff = staff.find(s => s.id === profile.id);
-  if (currentStaff) {
-    searchInput.value = currentStaff.full_name;
-    hiddenInput.value = currentStaff.id;
+    function refresh() {
+      // Chips
+      chipsEl.innerHTML = [...selected].map(name =>
+        `<span class="ss-chip">${esc(name)}<button data-name="${esc(name)}" title="Remove">×</button></span>`
+      ).join("");
+      chipsEl.querySelectorAll("button").forEach(b => {
+        b.addEventListener("mousedown", e => { e.preventDefault(); selected.delete(b.dataset.name); refresh(); });
+      });
+    }
+
+    function renderDropdown(query) {
+      const q = query.toLowerCase();
+      const filtered = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+      if (!filtered.length) {
+        dropdownEl.innerHTML = `<div class="ss-option" data-empty>No results</div>`;
+      } else {
+        dropdownEl.innerHTML = filtered.map(name => {
+          const isSel = selected.has(name);
+          return `<div class="ss-option${isSel?" selected":""}" data-name="${esc(name)}">${esc(name)}${isSel?" ✓":""}</div>`;
+        }).join("");
+        dropdownEl.querySelectorAll(".ss-option[data-name]:not(.selected)").forEach(el => {
+          el.addEventListener("mousedown", e => {
+            e.preventDefault();
+            selected.add(el.dataset.name);
+            searchEl.value = "";
+            refresh();
+            renderDropdown("");
+          });
+        });
+      }
+      dropdownEl.style.display = "block";
+    }
+
+    searchEl.addEventListener("focus", () => renderDropdown(searchEl.value));
+    searchEl.addEventListener("input", () => renderDropdown(searchEl.value));
+    searchEl.addEventListener("blur", () => setTimeout(() => { dropdownEl.style.display = "none"; }, 150));
+
+    return { getValue: () => [...selected].join(", ") };
   }
 
-  function renderDropdown(query) {
+  // Our attendees — staff names
+  const oursSelect = makeMultiSelect({
+    searchEl: o.querySelector("#oursSearch"),
+    chipsEl: o.querySelector("#oursChips"),
+    dropdownEl: o.querySelector("#oursDropdown"),
+    options: staff.map(s => s.full_name),
+  });
+
+  // Their attendees — contact names for this company
+  const contactNames = contacts.map(c => `${c.first_name} ${c.last_name}${c.job_title ? " ("+c.job_title+")" : ""}`);
+  const theirsSelect = makeMultiSelect({
+    searchEl: o.querySelector("#theirsSearch"),
+    chipsEl: o.querySelector("#theirsChips"),
+    dropdownEl: o.querySelector("#theirsDropdown"),
+    options: contactNames,
+  });
+
+  // ── Single-select: Logged By ──
+  const lbSearch = o.querySelector("#cLoggedBySearch");
+  const lbHidden = o.querySelector("#cLoggedBy");
+  const lbDropdown = o.querySelector("#cLoggedByDropdown");
+
+  const currentStaff = staff.find(s => s.id === profile.id);
+  if (currentStaff) { lbSearch.value = currentStaff.full_name; lbHidden.value = currentStaff.id; }
+
+  function renderLbDropdown(query) {
     const q = query.toLowerCase();
     const filtered = q ? staff.filter(s => s.full_name.toLowerCase().includes(q)) : staff;
     if (!filtered.length) {
-      dropdown.innerHTML = `<div class="ss-option" data-empty>No staff found</div>`;
+      lbDropdown.innerHTML = `<div class="ss-option" data-empty>No staff found</div>`;
     } else {
-      dropdown.innerHTML = filtered.map(s =>
+      lbDropdown.innerHTML = filtered.map(s =>
         `<div class="ss-option" data-id="${s.id}" data-name="${esc(s.full_name)}">${esc(s.full_name)}</div>`
       ).join("");
-      dropdown.querySelectorAll(".ss-option[data-id]").forEach(el => {
+      lbDropdown.querySelectorAll(".ss-option[data-id]").forEach(el => {
         el.addEventListener("mousedown", e => {
           e.preventDefault();
-          searchInput.value = el.dataset.name;
-          hiddenInput.value = el.dataset.id;
-          dropdown.style.display = "none";
+          lbSearch.value = el.dataset.name;
+          lbHidden.value = el.dataset.id;
+          lbDropdown.style.display = "none";
         });
       });
     }
-    dropdown.style.display = "block";
+    lbDropdown.style.display = "block";
   }
-
-  searchInput.addEventListener("focus", () => renderDropdown(searchInput.value));
-  searchInput.addEventListener("input", () => { hiddenInput.value = ""; renderDropdown(searchInput.value); });
-  searchInput.addEventListener("blur", () => setTimeout(() => { dropdown.style.display = "none"; }, 150));
+  lbSearch.addEventListener("focus", () => renderLbDropdown(lbSearch.value));
+  lbSearch.addEventListener("input", () => { lbHidden.value = ""; renderLbDropdown(lbSearch.value); });
+  lbSearch.addEventListener("blur", () => setTimeout(() => { lbDropdown.style.display = "none"; }, 150));
 
   // ── Toggle reminder fields ──
   const reminderCb = o.querySelector("#cSetReminder");
@@ -469,10 +549,10 @@ function openConvModal(prefill = {}) {
         company_id: companyId,
         occurred_at: new Date(occurred_at).toISOString(),
         method: document.getElementById("cMethod").value,
-        our_attendees: document.getElementById("cOurs").value.trim() || null,
-        their_attendees: document.getElementById("cTheirs").value.trim() || null,
+        our_attendees: oursSelect.getValue() || null,
+        their_attendees: theirsSelect.getValue() || null,
         summary,
-        logged_by: hiddenInput.value || null,
+        logged_by: lbHidden.value || null,
         follow_up_date,
         follow_up_note,
       });
@@ -482,7 +562,6 @@ function openConvModal(prefill = {}) {
         const reminderTitle = `Follow up with ${company.name}`;
         const reminderBody = follow_up_note || `Follow up on conversation with ${company.name}`;
 
-        // Write to reminders
         await sb().from("crm_reminders").insert({
           tenant_id: profile.company_id,
           title: reminderTitle,
@@ -492,7 +571,6 @@ function openConvModal(prefill = {}) {
           created_by: profile.id,
         }).then(() => {}).catch(() => {});
 
-        // Write to calendar events
         await sb().from("crm_events").insert({
           tenant_id: profile.company_id,
           title: reminderTitle,
