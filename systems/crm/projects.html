@@ -108,7 +108,7 @@ import { requireCRMAccess } from "/systems/crm/shared/auth.js?v=3";
 import { sb } from "/systems/crm/shared/supabase.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
-import { esc, fmtDate, toast } from "/systems/crm/shared/ui.js";
+import { esc, fmtDate, toast, confirm, makeCombo } from "/systems/crm/shared/ui.js";
 
 initTheme();
 
@@ -202,7 +202,6 @@ function projectCard(p) {
 
 function openModal(project = null) {
   const isEdit = !!project;
-  const compOpts = companiesList.map(c => `<option value="${c.id}" ${project?.crm_company_id===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
@@ -219,9 +218,7 @@ function openModal(project = null) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Company</label>
-            <select class="form-control" id="mCompany">
-              <option value="">None</option>${compOpts}
-            </select>
+            <input class="form-control" id="mCompany" placeholder="Search companies…"/>
           </div>
           <div class="form-group">
             <label class="form-label">Status</label>
@@ -251,6 +248,10 @@ function openModal(project = null) {
   overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
   overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
 
+  const compCombo = makeCombo(overlay.querySelector("#mCompany"),
+    companiesList.map(c => ({ id: c.id, label: c.name })),
+    { initialId: project?.crm_company_id });
+
   if (isEdit) {
     overlay.querySelector("#delBtn").onclick = async () => {
       if (!confirm(`Delete "${project.name}"?`)) return;
@@ -273,7 +274,7 @@ function openModal(project = null) {
       const { data: emp } = await sb().from("core_employees").select("company_id").eq("auth_user_id", session.user.id).single();
       const fields = {
         name,
-        crm_company_id: overlay.querySelector("#mCompany").value || null,
+        crm_company_id: compCombo.getValue() || null,
         status: overlay.querySelector("#mStatus").value,
         description: overlay.querySelector("#mDesc").value.trim() || null,
         visible_to_portal: overlay.querySelector("#mPortal").checked,

@@ -31,7 +31,7 @@ import { requireCRMAccess } from "/systems/crm/shared/auth.js?v=3";
 import { tasks, companies, leads, getStaff } from "/systems/crm/shared/api.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
-import { esc, fmtDateTime, toast, confirm, taskPriorityBadge, taskStatusBadge, loading, setInner } from "/systems/crm/shared/ui.js";
+import { esc, fmtDateTime, toast, confirm, taskPriorityBadge, taskStatusBadge, loading, setInner, makeCombo } from "/systems/crm/shared/ui.js";
 
 initTheme();
 
@@ -164,8 +164,6 @@ function taskRow(t) {
 
 function openModal(id) {
   const t = id ? allTasks.find(x => x.id === id) : null;
-  const compOpts = companiesList.map(c => `<option value="${c.id}" ${t?.crm_company_id===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
-  const staffOpts = staffList.map(s => `<option value="${s.id}" ${t?.assigned_to===s.id?"selected":""}>${esc(s.full_name)}</option>`).join("");
   const dueVal = t?.due_date ? new Date(t.due_date).toISOString().slice(0,16) : "";
 
   const overlay = document.createElement("div");
@@ -203,11 +201,11 @@ function openModal(id) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Company</label>
-            <select class="form-control" id="mCompany"><option value="">None</option>${compOpts}</select>
+            <input class="form-control" id="mCompany" placeholder="Search companies…"/>
           </div>
           <div class="form-group">
             <label class="form-label">Assign To</label>
-            <select class="form-control" id="mAssigned"><option value="">Unassigned</option>${staffOpts}</select>
+            <input class="form-control" id="mAssigned" placeholder="Search staff…"/>
           </div>
         </div>
         <div class="form-group">
@@ -224,6 +222,13 @@ function openModal(id) {
   overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
   overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
 
+  const compCombo  = makeCombo(overlay.querySelector("#mCompany"),
+    companiesList.map(c => ({ id: c.id, label: c.name })),
+    { initialId: t?.crm_company_id });
+  const staffCombo = makeCombo(overlay.querySelector("#mAssigned"),
+    staffList.map(s => ({ id: s.id, label: s.full_name })),
+    { initialId: t?.assigned_to });
+
   overlay.querySelector("#saveBtn").onclick = async () => {
     const title = document.getElementById("mTitle").value.trim();
     if (!title) return toast("warn","Validation","Task title is required.");
@@ -235,8 +240,8 @@ function openModal(id) {
         description: document.getElementById("mDesc").value.trim() || null,
         priority: document.getElementById("mPriority").value,
         due_date: document.getElementById("mDue").value ? new Date(document.getElementById("mDue").value).toISOString() : null,
-        crm_company_id: document.getElementById("mCompany").value || null,
-        assigned_to: document.getElementById("mAssigned").value || null,
+        crm_company_id: compCombo.getValue() || null,
+        assigned_to: staffCombo.getValue() || null,
         notes: document.getElementById("mNotes").value.trim() || null,
         status: t?.status || "todo",
       };

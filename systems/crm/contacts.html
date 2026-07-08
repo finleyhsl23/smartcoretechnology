@@ -35,7 +35,7 @@ import { requireCRMAccess } from "/systems/crm/shared/auth.js?v=3";
 import { contacts, companies } from "/systems/crm/shared/api.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
-import { esc, fmtDate, toast, confirm, loading, setInner } from "/systems/crm/shared/ui.js";
+import { esc, fmtDate, toast, confirm, loading, setInner, makeCombo } from "/systems/crm/shared/ui.js";
 
 initTheme();
 
@@ -145,7 +145,6 @@ function row(c) {
 
 function openModal(id) {
   const c = id ? allContacts.find(x => x.id === id) : null;
-  const companyOptions = companiesList.map(co => `<option value="${co.id}" ${c?.crm_company_id === co.id ? "selected" : ""}>${esc(co.name)}</option>`).join("");
 
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
@@ -189,7 +188,7 @@ function openModal(id) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Company</label>
-            <select class="form-control" id="mCompany"><option value="">None</option>${companyOptions}</select>
+            <input class="form-control" id="mCompany" placeholder="Search companies…"/>
           </div>
           <div class="form-group">
             <label class="form-label">Status</label>
@@ -213,6 +212,10 @@ function openModal(id) {
   overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
   overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
 
+  const compCombo = makeCombo(overlay.querySelector("#mCompany"),
+    companiesList.map(co => ({ id: co.id, label: co.name })),
+    { initialId: c?.crm_company_id });
+
   overlay.querySelector("#saveBtn").onclick = async () => {
     const first = document.getElementById("mFirst").value.trim();
     const last  = document.getElementById("mLast").value.trim();
@@ -226,7 +229,7 @@ function openModal(id) {
         phone: document.getElementById("mPhone").value.trim() || null,
         job_title: document.getElementById("mJobTitle").value.trim() || null,
         department: document.getElementById("mDept").value.trim() || null,
-        crm_company_id: document.getElementById("mCompany").value || null,
+        crm_company_id: compCombo.getValue() || null,
         status: document.getElementById("mStatus").value,
         notes: document.getElementById("mNotes").value.trim() || null,
       };

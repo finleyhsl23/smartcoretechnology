@@ -32,7 +32,7 @@ import { events, companies, tasks } from "/systems/crm/shared/api.js";
 import { sb } from "/systems/crm/shared/supabase.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
-import { esc, fmtDateTime, toast, confirm, tierGate, loading } from "/systems/crm/shared/ui.js";
+import { esc, fmtDateTime, toast, confirm, tierGate, loading, makeCombo } from "/systems/crm/shared/ui.js";
 
 initTheme();
 
@@ -247,7 +247,6 @@ function renderCalendar() {
 
 function openModal(id, prefillDate) {
   const ev = id ? allEvents.find(x => x.id === id) : null;
-  const compOpts = companiesList.map(c => `<option value="${c.id}" ${ev?.crm_company_id===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
   const defStart = prefillDate ? prefillDate + "T09:00" : (ev?.start_time ? new Date(ev.start_time).toISOString().slice(0,16) : "");
   const defEnd = prefillDate ? prefillDate + "T10:00" : (ev?.end_time ? new Date(ev.end_time).toISOString().slice(0,16) : "");
 
@@ -277,7 +276,7 @@ function openModal(id, prefillDate) {
           </div>
           <div class="form-group">
             <label class="form-label">Company</label>
-            <select class="form-control" id="mCompany"><option value="">None</option>${compOpts}</select>
+            <input class="form-control" id="mCompany" placeholder="Search companies…"/>
           </div>
         </div>
         <div class="form-row">
@@ -308,6 +307,10 @@ function openModal(id, prefillDate) {
   overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
   overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
 
+  const compCombo = makeCombo(overlay.querySelector("#mCompany"),
+    companiesList.map(c => ({ id: c.id, label: c.name })),
+    { initialId: ev?.crm_company_id });
+
   overlay.querySelector("#saveBtn").onclick = async () => {
     const title = document.getElementById("mTitle").value.trim();
     const start = document.getElementById("mStart").value;
@@ -317,7 +320,7 @@ function openModal(id, prefillDate) {
     try {
       const fields = {
         title, type: document.getElementById("mType").value,
-        crm_company_id: document.getElementById("mCompany").value || null,
+        crm_company_id: compCombo.getValue() || null,
         start_time: new Date(start).toISOString(),
         end_time: document.getElementById("mEnd").value ? new Date(document.getElementById("mEnd").value).toISOString() : null,
         location: document.getElementById("mLocation").value.trim() || null,

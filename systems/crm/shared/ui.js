@@ -148,6 +148,114 @@ export function loading() {
   return `<div class="loading-spinner"><div class="spinner"></div></div>`;
 }
 
+/**
+ * makeCombo — turns an <input> into a searchable combobox.
+ *
+ * @param {HTMLInputElement} input   - The text input element
+ * @param {Array}            items   - Array of { id, label, sublabel? }
+ * @param {object}           opts
+ *   opts.onSelect(item)  - called when user picks an item
+ *   opts.initialId       - pre-select by id on first render
+ *   opts.placeholder     - input placeholder
+ *
+ * Returns { getValue, setValue, setItems }
+ */
+export function makeCombo(input, items, { onSelect, initialId, placeholder } = {}) {
+  if (placeholder) input.placeholder = placeholder;
+  input.setAttribute("autocomplete", "off");
+
+  let _items = items || [];
+  let _selected = null;
+  let _dropdown = null;
+
+  // Pre-select if initialId provided
+  if (initialId) {
+    const match = _items.find(i => i.id === initialId);
+    if (match) { input.value = match.label; _selected = match; }
+  }
+
+  function buildDropdown(filter) {
+    removeDropdown();
+    const q = filter.toLowerCase();
+    const visible = q ? _items.filter(i =>
+      i.label.toLowerCase().includes(q) || i.sublabel?.toLowerCase().includes(q)
+    ) : _items;
+    if (!visible.length) return;
+
+    _dropdown = document.createElement("div");
+    _dropdown.className = "combo-dropdown";
+    Object.assign(_dropdown.style, {
+      position: "absolute", zIndex: "9999",
+      background: "var(--card)", border: "1px solid var(--line1)",
+      borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,.25)",
+      maxHeight: "220px", overflowY: "auto", minWidth: input.offsetWidth + "px",
+    });
+
+    const rect = input.getBoundingClientRect();
+    Object.assign(_dropdown.style, {
+      top:  (rect.bottom + window.scrollY + 4) + "px",
+      left: (rect.left   + window.scrollX)     + "px",
+      width: rect.width + "px",
+    });
+
+    visible.slice(0, 40).forEach(item => {
+      const row = document.createElement("div");
+      row.className = "combo-option";
+      Object.assign(row.style, {
+        padding: "9px 14px", cursor: "pointer", fontSize: "13px",
+        color: "var(--text1)", display: "flex", flexDirection: "column", gap: "1px",
+      });
+      row.innerHTML = `<span>${esc(item.label)}</span>${item.sublabel ? `<span style="font-size:11px;color:var(--text3)">${esc(item.sublabel)}</span>` : ""}`;
+      row.addEventListener("mousedown", e => {
+        e.preventDefault();
+        input.value = item.label;
+        _selected = item;
+        removeDropdown();
+        onSelect?.(item);
+      });
+      row.addEventListener("mouseenter", () => row.style.background = "var(--card2)");
+      row.addEventListener("mouseleave", () => row.style.background = "");
+      _dropdown.appendChild(row);
+    });
+
+    document.body.appendChild(_dropdown);
+  }
+
+  function removeDropdown() {
+    _dropdown?.remove();
+    _dropdown = null;
+  }
+
+  input.addEventListener("input",  () => buildDropdown(input.value));
+  input.addEventListener("focus",  () => buildDropdown(input.value));
+  input.addEventListener("blur",   () => setTimeout(removeDropdown, 150));
+  input.addEventListener("keydown", e => {
+    if (!_dropdown) return;
+    const opts = [..._dropdown.querySelectorAll(".combo-option")];
+    const active = _dropdown.querySelector(".combo-option.combo-active");
+    let idx = opts.indexOf(active);
+    if (e.key === "ArrowDown") { e.preventDefault(); idx = Math.min(idx + 1, opts.length - 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); idx = Math.max(idx - 1, 0); }
+    else if (e.key === "Enter" && active) { e.preventDefault(); active.dispatchEvent(new MouseEvent("mousedown")); return; }
+    else if (e.key === "Escape") { removeDropdown(); return; }
+    else return;
+    opts.forEach(o => { o.classList.remove("combo-active"); o.style.background = ""; });
+    if (opts[idx]) { opts[idx].classList.add("combo-active"); opts[idx].style.background = "var(--card2)"; opts[idx].scrollIntoView({ block: "nearest" }); }
+  });
+
+  return {
+    getValue()         { return _selected?.id ?? null; },
+    getLabel()         { return _selected?.label ?? input.value; },
+    setValue(id)       {
+      const match = _items.find(i => i.id === id);
+      if (match) { input.value = match.label; _selected = match; }
+      else { input.value = ""; _selected = null; }
+    },
+    setItems(newItems) { _items = newItems; },
+    clear()            { input.value = ""; _selected = null; },
+  };
+}
+
 export function setInner(id, html) {
   const el = document.getElementById(id);
   if (el) el.innerHTML = html;

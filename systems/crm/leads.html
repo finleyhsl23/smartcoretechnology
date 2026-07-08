@@ -35,7 +35,7 @@ import { requireCRMAccess } from "/systems/crm/shared/auth.js?v=3";
 import { leads, companies, contacts, getStaff } from "/systems/crm/shared/api.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
-import { esc, fmt, fmtDate, toast, confirm, leadBadge, loading, setInner } from "/systems/crm/shared/ui.js";
+import { esc, fmt, fmtDate, toast, confirm, leadBadge, loading, setInner, makeCombo } from "/systems/crm/shared/ui.js";
 
 initTheme();
 
@@ -162,9 +162,6 @@ function leadRow(l) {
 
 function openModal(id) {
   const l = id ? allLeads.find(x => x.id === id) : null;
-  const compOpts = companiesList.map(c => `<option value="${c.id}" ${l?.crm_company_id===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
-  const contOpts = contactsList.map(c => `<option value="${c.id}" ${l?.crm_contact_id===c.id?"selected":""}>${esc(c.first_name+' '+c.last_name)}</option>`).join("");
-  const staffOpts = staffList.map(s => `<option value="${s.id}" ${l?.assigned_to===s.id?"selected":""}>${esc(s.full_name)}</option>`).join("");
 
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
@@ -182,11 +179,11 @@ function openModal(id) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Company</label>
-            <select class="form-control" id="mCompany"><option value="">None</option>${compOpts}</select>
+            <input class="form-control" id="mCompany" placeholder="Search companies…"/>
           </div>
           <div class="form-group">
             <label class="form-label">Contact</label>
-            <select class="form-control" id="mContact"><option value="">None</option>${contOpts}</select>
+            <input class="form-control" id="mContact" placeholder="Search contacts…"/>
           </div>
         </div>
         <div class="form-row">
@@ -229,7 +226,7 @@ function openModal(id) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Assigned To</label>
-            <select class="form-control" id="mAssigned"><option value="">Unassigned</option>${staffOpts}</select>
+            <input class="form-control" id="mAssigned" placeholder="Search staff…"/>
           </div>
           <div class="form-group">
             <label class="form-label">Expected Close Date</label>
@@ -254,6 +251,16 @@ function openModal(id) {
   overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
   overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
 
+  const compCombo = makeCombo(overlay.querySelector("#mCompany"),
+    companiesList.map(c => ({ id: c.id, label: c.name })),
+    { initialId: l?.crm_company_id });
+  const contCombo = makeCombo(overlay.querySelector("#mContact"),
+    contactsList.map(c => ({ id: c.id, label: c.first_name + " " + c.last_name, sublabel: c.job_title || "" })),
+    { initialId: l?.crm_contact_id });
+  const staffCombo = makeCombo(overlay.querySelector("#mAssigned"),
+    staffList.map(s => ({ id: s.id, label: s.full_name })),
+    { initialId: l?.assigned_to });
+
   overlay.querySelector("#saveBtn").onclick = async () => {
     const title = document.getElementById("mTitle").value.trim();
     if (!title) return toast("warn","Validation","Lead title is required.");
@@ -263,14 +270,14 @@ function openModal(id) {
       const status = document.getElementById("mStatus").value;
       const fields = {
         title,
-        crm_company_id: document.getElementById("mCompany").value || null,
-        crm_contact_id: document.getElementById("mContact").value || null,
+        crm_company_id: compCombo.getValue() || null,
+        crm_contact_id: contCombo.getValue() || null,
         status,
         pipeline_stage: status,
         source: document.getElementById("mSource").value || null,
         estimated_value: parseFloat(document.getElementById("mValue").value) || null,
         probability: parseInt(document.getElementById("mProb").value) || 20,
-        assigned_to: document.getElementById("mAssigned").value || null,
+        assigned_to: staffCombo.getValue() || null,
         expected_close_date: document.getElementById("mClose").value || null,
         notes: document.getElementById("mNotes").value.trim() || null,
         lost_reason: document.getElementById("mLostReason")?.value.trim() || null,

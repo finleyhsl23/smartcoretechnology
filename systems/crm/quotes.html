@@ -32,7 +32,7 @@ import { quotes, companies, leads } from "/systems/crm/shared/api.js";
 import { sb } from "/systems/crm/shared/supabase.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
-import { esc, fmt, fmtDate, toast, confirm, quoteBadge, tierGate, loading, setInner } from "/systems/crm/shared/ui.js";
+import { esc, fmt, fmtDate, toast, confirm, quoteBadge, tierGate, loading, setInner, makeCombo } from "/systems/crm/shared/ui.js";
 
 initTheme();
 
@@ -158,8 +158,6 @@ function quoteRow(q) {
 
 function openModal(id) {
   const q = id ? allQuotes.find(x => x.id === id) : null;
-  const compOpts = companiesList.map(c => `<option value="${c.id}" ${q?.crm_company_id===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
-  const leadOpts = leadsList.map(l => `<option value="${l.id}" ${q?.crm_lead_id===l.id?"selected":""}>${esc(l.title)}</option>`).join("");
   const lineItems = q?.line_items || [{ description: "", qty: 1, unit_price: 0 }];
 
   const overlay = document.createElement("div");
@@ -190,11 +188,11 @@ function openModal(id) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Company</label>
-            <select class="form-control" id="mCompany"><option value="">None</option>${compOpts}</select>
+            <input class="form-control" id="mCompany" placeholder="Search companies…"/>
           </div>
           <div class="form-group">
             <label class="form-label">Related Lead</label>
-            <select class="form-control" id="mLead"><option value="">None</option>${leadOpts}</select>
+            <input class="form-control" id="mLead" placeholder="Search leads…"/>
           </div>
         </div>
         <div class="form-row">
@@ -249,6 +247,13 @@ function openModal(id) {
   overlay.querySelectorAll(".modal-close").forEach(b => b.onclick = () => overlay.remove());
   overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
 
+  const compCombo = makeCombo(overlay.querySelector("#mCompany"),
+    companiesList.map(c => ({ id: c.id, label: c.name })),
+    { initialId: q?.crm_company_id });
+  const leadCombo = makeCombo(overlay.querySelector("#mLead"),
+    leadsList.map(l => ({ id: l.id, label: l.title })),
+    { initialId: q?.crm_lead_id });
+
   let lineCount = lineItems.length;
   function recalc() {
     let sub = 0;
@@ -299,8 +304,8 @@ function openModal(id) {
       const fields = {
         title: overlay.querySelector("#mTitle").value.trim() || null,
         status: overlay.querySelector("#mStatus").value,
-        crm_company_id: overlay.querySelector("#mCompany").value || null,
-        crm_lead_id: overlay.querySelector("#mLead").value || null,
+        crm_company_id: compCombo.getValue() || null,
+        crm_lead_id: leadCombo.getValue() || null,
         date_issued: overlay.querySelector("#mIssued").value || null,
         expiry_date: overlay.querySelector("#mExpiry").value || null,
         line_items: lineRows,
