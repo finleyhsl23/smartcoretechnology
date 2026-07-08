@@ -11,249 +11,259 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS });
 }
 
-function esc(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj), { status, headers: CORS });
 }
 
-function buildQuoteHtml({ q, co, branding, acceptUrl, mode }) {
-  const primary   = branding.primary_color   || '#1e5cff';
-  const secondary = branding.secondary_color || '#0a0f1e';
-  const prefer    = branding.prefer_icon === true;
-  const logoUrl   = prefer ? (branding.icon_url || branding.logo_url) : (branding.logo_url || branding.icon_url);
-  const issuerName = branding.company_name || 'SmartCore Technology';
-
-  const lineItems = q.line_items || [];
-  const linesHtml = lineItems.map(li => `
-    <tr>
-      <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;font-size:14px">${esc(li.description||'')}</td>
-      <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:14px">${li.qty||1}</td>
-      <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:right;font-size:14px">£${Number(li.unit_price||0).toFixed(2)}</td>
-      <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:right;font-size:14px;font-weight:600">£${Number(li.total||((li.qty||1)*(li.unit_price||0))).toFixed(2)}</td>
-    </tr>`).join('');
-
-  const sub   = Number(q.subtotal || 0);
-  const disc  = Number(q.discount_amount || 0);
-  const total = sub > 0 ? Math.max(0, sub - disc) : Number(q.total || 0);
-  const issued  = q.date_issued  ? new Date(q.date_issued ).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}) : '—';
-  const expires = q.expiry_date  ? new Date(q.expiry_date ).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}) : '—';
-
-  const actionSection = mode === 'email' ? `
-    <div style="text-align:center;margin:32px 0">
-      <a href="${acceptUrl}" style="display:inline-block;background:${primary};color:#fff;text-decoration:none;font-weight:700;font-size:16px;padding:16px 40px;border-radius:8px;letter-spacing:.3px">
-        Review &amp; Sign Quote
-      </a>
-      <p style="margin-top:12px;font-size:12px;color:#9ca3af">Or copy this link: <a href="${acceptUrl}" style="color:${primary};word-break:break-all">${acceptUrl}</a></p>
-    </div>` : '';
-
-  return `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Quote ${esc(q.quote_number||'')}</title>
-<style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:'Segoe UI',Arial,sans-serif;background:#f3f4f6;color:#1a1a2e}
-  .wrap{max-width:720px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)}
-  @media print{body{background:#fff}.wrap{box-shadow:none;border-radius:0}}
-</style></head>
-<body style="padding:${mode==='email'?'0':'32px 16px'}">
-<div class="wrap">
-
-  <!-- Header -->
-  <div style="background:${secondary};padding:36px 40px;display:flex;justify-content:space-between;align-items:flex-start">
-    <div>
-      ${logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" style="max-height:56px;max-width:180px;object-fit:contain"/>` : `<div style="font-size:22px;font-weight:800;color:#fff">${esc(issuerName)}</div>`}
-    </div>
-    <div style="text-align:right">
-      <div style="background:${primary};color:#fff;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:2px;padding:5px 14px;border-radius:4px;display:inline-block;margin-bottom:8px">Quote</div>
-      <div style="font-size:26px;font-weight:900;color:#fff">${esc(q.quote_number||'QT-000')}</div>
-      <div style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:3px 12px;font-size:11px;font-weight:700;text-transform:uppercase;display:inline-block;margin-top:6px">${(q.status||'draft').toUpperCase()}</div>
-    </div>
-  </div>
-
-  <!-- Meta grid -->
-  <div style="padding:28px 40px 0">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px">
-      <div style="background:#f8f9fc;border-radius:8px;padding:14px">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;font-weight:700;margin-bottom:4px">Prepared for</div>
-        <div style="font-size:15px;font-weight:700;color:#1a1a2e">${esc(co||'—')}</div>
-      </div>
-      <div style="background:#f8f9fc;border-radius:8px;padding:14px">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;font-weight:700;margin-bottom:4px">Quote Title</div>
-        <div style="font-size:15px;font-weight:700;color:#1a1a2e">${esc(q.title||'—')}</div>
-      </div>
-      <div style="background:#f8f9fc;border-radius:8px;padding:14px">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;font-weight:700;margin-bottom:4px">Date Issued</div>
-        <div style="font-size:14px;font-weight:600;color:#1a1a2e">${issued}</div>
-      </div>
-      <div style="background:#f8f9fc;border-radius:8px;padding:14px">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;font-weight:700;margin-bottom:4px">Valid Until</div>
-        <div style="font-size:14px;font-weight:600;color:#1a1a2e">${expires}</div>
-      </div>
-    </div>
-
-    <!-- Action button (email only) -->
-    ${actionSection}
-
-    <!-- Line items -->
-    <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
-      <thead>
-        <tr style="background:${primary};color:#fff">
-          <th style="padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px">Description</th>
-          <th style="padding:10px 14px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:.5px">Qty</th>
-          <th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:.5px">Unit Price</th>
-          <th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:.5px">Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${linesHtml || `<tr><td colspan="4" style="padding:16px;text-align:center;color:#9ca3af">No line items</td></tr>`}
-      </tbody>
-    </table>
-
-    <!-- Totals -->
-    <div style="display:flex;justify-content:flex-end;margin-bottom:24px">
-      <div style="min-width:260px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
-        <div style="display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #e5e7eb;font-size:13px"><span>Subtotal</span><span>£${(sub||total).toFixed(2)}</span></div>
-        ${disc > 0 ? `<div style="display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #e5e7eb;font-size:13px"><span>Discount</span><span>-£${disc.toFixed(2)}</span></div>` : ''}
-        <div style="display:flex;justify-content:space-between;padding:12px 16px;background:${primary};color:#fff;font-weight:800;font-size:16px"><span>TOTAL</span><span>£${total.toFixed(2)}</span></div>
-      </div>
-    </div>
-
-    ${q.notes ? `<div style="background:#f8f9fc;border-radius:8px;padding:16px;margin-bottom:16px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:6px">Notes</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">${esc(q.notes)}</div></div>` : ''}
-    <div style="background:#f8f9fc;border-radius:8px;padding:16px;margin-bottom:28px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:6px">Terms &amp; Conditions</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">${esc(q.terms||'Payment due within 30 days.')}</div></div>
-  </div>
-
-  <!-- Footer -->
-  <div style="background:#f8f9fc;border-top:1px solid #e5e7eb;padding:16px 40px;text-align:center;font-size:11px;color:#9ca3af">
-    This document is a QUOTE only and does not constitute an invoice. Ref: ${esc(q.quote_number||'')} · ${issuerName}
-  </div>
-</div>
-</body>
-</html>`;
+function esc(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 export async function onRequestPost({ request, env }) {
-  const SERVICE_KEY = env.SUPABASE_SERVICE_KEY;
+  try {
+    const SERVICE_KEY = env.SUPABASE_SERVICE_KEY;
 
-  const token = (request.headers.get('Authorization') || '').replace('Bearer ', '');
-  if (!token) return new Response(JSON.stringify({ error: 'Unauthorised' }), { status: 401, headers: CORS });
+    const authHeader = (request.headers.get('Authorization') || '').replace('Bearer ', '');
+    if (!authHeader) return json({ error: 'Unauthorised' }, 401);
+    if (!env.RESEND_API_KEY) return json({ error: 'Email sending not configured on this server' }, 500);
 
-  const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${token}` },
-  });
-  if (!userRes.ok) return new Response(JSON.stringify({ error: 'Unauthorised' }), { status: 401, headers: CORS });
-  const { id: authUserId } = await userRes.json();
+    // Parse body first — body can only be read once in Workers
+    let body;
+    try { body = await request.json(); } catch (_) { return json({ error: 'Invalid request body' }, 400); }
+    const { quote_id, contact_email, recipient_name } = body || {};
 
-  const empRes = await fetch(`${SUPABASE_URL}/rest/v1/core_employees?auth_user_id=eq.${authUserId}&select=company_id,first_name,last_name&limit=1`, {
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
-  });
-  const [emp] = await empRes.json();
-  if (!emp) return new Response(JSON.stringify({ error: 'Employee not found' }), { status: 403, headers: CORS });
-  const tenantId = emp.company_id;
+    if (!quote_id)      return json({ error: 'quote_id is required' }, 400);
+    if (!contact_email) return json({ error: 'contact_email is required' }, 400);
 
-  const { quote_id, contact_email, recipient_name } = await request.json();
-  if (!quote_id) return new Response(JSON.stringify({ error: 'quote_id required' }), { status: 400, headers: CORS });
-  if (!contact_email) return new Response(JSON.stringify({ error: 'contact_email required' }), { status: 400, headers: CORS });
-  if (!env.RESEND_API_KEY) return new Response(JSON.stringify({ error: 'Email not configured' }), { status: 500, headers: CORS });
+    // Verify the auth token
+    const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${authHeader}` },
+    });
+    if (!userRes.ok) return json({ error: 'Unauthorised' }, 401);
+    const { id: authUserId } = await userRes.json();
 
-  // Fetch quote
-  const qRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${quote_id}&tenant_id=eq.${tenantId}&select=*,crm_companies(name)&limit=1`, {
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
-  });
-  const [q] = await qRes.json();
-  if (!q) return new Response(JSON.stringify({ error: 'Quote not found' }), { status: 404, headers: CORS });
+    // Get tenant
+    const empRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/core_employees?auth_user_id=eq.${authUserId}&select=company_id&limit=1`,
+      { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
+    );
+    const empData = await empRes.json();
+    const emp = Array.isArray(empData) ? empData[0] : null;
+    if (!emp) return json({ error: 'Employee not found' }, 403);
+    const tenantId = emp.company_id;
 
-  // Fetch branding
-  const bRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_settings?tenant_id=eq.${tenantId}&select=branding&limit=1`, {
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
-  });
-  const [bRow] = await bRes.json();
-  const branding = bRow?.branding || {};
-  const issuerName  = branding.company_name  || 'SmartCore Technology';
-  const primaryColor = branding.primary_color || '#1e5cff';
-  const logoUrl = branding.prefer_icon ? (branding.icon_url || branding.logo_url) : (branding.logo_url || branding.icon_url);
+    // Fetch quote + branding in parallel (no join — avoids PostgREST foreign key issues)
+    const [qRes, bRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${quote_id}&tenant_id=eq.${encodeURIComponent(tenantId)}&select=*&limit=1`,
+        { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }),
+      fetch(`${SUPABASE_URL}/rest/v1/crm_settings?tenant_id=eq.${encodeURIComponent(tenantId)}&select=branding&limit=1`,
+        { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }),
+    ]);
 
-  // Generate token
-  const acceptanceToken = crypto.randomUUID();
+    const qData = await qRes.json();
+    const q = Array.isArray(qData) ? qData[0] : null;
+    if (!q) return json({ error: 'Quote not found' }, 404);
 
-  // Determine base URL from request
-  const origin = new URL(request.url).origin;
-  const acceptUrl = `${origin}/systems/crm/quote-accept.html?token=${acceptanceToken}`;
+    const bData = await bRes.json();
+    const branding = (Array.isArray(bData) ? bData[0]?.branding : null) || {};
 
-  const co = q.crm_companies?.name || '';
-  const quoteHtml = buildQuoteHtml({ q, co, branding, acceptUrl, mode: 'email' });
+    // Fetch company name separately
+    let coName = '';
+    if (q.crm_company_id) {
+      const cRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/crm_companies?id=eq.${q.crm_company_id}&select=name&limit=1`,
+        { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
+      );
+      const cData = await cRes.json();
+      coName = (Array.isArray(cData) ? cData[0]?.name : null) || '';
+    }
 
-  // Email subject
-  const subject = `Quote ${q.quote_number} from ${issuerName}${q.title ? ` — ${q.title}` : ''}`;
+    const issuerName    = branding.company_name    || 'SmartCore Technology';
+    const primaryColor  = branding.primary_color   || '#1e5cff';
+    const secondaryColor = branding.secondary_color || '#0a0f1e';
+    const logoUrl = branding.prefer_icon
+      ? (branding.icon_url || branding.logo_url)
+      : (branding.logo_url || branding.icon_url);
 
-  // Full email wrapper
-  const emailHtml = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/></head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:'Segoe UI',Arial,sans-serif">
-<div style="max-width:720px;margin:0 auto;padding:24px 16px">
-  <div style="text-align:center;margin-bottom:20px">
-    ${logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" style="max-height:48px;object-fit:contain"/>` : `<div style="font-size:20px;font-weight:800;color:#1a1a2e">${esc(issuerName)}</div>`}
-  </div>
-  <div style="background:#fff;border-radius:12px;padding:28px 32px;margin-bottom:20px;box-shadow:0 2px 12px rgba(0,0,0,.06)">
-    <h2 style="margin:0 0 8px;font-size:20px;color:#1a1a2e">You have a new quote</h2>
-    <p style="margin:0 0 20px;color:#6b7280;font-size:14px;line-height:1.6">
-      Hi ${esc(recipient_name || co || 'there')},<br/><br/>
-      ${esc(issuerName)} has sent you a quote. Please review the details below and use the button to accept or discuss it with us.
-    </p>
-    <div style="display:flex;gap:16px;flex-wrap:wrap">
-      <div style="flex:1;min-width:140px;background:#f8f9fc;border-radius:8px;padding:12px 16px">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:3px">Quote Ref</div>
-        <div style="font-size:16px;font-weight:800;color:#1a1a2e">${esc(q.quote_number||'')}</div>
-      </div>
-      <div style="flex:1;min-width:140px;background:#f8f9fc;border-radius:8px;padding:12px 16px">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:3px">Total Value</div>
-        <div style="font-size:16px;font-weight:800;color:#1a1a2e">£${Number(q.total||0).toFixed(2)}</div>
-      </div>
-      ${q.expiry_date ? `<div style="flex:1;min-width:140px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px 16px">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9a3412;font-weight:700;margin-bottom:3px">Valid Until</div>
-        <div style="font-size:14px;font-weight:700;color:#9a3412">${new Date(q.expiry_date).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</div>
-      </div>` : ''}
-    </div>
-    <div style="text-align:center;margin-top:28px">
-      <a href="${acceptUrl}" style="display:inline-block;background:${primaryColor};color:#fff;text-decoration:none;font-weight:700;font-size:16px;padding:16px 44px;border-radius:8px;letter-spacing:.3px">
-        Review &amp; Sign Quote →
-      </a>
-      <p style="margin-top:10px;font-size:11px;color:#9ca3af">Or copy this link into your browser:<br/><a href="${acceptUrl}" style="color:${primaryColor};word-break:break-all">${acceptUrl}</a></p>
-    </div>
-  </div>
+    const acceptanceToken = crypto.randomUUID();
+    const origin    = new URL(request.url).origin;
+    const acceptUrl = `${origin}/systems/crm/quote-accept.html?token=${acceptanceToken}`;
 
-  <!-- Quote preview card -->
-  <div style="background:#fff;border-radius:12px;padding:0;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:20px">
-    ${quoteHtml.replace(/<!DOCTYPE html>[\s\S]*?<body[^>]*>/, '').replace('</body></html>', '').replace(/<style>[\s\S]*?<\/style>/,'')}
-  </div>
+    const sub   = Number(q.subtotal || 0);
+    const disc  = Number(q.discount_amount || 0);
+    const total = sub > 0 ? Math.max(0, sub - disc) : Number(q.total || 0);
+    const expiryStr = q.expiry_date
+      ? new Date(q.expiry_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      : null;
 
-  <div style="text-align:center;font-size:11px;color:#9ca3af;padding-bottom:16px">
-    This email was sent by ${esc(issuerName)}. If you have questions, please reply to this email or contact us directly.
-  </div>
-</div>
-</body></html>`;
+    // Build table-based email HTML (safe for all email clients)
+    const lineRows = (q.line_items || []).map(li =>
+      `<tr>
+        <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#374151">${esc(li.description || '')}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:center;color:#374151">${li.qty || 1}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;color:#374151">&#163;${Number(li.unit_price || 0).toFixed(2)}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;font-weight:600;color:#1a1a2e">&#163;${Number(li.total || ((li.qty || 1) * (li.unit_price || 0))).toFixed(2)}</td>
+      </tr>`
+    ).join('');
 
-  // Send email
-  const emailRes = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from: `${issuerName} <noreply@smartcoretechnology.co.uk>`,
-      to: [contact_email],
-      subject,
-      html: emailHtml,
-    }),
-  });
+    const emailSubject = `Quote ${q.quote_number || ''} from ${issuerName}${q.title ? ' — ' + q.title : ''}`;
 
-  if (!emailRes.ok) {
-    const errText = await emailRes.text();
-    return new Response(JSON.stringify({ error: `Email failed: ${errText}` }), { status: 500, headers: CORS });
+    const emailHtml = [
+      '<!DOCTYPE html>',
+      '<html lang="en"><head>',
+      '<meta charset="utf-8"/>',
+      '<meta name="viewport" content="width=device-width,initial-scale=1"/>',
+      `<title>${esc(emailSubject)}</title>`,
+      '</head>',
+      `<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:24px 0">`,
+      `<tr><td align="center">`,
+      `<table width="620" cellpadding="0" cellspacing="0" border="0" style="max-width:620px;width:100%">`,
+
+      // Logo row
+      `<tr><td align="center" style="padding:0 16px 20px">`,
+      logoUrl
+        ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:block;max-height:44px"/>`
+        : `<div style="font-size:20px;font-weight:800;color:#1a1a2e">${esc(issuerName)}</div>`,
+      `</td></tr>`,
+
+      // Intro card
+      `<tr><td style="padding:0 16px 20px">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:12px">`,
+      `<tr><td style="padding:28px 32px">`,
+      `<h1 style="margin:0 0 6px;font-size:20px;font-weight:800;color:#1a1a2e">You have a new quote</h1>`,
+      `<p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.7">`,
+      `Hi ${esc(recipient_name || coName || 'there')},<br/><br/>`,
+      `${esc(issuerName)} has prepared a quote for you. Click the button below to review the full details and sign it online.`,
+      `</p>`,
+
+      // Stats table
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0">`,
+      `<tr>`,
+      `<td width="48%" style="background:#f8f9fc;border-radius:8px;padding:14px 16px">`,
+      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:4px">Quote Reference</div>`,
+      `<div style="font-size:18px;font-weight:800;color:#1a1a2e">${esc(q.quote_number || '')}</div>`,
+      `</td>`,
+      `<td width="4%"></td>`,
+      `<td width="48%" style="background:#f8f9fc;border-radius:8px;padding:14px 16px">`,
+      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:4px">Total Value</div>`,
+      `<div style="font-size:18px;font-weight:800;color:#1a1a2e">&#163;${total.toFixed(2)}</div>`,
+      `</td>`,
+      `</tr>`,
+      expiryStr ? [
+        `<tr><td colspan="3" style="padding-top:12px">`,
+        `<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:11px 14px;font-size:12px;font-weight:700;color:#9a3412">`,
+        `&#9200; This quote is valid until ${esc(expiryStr)}`,
+        `</div></td></tr>`,
+      ].join('') : '',
+      `</table>`,
+
+      // CTA button
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:28px">`,
+      `<tr><td align="center">`,
+      `<a href="${acceptUrl}" style="display:inline-block;background:${primaryColor};color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:15px 48px;border-radius:8px">`,
+      `Review &amp; Sign Quote &#8594;`,
+      `</a>`,
+      `</td></tr>`,
+      `<tr><td align="center" style="padding-top:10px;font-size:11px;color:#9ca3af">`,
+      `Or paste this link in your browser:<br/>`,
+      `<a href="${acceptUrl}" style="color:${primaryColor};word-break:break-all;font-size:11px">${acceptUrl}</a>`,
+      `</td></tr>`,
+      `</table>`,
+      `</td></tr></table>`,
+      `</td></tr>`,
+
+      // Quote summary card
+      `<tr><td style="padding:0 16px 20px">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:12px;overflow:hidden">`,
+      // Dark header
+      `<tr><td style="background:${secondaryColor};padding:22px 28px">`,
+      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:rgba(255,255,255,.55);margin-bottom:4px">Quote Summary</div>`,
+      `<div style="font-size:22px;font-weight:900;color:#ffffff">${esc(q.quote_number || '')}</div>`,
+      q.title ? `<div style="font-size:13px;color:rgba(255,255,255,.7);margin-top:2px">${esc(q.title)}</div>` : '',
+      `</td></tr>`,
+      // Line items
+      `<tr><td style="padding:20px 28px">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">`,
+      `<tr style="background:${primaryColor}">`,
+      `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:left">Description</th>`,
+      `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:center;width:48px">Qty</th>`,
+      `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:right;width:88px">Unit</th>`,
+      `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:right;width:88px">Total</th>`,
+      `</tr>`,
+      lineRows || `<tr><td colspan="4" style="padding:14px;text-align:center;color:#9ca3af;font-size:13px">No line items</td></tr>`,
+      `</table>`,
+      // Totals
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px">`,
+      `<tr><td align="right">`,
+      `<table cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;min-width:230px">`,
+      `<tr><td style="padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151">`,
+      `<span>Subtotal</span><span style="float:right">&#163;${(sub || total).toFixed(2)}</span>`,
+      `</td></tr>`,
+      disc > 0 ? `<tr><td style="padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151"><span>Discount</span><span style="float:right">-&#163;${disc.toFixed(2)}</span></td></tr>` : '',
+      `<tr><td style="padding:11px 16px;background:${primaryColor};color:#ffffff;font-weight:800;font-size:15px">`,
+      `<span>TOTAL</span><span style="float:right">&#163;${total.toFixed(2)}</span>`,
+      `</td></tr>`,
+      `</table></td></tr></table>`,
+      // Notes + Terms
+      q.notes ? `<div style="margin-top:16px;background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Notes</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">${esc(q.notes)}</div></div>` : '',
+      `<div style="margin-top:12px;background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Terms &amp; Conditions</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">${esc(q.terms || 'Payment due within 30 days.')}</div></div>`,
+      `</td></tr>`,
+      `</table></td></tr>`,
+
+      // Footer
+      `<tr><td align="center" style="padding:0 16px 32px;font-size:11px;color:#9ca3af">`,
+      `This email was sent by ${esc(issuerName)}. Quote ${esc(q.quote_number || '')}.`,
+      `</td></tr>`,
+
+      `</table></td></tr></table>`,
+      `</body></html>`,
+    ].join('\n');
+
+    // Send via Resend
+    const emailRes = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: `${issuerName} <noreply@smartcoretechnology.co.uk>`,
+        to: [contact_email],
+        subject: emailSubject,
+        html: emailHtml,
+      }),
+    });
+
+    if (!emailRes.ok) {
+      let errMsg = `HTTP ${emailRes.status}`;
+      try {
+        const errBody = await emailRes.json();
+        errMsg = errBody.message || errBody.error || JSON.stringify(errBody);
+      } catch (_) {}
+      return json({ error: `Email delivery failed: ${errMsg}` }, 500);
+    }
+
+    // Persist token + status on quote
+    await fetch(
+      `${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${quote_id}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          acceptance_token: acceptanceToken,
+          contact_email,
+          sent_at: new Date().toISOString(),
+          status: 'sent',
+        }),
+      }
+    );
+
+    return json({ ok: true });
+
+  } catch (err) {
+    return json({ error: err.message || 'Internal server error' }, 500);
   }
-
-  // Update quote: store token, contact_email, sent_at, status=sent
-  await fetch(`${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${quote_id}&tenant_id=eq.${tenantId}`, {
-    method: 'PATCH',
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-    body: JSON.stringify({ acceptance_token: acceptanceToken, contact_email, sent_at: new Date().toISOString(), status: 'sent' }),
-  });
-
-  return new Response(JSON.stringify({ ok: true }), { headers: CORS });
 }
