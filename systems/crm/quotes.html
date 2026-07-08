@@ -36,7 +36,7 @@ import { esc, fmt, fmtDate, toast, confirm, quoteBadge, tierGate, loading, setIn
 
 initTheme();
 
-let profile, tier, crmSettings, allQuotes = [], companiesList = [], leadsList = [], productsList = [], searchQ = "", currentStatus = "";
+let profile, tier, crmSettings, allQuotes = [], companiesList = [], leadsList = [], productsList = [], staffList = [], searchQ = "", currentStatus = "";
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -48,15 +48,23 @@ try {
   if (!tierHasFeature(tier, "quotes")) {
     document.getElementById("content").innerHTML = tierGate("quotes");
   } else {
+    const { data: { session } } = await sb().auth.getSession();
+    const { data: empRow } = await sb().from("core_employees").select("company_id").eq("auth_user_id", session.user.id).single();
+    const tenantId = empRow.company_id;
+
     [companiesList, leadsList] = await Promise.all([
       companies.list({ limit: 500 }).then(r => r.data),
       leads.list({ limit: 500 }).then(r => r.data),
     ]);
-    const { data: prods } = await sb().from("crm_products").select("id,name,price,description,sku").eq("active", true).order("name");
-    productsList = prods || [];
+    const [prodsRes, staffRes] = await Promise.all([
+      sb().from("crm_products").select("id,name,price,description,sku").eq("active", true).order("name"),
+      sb().from("core_employees").select("id,full_name,work_email,auth_user_id").eq("company_id", tenantId).order("full_name"),
+    ]);
+    productsList = prodsRes.data || [];
+    staffList = staffRes.data || [];
     await loadAndRender();
   }
-} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+} catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session")) toast("bad","Error",e.message); }
 
 async function loadAndRender(status="") {
   currentStatus = status;
@@ -69,13 +77,20 @@ async function loadAndRender(status="") {
   } catch(e) { toast("bad","Load error",e.message); }
 }
 
+function staffName(id) {
+  if (!id) return "";
+  const s = staffList.find(e => e.id === id || e.auth_user_id === id);
+  return s ? (s.full_name || s.work_email || "") : "";
+}
+
 function filteredQuotes() {
   if (!searchQ) return allQuotes;
   const lq = searchQ.toLowerCase();
   return allQuotes.filter(q =>
     (q.quote_number||"").toLowerCase().includes(lq) ||
     (q.title||"").toLowerCase().includes(lq) ||
-    (q.crm_companies?.name||"").toLowerCase().includes(lq)
+    (q.crm_companies?.name||"").toLowerCase().includes(lq) ||
+    staffName(q.assigned_to).toLowerCase().includes(lq)
   );
 }
 
@@ -84,7 +99,7 @@ function rerenderTable() {
   const tbody = document.querySelector(".tbl tbody");
   if (!tbody) return;
   tbody.innerHTML = rows.length === 0
-    ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">🔍</div><h3>No quotes match</h3><p>Try a different search term.</p></div></td></tr>`
+    ? `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🔍</div><h3>No quotes match</h3><p>Try a different search term.</p></div></td></tr>`
     : rows.map(q => quoteRow(q)).join("");
   document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteQuote(b.dataset.id)));
@@ -132,6 +147,7 @@ function renderPage(rows, selStatus) {
               <th>Quote #</th>
               <th>Company</th>
               <th>Title</th>
+              <th>Assigned To</th>
               <th>Status</th>
               <th>Total</th>
               <th>Date Issued</th>
@@ -141,7 +157,7 @@ function renderPage(rows, selStatus) {
           </thead>
           <tbody>
             ${displayRows.length === 0
-              ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">💰</div><h3>No quotes yet</h3><p>Create a quote to send to a prospect.</p></div></td></tr>`
+              ? `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">💰</div><h3>No quotes yet</h3><p>Create a quote to send to a prospect.</p></div></td></tr>`
               : displayRows.map(q => quoteRow(q)).join("")}
           </tbody>
         </table>
@@ -170,10 +186,12 @@ function quoteRow(q) {
   const isExpired = q.status === "sent" && q.expiry_date && new Date(q.expiry_date) < new Date();
   const effectiveStatus = isExpired ? "expired" : q.status;
   const statuses = ["draft","sent","accepted","rejected","expired"];
+  const assignee = staffName(q.assigned_to);
   return `<tr>
     <td><span class="font-bold text-blue">${esc(q.quote_number)}</span></td>
     <td>${co ? esc(co) : '<span class="text-dim">—</span>'}</td>
     <td>${q.title ? esc(q.title) : '<span class="text-dim">—</span>'}</td>
+    <td>${assignee ? `<span style="font-size:12px;font-weight:600;color:var(--text2)">${esc(assignee)}</span>` : '<span class="text-dim">—</span>'}</td>
     <td>
       <select class="inline-status" data-id="${q.id}" style="background:var(--card2);border:1px solid var(--line2);border-radius:6px;padding:3px 6px;font-size:12px;color:var(--text1);cursor:pointer">
         ${statuses.map(s => `<option value="${s}" ${effectiveStatus===s?"selected":""}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join("")}
@@ -228,6 +246,15 @@ function openModal(id) {
             <input class="form-control" id="mCompany" placeholder="Search companies…"/>
           </div>
           <div class="form-group">
+            <label class="form-label">Assigned To</label>
+            <select class="form-control" id="mAssigned">
+              <option value="">— Unassigned —</option>
+              ${staffList.map(s => `<option value="${s.id}" ${q?.assigned_to===s.id?"selected":""}>${esc(s.full_name||s.work_email||"")}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:1">
             <label class="form-label">Related Lead</label>
             <input class="form-control" id="mLead" placeholder="Search leads…"/>
           </div>
@@ -343,6 +370,7 @@ function openModal(id) {
         status: overlay.querySelector("#mStatus").value,
         crm_company_id: compCombo.getValue() || null,
         crm_lead_id: leadCombo.getValue() || null,
+        assigned_to: overlay.querySelector("#mAssigned").value || null,
         date_issued: overlay.querySelector("#mIssued").value || null,
         expiry_date: overlay.querySelector("#mExpiry").value || null,
         line_items: lineRows,
