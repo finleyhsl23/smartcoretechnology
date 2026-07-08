@@ -104,6 +104,7 @@ const companyId = params.get("id");
 if (!companyId) { location.href = "/systems/crm/companies.html"; throw new Error("No ID"); }
 
 let profile, tier, company, contacts = [], conversations = [], staff = [];
+let convSearch = "";
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -222,14 +223,15 @@ function renderPage() {
 
         <!-- Conversation log -->
         <div class="card">
-          <div class="card-header">
+          <div class="card-header" style="flex-wrap:wrap;gap:8px">
             <h2>Conversation Log <span style="font-size:13px;font-weight:500;color:var(--text3)">${conversations.length}</span></h2>
-            <button class="btn btn-sm btn-primary" id="logConvBtn">+ Log Conversation</button>
+            <div style="display:flex;gap:8px;align-items:center;flex:1;justify-content:flex-end">
+              <input type="text" class="form-control" id="convSearchInput" placeholder="Search conversations…" style="max-width:220px;height:32px;font-size:13px" value="${esc(convSearch)}"/>
+              <button class="btn btn-sm btn-primary" id="logConvBtn">+ Log</button>
+            </div>
           </div>
           <div id="convList" style="min-height:60px">
-            ${conversations.length === 0
-              ? `<div class="empty-state" style="padding:24px"><div class="empty-icon">💬</div><p>No conversations logged yet</p></div>`
-              : conversations.map(convItem).join("")}
+            ${renderConvList()}
           </div>
         </div>
 
@@ -240,6 +242,10 @@ function renderPage() {
   document.getElementById("deleteBtn").onclick = () => deleteCompany();
   document.getElementById("logConvBtn").onclick = () => openConvModal();
   document.getElementById("addContactBtn").onclick = () => openContactModal();
+  document.getElementById("convSearchInput").addEventListener("input", e => {
+    convSearch = e.target.value;
+    document.getElementById("convList").innerHTML = renderConvList();
+  });
 
   window._deleteContact = (id, name) => {
     confirm("Remove Contact", `Remove ${name} from this company?`, async () => {
@@ -252,6 +258,26 @@ function renderPage() {
   };
 }
 
+function renderConvList() {
+  const q = convSearch.toLowerCase();
+  const filtered = q ? conversations.filter(c =>
+    c.summary?.toLowerCase().includes(q) ||
+    c.our_attendees?.toLowerCase().includes(q) ||
+    c.their_attendees?.toLowerCase().includes(q) ||
+    c.method?.toLowerCase().includes(q) ||
+    c.occurred_at?.includes(q) ||
+    c.follow_up_note?.toLowerCase().includes(q) ||
+    (staff.find(s => s.id === c.logged_by)?.full_name || "").toLowerCase().includes(q)
+  ) : conversations;
+
+  if (!filtered.length) {
+    return q
+      ? `<div class="empty-state" style="padding:24px"><div class="empty-icon">🔍</div><p>No conversations match "${esc(q)}"</p></div>`
+      : `<div class="empty-state" style="padding:24px"><div class="empty-icon">💬</div><p>No conversations logged yet</p></div>`;
+  }
+  return filtered.map(convItem).join("");
+}
+
 function convItem(c) {
   const methodIcons = { call:"📞", email:"📧", meeting:"🤝", video_call:"📹", in_person:"🏢", other:"💬" };
   const methodLabels = { call:"Phone Call", email:"Email", meeting:"Meeting", video_call:"Video Call", in_person:"In Person", other:"Other" };
@@ -262,14 +288,17 @@ function convItem(c) {
         <span class="conv-method-pill">${methodIcons[c.method] || "💬"} ${methodLabels[c.method] || c.method}</span>
         <span style="font-size:12px;color:var(--text3)">${fmtDateTime(c.occurred_at)}</span>
         ${loggedBy ? `<span style="font-size:11px;color:var(--text3)">· logged by ${esc(loggedBy.full_name)}</span>` : ""}
-        <button class="btn btn-sm btn-danger" style="margin-left:auto;padding:2px 8px;font-size:11px" onclick="window._deleteConv('${c.id}')">Delete</button>
+        <div style="margin-left:auto;display:flex;gap:5px">
+          <button class="btn btn-sm" style="padding:2px 8px;font-size:11px" onclick="window._viewConv('${c.id}')">View</button>
+          <button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:11px" onclick="window._deleteConv('${c.id}')">Delete</button>
+        </div>
       </div>
       ${(c.our_attendees || c.their_attendees) ? `
       <div class="conv-attendees">
         ${c.our_attendees ? `<span>🏢 Us: ${esc(c.our_attendees)}</span>` : ""}
         ${c.their_attendees ? `<span>👤 Them: ${esc(c.their_attendees)}</span>` : ""}
       </div>` : ""}
-      <div class="conv-summary">${esc(c.summary)}</div>
+      <div class="conv-summary" style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${esc(c.summary)}</div>
       ${c.follow_up_date ? `<div class="conv-followup">🔔 Follow up: ${fmtDate(c.follow_up_date)}${c.follow_up_note ? " — "+esc(c.follow_up_note) : ""}</div>` : ""}
     </div>`;
 }
@@ -562,13 +591,17 @@ function openConvModal(prefill = {}) {
         const reminderTitle = `Follow up with ${company.name}`;
         const reminderBody = follow_up_note || `Follow up on conversation with ${company.name}`;
 
+        const { data: { user } } = await sb().auth.getUser();
         await sb().from("crm_reminders").insert({
-          tenant_id: profile.company_id,
-          title: reminderTitle,
-          body: reminderBody,
-          remind_at: followUpIso,
-          crm_company_id: companyId,
-          created_by: profile.id,
+          tenant_id:    profile.company_id,
+          auth_user_id: user.id,
+          user_email:   user.email,
+          user_name:    profile.full_name || user.email,
+          subject:      reminderTitle,
+          notes:        reminderBody,
+          remind_at:    followUpIso,
+          repeat_interval: "none",
+          sent_at:      null,
         }).then(() => {}).catch(() => {});
 
         await sb().from("crm_events").insert({
@@ -635,6 +668,57 @@ function openContactModal() {
     } catch(e) { toast("bad","Error",e.message); btn.disabled=false; btn.textContent="Add Contact"; }
   };
 }
+
+// ── View conversation ──
+
+window._viewConv = (id) => {
+  const c = conversations.find(x => x.id === id);
+  if (!c) return;
+  const methodIcons = { call:"📞", email:"📧", meeting:"🤝", video_call:"📹", in_person:"🏢", other:"💬" };
+  const methodLabels = { call:"Phone Call", email:"Email", meeting:"Meeting", video_call:"Video Call", in_person:"In Person", other:"Other" };
+  const loggedBy = staff.find(s => s.id === c.logged_by);
+  modal(`
+    <div class="modal-header">
+      <h3>${methodIcons[c.method] || "💬"} ${methodLabels[c.method] || c.method}</h3>
+      <button class="btn btn-ghost btn-sm modal-close">✕</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:3px">Date & Time</div>
+          <div style="font-size:14px;font-weight:600">${fmtDateTime(c.occurred_at)}</div>
+        </div>
+        ${loggedBy ? `<div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:3px">Logged By</div>
+          <div style="font-size:14px;font-weight:600">${esc(loggedBy.full_name)}</div>
+        </div>` : ""}
+      </div>
+      ${(c.our_attendees || c.their_attendees) ? `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        ${c.our_attendees ? `<div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:3px">🏢 Our Attendees</div>
+          <div style="font-size:13px">${esc(c.our_attendees)}</div>
+        </div>` : ""}
+        ${c.their_attendees ? `<div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:3px">👤 Their Attendees</div>
+          <div style="font-size:13px">${esc(c.their_attendees)}</div>
+        </div>` : ""}
+      </div>` : ""}
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:6px">Summary / Notes</div>
+        <div style="font-size:14px;line-height:1.6;white-space:pre-wrap;background:var(--bg2);border-radius:10px;padding:12px 14px">${esc(c.summary)}</div>
+      </div>
+      ${c.follow_up_date ? `<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:10px;padding:12px 14px">
+        <div style="font-size:12px;font-weight:700;color:#f59e0b;margin-bottom:4px">🔔 Follow-up Reminder</div>
+        <div style="font-size:13px;font-weight:600">${fmtDate(c.follow_up_date)}</div>
+        ${c.follow_up_note ? `<div style="font-size:12px;color:var(--text2);margin-top:3px">${esc(c.follow_up_note)}</div>` : ""}
+      </div>` : ""}
+    </div>
+    <div class="modal-footer">
+      <button class="btn modal-close">Close</button>
+      <button class="btn btn-danger" onclick="window._deleteConv('${c.id}');document.querySelector('.modal-overlay')?.remove()">Delete</button>
+    </div>`);
+};
 
 // ── Delete conversation ──
 

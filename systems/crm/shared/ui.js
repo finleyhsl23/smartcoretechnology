@@ -34,7 +34,7 @@ export function modal(html, { size = "" } = {}) {
   overlay.innerHTML = `<div class="modal ${size}">${html}</div>`;
   document.body.appendChild(overlay);
   overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
-  overlay.querySelector(".modal-close")?.addEventListener("click", () => overlay.remove());
+  overlay.querySelectorAll(".modal-close").forEach(btn => btn.addEventListener("click", () => overlay.remove()));
   return overlay;
 }
 

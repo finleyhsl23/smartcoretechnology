@@ -227,18 +227,21 @@ async function runSearch(q, drop) {
   try {
     const client = sb();
     const ql = `%${q}%`;
-    const [companies, contacts, leadsRes, tasks] = await Promise.all([
+    const [companies, contacts, leadsRes, tasks, convs] = await Promise.all([
       client.from("crm_companies").select("id,name,status").ilike("name", ql).limit(4),
       client.from("crm_contacts").select("id,first_name,last_name,email").or(`first_name.ilike.${ql},last_name.ilike.${ql},email.ilike.${ql}`).limit(4),
       client.from("crm_leads").select("id,title,status").ilike("title", ql).limit(4),
       client.from("crm_tasks").select("id,title,status").ilike("title", ql).limit(4),
+      client.from("crm_company_conversations").select("id,company_id,method,occurred_at,summary,our_attendees,their_attendees").or(`summary.ilike.${ql},our_attendees.ilike.${ql},their_attendees.ilike.${ql}`).order("occurred_at", { ascending: false }).limit(4),
     ]);
 
+    const methodLabels = { call:"Phone Call", email:"Email", meeting:"Meeting", video_call:"Video Call", in_person:"In Person", other:"Other" };
     const sections = [
-      { label: "Companies", icon: "🏢", items: companies.data || [], href: r => `/systems/crm/company-detail.html?id=${r.id}`, name: r => r.name, sub: r => r.status },
-      { label: "Contacts",  icon: "👥", items: contacts.data  || [], href: r => `/systems/crm/contacts.html?search=${encodeURIComponent(r.first_name+" "+r.last_name)}`, name: r => r.first_name+" "+r.last_name, sub: r => r.email },
-      { label: "Leads",     icon: "🎯", items: leadsRes.data  || [], href: r => `/systems/crm/leads.html?search=${encodeURIComponent(r.title)}`, name: r => r.title, sub: r => r.status },
-      { label: "Tasks",     icon: "✅", items: tasks.data     || [], href: r => `/systems/crm/tasks.html?search=${encodeURIComponent(r.title)}`, name: r => r.title, sub: r => r.status },
+      { label: "Companies",     icon: "🏢", items: companies.data || [], href: r => `/systems/crm/company-detail.html?id=${r.id}`, name: r => r.name, sub: r => r.status },
+      { label: "Contacts",      icon: "👥", items: contacts.data  || [], href: r => `/systems/crm/contacts.html?search=${encodeURIComponent(r.first_name+" "+r.last_name)}`, name: r => r.first_name+" "+r.last_name, sub: r => r.email },
+      { label: "Leads",         icon: "🎯", items: leadsRes.data  || [], href: r => `/systems/crm/leads.html?search=${encodeURIComponent(r.title)}`, name: r => r.title, sub: r => r.status },
+      { label: "Tasks",         icon: "✅", items: tasks.data     || [], href: r => `/systems/crm/tasks.html?search=${encodeURIComponent(r.title)}`, name: r => r.title, sub: r => r.status },
+      { label: "Conversations", icon: "💬", items: convs.data     || [], href: r => `/systems/crm/company-detail.html?id=${r.company_id}`, name: r => `${methodLabels[r.method]||r.method} — ${(r.summary||"").slice(0,60)}${(r.summary||"").length>60?"…":""}`, sub: r => new Date(r.occurred_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) },
     ].filter(s => s.items.length > 0);
 
     if (!sections.length) {
