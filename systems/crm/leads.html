@@ -60,6 +60,7 @@ initTheme();
 
 let profile, tier, allLeads = [], companiesList = [], contactsList = [], staffList = [];
 const selectedIds = new Set();
+const hasBulk = () => ["business","enterprise"].includes(tier);
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -73,6 +74,9 @@ try {
   ]);
   await loadAndRender();
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+// Hide bulk bar entirely for non-business tiers
+if (!hasBulk()) document.getElementById("bulkBar").remove();
 
 // ── Bulk bar ──────────────────────────────────────────────────
 function updateBulkBar() {
@@ -167,7 +171,7 @@ function renderTable(rows) {
         <table class="tbl">
           <thead>
             <tr>
-              <th style="width:36px"><input type="checkbox" id="selectAll" title="Select all"/></th>
+              ${hasBulk() ? `<th style="width:36px"><input type="checkbox" id="selectAll" title="Select all"/></th>` : ""}
               <th>Lead</th>
               <th>Company</th>
               <th>Status</th>
@@ -181,7 +185,7 @@ function renderTable(rows) {
           </thead>
           <tbody>
             ${rows.length === 0
-              ? `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">🎯</div><h3>No leads yet</h3><p>Create your first lead to start tracking opportunities.</p></div></td></tr>`
+              ? `<tr><td colspan="${hasBulk()?10:9}"><div class="empty-state"><div class="empty-icon">🎯</div><h3>No leads yet</h3><p>Create your first lead to start tracking opportunities.</p></div></td></tr>`
               : rows.map(l => leadRow(l)).join("")}
           </tbody>
         </table>
@@ -194,7 +198,7 @@ function renderTable(rows) {
   document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteLead(b.dataset.id)));
 
-  // Checkbox logic
+  // Checkbox logic (business+ only)
   document.getElementById("selectAll")?.addEventListener("change", e => {
     document.querySelectorAll(".lead-cb").forEach(cb => {
       cb.checked = e.target.checked;
@@ -222,7 +226,7 @@ function leadRow(l) {
   const staff = staffList.find(s => s.id === l.assigned_to);
   const probColor = l.probability >= 70 ? "var(--good)" : l.probability >= 40 ? "var(--warn)" : "var(--bad)";
   return `<tr>
-    <td><input type="checkbox" class="lead-cb" data-id="${l.id}"/></td>
+    ${hasBulk() ? `<td><input type="checkbox" class="lead-cb" data-id="${l.id}"/></td>` : ""}
     <td>
       <div style="font-weight:600">${esc(l.title)}</div>
       ${tierHasFeature(tier, "lead_scoring") && l.lead_score ? `<div class="tbl-muted">Score: ${l.lead_score}</div>` : ""}
