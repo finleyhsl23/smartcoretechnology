@@ -1,28 +1,20 @@
 import { sb } from "/systems/crm/shared/supabase.js";
+import { getProfile } from "/systems/crm/shared/auth.js";
 
-// Trigger a CRM workflow command (e.g. company_status_changed, company_created).
-// Looks up any matching automation rules for the tenant and runs them.
-export async function triggerCommand(tenantId, trigger, payload = {}) {
+export async function triggerCommand(tenantId, triggerType, { triggerValue, triggerField, ctx } = {}) {
   try {
-    const { data: rules } = await sb()
-      .from("crm_automation_rules")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .eq("trigger", trigger)
-      .eq("enabled", true);
-
-    if (!rules?.length) return;
-
-    for (const rule of rules) {
-      await sb().from("crm_automation_log").insert({
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session?.access_token) return;
+    await fetch('/api/crm/commands-run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({
         tenant_id: tenantId,
-        rule_id: rule.id,
-        trigger,
-        payload,
-        ran_at: new Date().toISOString(),
-      }).then(() => {}).catch(() => {});
-    }
-  } catch (_) {
-    // Automation tables may not exist yet — fail silently
-  }
+        trigger_type: triggerType,
+        trigger_value: triggerValue,
+        trigger_field: triggerField,
+        ctx: ctx || {},
+      }),
+    });
+  } catch (_) {}
 }

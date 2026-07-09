@@ -33,6 +33,7 @@
 <script type="module">
 import { requireCRMAccess } from "/systems/crm/shared/auth.js?v=3";
 import { contacts, companies } from "/systems/crm/shared/api.js";
+import { triggerCommand } from "/systems/crm/shared/commands.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmtDate, toast, confirm, loading, setInner, makeCombo } from "/systems/crm/shared/ui.js";
@@ -233,8 +234,15 @@ function openModal(id) {
         status: document.getElementById("mStatus").value,
         notes: document.getElementById("mNotes").value.trim() || null,
       };
-      if (c) await contacts.update(c.id, fields);
-      else await contacts.create(fields);
+      if (c) {
+        await contacts.update(c.id, fields);
+      } else {
+        const newContact = await contacts.create(fields);
+        const coName = companiesList?.find(x => x.id === compCombo.getValue())?.name || '';
+        triggerCommand(profile.company_id, 'contact_created', {
+          ctx: { contact_name: (fields.first_name + ' ' + fields.last_name).trim(), company_name: coName, company_id: compCombo.getValue() || '' },
+        });
+      }
       overlay.remove();
       toast("ok", c ? "Contact updated" : "Contact added");
       await loadAndRender();

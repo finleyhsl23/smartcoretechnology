@@ -105,6 +105,7 @@
 
 <script type="module">
 import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
+import { triggerCommand } from "/systems/crm/shared/commands.js";
 import { sb } from "/systems/crm/shared/supabase.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
@@ -311,6 +312,13 @@ function openModal(project = null) {
         const { error } = await sb().from("crm_projects").update(fields).eq("id", project.id);
         if (error) throw error;
         toast("ok","Project updated");
+        if (fields.status && fields.status !== project.status) {
+          const coName = companiesList?.find(c => c.id === compCombo.getValue())?.name || '';
+          triggerCommand(profile.company_id, 'project_status_changed', {
+            triggerValue: fields.status,
+            ctx: { project_name: name, company_name: coName, trigger_value: fields.status, company_id: compCombo.getValue() || '' },
+          });
+        }
       } else {
         const { error } = await sb().from("crm_projects").insert({ ...fields, tenant_id: emp.company_id, created_by: session.user.id });
         if (error) throw error;

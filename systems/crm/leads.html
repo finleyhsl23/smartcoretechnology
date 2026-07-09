@@ -52,6 +52,7 @@
 <script type="module">
 import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
 import { leads, companies, contacts, getStaff } from "/systems/crm/shared/api.js";
+import { triggerCommand } from "/systems/crm/shared/commands.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmt, fmtDate, toast, confirm, leadBadge, loading, setInner, makeCombo } from "/systems/crm/shared/ui.js";
@@ -376,8 +377,22 @@ function openModal(id) {
         notes: document.getElementById("mNotes").value.trim() || null,
         lost_reason: document.getElementById("mLostReason")?.value.trim() || null,
       };
-      if (l) await leads.update(l.id, fields);
-      else await leads.create(fields);
+      if (l) {
+        await leads.update(l.id, fields);
+        if (fields.status && fields.status !== l.status) {
+          const coName = companiesList.find(c => c.id === compCombo.getValue())?.name || '';
+          triggerCommand(profile.company_id, 'lead_status_changed', {
+            triggerValue: fields.status,
+            ctx: { lead_title: fields.title, company_name: coName, trigger_value: fields.status, lead_id: l.id, company_id: compCombo.getValue() || '' },
+          });
+        }
+      } else {
+        const newLead = await leads.create(fields);
+        const coName = companiesList.find(c => c.id === compCombo.getValue())?.name || '';
+        triggerCommand(profile.company_id, 'lead_created', {
+          ctx: { lead_title: fields.title, company_name: coName, lead_id: newLead?.id || '', company_id: compCombo.getValue() || '' },
+        });
+      }
       overlay.remove();
       toast("ok", l ? "Lead updated" : "Lead created");
       await loadAndRender();

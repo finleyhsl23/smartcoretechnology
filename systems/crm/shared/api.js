@@ -430,3 +430,17 @@ export async function getStaff() {
   if (error) throw error;
   return data || [];
 }
+
+// ── Commands trigger helper ─────────────────────────────────
+export async function fireTrigger(triggerType, ctx = {}) {
+  try {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session?.access_token) return;
+    const p = await getProfile();
+    await fetch('/api/crm/commands-run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ tenant_id: p.company_id, trigger_type: triggerType, ctx }),
+    });
+  } catch (_) {}
+}

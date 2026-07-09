@@ -29,6 +29,7 @@
 <script type="module">
 import { requireCRMAccess } from "/systems/crm/shared/auth.js?v=3";
 import { tasks, companies, leads, getStaff } from "/systems/crm/shared/api.js";
+import { triggerCommand } from "/systems/crm/shared/commands.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, fmtDateTime, toast, confirm, taskPriorityBadge, taskStatusBadge, loading, setInner, makeCombo } from "/systems/crm/shared/ui.js";
@@ -256,8 +257,14 @@ function openModal(id) {
 
 async function completeTask(id) {
   try {
+    const task = allTasks.find(t => t.id === id);
     await tasks.complete(id);
     toast("ok","Task completed");
+    if (task) {
+      triggerCommand(profile.company_id, 'task_completed', {
+        ctx: { task_title: task.title, company_id: task.crm_company_id || '', company_name: task.crm_companies?.name || '' },
+      });
+    }
     await loadAndRender();
   } catch(e) { toast("bad","Error",e.message); }
 }

@@ -180,6 +180,40 @@ export async function onRequestPost(context) {
               body: JSON.stringify({ trigger_type, trigger_value, trigger_field, context: triggerCtx }),
             });
           }
+        } else if (cmd.action_type === 'create_task') {
+          const ctx = { ...triggerCtx, trigger_value };
+          function fill(s) { return (s||'').replace(/\{\{(\w+)\}\}/g, (_, k) => String(ctx[k] ?? '')); }
+          const dueDate = cfg.task_due_days
+            ? new Date(Date.now() + cfg.task_due_days * 86400000).toISOString().split('T')[0]
+            : null;
+          await fetch(`${SUPABASE_URL}/rest/v1/crm_tasks`, {
+            method: 'POST',
+            headers: { ...svcHdr, Prefer: 'return=minimal' },
+            body: JSON.stringify({
+              tenant_id,
+              title: fill(cfg.task_title || 'Follow-up task'),
+              notes: cfg.task_notes ? fill(cfg.task_notes) : null,
+              due_date: dueDate,
+              crm_company_id: triggerCtx.company_id || null,
+              crm_lead_id: triggerCtx.lead_id || null,
+              status: 'pending',
+              priority: 'medium',
+            }),
+          });
+        } else if (cmd.action_type === 'add_note') {
+          const ctx = { ...triggerCtx, trigger_value };
+          function fill(s) { return (s||'').replace(/\{\{(\w+)\}\}/g, (_, k) => String(ctx[k] ?? '')); }
+          await fetch(`${SUPABASE_URL}/rest/v1/crm_activities`, {
+            method: 'POST',
+            headers: { ...svcHdr, Prefer: 'return=minimal' },
+            body: JSON.stringify({
+              tenant_id,
+              type: 'note',
+              title: fill(cfg.note_content || 'Automated note'),
+              crm_company_id: triggerCtx.company_id || null,
+              crm_lead_id: triggerCtx.lead_id || null,
+            }),
+          });
         }
       } catch(e) { status = 'error'; error = e.message; }
 
