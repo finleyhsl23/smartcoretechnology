@@ -192,7 +192,7 @@
 
 <script type="module">
 import { requireCRMAccess } from "/systems/crm/shared/auth.js?v=3";
-import { leads } from "/systems/crm/shared/api.js";
+import { leads, getStaff } from "/systems/crm/shared/api.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, toast } from "/systems/crm/shared/ui.js";
@@ -219,8 +219,9 @@ function initials(name) {
   return name.split(" ").slice(0,2).map(w=>w[0]).join("").toUpperCase();
 }
 
-let profile, tier, allLeads = [];
+let profile, tier, allLeads = [], staffList = [];
 let draggedId = null;
+let filterAssignee = "";
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -231,15 +232,19 @@ try {
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
 async function load() {
-  const res = await leads.list({ limit: 500 });
+  const [res, staff] = await Promise.all([leads.list({ limit: 500 }), getStaff()]);
   allLeads = res.data;
+  staffList = staff;
   renderBoard();
 }
 
 function renderBoard() {
-  const active = allLeads.filter(l => !["won","lost"].includes(l.status));
+  const visibleLeads = filterAssignee
+    ? allLeads.filter(l => l.assigned_to === filterAssignee)
+    : allLeads;
+  const active = visibleLeads.filter(l => !["won","lost"].includes(l.status));
   const totalValue = active.reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
-  const wonValue = allLeads.filter(l=>l.status==="won").reduce((s,l)=>s+(Number(l.estimated_value)||0),0);
+  const wonValue = visibleLeads.filter(l=>l.status==="won").reduce((s,l)=>s+(Number(l.estimated_value)||0),0);
   const openCount = active.length;
 
   const content = document.getElementById("content");
@@ -250,6 +255,10 @@ function renderBoard() {
         <p>Drag cards between stages to update — click to open</p>
       </div>
       <div class="page-header-actions">
+        <select class="filter-select" id="assigneeFilter" style="min-width:160px">
+          <option value="">All Assignees</option>
+          ${staffList.map(s => `<option value="${s.id}" ${filterAssignee===s.id?"selected":""}>${esc(s.full_name)}</option>`).join("")}
+        </select>
         <button class="btn btn-primary" onclick="window.location.href='/systems/crm/leads.html'">+ New Lead</button>
       </div>
     </div>
@@ -273,8 +282,13 @@ function renderBoard() {
 
   const board = document.getElementById("pipelineBoard");
 
+  document.getElementById("assigneeFilter")?.addEventListener("change", e => {
+    filterAssignee = e.target.value;
+    renderBoard();
+  });
+
   for (const stage of STAGES) {
-    const stageLeads = allLeads.filter(l => {
+    const stageLeads = visibleLeads.filter(l => {
       const ps = (l.pipeline_stage || "").toLowerCase();
       const st = (l.status || "").toLowerCase();
       return ps === stage.id || st === stage.id;
