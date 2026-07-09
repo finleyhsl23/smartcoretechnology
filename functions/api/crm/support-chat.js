@@ -493,11 +493,11 @@ const EXTRA_TOOLS = [
 
 const LEADERBOARD_TOOL = {
   name: "list_leaderboard",
-  description: "Show the sales leaderboard — who has the most accepted quotes and highest value in a given period",
+  description: "Show the sales leaderboard — who has the most accepted quotes and highest value. Defaults to all-time if no days specified.",
   input_schema: {
     type: "object",
     properties: {
-      days: { type: "number", description: "Number of past days to include (default 30)" },
+      days: { type: "number", description: "Optionally filter to the past N days (e.g. 30, 90, 365). Omit for all-time." },
     },
   },
 };
@@ -829,9 +829,13 @@ async function executeTool(name, input, env, tenantId, userId) {
     }
 
     case 'list_leaderboard': {
-      const days = input.days || 30;
-      const since = new Date(Date.now() - days * 86400000).toISOString();
-      const data = await sbGet(env, 'crm_quotes', `?tenant_id=eq.${tenantId}&status=eq.accepted&accepted_at=gte.${since}&select=assigned_to,total`);
+      const days = input.days || null;
+      let quotesUrl = `?tenant_id=eq.${tenantId}&status=eq.accepted&select=assigned_to,total,accepted_at`;
+      if (days) {
+        const since = new Date(Date.now() - days * 86400000).toISOString();
+        quotesUrl += `&accepted_at=gte.${since}`;
+      }
+      const data = await sbGet(env, 'crm_quotes', quotesUrl);
       if (!Array.isArray(data)) return data;
       const map = {};
       for (const q of data) {
