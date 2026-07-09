@@ -1133,7 +1133,7 @@ function _renderGroupDetail(item) {
             <thead>
               <tr>
                 <th style="text-align:left;padding:10px 12px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border2)">Feature</th>
-                ${versions.map(v => `
+                ${[...versions].sort((a,b)=>(a.monthly_price||a.price||0)-(b.monthly_price||b.price||0)).map(v => `
                   <th style="padding:10px 12px;border-bottom:1px solid var(--border2);text-align:center;cursor:pointer;color:${v.id===selId?accent:'var(--muted)'};font-weight:700" onclick="selectGroupTier('${groupKey}','${v.id}')">
                     ${esc(v.version_label||v.name)}
                     ${v.id===selId?`<div style="width:6px;height:6px;border-radius:50%;background:${accent};margin:4px auto 0"></div>`:''}
@@ -1141,18 +1141,37 @@ function _renderGroupDetail(item) {
               </tr>
             </thead>
             <tbody>
-              ${[...new Map(versions.flatMap(v => (v.features||[]).map(f => [typeof f==='object'?f.name:f, f])).filter(([k])=>k)).values()].map(feat => {
-                const featName = typeof feat==='object' ? feat.name : feat;
-                return `<tr>
+              ${(() => {
+                // Sort tiers cheapest first so inheritance flows upward
+                const sorted = [...versions].sort((a,b) => (a.monthly_price||a.price||0) - (b.monthly_price||b.price||0));
+                // Build cumulative feature sets per tier (excluding "Everything in X" sentinel rows)
+                const isEverything = name => /^everything in/i.test(name||'');
+                const cumFeats = [];
+                const seen = new Set();
+                for (const v of sorted) {
+                  const prev = cumFeats.length ? new Set(cumFeats[cumFeats.length-1]) : new Set();
+                  for (const f of (v.features||[])) {
+                    const n = typeof f==='object' ? f.name : f;
+                    if (n && !isEverything(n)) prev.add(n);
+                  }
+                  cumFeats.push(prev);
+                }
+                // Collect all unique feature names in order they first appear (Lite → Enterprise)
+                const allFeats = [];
+                const featSeen = new Set();
+                for (const s of cumFeats) { for (const n of s) { if (!featSeen.has(n)) { featSeen.add(n); allFeats.push(n); } } }
+                // Render rows
+                return allFeats.map(featName => `<tr>
                   <td style="padding:9px 12px;color:var(--muted);border-bottom:1px solid var(--border2)">${esc(featName)}</td>
-                  ${versions.map(v => {
-                    const has = (v.features||[]).some(f => (typeof f==='object'?f.name:f)===featName);
+                  ${sorted.map((v,i) => {
+                    const has = cumFeats[i].has(featName);
+                    // map sorted index back to original versions order for correct column alignment
                     return `<td style="padding:9px 12px;text-align:center;border-bottom:1px solid var(--border2)">
                       ${has ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#30d158" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>` : `<span style="color:var(--muted2)">—</span>`}
                     </td>`;
                   }).join('')}
-                </tr>`;
-              }).join('')}
+                </tr>`).join('');
+              })()}
             </tbody>
           </table>
         </div>
