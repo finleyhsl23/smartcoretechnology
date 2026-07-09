@@ -644,6 +644,14 @@
       .toggle-mobile{display:flex}
       .toggle-desktop{display:none}
     }
+    /* ── Feature tooltip ─────────────────────────────────── */
+    .feat-tip{position:relative;display:inline-flex;align-items:center;gap:5px}
+    .feat-tip-icon{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:1px solid var(--muted2,rgba(255,255,255,.3));color:var(--muted2,rgba(255,255,255,.3));font-size:9px;font-weight:700;cursor:default;flex-shrink:0;line-height:1;font-style:normal}
+    .feat-tip-icon:hover{border-color:var(--accent,#3b82f6);color:var(--accent,#3b82f6)}
+    .feat-tip-bubble{position:absolute;left:calc(100% + 8px);top:50%;transform:translateY(-50%);background:#1a1a2e;border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px 11px;width:220px;font-size:12px;line-height:1.5;color:rgba(255,255,255,.8);z-index:999;pointer-events:none;opacity:0;transition:opacity .15s;white-space:normal;box-shadow:0 4px 16px rgba(0,0,0,.5)}
+    .feat-tip-icon:hover + .feat-tip-bubble,
+    .feat-tip:hover .feat-tip-bubble{opacity:1}
+    @media(max-width:600px){.feat-tip-bubble{left:auto;right:calc(100% + 8px)}}
   </style>
 </head>
 <body>
@@ -808,6 +816,13 @@ const state = {
 
 // ── Helpers ───────────────────────────────────────────────
 function esc(s)   { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// Render a feature object or string with optional ⓘ tooltip
+function featLabel(f) {
+  const name = typeof f==='object' ? (f.name||'') : String(f||'');
+  const desc = typeof f==='object' ? (f.desc||'') : '';
+  if (!desc) return esc(name);
+  return `<span class="feat-tip">${esc(name)}<i class="feat-tip-icon">i</i><span class="feat-tip-bubble">${esc(desc)}</span></span>`;
+}
 function fmt(n)   { return '£' + (+n||0).toFixed(2); }
 function fmtMo(n, forceYr) { return fmt(n) + (forceYr || (typeof forceYr === 'undefined' && state.billing === 'yearly') ? '/yr' : '/mo'); }
 function $id(id)  { return document.getElementById(id); }
@@ -1007,7 +1022,7 @@ function renderGrid() {
             <div class="card-name">${esc(m.name)}</div>
             <div class="card-desc">${esc(m.short_description||'')}</div>
             ${features.length ? `<div class="card-features">
-              ${features.map(f=>`<div class="card-feature"><div class="card-feature-dot" style="background:${accent}"></div><span>${esc(f)}</span></div>`).join('')}
+              ${features.map(f=>`<div class="card-feature"><div class="card-feature-dot" style="background:${accent}"></div><span>${featLabel(f)}</span></div>`).join('')}
             </div>` : ''}
           </div>
           <div class="card-footer">
@@ -1047,7 +1062,7 @@ function renderGrid() {
           <div class="card-name">${esc(m.name)}</div>
           <div class="card-desc">${esc(m.short_description||'')}</div>
           ${features.length ? `<div class="card-features">
-            ${features.map(f=>`<div class="card-feature"><div class="card-feature-dot" style="background:${accent}"></div><span>${esc(f)}</span></div>`).join('')}
+            ${features.map(f=>`<div class="card-feature"><div class="card-feature-dot" style="background:${accent}"></div><span>${featLabel(f)}</span></div>`).join('')}
           </div>` : ''}
         </div>
         <div class="card-footer">
@@ -1144,33 +1159,37 @@ function _renderGroupDetail(item) {
               ${(() => {
                 // Sort tiers cheapest first so inheritance flows upward
                 const sorted = [...versions].sort((a,b) => (a.monthly_price||a.price||0) - (b.monthly_price||b.price||0));
-                // Build cumulative feature sets per tier (excluding "Everything in X" sentinel rows)
                 const isEverything = name => /^everything in/i.test(name||'');
+                // Build cumulative feature maps {name -> desc} per tier
                 const cumFeats = [];
-                const seen = new Set();
                 for (const v of sorted) {
-                  const prev = cumFeats.length ? new Set(cumFeats[cumFeats.length-1]) : new Set();
+                  const prev = cumFeats.length ? new Map(cumFeats[cumFeats.length-1]) : new Map();
                   for (const f of (v.features||[])) {
                     const n = typeof f==='object' ? f.name : f;
-                    if (n && !isEverything(n)) prev.add(n);
+                    const d = typeof f==='object' ? (f.desc||'') : '';
+                    if (n && !isEverything(n)) prev.set(n, d);
                   }
                   cumFeats.push(prev);
                 }
-                // Collect all unique feature names in order they first appear (Lite → Enterprise)
+                // Collect all unique features in order they first appear (Lite → Enterprise)
                 const allFeats = [];
                 const featSeen = new Set();
-                for (const s of cumFeats) { for (const n of s) { if (!featSeen.has(n)) { featSeen.add(n); allFeats.push(n); } } }
+                for (const m of cumFeats) { for (const [n,d] of m) { if (!featSeen.has(n)) { featSeen.add(n); allFeats.push([n,d]); } } }
                 // Render rows
-                return allFeats.map(featName => `<tr>
-                  <td style="padding:9px 12px;color:var(--muted);border-bottom:1px solid var(--border2)">${esc(featName)}</td>
+                return allFeats.map(([featName, featDesc]) => {
+                  const nameCell = featDesc
+                    ? `<span class="feat-tip">${esc(featName)}<i class="feat-tip-icon">i</i><span class="feat-tip-bubble">${esc(featDesc)}</span></span>`
+                    : esc(featName);
+                  return `<tr>
+                  <td style="padding:9px 12px;color:var(--muted);border-bottom:1px solid var(--border2)">${nameCell}</td>
                   ${sorted.map((v,i) => {
                     const has = cumFeats[i].has(featName);
-                    // map sorted index back to original versions order for correct column alignment
                     return `<td style="padding:9px 12px;text-align:center;border-bottom:1px solid var(--border2)">
                       ${has ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#30d158" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>` : `<span style="color:var(--muted2)">—</span>`}
                     </td>`;
                   }).join('')}
-                </tr>`).join('');
+                </tr>`;
+                }).join('');
               })()}
             </tbody>
           </table>
@@ -1337,7 +1356,7 @@ function openDetail(id) {
           <div class="feat-grid">
             ${features.map(f=>`<div class="feat-item">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:2px"><path d="M5 13l4 4L19 7" stroke="#30d158" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              <span>${esc(f)}</span>
+              <span>${featLabel(f)}</span>
             </div>`).join('')}
           </div>
         </div>` : ''}
