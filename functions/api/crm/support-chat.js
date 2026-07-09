@@ -560,6 +560,18 @@ async function sbDelete(env, table, id) {
 
 // ── Tool execution ──────────────────────────────────────────
 
+async function logActivity(env, tenantId, userId, type, title, companyId) {
+  try {
+    await sbPost(env, 'crm_activities', {
+      tenant_id: tenantId,
+      created_by: userId,
+      type,
+      title,
+      crm_company_id: companyId || null,
+    });
+  } catch (_) {}
+}
+
 async function executeTool(name, input, env, tenantId, userId) {
   const base = { tenant_id: tenantId, created_by: userId };
 
@@ -574,7 +586,8 @@ async function executeTool(name, input, env, tenantId, userId) {
     case 'create_company': {
       const data = await sbPost(env, 'crm_companies', { ...base, ...input });
       const r = Array.isArray(data) ? data[0] : data;
-      return r?.id ? { ok: true, id: r.id, name: r.name } : { error: r?.message || JSON.stringify(r) };
+      if (r?.id) { await logActivity(env, tenantId, userId, 'company_created', r.name, r.id); return { ok: true, id: r.id, name: r.name }; }
+      return { error: r?.message || JSON.stringify(r) };
     }
     case 'update_company': {
       const { id, ...fields } = input;
@@ -594,7 +607,8 @@ async function executeTool(name, input, env, tenantId, userId) {
     case 'create_contact': {
       const data = await sbPost(env, 'crm_contacts', { ...base, ...input });
       const r = Array.isArray(data) ? data[0] : data;
-      return r?.id ? { ok: true, id: r.id, name: `${r.first_name} ${r.last_name}` } : { error: r?.message || JSON.stringify(r) };
+      if (r?.id) { await logActivity(env, tenantId, userId, 'contact_added', `${r.first_name} ${r.last_name}`, input.crm_company_id || null); return { ok: true, id: r.id, name: `${r.first_name} ${r.last_name}` }; }
+      return { error: r?.message || JSON.stringify(r) };
     }
     case 'update_contact': {
       const { id, ...fields } = input;
@@ -615,12 +629,18 @@ async function executeTool(name, input, env, tenantId, userId) {
     case 'create_lead': {
       const data = await sbPost(env, 'crm_leads', { ...base, status: 'new', pipeline_stage: 'new', ...input });
       const r = Array.isArray(data) ? data[0] : data;
-      return r?.id ? { ok: true, id: r.id, title: r.title } : { error: r?.message || JSON.stringify(r) };
+      if (r?.id) { await logActivity(env, tenantId, userId, 'lead_created', r.title, input.crm_company_id || null); return { ok: true, id: r.id, title: r.title }; }
+      return { error: r?.message || JSON.stringify(r) };
     }
     case 'update_lead': {
       const { id, ...fields } = input;
       const r = await sbPatch(env, 'crm_leads', id, { ...fields, updated_at: new Date().toISOString() });
-      return r?.id ? { ok: true, id: r.id } : { error: r?.message || JSON.stringify(r) };
+      if (r?.id) {
+        if (fields.status === 'won') await logActivity(env, tenantId, userId, 'deal_won', r.title || `Lead ${id}`, r.crm_company_id || null);
+        else if (fields.status === 'lost') await logActivity(env, tenantId, userId, 'deal_lost', r.title || `Lead ${id}`, r.crm_company_id || null);
+        return { ok: true, id: r.id };
+      }
+      return { error: r?.message || JSON.stringify(r) };
     }
     case 'delete_lead':
       return sbDelete(env, 'crm_leads', input.id);
@@ -640,7 +660,8 @@ async function executeTool(name, input, env, tenantId, userId) {
     case 'create_task': {
       const data = await sbPost(env, 'crm_tasks', { ...base, status: 'pending', priority: 'medium', ...input });
       const r = Array.isArray(data) ? data[0] : data;
-      return r?.id ? { ok: true, id: r.id, title: r.title } : { error: r?.message || JSON.stringify(r) };
+      if (r?.id) { await logActivity(env, tenantId, userId, 'task_created', r.title, input.crm_company_id || null); return { ok: true, id: r.id, title: r.title }; }
+      return { error: r?.message || JSON.stringify(r) };
     }
     case 'update_task': {
       const { id, ...fields } = input;
@@ -660,7 +681,8 @@ async function executeTool(name, input, env, tenantId, userId) {
     case 'create_event': {
       const data = await sbPost(env, 'crm_events', { ...base, type: 'meeting', ...input });
       const r = Array.isArray(data) ? data[0] : data;
-      return r?.id ? { ok: true, id: r.id, title: r.title, start_time: r.start_time } : { error: r?.message || JSON.stringify(r) };
+      if (r?.id) { await logActivity(env, tenantId, userId, 'meeting', r.title, input.crm_company_id || null); return { ok: true, id: r.id, title: r.title, start_time: r.start_time }; }
+      return { error: r?.message || JSON.stringify(r) };
     }
     case 'update_event': {
       const { id, ...fields } = input;
@@ -723,6 +745,8 @@ async function executeTool(name, input, env, tenantId, userId) {
           crm_company_id: input.company_id,
         });
       }
+      const methodToType = { call: 'call', email: 'email', meeting: 'meeting', video: 'meeting' };
+      await logActivity(env, tenantId, userId, methodToType[input.method] || 'note', `${input.method || 'Conversation'} logged`, input.company_id || null);
       return { ok: true, id: r.id };
     }
 
@@ -749,7 +773,8 @@ async function executeTool(name, input, env, tenantId, userId) {
     case 'create_project': {
       const data = await sbPost(env, 'crm_projects', { ...base, status: 'active', ...input });
       const r = Array.isArray(data) ? data[0] : data;
-      return r?.id ? { ok: true, id: r.id, name: r.name } : { error: r?.message || JSON.stringify(r) };
+      if (r?.id) { await logActivity(env, tenantId, userId, 'project_created', r.name, input.crm_company_id || null); return { ok: true, id: r.id, name: r.name }; }
+      return { error: r?.message || JSON.stringify(r) };
     }
     case 'update_project': {
       const { id, ...fields } = input;
@@ -799,7 +824,8 @@ async function executeTool(name, input, env, tenantId, userId) {
     case 'create_ticket': {
       const data = await sbPost(env, 'crm_tickets', { ...base, status: 'open', priority: 'medium', ...input });
       const r = Array.isArray(data) ? data[0] : data;
-      return r?.id ? { ok: true, id: r.id, subject: r.subject } : { error: r?.message || JSON.stringify(r) };
+      if (r?.id) { await logActivity(env, tenantId, userId, 'ticket_created', r.subject, input.crm_company_id || null); return { ok: true, id: r.id, subject: r.subject }; }
+      return { error: r?.message || JSON.stringify(r) };
     }
 
     case 'list_leaderboard': {
