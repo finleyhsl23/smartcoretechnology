@@ -93,6 +93,7 @@ function renderSettings() {
       <button class="tab" data-tab="plan">Plan &amp; Features</button>
       <button class="tab" data-tab="branding">Branding</button>
       <button class="tab" data-tab="pipeline">Pipeline Stages</button>
+      <button class="tab" data-tab="users">Users &amp; Seats</button>
       <button class="tab" data-tab="appearance">Appearance</button>
     </div>
 
@@ -168,6 +169,20 @@ function renderSettings() {
             <button class="btn btn-primary" id="addStageBtn">+ Add Stage</button>
             <button class="btn btn-success" id="saveStagesBtn">Save Changes</button>
           </div>` : `<div style="margin-top:12px"><span class="badge badge-yellow">Custom stages available on Enterprise plan</span></div>`}
+        </div>
+      </div>
+    </div>
+
+    <!-- Users & Seats Tab -->
+    <div id="tab-users" class="hidden">
+      <div class="card">
+        <div class="card-header">
+          <h2>CRM Users &amp; Seats</h2>
+          <div id="seatsBadge" class="badge badge-blue">Loading…</div>
+        </div>
+        <div class="card-body">
+          <p class="text-muted" style="margin-bottom:16px">Control which employees can access SmartCore CRM. Owners always have access. Only admins and owners can manage seats.</p>
+          <div id="seatsUserList"><div class="loading-spinner"><div class="spinner"></div></div></div>
         </div>
       </div>
     </div>
@@ -426,16 +441,103 @@ function buildTierTable() {
   return html;
 }
 
+const SEAT_LIMITS = { lite: 2, professional: 10, business: 25, enterprise: 50 };
+
+async function loadSeats() {
+  const listEl = document.getElementById("seatsUserList");
+  const badgeEl = document.getElementById("seatsBadge");
+  if (!listEl) return;
+  listEl.innerHTML = `<div class="loading-spinner"><div class="spinner"></div></div>`;
+  try {
+    const { data: { session } } = await sb().auth.getSession();
+    const res = await fetch("/api/crm/seats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: "list" }),
+    });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+
+    const isManager = profile.role === "owner" || profile.role === "admin";
+    const limit = d.seat_limit;
+    const used = d.seats_used;
+
+    if (badgeEl) {
+      const pct = used / limit;
+      const cls = pct >= 1 ? "badge-red" : pct >= 0.8 ? "badge-yellow" : "badge-green";
+      badgeEl.className = `badge ${cls}`;
+      badgeEl.textContent = `${used} / ${limit} seats used`;
+    }
+
+    if (!d.employees?.length) {
+      listEl.innerHTML = `<div class="empty-state"><p>No employees found.</p></div>`;
+      return;
+    }
+
+    listEl.innerHTML = d.employees.map(emp => {
+      const isOwner = emp.role === "owner";
+      const checked = emp.has_seat || isOwner;
+      const disabled = isOwner || !isManager || (!emp.has_seat && used >= limit);
+      const label = isOwner ? "Owner (always has access)" : emp.has_seat ? "Has seat" : (used >= limit ? "Seat limit reached" : "No seat");
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--card2);border-radius:var(--r2);border:1px solid var(--line);margin-bottom:8px">
+        <div>
+          <div style="font-weight:600;font-size:14px">${esc(emp.full_name || emp.work_email || "—")}</div>
+          <div class="text-sm text-muted">${esc(emp.work_email || "")} · ${esc(emp.role || "")}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="text-sm text-muted">${label}</span>
+          ${isManager && !isOwner ? `
+          <label style="display:flex;align-items:center;gap:6px;cursor:${disabled && !emp.has_seat ? "not-allowed" : "pointer"}">
+            <div style="position:relative;width:40px;height:22px">
+              <input type="checkbox" class="seat-toggle" data-employee-id="${emp.id}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""} style="opacity:0;width:0;height:0;position:absolute">
+              <div class="seat-track" style="position:absolute;inset:0;border-radius:99px;background:${checked ? "var(--blue)" : "var(--line)"};transition:background .2s"></div>
+              <div class="seat-thumb" style="position:absolute;top:3px;left:${checked ? "21px" : "3px"};width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>
+            </div>
+          </label>` : ""}
+        </div>
+      </div>`;
+    }).join("");
+
+    // Wire toggles
+    listEl.querySelectorAll(".seat-toggle").forEach(chk => {
+      chk.addEventListener("change", async (e) => {
+        const empId = chk.dataset.employeeId;
+        const action = e.target.checked ? "grant" : "revoke";
+        chk.disabled = true;
+        try {
+          const { data: { session: s } } = await sb().auth.getSession();
+          const r = await fetch("/api/crm/seats", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.access_token}` },
+            body: JSON.stringify({ action, employee_id: empId }),
+          });
+          const rd = await r.json();
+          if (rd.error) throw new Error(rd.error);
+          toast("ok", action === "grant" ? "Seat granted" : "Seat revoked");
+          await loadSeats();
+        } catch(err) {
+          toast("bad", "Error", err.message);
+          e.target.checked = !e.target.checked;
+          chk.disabled = false;
+        }
+      });
+    });
+  } catch(err) {
+    listEl.innerHTML = `<div class="empty-state"><p class="text-muted">Failed to load seat data: ${esc(err.message)}</p></div>`;
+  }
+}
+
 function bindEvents() {
   // Tabs
   document.querySelectorAll(".tab").forEach(tab => {
     tab.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
-      ["general","plan","branding","pipeline","templates","appearance"].forEach(t => {
+      ["general","plan","branding","pipeline","templates","users","appearance"].forEach(t => {
         const el = document.getElementById(`tab-${t}`);
         if (el) el.classList.toggle("hidden", t !== tab.dataset.tab);
       });
+      if (tab.dataset.tab === "users") loadSeats();
     });
   });
 
