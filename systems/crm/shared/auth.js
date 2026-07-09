@@ -97,7 +97,42 @@ export async function requireCRMAccess() {
     throw new Error("CRM not enabled");
   }
 
-  return { profile, tier: mod.tier || "lite" };
+  const resolvedTier = mod.tier || "lite";
+
+  // Seat check — owners always have access; everyone else must have a seat
+  if (profile.role !== "owner") {
+    const session = await sb().auth.getSession();
+    const token = session?.data?.session?.access_token;
+    if (token) {
+      try {
+        const seatRes = await fetch("/api/crm/seats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ action: "check", employee_id: profile.id }),
+        });
+        const seatData = await seatRes.json();
+        if (!seatData.has_seat) {
+          wireEscapeButtons();
+          document.body.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#05081a;color:#e9f0ff;font-family:system-ui">
+              <div style="text-align:center;max-width:420px;padding:24px">
+                <div style="font-size:48px;margin-bottom:16px">🪑</div>
+                <h2 style="font-size:20px;margin-bottom:8px">No CRM Seat Assigned</h2>
+                <p style="color:rgba(233,240,255,.6);margin-bottom:20px">You haven't been given access to SmartCore CRM yet. Ask your admin or owner to assign you a seat.</p>
+                <a href="/modules/" style="background:#1e3a8a;color:#fff;padding:10px 24px;border-radius:99px;text-decoration:none;font-weight:600;margin-right:8px">← Back to Modules</a>
+                <button onclick="(async()=>{await (await import('/systems/crm/shared/supabase.js')).sb().auth.signOut();window.location.href='/modules/';})()" style="background:#374151;color:#fff;padding:10px 24px;border-radius:99px;border:none;cursor:pointer;font-weight:600">Sign Out</button>
+              </div>
+            </div>`;
+          throw new Error("No CRM seat");
+        }
+      } catch (e) {
+        if (e.message === "No CRM seat") throw e;
+        // Network error — fail open so seat check doesn't lock out on transient errors
+      }
+    }
+  }
+
+  return { profile, tier: resolvedTier };
 }
 
 export async function getCRMSettings() {
