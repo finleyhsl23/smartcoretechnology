@@ -52,6 +52,7 @@ let _profile, _stats, _chartInstances = [];
 try {
   const { profile, tier } = await requireCRMAccess();
   _profile = profile;
+  _profile._tier = tier;
   const crmSettings = await getCRMSettings();
   renderNav("dashboard", profile, tier, crmSettings);
   initMobileNav();
@@ -61,6 +62,7 @@ try {
   const stats = await dashboardStats();
   _stats = stats;
   render(stats, tier, profile);
+  subscribeActivityFeed(profile.company_id);
 } catch(e) {
   if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) {
     document.getElementById("content").innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Error loading dashboard</h3><p>${esc(e.message)}</p></div>`;
@@ -240,6 +242,47 @@ new MutationObserver(() => {
     c.update();
   });
 }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+// Realtime: push new activities into the feed as they happen
+function subscribeActivityFeed(tenantId) {
+  sb().channel("dashboard_activity")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "crm_activities", filter: `tenant_id=eq.${tenantId}` }, async payload => {
+      const row = payload.new;
+      // Fetch company name if present
+      let companyName = null;
+      if (row.crm_company_id) {
+        const { data } = await sb().from("crm_companies").select("name").eq("id", row.crm_company_id).single();
+        companyName = data?.name || null;
+      }
+      let timeline = document.querySelector(".timeline");
+      if (!timeline) {
+        // Replace empty state with a timeline
+        const body = document.querySelector(".card:last-of-type .card-body");
+        if (body) { body.innerHTML = '<div class="timeline"></div>'; timeline = body.querySelector(".timeline"); }
+      }
+      if (!timeline) return;
+      const div = document.createElement("div");
+      div.className = "timeline-item";
+      div.style.animation = "fadeIn .3s ease";
+      div.innerHTML = activityItem({ ...row, crm_companies: companyName ? { name: companyName } : null });
+      timeline.prepend(div);
+      // Trim to 10 items
+      const items = timeline.querySelectorAll(".timeline-item");
+      if (items.length > 10) items[items.length - 1].remove();
+    })
+    .subscribe();
+}
+
+// Also refresh on page becoming visible (navigating back from another tab/page)
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState === "visible" && _profile) {
+    try {
+      const stats = await dashboardStats();
+      _stats = stats;
+      render(stats, _profile._tier, _profile);
+    } catch(_) {}
+  }
+});
 
 
 </script>
