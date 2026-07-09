@@ -127,7 +127,7 @@ export const TIER_FEATURES = {
     "dashboard","global_search",
     "companies","company_detail","contacts",
     "leads","pipeline","tasks",
-    "reminders","commands",
+    "reminders","commands","department_mgmt",
   ],
   professional: [
     "dashboard","global_search",
@@ -137,7 +137,7 @@ export const TIER_FEATURES = {
     "documents","reports","forecasting",
     "email_templates","leaderboard","support_tickets","newsletter",
     "products",
-    "reminders","commands",
+    "reminders","commands","department_mgmt",
   ],
   business: [
     "dashboard","global_search",
