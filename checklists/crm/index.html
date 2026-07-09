@@ -4,6 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>SmartCore CRM — Enterprise QA Checklist</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -26,292 +27,176 @@
     --sans: system-ui, -apple-system, sans-serif;
     --radius: 10px;
   }
-
   @media (prefers-color-scheme: light) {
     :root {
-      --bg: #f0f2f7;
-      --surface: #ffffff;
-      --surface2: #f7f8fc;
-      --border: #e1e5ef;
-      --border2: #d0d6e8;
-      --text: #111827;
-      --text2: #4b5563;
-      --muted: #9ca3af;
-      --accent-dim: rgba(79,142,247,.08);
-      --green-dim: rgba(34,197,94,.08);
+      --bg:#f0f2f7;--surface:#fff;--surface2:#f7f8fc;--border:#e1e5ef;
+      --border2:#d0d6e8;--text:#111827;--text2:#4b5563;--muted:#9ca3af;
+      --accent-dim:rgba(79,142,247,.08);--green-dim:rgba(34,197,94,.08);
     }
   }
   :root[data-theme="light"] {
-    --bg: #f0f2f7;
-    --surface: #ffffff;
-    --surface2: #f7f8fc;
-    --border: #e1e5ef;
-    --border2: #d0d6e8;
-    --text: #111827;
-    --text2: #4b5563;
-    --muted: #9ca3af;
-    --accent-dim: rgba(79,142,247,.08);
-    --green-dim: rgba(34,197,94,.08);
+    --bg:#f0f2f7;--surface:#fff;--surface2:#f7f8fc;--border:#e1e5ef;
+    --border2:#d0d6e8;--text:#111827;--text2:#4b5563;--muted:#9ca3af;
+    --accent-dim:rgba(79,142,247,.08);--green-dim:rgba(34,197,94,.08);
   }
   :root[data-theme="dark"] {
-    --bg: #0c0e14;
-    --surface: #13161f;
-    --surface2: #181b26;
-    --border: #1e2231;
-    --border2: #252a3a;
-    --text: #e2e6f0;
-    --text2: #9aa3b8;
-    --muted: #5a637a;
-    --accent-dim: rgba(79,142,247,.1);
-    --green-dim: rgba(34,197,94,.1);
+    --bg:#0c0e14;--surface:#13161f;--surface2:#181b26;--border:#1e2231;
+    --border2:#252a3a;--text:#e2e6f0;--text2:#9aa3b8;--muted:#5a637a;
+    --accent-dim:rgba(79,142,247,.1);--green-dim:rgba(34,197,94,.1);
   }
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    font-size: 14px;
-    line-height: 1.6;
-    min-height: 100vh;
-  }
+  body { background:var(--bg); color:var(--text); font-family:var(--sans); font-size:14px; line-height:1.6; min-height:100vh; }
 
-  /* Progress bar */
+  /* ── Progress bar ── */
   #progress-bar {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    z-index: 100;
-    padding: 12px 24px;
-    display: flex;
-    align-items: center;
-    gap: 16px;
+    position:fixed; top:0; left:0; right:0;
+    background:var(--surface); border-bottom:1px solid var(--border);
+    z-index:100; padding:12px 24px;
+    display:flex; align-items:center; gap:16px;
   }
-  .pb-label {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--muted);
-    letter-spacing: .06em;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-  .pb-track {
-    flex: 1;
-    height: 4px;
-    background: var(--border2);
-    border-radius: 99px;
-    overflow: hidden;
-  }
-  .pb-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--accent), var(--green));
-    border-radius: 99px;
-    transition: width .3s ease;
-    width: 0%;
-  }
-  .pb-count {
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--accent);
-    font-weight: 600;
-    white-space: nowrap;
-    min-width: 60px;
-    text-align: right;
-  }
-  .pb-actions {
-    display: flex;
-    gap: 8px;
-  }
+  .pb-label { font-family:var(--mono); font-size:11px; color:var(--muted); letter-spacing:.06em; text-transform:uppercase; white-space:nowrap; }
+  .pb-track { flex:1; height:4px; background:var(--border2); border-radius:99px; overflow:hidden; }
+  .pb-fill  { height:100%; background:linear-gradient(90deg,var(--accent),var(--green)); border-radius:99px; transition:width .3s ease; width:0%; }
+  .pb-count { font-family:var(--mono); font-size:12px; color:var(--accent); font-weight:600; white-space:nowrap; min-width:60px; text-align:right; }
+  .pb-actions { display:flex; gap:8px; }
   .pb-btn {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: .04em;
-    text-transform: uppercase;
-    background: var(--surface2);
-    border: 1px solid var(--border2);
-    color: var(--text2);
-    border-radius: 6px;
-    padding: 4px 10px;
-    cursor: pointer;
-    transition: border-color .15s, color .15s;
+    font-family:var(--mono); font-size:10px; letter-spacing:.04em; text-transform:uppercase;
+    background:var(--surface2); border:1px solid var(--border2); color:var(--text2);
+    border-radius:6px; padding:4px 10px; cursor:pointer; transition:border-color .15s, color .15s;
   }
-  .pb-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .pb-btn:hover { border-color:var(--accent); color:var(--accent); }
 
-  /* Main content */
-  main {
-    max-width: 860px;
-    margin: 0 auto;
-    padding: 80px 24px 80px;
+  /* ── Sync indicator ── */
+  #sync-badge {
+    display:flex; align-items:center; gap:6px;
+    font-family:var(--mono); font-size:10px; color:var(--muted);
+    letter-spacing:.04em; white-space:nowrap;
   }
+  #sync-dot {
+    width:6px; height:6px; border-radius:50%;
+    background:var(--muted); flex-shrink:0;
+    transition:background .3s;
+  }
+  #sync-dot.live    { background:var(--green); }
+  #sync-dot.syncing { background:var(--amber); animation:pulse .6s ease-in-out infinite alternate; }
+  #sync-dot.error   { background:var(--red); }
+  @keyframes pulse { to { opacity:.4; } }
 
-  header {
-    padding: 32px 0 36px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 32px;
+  /* ── Name prompt overlay ── */
+  #name-overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:500;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+    backdrop-filter:blur(4px);
   }
-  .header-eyebrow {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--accent);
-    letter-spacing: .1em;
-    text-transform: uppercase;
-    margin-bottom: 8px;
+  #name-box {
+    background:var(--surface); border:1px solid var(--border2);
+    border-radius:16px; padding:28px 24px; max-width:360px; width:100%;
+    box-shadow:0 16px 48px rgba(0,0,0,.4);
   }
-  h1 {
-    font-size: 26px;
-    font-weight: 700;
-    color: var(--text);
-    line-height: 1.2;
-    text-wrap: balance;
-    margin-bottom: 10px;
+  #name-box h2 { font-size:16px; font-weight:700; margin-bottom:6px; }
+  #name-box p  { font-size:13px; color:var(--text2); margin-bottom:16px; }
+  #name-input {
+    width:100%; padding:9px 12px; background:var(--surface2);
+    border:1px solid var(--border2); border-radius:8px;
+    color:var(--text); font-size:14px; outline:none; margin-bottom:12px;
+    transition:border-color .15s;
   }
-  .header-sub {
-    font-size: 13px;
-    color: var(--text2);
-    max-width: 500px;
+  #name-input:focus { border-color:var(--accent); }
+  #name-submit {
+    width:100%; padding:10px; background:var(--accent); color:#fff;
+    border:none; border-radius:8px; font-size:14px; font-weight:600;
+    cursor:pointer; transition:opacity .15s;
   }
+  #name-submit:hover { opacity:.9; }
 
-  /* Section */
-  .section {
-    margin-bottom: 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    background: var(--surface);
+  /* ── Who's here ── */
+  #presence-bar {
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    padding:8px 24px; background:var(--surface2); border-bottom:1px solid var(--border);
+    font-size:12px; color:var(--text2);
   }
-  .section-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 18px;
-    cursor: pointer;
-    user-select: none;
-    border-bottom: 1px solid transparent;
-    transition: background .12s;
+  .presence-label { color:var(--muted); font-size:11px; font-family:var(--mono); letter-spacing:.04em; text-transform:uppercase; }
+  .presence-chip {
+    display:inline-flex; align-items:center; gap:5px;
+    background:var(--accent-dim); color:var(--accent);
+    border:1px solid rgba(79,142,247,.2); border-radius:99px;
+    padding:2px 8px; font-size:11px; font-weight:600;
   }
-  .section-header:hover { background: var(--surface2); }
-  .section.open .section-header { border-bottom-color: var(--border); }
-  .section-icon {
-    font-size: 16px;
-    width: 28px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--accent-dim);
-    border-radius: 7px;
-    flex-shrink: 0;
-  }
-  .section-name {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text);
-    flex: 1;
-  }
-  .section-badge {
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--muted);
-    letter-spacing: .04em;
-  }
-  .section-badge.done { color: var(--green); }
-  .section-chevron {
-    color: var(--muted);
-    transition: transform .2s;
-    font-size: 12px;
-  }
-  .section.open .section-chevron { transform: rotate(180deg); }
+  .presence-dot { width:6px; height:6px; border-radius:50%; background:var(--green); }
 
-  .section-body {
-    display: none;
-  }
-  .section.open .section-body { display: block; }
+  /* ── Main ── */
+  main { max-width:860px; margin:0 auto; padding:80px 24px 80px; }
+  header { padding:32px 0 36px; border-bottom:1px solid var(--border); margin-bottom:32px; }
+  .header-eyebrow { font-family:var(--mono); font-size:11px; color:var(--accent); letter-spacing:.1em; text-transform:uppercase; margin-bottom:8px; }
+  h1 { font-size:26px; font-weight:700; line-height:1.2; text-wrap:balance; margin-bottom:10px; }
+  .header-sub { font-size:13px; color:var(--text2); max-width:500px; }
 
-  /* Test items */
-  .test-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 11px 18px;
-    border-bottom: 1px solid var(--border);
-    transition: background .1s;
-    cursor: pointer;
-  }
-  .test-item:last-child { border-bottom: none; }
-  .test-item:hover { background: var(--surface2); }
-  .test-item.checked { background: var(--green-dim); }
+  /* ── Sections ── */
+  .section { margin-bottom:12px; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; background:var(--surface); }
+  .section-header { display:flex; align-items:center; gap:12px; padding:14px 18px; cursor:pointer; user-select:none; border-bottom:1px solid transparent; transition:background .12s; }
+  .section-header:hover { background:var(--surface2); }
+  .section.open .section-header { border-bottom-color:var(--border); }
+  .section-icon { font-size:16px; width:28px; height:28px; display:flex; align-items:center; justify-content:center; background:var(--accent-dim); border-radius:7px; flex-shrink:0; }
+  .section-name { font-size:13px; font-weight:700; color:var(--text); flex:1; }
+  .section-badge { font-family:var(--mono); font-size:10px; color:var(--muted); letter-spacing:.04em; }
+  .section-badge.done { color:var(--green); }
+  .section-chevron { color:var(--muted); transition:transform .2s; font-size:12px; }
+  .section.open .section-chevron { transform:rotate(180deg); }
+  .section-body { display:none; }
+  .section.open .section-body { display:block; }
 
-  .test-cb {
-    width: 16px;
-    height: 16px;
-    border: 1.5px solid var(--border2);
-    border-radius: 4px;
-    flex-shrink: 0;
-    margin-top: 2px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: border-color .12s, background .12s;
-  }
-  .test-item.checked .test-cb {
-    background: var(--green);
-    border-color: var(--green);
-  }
-  .test-cb svg { display: none; }
-  .test-item.checked .test-cb svg { display: block; }
+  /* ── Test items ── */
+  .test-item { display:flex; align-items:flex-start; gap:12px; padding:11px 18px; border-bottom:1px solid var(--border); transition:background .1s; cursor:pointer; position:relative; }
+  .test-item:last-child { border-bottom:none; }
+  .test-item:hover { background:var(--surface2); }
+  .test-item.checked { background:var(--green-dim); }
+  .test-item.remote-flash { animation:flash .5s ease; }
+  @keyframes flash { 0%,100%{} 50%{background:rgba(79,142,247,.18);} }
 
-  .test-text {
-    flex: 1;
-    font-size: 13px;
-    color: var(--text2);
-    line-height: 1.5;
-  }
-  .test-item.checked .test-text {
-    color: var(--muted);
-    text-decoration: line-through;
-    text-decoration-color: var(--muted);
-  }
-  .test-tag {
-    font-family: var(--mono);
-    font-size: 9px;
-    letter-spacing: .06em;
-    text-transform: uppercase;
-    padding: 2px 6px;
-    border-radius: 4px;
-    flex-shrink: 0;
-    margin-top: 3px;
-  }
-  .tag-ent      { background: rgba(245,158,11,.12); color: var(--amber); }
-  .tag-biz      { background: rgba(34,197,94,.1);   color: var(--green); }
-  .tag-critical { background: rgba(239,68,68,.1);    color: var(--red);  }
+  .test-cb { width:16px; height:16px; border:1.5px solid var(--border2); border-radius:4px; flex-shrink:0; margin-top:2px; display:flex; align-items:center; justify-content:center; transition:border-color .12s, background .12s; }
+  .test-item.checked .test-cb { background:var(--green); border-color:var(--green); }
+  .test-cb svg { display:none; }
+  .test-item.checked .test-cb svg { display:block; }
 
-  /* Subsection label */
-  .sub-label {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    padding: 10px 18px 6px;
-    border-bottom: 1px solid var(--border);
-  }
+  .test-text { flex:1; font-size:13px; color:var(--text2); line-height:1.5; }
+  .test-item.checked .test-text { color:var(--muted); text-decoration:line-through; text-decoration-color:var(--muted); }
 
-  @media (max-width: 600px) {
-    #progress-bar { padding: 10px 14px; gap: 10px; }
-    .pb-label { display: none; }
-    .pb-btn { padding: 4px 8px; }
-    main { padding: 72px 14px 60px; }
-    .section-header { padding: 12px 14px; }
-    .test-item { padding: 10px 14px; }
+  .test-tag { font-family:var(--mono); font-size:9px; letter-spacing:.06em; text-transform:uppercase; padding:2px 6px; border-radius:4px; flex-shrink:0; margin-top:3px; }
+  .tag-ent      { background:rgba(245,158,11,.12); color:var(--amber); }
+  .tag-biz      { background:rgba(34,197,94,.1);   color:var(--green); }
+  .tag-critical { background:rgba(239,68,68,.1);    color:var(--red);  }
+
+  .item-who { position:absolute; right:10px; bottom:4px; font-size:10px; color:var(--muted); font-family:var(--mono); }
+
+  @media (max-width:600px) {
+    #progress-bar { padding:10px 14px; gap:10px; }
+    .pb-label { display:none; }
+    .pb-btn { padding:4px 8px; }
+    #presence-bar { padding:8px 14px; }
+    main { padding:100px 14px 60px; }
+    .section-header { padding:12px 14px; }
+    .test-item { padding:10px 14px; }
   }
 </style>
 </head>
 <body>
 
+<!-- Name prompt -->
+<div id="name-overlay">
+  <div id="name-box">
+    <h2>Who are you?</h2>
+    <p>Your name shows next to items you tick so the team can see who's testing what.</p>
+    <input id="name-input" type="text" placeholder="e.g. Finley" maxlength="32" autocomplete="off"/>
+    <button id="name-submit">Start testing →</button>
+  </div>
+</div>
+
+<!-- Top bar -->
 <div id="progress-bar">
   <span class="pb-label">QA Progress</span>
   <div class="pb-track"><div class="pb-fill" id="pbFill"></div></div>
   <span class="pb-count" id="pbCount">0 / 0</span>
+  <div id="sync-badge"><div id="sync-dot"></div><span id="sync-text">connecting…</span></div>
   <div class="pb-actions">
     <button class="pb-btn" onclick="expandAll()">Expand all</button>
     <button class="pb-btn" onclick="collapseAll()">Collapse all</button>
@@ -320,429 +205,608 @@
   </div>
 </div>
 
+<!-- Presence bar -->
+<div id="presence-bar" style="display:none">
+  <span class="presence-label">Online now</span>
+  <div id="presence-chips"></div>
+</div>
+
 <main>
   <header>
     <div class="header-eyebrow">SmartCore CRM — Enterprise</div>
     <h1>Full Feature QA Checklist</h1>
-    <div class="header-sub">Tick each item as you test it. Progress saves in your browser. All features are enterprise-tier — no gating applies.</div>
+    <div class="header-sub">Collaborative — changes sync live for everyone. Tick each item as you test it.</div>
   </header>
-
   <div id="sections"></div>
 </main>
 
 <script>
+const SUPABASE_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
 const SECTIONS = [
   {
-    icon: "🔐", name: "Auth & Access",
-    items: [
-      { text: "Sign in with valid credentials" },
-      { text: "Sign in with wrong password — correct error shown" },
-      { text: "Session persists on page refresh" },
-      { text: "Sign out clears session and redirects to login" },
-      { text: "Owner role sees full nav and settings" },
-      { text: "Admin role has expected access" },
-      { text: "Theme toggle (dark / light) persists across pages" },
-      { text: "Mobile hamburger nav opens and closes" },
+    icon:"🔐", name:"Auth & Access",
+    items:[
+      {text:"Sign in with valid credentials"},
+      {text:"Sign in with wrong password — correct error shown"},
+      {text:"Session persists on page refresh"},
+      {text:"Sign out clears session and redirects to login"},
+      {text:"Owner role sees full nav and settings"},
+      {text:"Admin role has expected access"},
+      {text:"Theme toggle (dark / light) persists across pages"},
+      {text:"Mobile hamburger nav opens and closes"},
     ]
   },
   {
-    icon: "📊", name: "Dashboard",
-    items: [
-      { text: "Page loads without errors" },
-      { text: "Stats tiles render correct values (open leads, tasks due, revenue)" },
-      { text: "Revenue forecast tile visible and accurate", tag: "pro+" },
-      { text: "Charts render correctly (no blank canvases)" },
-      { text: "Recent Activity feed shows correct entries" },
-      { text: "Upcoming Events widget is NOT visible", tag: "removed" },
-      { text: "Quick-action buttons navigate to correct pages" },
+    icon:"📊", name:"Dashboard",
+    items:[
+      {text:"Page loads without errors"},
+      {text:"Stats tiles render correct values (open leads, tasks due, revenue)"},
+      {text:"Revenue forecast tile visible and accurate",tag:"pro+"},
+      {text:"Charts render correctly (no blank canvases)"},
+      {text:"Recent Activity feed shows correct entries"},
+      {text:"Upcoming Events widget is NOT visible",tag:"removed"},
+      {text:"Quick-action buttons navigate to correct pages"},
     ]
   },
   {
-    icon: "🔍", name: "Global Search",
-    items: [
-      { text: "Search bar opens / focuses with keyboard shortcut" },
-      { text: "Typing returns company results" },
-      { text: "Typing returns contact results" },
-      { text: "Typing returns lead results" },
-      { text: "Typing returns quote results" },
-      { text: "Clicking a result navigates to that record" },
-      { text: "Empty query shows no stale results" },
+    icon:"🔍", name:"Global Search",
+    items:[
+      {text:"Search bar opens / focuses with keyboard shortcut"},
+      {text:"Typing returns company results"},
+      {text:"Typing returns contact results"},
+      {text:"Typing returns lead results"},
+      {text:"Typing returns quote results"},
+      {text:"Clicking a result navigates to that record"},
+      {text:"Empty query shows no stale results"},
     ]
   },
   {
-    icon: "🏢", name: "Companies",
-    items: [
-      { text: "Company list loads and paginates" },
-      { text: "Create new company — all fields save correctly" },
-      { text: "Edit company — changes persist on refresh" },
-      { text: "Delete company — record removed" },
-      { text: "Company detail page loads (contacts, leads, quotes tabs)" },
-      { text: "Contacts tab shows linked contacts" },
-      { text: "Leads tab shows linked leads" },
-      { text: "Quotes tab shows linked quotes" },
-      { text: "Documents tab shows uploaded files" },
-      { text: "Tickets tab shows linked support tickets" },
-      { text: "Team notes visible and editable by all staff", tag: "biz+" },
-      { text: "Add team note — appears for other users", tag: "biz+" },
-      { text: "Bulk select companies — bulk assign works", tag: "biz+" },
-      { text: "Bulk select companies — bulk status change works", tag: "biz+" },
+    icon:"🏢", name:"Companies",
+    items:[
+      {text:"Company list loads and paginates"},
+      {text:"Create new company — all fields save correctly"},
+      {text:"Edit company — changes persist on refresh"},
+      {text:"Delete company — record removed"},
+      {text:"Company detail page loads (contacts, leads, quotes tabs)"},
+      {text:"Contacts tab shows linked contacts"},
+      {text:"Leads tab shows linked leads"},
+      {text:"Quotes tab shows linked quotes"},
+      {text:"Documents tab shows uploaded files"},
+      {text:"Tickets tab shows linked support tickets"},
+      {text:"Team notes visible and editable by all staff",tag:"biz+"},
+      {text:"Add team note — appears for other users",tag:"biz+"},
+      {text:"Bulk select companies — bulk assign works",tag:"biz+"},
+      {text:"Bulk select companies — bulk status change works",tag:"biz+"},
     ]
   },
   {
-    icon: "👤", name: "Contacts",
-    items: [
-      { text: "Contacts list loads" },
-      { text: "Create contact linked to a company" },
-      { text: "Edit contact — changes persist" },
-      { text: "Delete contact" },
-      { text: "Contact shows on parent company's contact tab" },
-      { text: "Contact activity history shows relevant entries" },
+    icon:"👤", name:"Contacts",
+    items:[
+      {text:"Contacts list loads"},
+      {text:"Create contact linked to a company"},
+      {text:"Edit contact — changes persist"},
+      {text:"Delete contact"},
+      {text:"Contact shows on parent company's contact tab"},
+      {text:"Contact activity history shows relevant entries"},
     ]
   },
   {
-    icon: "🎯", name: "Leads",
-    items: [
-      { text: "Leads list loads with correct columns" },
-      { text: "Create lead — all fields save" },
-      { text: "Assign lead to staff member" },
-      { text: "Edit lead status (New → Contacted → Qualified etc.)" },
-      { text: "Edit estimated value and probability" },
-      { text: "Lead score displayed correctly", tag: "pro+" },
-      { text: "Lead score NOT visible on lite tier after downgrade" },
-      { text: "Delete lead" },
-      { text: "Lead linked to company shows on company detail" },
-      { text: "Bulk select leads — bulk assign", tag: "biz+" },
-      { text: "Bulk select leads — bulk status change", tag: "biz+" },
+    icon:"🎯", name:"Leads",
+    items:[
+      {text:"Leads list loads with correct columns"},
+      {text:"Create lead — all fields save"},
+      {text:"Assign lead to staff member"},
+      {text:"Edit lead status (New → Contacted → Qualified etc.)"},
+      {text:"Edit estimated value and probability"},
+      {text:"Lead score displayed correctly",tag:"pro+"},
+      {text:"Lead score NOT visible on lite tier after downgrade"},
+      {text:"Delete lead"},
+      {text:"Lead linked to company shows on company detail"},
+      {text:"Bulk select leads — bulk assign",tag:"biz+"},
+      {text:"Bulk select leads — bulk status change",tag:"biz+"},
     ]
   },
   {
-    icon: "📋", name: "Pipeline (Kanban)",
-    items: [
-      { text: "Pipeline loads with all stages" },
-      { text: "Leads appear in correct stage columns" },
-      { text: "Drag lead to different stage — status updates in DB" },
-      { text: "Custom stage names show correctly", tag: "biz+" },
-      { text: "Filter by assigned user narrows cards" },
-      { text: "Click lead card opens lead detail" },
+    icon:"📋", name:"Pipeline (Kanban)",
+    items:[
+      {text:"Pipeline loads with all stages"},
+      {text:"Leads appear in correct stage columns"},
+      {text:"Drag lead to different stage — status updates in DB"},
+      {text:"Custom stage names show correctly",tag:"biz+"},
+      {text:"Filter by assigned user narrows cards"},
+      {text:"Click lead card opens lead detail"},
     ]
   },
   {
-    icon: "✅", name: "Tasks",
-    items: [
-      { text: "Tasks list loads" },
-      { text: "Create task with due date and assignee" },
-      { text: "Mark task complete — disappears from active list" },
-      { text: "Edit task — changes persist" },
-      { text: "Delete task" },
-      { text: "Task linked to company shows on company record" },
-      { text: "Overdue tasks flagged visually" },
+    icon:"✅", name:"Tasks",
+    items:[
+      {text:"Tasks list loads"},
+      {text:"Create task with due date and assignee"},
+      {text:"Mark task complete — disappears from active list"},
+      {text:"Edit task — changes persist"},
+      {text:"Delete task"},
+      {text:"Task linked to company shows on company record"},
+      {text:"Overdue tasks flagged visually"},
     ]
   },
   {
-    icon: "🔔", name: "Reminders",
-    items: [
-      { text: "Reminders list loads" },
-      { text: "Create reminder with date/time and linked record" },
-      { text: "Edit reminder" },
-      { text: "Dismiss / complete reminder" },
-      { text: "Delete reminder" },
+    icon:"🔔", name:"Reminders",
+    items:[
+      {text:"Reminders list loads"},
+      {text:"Create reminder with date/time and linked record"},
+      {text:"Edit reminder"},
+      {text:"Dismiss / complete reminder"},
+      {text:"Delete reminder"},
     ]
   },
   {
-    icon: "⚡", name: "Quick Commands",
-    items: [
-      { text: "Commands list loads" },
-      { text: "Create a command with trigger conditions" },
-      { text: "Edit command" },
-      { text: "Trigger command manually — correct action fires" },
-      { text: "Delete command" },
+    icon:"⚡", name:"Quick Commands",
+    items:[
+      {text:"Commands list loads"},
+      {text:"Create a command with trigger conditions"},
+      {text:"Edit command"},
+      {text:"Trigger command manually — correct action fires"},
+      {text:"Delete command"},
     ]
   },
   {
-    icon: "📅", name: "Calendar",
-    items: [
-      { text: "Calendar loads in month view" },
-      { text: "Navigate to previous and next months" },
-      { text: "Switch between Shared and Personal view" },
-      { text: "Create event linked to a company/lead" },
-      { text: "Edit event — time and title update" },
-      { text: "Delete event — removed from calendar" },
-      { text: "Events show in correct date cells" },
-      { text: "Upcoming events list renders below the grid" },
-      { text: "Calendar grid scrollable on mobile" },
+    icon:"📅", name:"Calendar",
+    items:[
+      {text:"Calendar loads in month view"},
+      {text:"Navigate to previous and next months"},
+      {text:"Switch between Shared and Personal view"},
+      {text:"Create event linked to a company/lead"},
+      {text:"Edit event — time and title update"},
+      {text:"Delete event — removed from calendar"},
+      {text:"Events show in correct date cells"},
+      {text:"Upcoming events list renders below the grid"},
+      {text:"Calendar grid scrollable on mobile"},
     ]
   },
   {
-    icon: "📄", name: "Quotes & Invoicing",
-    items: [
-      { text: "Quotes list loads" },
-      { text: "Create quote — add line items from products catalogue" },
-      { text: "Add manual line item (name, qty, unit price)" },
-      { text: "Discount applies correctly to total" },
-      { text: "Assign quote to staff member (typeahead)" },
-      { text: "Save quote as draft" },
-      { text: "Send quote — customer receives email with link" },
-      { text: "Quote acceptance page loads for customer" },
-      { text: "Customer draws e-signature and accepts" },
-      { text: "Quote status updates to 'accepted' in CRM" },
-      { text: "Staff receive email notification with embedded signature" },
-      { text: "Signature image loads in Gmail (not blocked)", tag: "critical" },
-      { text: "Customer portal shows accepted quote (read-only)" },
-      { text: "Declined quote status updates correctly" },
-      { text: "Quote appears on parent company detail" },
+    icon:"📄", name:"Quotes & Invoicing",
+    items:[
+      {text:"Quotes list loads"},
+      {text:"Create quote — add line items from products catalogue"},
+      {text:"Add manual line item (name, qty, unit price)"},
+      {text:"Discount applies correctly to total"},
+      {text:"Assign quote to staff member (typeahead)"},
+      {text:"Save quote as draft"},
+      {text:"Send quote — customer receives email with link"},
+      {text:"Quote acceptance page loads for customer"},
+      {text:"Customer draws e-signature and accepts"},
+      {text:"Quote status updates to 'accepted' in CRM"},
+      {text:"Staff receive email notification with embedded signature"},
+      {text:"Signature image loads in Gmail (not blocked)",tag:"critical"},
+      {text:"Customer portal shows accepted quote (read-only)"},
+      {text:"Declined quote status updates correctly"},
+      {text:"Quote appears on parent company detail"},
     ]
   },
   {
-    icon: "📦", name: "Products Catalogue",
-    items: [
-      { text: "Products list loads" },
-      { text: "Add new product with name, description, price" },
-      { text: "Edit product — changes reflect in catalogue" },
-      { text: "Delete product" },
-      { text: "Product available to select when building a quote" },
-      { text: "Selecting product auto-fills line item correctly" },
+    icon:"📦", name:"Products Catalogue",
+    items:[
+      {text:"Products list loads"},
+      {text:"Add new product with name, description, price"},
+      {text:"Edit product — changes reflect in catalogue"},
+      {text:"Delete product"},
+      {text:"Product available to select when building a quote"},
+      {text:"Selecting product auto-fills line item correctly"},
     ]
   },
   {
-    icon: "📁", name: "Document Storage",
-    items: [
-      { text: "Documents page loads" },
-      { text: "Upload document linked to a company" },
-      { text: "Download / view document" },
-      { text: "Delete document" },
-      { text: "Document visible on company detail Documents tab" },
-      { text: "Document visible in customer portal" },
+    icon:"📁", name:"Document Storage",
+    items:[
+      {text:"Documents page loads"},
+      {text:"Upload document linked to a company"},
+      {text:"Download / view document"},
+      {text:"Delete document"},
+      {text:"Document visible on company detail Documents tab"},
+      {text:"Document visible in customer portal"},
     ]
   },
   {
-    icon: "📈", name: "Reports & Analytics",
-    items: [
-      { text: "Reports page loads without error" },
-      { text: "Pipeline by stage report renders correctly" },
-      { text: "Revenue report shows correct totals" },
-      { text: "Lead conversion rate is accurate" },
-      { text: "Team performance report breaks down by staff" },
-      { text: "Date range filter changes results correctly" },
-      { text: "Revenue forecast based on pipeline probability" },
+    icon:"📈", name:"Reports & Analytics",
+    items:[
+      {text:"Reports page loads without error"},
+      {text:"Pipeline by stage report renders correctly"},
+      {text:"Revenue report shows correct totals"},
+      {text:"Lead conversion rate is accurate"},
+      {text:"Team performance report breaks down by staff"},
+      {text:"Date range filter changes results correctly"},
+      {text:"Revenue forecast based on pipeline probability"},
     ]
   },
   {
-    icon: "🏆", name: "Sales Leaderboard",
-    items: [
-      { text: "Leaderboard page loads" },
-      { text: "Rankings based on accepted quote value" },
-      { text: "Names and values display correctly" },
-      { text: "Period filter (30 / 60 / 90 days) changes rankings" },
-      { text: "Leaderboard toggle in settings shows/hides it" },
-      { text: "Leaderboard hidden when disabled in settings" },
+    icon:"🏆", name:"Sales Leaderboard",
+    items:[
+      {text:"Leaderboard page loads"},
+      {text:"Rankings based on accepted quote value"},
+      {text:"Names and values display correctly"},
+      {text:"Period filter (30 / 60 / 90 days) changes rankings"},
+      {text:"Leaderboard toggle in settings shows/hides it"},
+      {text:"Leaderboard hidden when disabled in settings"},
     ]
   },
   {
-    icon: "📧", name: "Email Templates",
-    items: [
-      { text: "Email templates list loads" },
-      { text: "Create new template with subject and body" },
-      { text: "Edit template — changes persist" },
-      { text: "Delete template" },
-      { text: "Send email using a template from a lead/company" },
-      { text: "Template variables populate correctly" },
+    icon:"📧", name:"Email Templates",
+    items:[
+      {text:"Email templates list loads"},
+      {text:"Create new template with subject and body"},
+      {text:"Edit template — changes persist"},
+      {text:"Delete template"},
+      {text:"Send email using a template from a lead/company"},
+      {text:"Template variables populate correctly"},
     ]
   },
   {
-    icon: "🎫", name: "Support Tickets",
-    items: [
-      { text: "Tickets list loads" },
-      { text: "Create ticket linked to a company" },
-      { text: "Assign ticket to staff" },
-      { text: "Update ticket status (open → in progress → resolved)" },
-      { text: "Add internal note / response to ticket" },
-      { text: "Close ticket — moves to closed state" },
-      { text: "Customer can raise ticket via portal" },
-      { text: "Ticket raised in portal appears in CRM tickets list" },
+    icon:"🎫", name:"Support Tickets",
+    items:[
+      {text:"Tickets list loads"},
+      {text:"Create ticket linked to a company"},
+      {text:"Assign ticket to staff"},
+      {text:"Update ticket status (open → in progress → resolved)"},
+      {text:"Add internal note / response to ticket"},
+      {text:"Close ticket — moves to closed state"},
+      {text:"Customer can raise ticket via portal"},
+      {text:"Ticket raised in portal appears in CRM tickets list"},
     ]
   },
   {
-    icon: "📬", name: "Newsletter / Mass Email",
-    items: [
-      { text: "Newsletter page loads" },
-      { text: "Create campaign with subject and HTML body" },
-      { text: "Add recipients (contacts / companies)" },
-      { text: "Send campaign — emails delivered" },
-      { text: "Monthly send limit is enforced" },
-      { text: "Sent count tracked correctly" },
+    icon:"📬", name:"Newsletter / Mass Email",
+    items:[
+      {text:"Newsletter page loads"},
+      {text:"Create campaign with subject and HTML body"},
+      {text:"Add recipients (contacts / companies)"},
+      {text:"Send campaign — emails delivered"},
+      {text:"Monthly send limit is enforced"},
+      {text:"Sent count tracked correctly"},
     ]
   },
   {
-    icon: "💬", name: "Customer Messaging",
-    items: [
-      { text: "Messaging page loads in CRM", tag: "biz+" },
-      { text: "Company list shows on left (or fills screen on mobile)" },
-      { text: "Tap company on mobile → thread slides in full-screen" },
-      { text: "Back button returns to company list on mobile" },
-      { text: "Send message to customer from CRM" },
-      { text: "Customer sees message in portal" },
-      { text: "Customer replies — appears in CRM messaging" },
-      { text: "Message timestamps and read status correct" },
-      { text: "Unread badge shows on company with unread messages" },
-      { text: "Conversation history persists across sessions" },
+    icon:"💬", name:"Customer Messaging",
+    items:[
+      {text:"Messaging page loads in CRM",tag:"biz+"},
+      {text:"Company list shows on left (or fills screen on mobile)"},
+      {text:"Tap company on mobile → thread slides in full-screen"},
+      {text:"Back button returns to company list on mobile"},
+      {text:"Send message to customer from CRM"},
+      {text:"Customer sees message in portal"},
+      {text:"Customer replies — appears in CRM messaging"},
+      {text:"Message timestamps and read status correct"},
+      {text:"Unread badge shows on company with unread messages"},
+      {text:"Conversation history persists across sessions"},
     ]
   },
   {
-    icon: "🌐", name: "Customer Portal",
-    items: [
-      { text: "Portal login page loads at correct URL", tag: "biz+" },
-      { text: "Customer logs in with portal credentials" },
-      { text: "Quotes tab shows their quotes (read-only)" },
-      { text: "Accepted quote shows signature image" },
-      { text: "Documents tab shows company documents" },
-      { text: "Tickets tab — customer can raise and view tickets" },
-      { text: "Messages tab — customer can send/receive messages" },
-      { text: "Portal user management in CRM settings" },
-      { text: "Revoking portal access blocks login" },
+    icon:"🌐", name:"Customer Portal",
+    items:[
+      {text:"Portal login page loads at correct URL",tag:"biz+"},
+      {text:"Customer logs in with portal credentials"},
+      {text:"Quotes tab shows their quotes (read-only)"},
+      {text:"Accepted quote shows signature image"},
+      {text:"Documents tab shows company documents"},
+      {text:"Tickets tab — customer can raise and view tickets"},
+      {text:"Messages tab — customer can send/receive messages"},
+      {text:"Portal user management in CRM settings"},
+      {text:"Revoking portal access blocks login"},
     ]
   },
   {
-    icon: "🗂️", name: "Projects",
-    items: [
-      { text: "Projects page loads (blocked on lite/pro tiers)", tag: "biz+" },
-      { text: "Create project linked to company" },
-      { text: "Update project status (planning → active → completed)" },
-      { text: "Edit project details" },
-      { text: "Delete project" },
-      { text: "Mark project as portal-visible" },
-      { text: "Project visible on company detail" },
+    icon:"🗂️", name:"Projects",
+    items:[
+      {text:"Projects page loads (blocked on lite/pro tiers)",tag:"biz+"},
+      {text:"Create project linked to company"},
+      {text:"Update project status (planning → active → completed)"},
+      {text:"Edit project details"},
+      {text:"Delete project"},
+      {text:"Mark project as portal-visible"},
+      {text:"Project visible on company detail"},
     ]
   },
   {
-    icon: "🏗️", name: "Custom Pipeline Stages",
-    items: [
-      { text: "Pipeline stages manageable in settings", tag: "biz+" },
-      { text: "Add new custom stage" },
-      { text: "Rename existing stage" },
-      { text: "Reorder stages — kanban reflects new order" },
-      { text: "Delete stage — leads in that stage handled gracefully" },
+    icon:"🏗️", name:"Custom Pipeline Stages",
+    items:[
+      {text:"Pipeline stages manageable in settings",tag:"biz+"},
+      {text:"Add new custom stage"},
+      {text:"Rename existing stage"},
+      {text:"Reorder stages — kanban reflects new order"},
+      {text:"Delete stage — leads in that stage handled gracefully"},
     ]
   },
   {
-    icon: "🤖", name: "AI Assistant",
-    items: [
-      { text: "AI chat button visible in nav (enterprise only)", tag: "ent" },
-      { text: "AI chat panel opens" },
-      { text: "Ask 'list recent leads' — correct data returned" },
-      { text: "Ask 'who are our top customers' — companies returned" },
-      { text: "Ask 'show me open quotes' — quotes listed" },
-      { text: "Ask 'what's the leaderboard this month' — rankings shown" },
-      { text: "Ask AI to create a company — record appears in CRM" },
-      { text: "Ask AI to create a task — task appears in tasks list" },
-      { text: "Non-enterprise user calling API directly gets 403", tag: "critical" },
-      { text: "AI errors gracefully (no blank/crashed UI)" },
+    icon:"🤖", name:"AI Assistant",
+    items:[
+      {text:"AI chat button visible in nav (enterprise only)",tag:"ent"},
+      {text:"AI chat panel opens"},
+      {text:"Ask 'list recent leads' — correct data returned"},
+      {text:"Ask 'who are our top customers' — companies returned"},
+      {text:"Ask 'show me open quotes' — quotes listed"},
+      {text:"Ask 'what's the leaderboard this month' — rankings shown"},
+      {text:"Ask AI to create a company — record appears in CRM"},
+      {text:"Ask AI to create a task — task appears in tasks list"},
+      {text:"Non-enterprise user calling API directly gets 403",tag:"critical"},
+      {text:"AI errors gracefully (no blank/crashed UI)"},
     ]
   },
   {
-    icon: "🔍", name: "Audit Logs",
-    items: [
-      { text: "Audit log page accessible (enterprise only)", tag: "ent" },
-      { text: "Creating a record logs an entry" },
-      { text: "Editing a record logs what changed and who" },
-      { text: "Deleting a record logs the deletion" },
-      { text: "Log shows correct timestamp and user" },
-      { text: "Filter by user narrows results" },
-      { text: "Filter by action type (create/edit/delete) works" },
+    icon:"🔎", name:"Audit Logs",
+    items:[
+      {text:"Audit log page accessible (enterprise only)",tag:"ent"},
+      {text:"Creating a record logs an entry"},
+      {text:"Editing a record logs what changed and who"},
+      {text:"Deleting a record logs the deletion"},
+      {text:"Log shows correct timestamp and user"},
+      {text:"Filter by user narrows results"},
+      {text:"Filter by action type (create/edit/delete) works"},
     ]
   },
   {
-    icon: "📥", name: "Data Import",
-    items: [
-      { text: "Data import page accessible (enterprise only)", tag: "ent" },
-      { text: "Upload contacts CSV — rows imported correctly" },
-      { text: "Upload companies CSV — rows imported correctly" },
-      { text: "Upload leads CSV — rows imported correctly" },
-      { text: "Invalid rows flagged with clear error" },
-      { text: "Duplicate detection works (no double entries)" },
+    icon:"📥", name:"Data Import",
+    items:[
+      {text:"Data import page accessible (enterprise only)",tag:"ent"},
+      {text:"Upload contacts CSV — rows imported correctly"},
+      {text:"Upload companies CSV — rows imported correctly"},
+      {text:"Upload leads CSV — rows imported correctly"},
+      {text:"Invalid rows flagged with clear error"},
+      {text:"Duplicate detection works (no double entries)"},
     ]
   },
   {
-    icon: "⚙️", name: "Settings",
-    items: [
-      { text: "Settings page loads" },
-      { text: "Upload company logo — appears in nav and emails" },
-      { text: "Set brand colours — apply to customer-facing pages" },
-      { text: "Company name and contact details save correctly" },
-      { text: "Leaderboard toggle enables / disables leaderboard" },
-      { text: "Staff list shows all employees with roles" },
-      { text: "Invite new staff member" },
-      { text: "Change staff member role" },
-      { text: "Pipeline stages editable from settings" },
-      { text: "Portal user management visible and functional" },
+    icon:"⚙️", name:"Settings",
+    items:[
+      {text:"Settings page loads"},
+      {text:"Upload company logo — appears in nav and emails"},
+      {text:"Set brand colours — apply to customer-facing pages"},
+      {text:"Company name and contact details save correctly"},
+      {text:"Leaderboard toggle enables / disables leaderboard"},
+      {text:"Staff list shows all employees with roles"},
+      {text:"Invite new staff member"},
+      {text:"Change staff member role"},
+      {text:"Pipeline stages editable from settings"},
+      {text:"Portal user management visible and functional"},
     ]
   },
   {
-    icon: "🛡️", name: "Tier Gating (Verify Locks)",
-    items: [
-      { text: "Lite tier: quotes page shows upgrade prompt" },
-      { text: "Lite tier: reports page shows upgrade prompt" },
-      { text: "Lite tier: leaderboard page shows upgrade prompt" },
-      { text: "Lite/Pro tier: projects page shows upgrade prompt" },
-      { text: "Lite/Pro tier: customer portal shows upgrade prompt" },
-      { text: "Lite/Pro/Biz tier: AI chat button not visible in nav" },
-      { text: "Direct API call to /api/crm/support-chat on non-enterprise returns 403", tag: "critical" },
-      { text: "Lead score hidden on lite tier" },
-      { text: "Department management accessible on ALL tiers" },
+    icon:"🛡️", name:"Tier Gating (Verify Locks)",
+    items:[
+      {text:"Lite tier: quotes page shows upgrade prompt"},
+      {text:"Lite tier: reports page shows upgrade prompt"},
+      {text:"Lite tier: leaderboard page shows upgrade prompt"},
+      {text:"Lite/Pro tier: projects page shows upgrade prompt"},
+      {text:"Lite/Pro tier: customer portal shows upgrade prompt"},
+      {text:"Lite/Pro/Biz tier: AI chat button not visible in nav"},
+      {text:"Direct API call to /api/crm/support-chat on non-enterprise returns 403",tag:"critical"},
+      {text:"Lead score hidden on lite tier"},
+      {text:"Department management accessible on ALL tiers"},
     ]
   },
   {
-    icon: "📱", name: "UI & Responsiveness",
-    items: [
-      { text: "All pages usable on mobile (375px viewport)" },
-      { text: "Messaging: company list fills screen on mobile" },
-      { text: "Messaging: thread slides in on tap, back button works" },
-      { text: "Calendar grid scrolls horizontally on mobile" },
-      { text: "Modals appear as bottom sheets on mobile" },
-      { text: "Pipeline kanban scrolls horizontally on mobile" },
-      { text: "Tables scroll horizontally on small screens" },
-      { text: "Tabs scroll horizontally when there are many" },
-      { text: "Company detail grid collapses to 1 column on mobile" },
-      { text: "Dark mode looks correct on all pages" },
-      { text: "Light mode looks correct on all pages" },
-      { text: "Toast notifications appear and auto-dismiss" },
-      { text: "Confirm dialogs fire before destructive actions" },
-      { text: "Loading spinners show during data fetches" },
-      { text: "Error states shown clearly when requests fail" },
+    icon:"📱", name:"UI & Responsiveness",
+    items:[
+      {text:"All pages usable on mobile (375px viewport)"},
+      {text:"Messaging: company list fills screen on mobile"},
+      {text:"Messaging: thread slides in on tap, back button works"},
+      {text:"Calendar grid scrolls horizontally on mobile"},
+      {text:"Modals appear as bottom sheets on mobile"},
+      {text:"Pipeline kanban scrolls horizontally on mobile"},
+      {text:"Tables scroll horizontally on small screens"},
+      {text:"Tabs scroll horizontally when there are many"},
+      {text:"Company detail grid collapses to 1 column on mobile"},
+      {text:"Dark mode looks correct on all pages"},
+      {text:"Light mode looks correct on all pages"},
+      {text:"Toast notifications appear and auto-dismiss"},
+      {text:"Confirm dialogs fire before destructive actions"},
+      {text:"Loading spinners show during data fetches"},
+      {text:"Error states shown clearly when requests fail"},
     ]
   },
 ];
 
+// ── State ──────────────────────────────────────────────────────
 const TICK_SVG = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-
 const TAG_HTML = {
-  'ent':      '<span class="test-tag tag-ent">Enterprise</span>',
-  'biz+':     '<span class="test-tag tag-biz">Business+</span>',
-  'pro+':     '<span class="test-tag tag-biz" style="background:rgba(79,142,247,.1);color:#4f8ef7">Pro+</span>',
-  'critical': '<span class="test-tag tag-critical">Critical</span>',
-  'removed':  '<span class="test-tag" style="background:rgba(239,68,68,.08);color:#f87171">Removed</span>',
+  'ent':     '<span class="test-tag tag-ent">Enterprise</span>',
+  'biz+':    '<span class="test-tag tag-biz">Business+</span>',
+  'pro+':    '<span class="test-tag tag-biz" style="background:rgba(79,142,247,.1);color:#4f8ef7">Pro+</span>',
+  'critical':'<span class="test-tag tag-critical">Critical</span>',
+  'removed': '<span class="test-tag" style="background:rgba(239,68,68,.08);color:#f87171">Removed</span>',
 };
 
-function itemKey(si, ii) { return `qa_${si}_${ii}`; }
-function loadState(si, ii) { return localStorage.getItem(itemKey(si, ii)) === '1'; }
-function saveState(si, ii, val) { localStorage.setItem(itemKey(si, ii), val ? '1' : '0'); }
+// remote state: Map<id, {checked, updated_by}>
+let remoteState = new Map();
+let myName = localStorage.getItem('qa_name') || '';
+let channel;
 
+// ── Name setup ─────────────────────────────────────────────────
+function setupName() {
+  const overlay  = document.getElementById('name-overlay');
+  const input    = document.getElementById('name-input');
+  const submit   = document.getElementById('name-submit');
+  if (myName) { overlay.style.display = 'none'; init(); return; }
+  input.focus();
+  const go = () => {
+    const v = input.value.trim();
+    if (!v) { input.style.borderColor = 'var(--red)'; return; }
+    myName = v;
+    localStorage.setItem('qa_name', v);
+    overlay.style.display = 'none';
+    init();
+  };
+  submit.onclick = go;
+  input.onkeydown = e => { if (e.key === 'Enter') go(); };
+}
+
+// ── Init ───────────────────────────────────────────────────────
+async function init() {
+  setSyncState('syncing');
+
+  // Load all rows
+  const { data, error } = await sb.from('qa_checklist_items').select('*');
+  if (error) { setSyncState('error'); console.error(error); }
+  else {
+    (data || []).forEach(row => remoteState.set(row.id, { checked: row.checked, updated_by: row.updated_by }));
+    setSyncState('live');
+  }
+
+  render();
+  subscribeRealtime();
+  setupPresence();
+}
+
+// ── Sync state indicator ───────────────────────────────────────
+function setSyncState(state) {
+  const dot  = document.getElementById('sync-dot');
+  const text = document.getElementById('sync-text');
+  dot.className = '';
+  if (state === 'live')    { dot.classList.add('live');    text.textContent = 'live'; }
+  if (state === 'syncing') { dot.classList.add('syncing'); text.textContent = 'syncing…'; }
+  if (state === 'error')   { dot.classList.add('error');   text.textContent = 'offline'; }
+}
+
+// ── Realtime subscription ──────────────────────────────────────
+function subscribeRealtime() {
+  channel = sb.channel('qa_checklist')
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'qa_checklist_items',
+    }, payload => {
+      const row = payload.new || payload.old;
+      if (!row) return;
+      remoteState.set(row.id, { checked: row.checked, updated_by: row.updated_by });
+      applyRemoteChange(row.id, row.checked, row.updated_by);
+      updateProgress();
+    })
+    .subscribe(status => {
+      if (status === 'SUBSCRIBED') setSyncState('live');
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setSyncState('error');
+    });
+}
+
+// ── Presence ───────────────────────────────────────────────────
+function setupPresence() {
+  const presenceChannel = sb.channel('qa_presence');
+  const bar   = document.getElementById('presence-bar');
+  const chips = document.getElementById('presence-chips');
+
+  presenceChannel
+    .on('presence', { event: 'sync' }, () => {
+      const state = presenceChannel.presenceState();
+      const users = Object.values(state).flat().map(p => p.name).filter(Boolean);
+      const unique = [...new Set(users)];
+      if (unique.length > 0) {
+        bar.style.display = 'flex';
+        chips.innerHTML = unique.map(u =>
+          `<span class="presence-chip"><span class="presence-dot"></span>${u}</span>`
+        ).join('');
+      } else {
+        bar.style.display = 'none';
+      }
+    })
+    .subscribe(async status => {
+      if (status === 'SUBSCRIBED') {
+        await presenceChannel.track({ name: myName });
+      }
+    });
+}
+
+// ── Apply remote change to DOM ─────────────────────────────────
+function applyRemoteChange(id, checked, updatedBy) {
+  const el = document.querySelector(`.test-item[data-id="${id}"]`);
+  if (!el) return;
+  el.classList.toggle('checked', checked);
+  // Update "who" label
+  let who = el.querySelector('.item-who');
+  if (checked && updatedBy) {
+    if (!who) { who = document.createElement('span'); who.className = 'item-who'; el.appendChild(who); }
+    who.textContent = updatedBy;
+  } else if (who) {
+    who.remove();
+  }
+  // Flash to draw attention
+  el.classList.remove('remote-flash');
+  void el.offsetWidth;
+  el.classList.add('remote-flash');
+  // Update section badge
+  const section = el.closest('.section');
+  if (section) updateSectionBadge(section);
+}
+
+// ── Toggle ─────────────────────────────────────────────────────
+async function toggle(id, el) {
+  const checked = !el.classList.contains('checked');
+  // Optimistic update
+  el.classList.toggle('checked', checked);
+  let who = el.querySelector('.item-who');
+  if (checked) {
+    if (!who) { who = document.createElement('span'); who.className = 'item-who'; el.appendChild(who); }
+    who.textContent = myName;
+  } else if (who) { who.remove(); }
+  updateSectionBadge(el.closest('.section'));
+  updateProgress();
+
+  // Upsert to Supabase
+  setSyncState('syncing');
+  const { error } = await sb.from('qa_checklist_items').upsert({
+    id,
+    checked,
+    updated_by: checked ? myName : null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'id' });
+
+  if (error) { console.error(error); setSyncState('error'); }
+  else { setSyncState('live'); }
+}
+
+// ── Progress ───────────────────────────────────────────────────
 function updateProgress() {
   let total = 0, done = 0;
-  SECTIONS.forEach((s, si) => s.items.forEach((_, ii) => { total++; if (loadState(si, ii)) done++; }));
+  document.querySelectorAll('.test-item').forEach(el => {
+    total++;
+    if (el.classList.contains('checked')) done++;
+  });
   const pct = total ? (done / total * 100) : 0;
   document.getElementById('pbFill').style.width = pct + '%';
   document.getElementById('pbCount').textContent = `${done} / ${total}`;
 }
 
+function updateSectionBadge(section) {
+  if (!section) return;
+  const items = section.querySelectorAll('.test-item');
+  const done  = section.querySelectorAll('.test-item.checked').length;
+  const badge = section.querySelector('.section-badge');
+  badge.textContent = `${done}/${items.length}`;
+  badge.className = 'section-badge' + (done === items.length ? ' done' : '');
+}
+
+// ── Render ─────────────────────────────────────────────────────
 function render() {
   const el = document.getElementById('sections');
   el.innerHTML = '';
   SECTIONS.forEach((sec, si) => {
-    const total = sec.items.length;
-    const done  = sec.items.filter((_, ii) => loadState(si, ii)).length;
-    const allDone = done === total;
     const div = document.createElement('div');
     div.className = 'section' + (si === 0 ? ' open' : '');
+    const itemsHtml = sec.items.map((item, ii) => {
+      const id      = `${si}_${ii}`;
+      const state   = remoteState.get(id);
+      const checked = state?.checked || false;
+      const who     = state?.updated_by || '';
+      return `<div class="test-item ${checked ? 'checked' : ''}" data-id="${id}" onclick="toggle('${id}', this)">
+        <div class="test-cb">${TICK_SVG}</div>
+        <div class="test-text">${item.text}</div>
+        ${item.tag ? (TAG_HTML[item.tag] || '') : ''}
+        ${checked && who ? `<span class="item-who">${who}</span>` : ''}
+      </div>`;
+    }).join('');
+
+    const total   = sec.items.length;
+    const done    = sec.items.filter((_, ii) => remoteState.get(`${si}_${ii}`)?.checked).length;
+    const allDone = done === total;
+
     div.innerHTML = `
       <div class="section-header" onclick="toggleSection(this.parentElement)">
         <div class="section-icon">${sec.icon}</div>
@@ -750,48 +814,34 @@ function render() {
         <div class="section-badge ${allDone ? 'done' : ''}">${done}/${total}</div>
         <div class="section-chevron">▾</div>
       </div>
-      <div class="section-body">
-        ${sec.items.map((item, ii) => {
-          const checked = loadState(si, ii);
-          return `<div class="test-item ${checked ? 'checked' : ''}" onclick="toggle(${si},${ii},this)">
-            <div class="test-cb">${TICK_SVG}</div>
-            <div class="test-text">${item.text}</div>
-            ${item.tag ? (TAG_HTML[item.tag] || '') : ''}
-          </div>`;
-        }).join('')}
-      </div>`;
+      <div class="section-body">${itemsHtml}</div>`;
     el.appendChild(div);
   });
   updateProgress();
 }
 
-function toggle(si, ii, el) {
-  const checked = !el.classList.contains('checked');
-  saveState(si, ii, checked);
-  el.classList.toggle('checked', checked);
-  const section = el.closest('.section');
-  const total = SECTIONS[si].items.length;
-  const done  = SECTIONS[si].items.filter((_, i) => loadState(si, i)).length;
-  const badge = section.querySelector('.section-badge');
-  badge.textContent = `${done}/${total}`;
-  badge.className = 'section-badge' + (done === total ? ' done' : '');
-  updateProgress();
-}
-
+// ── Utils ──────────────────────────────────────────────────────
 function toggleSection(sec) { sec.classList.toggle('open'); }
 function expandAll()   { document.querySelectorAll('.section').forEach(s => s.classList.add('open')); }
 function collapseAll() { document.querySelectorAll('.section').forEach(s => s.classList.remove('open')); }
-function resetAll() {
-  if (!confirm('Reset all checks?')) return;
-  Object.keys(localStorage).filter(k => k.startsWith('qa_')).forEach(k => localStorage.removeItem(k));
+async function resetAll() {
+  if (!confirm('Reset ALL checks for everyone?')) return;
+  setSyncState('syncing');
+  const ids = [];
+  SECTIONS.forEach((sec, si) => sec.items.forEach((_, ii) => ids.push(`${si}_${ii}`)));
+  const { error } = await sb.from('qa_checklist_items')
+    .upsert(ids.map(id => ({ id, checked: false, updated_by: null, updated_at: new Date().toISOString() })), { onConflict: 'id' });
+  if (error) { setSyncState('error'); return; }
+  remoteState.clear();
   render();
+  setSyncState('live');
 }
 function toggleTheme() {
   const r = document.documentElement;
   r.dataset.theme = r.dataset.theme === 'dark' ? 'light' : 'dark';
 }
 
-render();
+setupName();
 </script>
 </body>
 </html>
