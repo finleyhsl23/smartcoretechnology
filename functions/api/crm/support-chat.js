@@ -871,6 +871,15 @@ export async function onRequestPost(context) {
 
     if (!tenantId) return json({ ok: false, error: 'No tenant' }, 403);
 
+    // Verify enterprise tier — AI Assistant is enterprise-only
+    const tierRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/company_modules?company_id=eq.${tenantId}&module_key=eq.smartcore-crm&select=tier&limit=1`,
+      { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } }
+    );
+    const tierData = await tierRes.json();
+    const crmTier = tierData?.[0]?.tier;
+    if (crmTier !== 'enterprise') return json({ ok: false, error: 'AI Assistant requires the Enterprise plan.' }, 403);
+
     // Check leaderboard setting server-side
     const settingsData = await sbGet(env, `crm_settings?tenant_id=eq.${tenantId}&limit=1`);
     const settings = Array.isArray(settingsData) ? settingsData[0] : null;

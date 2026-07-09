@@ -104,11 +104,11 @@
 <div id="toastwrap"></div>
 
 <script type="module">
-import { requireCRMAccess } from "/systems/crm/shared/auth.js?v=3";
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
 import { sb } from "/systems/crm/shared/supabase.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
-import { esc, fmtDate, toast, confirm, makeCombo } from "/systems/crm/shared/ui.js";
+import { esc, fmtDate, toast, confirm, makeCombo, tierGate } from "/systems/crm/shared/ui.js";
 
 initTheme();
 
@@ -122,8 +122,12 @@ try {
   renderNav("projects", profile, tier);
   initMobileNav();
   initTopbar(profile);
+  if (!tierHasFeature(tier, "projects")) {
+    document.getElementById("content").innerHTML = tierGate("projects");
+    throw new Error("tier_gate");
+  }
   await load();
-} catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session")) toast("bad","Error",e.message); }
+} catch(e) { if (!e.message?.includes("CRM not enabled") && !e.message?.includes("session") && !e.message?.includes("tier_gate")) toast("bad","Error",e.message); }
 
 async function load(statusFilter = "") {
   document.getElementById("content").innerHTML = `<div class="loading-spinner"><div class="spinner"></div></div>`;
