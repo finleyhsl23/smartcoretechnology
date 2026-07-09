@@ -84,25 +84,6 @@
     .nav-sub{font-size:12px;color:var(--muted);letter-spacing:-.01em}
     .nav-actions{display:flex;align-items:center;gap:10px}
 
-    /* Billing toggle */
-    .toggle-wrap{
-      display:flex;
-      background:rgba(255,255,255,.07);
-      border:1px solid var(--border2);
-      border-radius:10px;overflow:hidden;
-    }
-    .toggle-wrap button{
-      padding:7px 14px;font-size:12px;font-weight:600;
-      border:none;background:none;color:var(--muted);cursor:pointer;
-      transition:color .15s,background .15s;white-space:nowrap;
-      font-family:inherit;letter-spacing:-.01em;
-    }
-    .toggle-wrap button.active{background:var(--accent-soft);color:var(--accent)}
-    .save-pill{
-      display:inline-flex;align-items:center;
-      background:var(--green-soft);color:var(--green);
-      border-radius:6px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px;
-    }
 
     /* Basket btn */
     .basket-btn{
@@ -174,7 +155,7 @@
     }
     .search-inp::placeholder{color:var(--muted2)}
     .search-inp:focus{border-color:var(--accent-border);background:rgba(255,255,255,.08)}
-    .toggle-mobile{display:none}
+
 
     /* Category chips */
     .chips-scroll{
@@ -359,10 +340,7 @@
     }
     .bar-left{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
     .bar-count{font-size:15px;font-weight:600;letter-spacing:-.01em}
-    .bar-save{
-      background:var(--green-soft);color:var(--green);
-      border-radius:7px;padding:3px 9px;font-size:12px;font-weight:700;
-    }
+
     .bar-right{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
     .bar-total-label{font-size:11px;color:var(--muted);letter-spacing:.02em;text-transform:uppercase}
     .bar-total{font-size:22px;font-weight:800;letter-spacing:-.03em}
@@ -640,8 +618,7 @@
       .detail-layout{grid-template-columns:1fr!important}
       .detail-right{position:static!important}
       .nav-title-sub,.back-btn{display:none}
-      .toggle-mobile{display:flex}
-      .toggle-desktop{display:none}
+
     }
     /* ── Feature tooltip ─────────────────────────────────── */
     .feat-tip{position:relative;display:inline-flex;align-items:center;gap:5px}
@@ -669,10 +646,7 @@
       </div>
     </a>
     <div class="nav-actions">
-      <div class="toggle-wrap toggle-desktop" id="billingToggle">
-        <button id="btnMonthly" class="active" onclick="setBilling('monthly')">Monthly</button>
-        <button id="btnYearly" onclick="setBilling('yearly')">Annual <span class="save-pill">Save money</span></button>
-      </div>
+
       <button class="basket-btn" id="basketBtn" onclick="openBasket()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><line x1="3" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="1.8"/><path d="M16 10a4 4 0 01-8 0" stroke="currentColor" stroke-width="1.8"/></svg>
         <span id="basketCount">0</span> · <span id="basketTotal">£0.00</span>
@@ -698,10 +672,7 @@
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="1.8"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
       <input class="search-inp" id="searchInput" placeholder="Search modules…" autocomplete="off" />
     </div>
-    <div class="toggle-wrap toggle-mobile">
-      <button id="btnMonthlyM" class="active" onclick="setBilling('monthly')">Monthly</button>
-      <button id="btnYearlyM" onclick="setBilling('yearly')">Annual <span class="save-pill">Save money</span></button>
-    </div>
+
   </div>
 
   <div class="chips-scroll" style="margin-top:20px">
@@ -733,11 +704,10 @@
   <div class="basket-bar-inner">
     <div class="bar-left">
       <span class="bar-count" id="barCount">0 modules</span>
-      <span class="bar-save" id="barSave" style="display:none"></span>
     </div>
     <div class="bar-right">
       <div>
-        <div class="bar-total-label">Total <span id="barPeriod">/ month</span></div>
+        <div class="bar-total-label">Total <span>/ month</span></div>
         <div class="bar-total" id="barTotal">£0.00</div>
       </div>
       <button class="bar-cta" onclick="goCheckout()">Review Basket →</button>
@@ -807,7 +777,6 @@ const state = {
   modules:  [],
   filtered: [],
   basket:   JSON.parse(localStorage.getItem('sc_basket') || '[]'),
-  billing:  localStorage.getItem('sc_billing') || 'monthly',
   search:   '',
   category: 'All',
   detailId: null,
@@ -823,13 +792,11 @@ function featLabel(f) {
   return `<span class="feat-tip">${esc(name)}<i class="feat-tip-icon">i</i><span class="feat-tip-bubble">${esc(desc)}</span></span>`;
 }
 function fmt(n)   { return '£' + (+n||0).toFixed(2); }
-function fmtMo(n, forceYr) { return fmt(n) + (forceYr || (typeof forceYr === 'undefined' && state.billing === 'yearly') ? '/yr' : '/mo'); }
+function fmtMo(n) { return fmt(n) + '/mo'; }
 function $id(id)  { return document.getElementById(id); }
 
 function modulePrice(m) {
-  const base = state.billing === 'yearly'
-    ? (m.yearly_price || +(m.monthly_price * 0.92).toFixed(2))
-    : m.monthly_price;
+  const base = m.monthly_price;
   // Fixed-price modules (e.g. CRM tiers) don't scale with company size
   if (m.size_pricing === false) return +base.toFixed(2);
   if (!shopSizeTier || shopSizeTier.multiplier === null) return null;
@@ -873,15 +840,8 @@ function calcTotals() {
   const subtotal  = shopSizeTier?.multiplier === null ? null : +billable.reduce((s,m) => s + modulePrice(m), 0).toFixed(2);
   const tier      = pkgDiscount(billable.length);
   const pkgDis    = +(subtotal * tier.pct).toFixed(2);
-  const afterPkg  = subtotal - pkgDis;
-  // annDis = savings vs paying monthly for the same period (display only, already baked into yearly_price)
-  const annDis    = state.billing === 'yearly'
-    ? +(billable.reduce((s,m) => s + (m.yearly_price
-        ? Math.max(0, +(m.monthly_price * 12) - +m.yearly_price)
-        : +(m.monthly_price * 0.08 * 12)), 0)).toFixed(2)
-    : 0;
-  const total     = +(afterPkg).toFixed(2);
-  return { subtotal, pkgDis, annDis, total, tier };
+  const total     = +(subtotal - pkgDis).toFixed(2);
+  return { subtotal, pkgDis, total, tier };
 }
 
 function saveBasket() {
@@ -1069,7 +1029,7 @@ function renderGrid() {
             ${price === null
               ? `<div class="card-price" style="color:#a78bfa;font-size:13px">Custom pricing</div>`
               : `<div class="card-price">${(shopSizeTier && m.size_pricing !== false) ? '' : '<span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.02em">from </span>'}${fmtMo(price)}</div>
-                 ${state.billing==='yearly'&&m.monthly_price!==price ? `<div class="card-price-was">${fmtMo(m.monthly_price * (shopSizeTier?.multiplier||1))}</div>` : ''}`}
+                 ``}
           </div>
           <button class="card-add ${inBasket?'added':'add'}" onclick="event.stopPropagation();toggleBasket('${m.id}')">
             ${inBasket ? '✓ Added' : '+ Add'}
@@ -1224,7 +1184,6 @@ function _renderGroupDetail(item) {
               </div>
               <div style="text-align:right;flex-shrink:0;margin-left:12px">
                 <div style="font-weight:800;font-size:15px">${price !== null ? fmtMo(price) : 'Custom'}</div>
-                ${state.billing==='yearly'&&v.monthly_price ? `<div style="font-size:11px;color:var(--muted);text-decoration:line-through">${fmtMo(v.monthly_price,false)}</div>` : ''}
               </div>
             </div>`;
           }).join('')}
@@ -1234,7 +1193,7 @@ function _renderGroupDetail(item) {
       <!-- Pricing card -->
       <div class="pricing-card">
         <div class="pricing-amount">${selPriceFmt}</div>
-        <div class="pricing-period">${esc(selVer.version_label||'')} plan · ${state.billing === 'yearly' ? 'billed annually' : 'billed monthly'}</div>
+        <div class="pricing-period">${esc(selVer.version_label||'')} plan · billed monthly</div>
         <button class="pricing-cta ${inBasket?'in-basket':''}" onclick="groupToggleBasket('${groupKey}')" id="detailPricingBtn">
           ${inBasket ? '✓ In basket — Remove' : '+ Add to basket'}
         </button>
@@ -1364,7 +1323,6 @@ function openDetail(id) {
       <div class="pricing-card">
         <div class="pricing-head">
           <div class="pricing-price">${fmt(m.monthly_price)}<span class="pricing-period">/mo</span></div>
-          ${m.yearly_price ? `<div class="pricing-annual">or ${fmt(m.yearly_price)}/year <span class="pricing-save">Save money</span></div>` : ''}
         </div>
         <button class="pricing-cta ${inBasket?'in-basket':''}" onclick="detailToggleBasket()" id="detailPricingBtn">
           ${inBasket ? '✓ In basket — Remove' : '+ Add to basket'}
@@ -1493,15 +1451,6 @@ function updateBasketBar() {
     bar.classList.add('visible');
     $id('barCount').textContent  = `${count} module${count!==1?'s':''} selected`;
     $id('barTotal').textContent  = t.total === null ? 'Custom pricing' : fmt(t.total);
-    $id('barPeriod').textContent = t.total === null ? '' : (state.billing==='yearly' ? '/ year' : '/ month');
-    const saveEl = $id('barSave');
-    const saving = t.total === null ? 0 : (t.pkgDis + t.annDis);
-    if (saving > 0) {
-      saveEl.textContent     = `Saving ${fmt(saving)}`;
-      saveEl.style.display   = 'block';
-    } else {
-      saveEl.style.display   = 'none';
-    }
   } else {
     bar.classList.remove('visible');
   }
@@ -1546,7 +1495,6 @@ function renderBasketSheet() {
       html += `<div class="totals-box">
         <div class="totals-row"><span>Subtotal (${billable.length} module${billable.length!==1?'s':''})</span><span>${fmtMo(t.subtotal)}</span></div>
         ${t.pkgDis > 0 ? `<div class="totals-row discount"><span>${Math.round(tier.pct*100)}% package discount</span><span>−${fmt(t.pkgDis)}</span></div>` : ''}
-        ${t.annDis > 0 ? `<div class="totals-row discount"><span>Annual billing (save ${fmt(t.annDis)} vs monthly)</span><span></span></div>` : ''}
         <div class="totals-row grand"><span>Total</span><span>${fmtMo(t.total)}</span></div>
       </div>
       <button class="checkout-btn" onclick="closeBasket();goCheckout()">Continue to Checkout →</button>
@@ -1567,20 +1515,6 @@ function goCheckout() {
 }
 
 // ── Billing ───────────────────────────────────────────────
-function setBilling(type) {
-  state.billing = type;
-  localStorage.setItem('sc_billing', type);
-  ['Monthly','Yearly'].forEach(t => {
-    const a = $id('btn'+t), b = $id('btn'+t+'M');
-    const on = t.toLowerCase() === type;
-    if (a) a.classList.toggle('active', on);
-    if (b) b.classList.toggle('active', on);
-  });
-  updateBasketBar();
-  renderGrid();
-}
-// Init billing toggle state
-setBilling(state.billing);
 
 // ── Analytics ─────────────────────────────────────────────
 async function trackEvent(moduleId, eventType) {
