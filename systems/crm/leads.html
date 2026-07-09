@@ -30,6 +30,25 @@
 </div>
 <div id="toastwrap"></div>
 
+<!-- Bulk action bar -->
+<div id="bulkBar" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--card,#1a1a2e);border:1px solid var(--line,rgba(255,255,255,.15));border-radius:14px;padding:12px 20px;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);z-index:1000;min-width:380px">
+  <span id="bulkCount" style="font-size:13px;font-weight:600;color:var(--text-dim)">0 selected</span>
+  <div style="width:1px;height:20px;background:var(--line)"></div>
+  <select id="bulkStatusSel" class="filter-select" style="font-size:12px;padding:6px 10px">
+    <option value="">Change status…</option>
+    <option value="new">New</option>
+    <option value="contacted">Contacted</option>
+    <option value="qualified">Qualified</option>
+    <option value="proposal_sent">Proposal Sent</option>
+    <option value="negotiation">Negotiation</option>
+    <option value="won">Won</option>
+    <option value="lost">Lost</option>
+  </select>
+  <button class="btn btn-sm" id="bulkStatusBtn">Apply</button>
+  <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">Delete</button>
+  <button class="btn btn-sm btn-ghost" id="bulkCancelBtn">✕</button>
+</div>
+
 <script type="module">
 import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
 import { leads, companies, contacts, getStaff } from "/systems/crm/shared/api.js";
@@ -40,6 +59,7 @@ import { esc, fmt, fmtDate, toast, confirm, leadBadge, loading, setInner, makeCo
 initTheme();
 
 let profile, tier, allLeads = [], companiesList = [], contactsList = [], staffList = [];
+const selectedIds = new Set();
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -54,6 +74,52 @@ try {
   await loadAndRender();
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
+// ── Bulk bar ──────────────────────────────────────────────────
+function updateBulkBar() {
+  const bar = document.getElementById("bulkBar");
+  if (!bar) return;
+  const ids = [...selectedIds];
+  bar.style.display = ids.length ? "flex" : "none";
+  const countEl = document.getElementById("bulkCount");
+  if (countEl) countEl.textContent = `${ids.length} selected`;
+}
+
+document.getElementById("bulkCancelBtn")?.addEventListener("click", () => {
+  selectedIds.clear();
+  document.querySelectorAll(".lead-cb").forEach(cb => cb.checked = false);
+  const sa = document.getElementById("selectAll");
+  if (sa) sa.checked = false;
+  updateBulkBar();
+});
+
+document.getElementById("bulkStatusBtn")?.addEventListener("click", async () => {
+  const status = document.getElementById("bulkStatusSel").value;
+  if (!status || !selectedIds.size) return;
+  const ids = [...selectedIds];
+  try {
+    await Promise.all(ids.map(id => leads.update(id, { status, pipeline_stage: status })));
+    toast("ok", "Updated", `${ids.length} lead${ids.length > 1 ? "s" : ""} updated.`);
+    selectedIds.clear();
+    updateBulkBar();
+    await loadAndRender();
+  } catch(e) { toast("bad","Error",e.message); }
+});
+
+document.getElementById("bulkDeleteBtn")?.addEventListener("click", () => {
+  const ids = [...selectedIds];
+  if (!ids.length) return;
+  confirm("Delete Leads", `Delete ${ids.length} lead${ids.length > 1 ? "s" : ""}? This cannot be undone.`, async () => {
+    try {
+      await Promise.all(ids.map(id => leads.delete(id)));
+      toast("ok","Deleted",`${ids.length} lead${ids.length > 1 ? "s" : ""} deleted.`);
+      selectedIds.clear();
+      updateBulkBar();
+      await loadAndRender();
+    } catch(e) { toast("bad","Error",e.message); }
+  });
+});
+
+// ── Load & render ─────────────────────────────────────────────
 async function loadAndRender(search="", status="") {
   setInner("content", loading());
   try {
@@ -101,6 +167,7 @@ function renderTable(rows) {
         <table class="tbl">
           <thead>
             <tr>
+              <th style="width:36px"><input type="checkbox" id="selectAll" title="Select all"/></th>
               <th>Lead</th>
               <th>Company</th>
               <th>Status</th>
@@ -114,7 +181,7 @@ function renderTable(rows) {
           </thead>
           <tbody>
             ${rows.length === 0
-              ? `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🎯</div><h3>No leads yet</h3><p>Create your first lead to start tracking opportunities.</p></div></td></tr>`
+              ? `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">🎯</div><h3>No leads yet</h3><p>Create your first lead to start tracking opportunities.</p></div></td></tr>`
               : rows.map(l => leadRow(l)).join("")}
           </tbody>
         </table>
@@ -126,6 +193,28 @@ function renderTable(rows) {
   document.getElementById("statusFilter").addEventListener("change", e => loadAndRender(document.getElementById("searchInput").value, e.target.value));
   document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteLead(b.dataset.id)));
+
+  // Checkbox logic
+  document.getElementById("selectAll")?.addEventListener("change", e => {
+    document.querySelectorAll(".lead-cb").forEach(cb => {
+      cb.checked = e.target.checked;
+      if (e.target.checked) selectedIds.add(cb.dataset.id);
+      else selectedIds.delete(cb.dataset.id);
+    });
+    updateBulkBar();
+  });
+
+  document.querySelectorAll(".lead-cb").forEach(cb => {
+    if (selectedIds.has(cb.dataset.id)) cb.checked = true;
+    cb.addEventListener("change", e => {
+      if (e.target.checked) selectedIds.add(cb.dataset.id);
+      else selectedIds.delete(cb.dataset.id);
+      const all = document.querySelectorAll(".lead-cb");
+      const sa = document.getElementById("selectAll");
+      if (sa) sa.checked = all.length > 0 && [...all].every(c => c.checked);
+      updateBulkBar();
+    });
+  });
 }
 
 function leadRow(l) {
@@ -133,6 +222,7 @@ function leadRow(l) {
   const staff = staffList.find(s => s.id === l.assigned_to);
   const probColor = l.probability >= 70 ? "var(--good)" : l.probability >= 40 ? "var(--warn)" : "var(--bad)";
   return `<tr>
+    <td><input type="checkbox" class="lead-cb" data-id="${l.id}"/></td>
     <td>
       <div style="font-weight:600">${esc(l.title)}</div>
       ${tierHasFeature(tier, "lead_scoring") && l.lead_score ? `<div class="tbl-muted">Score: ${l.lead_score}</div>` : ""}

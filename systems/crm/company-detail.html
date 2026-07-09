@@ -104,7 +104,8 @@ const companyId = params.get("id");
 if (!companyId) { location.href = "/systems/crm/companies.html"; throw new Error("No ID"); }
 
 let profile, tier, company, contacts = [], conversations = [], staff = [];
-let convSearch = "";
+let compLeads = [], compQuotes = [], compTasks = [], compEvents = [], compProjects = [], compTickets = [];
+let convSearch = "", relatedTab = "leads";
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -117,17 +118,30 @@ try {
 
 async function loadAll() {
   const client = sb();
-  const [compRes, contactRes, convRes, staffRes] = await Promise.all([
-    client.from("crm_companies").select("*").eq("id", companyId).eq("tenant_id", profile.company_id).single(),
-    client.from("crm_contacts").select("*").eq("crm_company_id", companyId).eq("tenant_id", profile.company_id).order("first_name"),
-    client.from("crm_company_conversations").select("*").eq("company_id", companyId).eq("tenant_id", profile.company_id).order("occurred_at", { ascending: false }),
-    client.from("core_employees").select("id,full_name").eq("company_id", profile.company_id).order("full_name"),
+  const tid = profile.company_id;
+  const [compRes, contactRes, convRes, staffRes, leadsRes, quotesRes, tasksRes, eventsRes, projectsRes, ticketsRes] = await Promise.all([
+    client.from("crm_companies").select("*").eq("id", companyId).eq("tenant_id", tid).single(),
+    client.from("crm_contacts").select("*").eq("crm_company_id", companyId).eq("tenant_id", tid).order("first_name"),
+    client.from("crm_company_conversations").select("*").eq("company_id", companyId).eq("tenant_id", tid).order("occurred_at", { ascending: false }),
+    client.from("core_employees").select("id,full_name").eq("company_id", tid).order("full_name"),
+    client.from("crm_leads").select("id,title,status,estimated_value,probability,expected_close_date,assigned_to").eq("crm_company_id", companyId).eq("tenant_id", tid).order("created_at", { ascending: false }),
+    client.from("crm_quotes").select("id,quote_number,title,status,total,created_at").eq("crm_company_id", companyId).eq("tenant_id", tid).order("created_at", { ascending: false }),
+    client.from("crm_tasks").select("id,title,status,priority,due_date").eq("crm_company_id", companyId).eq("tenant_id", tid).order("due_date"),
+    client.from("crm_events").select("id,title,type,start_time,end_time").eq("crm_company_id", companyId).eq("tenant_id", tid).order("start_time", { ascending: false }),
+    client.from("crm_projects").select("id,name,status,description,created_at").eq("crm_company_id", companyId).eq("tenant_id", tid).order("created_at", { ascending: false }),
+    client.from("crm_tickets").select("id,subject,status,priority,created_at").eq("crm_company_id", companyId).eq("tenant_id", tid).order("created_at", { ascending: false }),
   ]);
   if (compRes.error || !compRes.data) { toast("bad","Not found","Company not found."); location.href = "/systems/crm/companies.html"; return; }
   company = compRes.data;
   contacts = contactRes.data || [];
   conversations = convRes.data || [];
   staff = staffRes.data || [];
+  compLeads = leadsRes.data || [];
+  compQuotes = quotesRes.data || [];
+  compTasks = tasksRes.data || [];
+  compEvents = eventsRes.data || [];
+  compProjects = projectsRes.data || [];
+  compTickets = ticketsRes.data || [];
   document.getElementById("topbarTitle").textContent = company.name;
   renderPage();
 }
@@ -236,6 +250,31 @@ function renderPage() {
         </div>
 
       </div>
+    </div>
+
+    <!-- Related records tabs -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-header" style="padding-bottom:0;border-bottom:none">
+        <div style="display:flex;gap:2px;overflow-x:auto;padding-bottom:0">
+          ${[
+            ["leads",    `Leads (${compLeads.length})`],
+            ["quotes",   `Quotes (${compQuotes.length})`],
+            ["tasks",    `Tasks (${compTasks.length})`],
+            ["events",   `Events (${compEvents.length})`],
+            ["projects", `Projects (${compProjects.length})`],
+            ["tickets",  `Tickets (${compTickets.length})`],
+          ].map(([key,label]) => `
+            <button class="related-tab${relatedTab===key?" active":""}" data-tab="${key}" style="
+              padding:8px 16px;font-size:13px;font-weight:600;border:none;cursor:pointer;
+              background:none;color:${relatedTab===key?"var(--blue2)":"var(--text3)"};
+              border-bottom:2px solid ${relatedTab===key?"var(--blue2)":"transparent"};
+              white-space:nowrap;transition:color .15s,border-color .15s
+            ">${label}</button>`).join("")}
+        </div>
+      </div>
+      <div id="relatedContent" style="min-height:80px">
+        ${renderRelated()}
+      </div>
     </div>`;
 
   document.getElementById("editBtn").onclick = () => openEditModal();
@@ -247,6 +286,18 @@ function renderPage() {
     document.getElementById("convList").innerHTML = renderConvList();
   });
 
+  document.querySelectorAll(".related-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      relatedTab = btn.dataset.tab;
+      document.querySelectorAll(".related-tab").forEach(b => {
+        const active = b.dataset.tab === relatedTab;
+        b.style.color = active ? "var(--blue2)" : "var(--text3)";
+        b.style.borderBottomColor = active ? "var(--blue2)" : "transparent";
+      });
+      document.getElementById("relatedContent").innerHTML = renderRelated();
+    });
+  });
+
   window._deleteContact = (id, name) => {
     confirm("Remove Contact", `Remove ${name} from this company?`, async () => {
       try {
@@ -256,6 +307,105 @@ function renderPage() {
       } catch(e) { toast("bad","Error",e.message); }
     });
   };
+}
+
+function statusPill(status, colorMap) {
+  const colors = colorMap[status] || { bg: "rgba(255,255,255,.08)", color: "var(--text2)" };
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:${colors.bg};color:${colors.color}">${status.replace(/_/g," ")}</span>`;
+}
+
+function renderRelated() {
+  if (relatedTab === "leads") {
+    if (!compLeads.length) return `<div class="empty-state" style="padding:24px"><div class="empty-icon">🎯</div><p>No leads linked to this company</p></div>`;
+    const leadColors = { new:{bg:"rgba(30,92,255,.12)",color:"var(--blue2)"}, contacted:{bg:"rgba(99,102,241,.12)",color:"#818cf8"}, qualified:{bg:"rgba(16,185,129,.12)",color:"var(--good)"}, proposal_sent:{bg:"rgba(245,158,11,.12)",color:"var(--warn)"}, negotiation:{bg:"rgba(168,85,247,.12)",color:"#c084fc"}, won:{bg:"rgba(16,185,129,.15)",color:"var(--good)"}, lost:{bg:"rgba(239,68,68,.12)",color:"var(--bad)"} };
+    return `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Lead</th><th>Status</th><th>Value</th><th>Probability</th><th>Close Date</th><th>Actions</th></tr></thead>
+      <tbody>${compLeads.map(l => {
+        const probColor = (l.probability||0) >= 70 ? "var(--good)" : (l.probability||0) >= 40 ? "var(--warn)" : "var(--bad)";
+        return `<tr>
+          <td style="font-weight:600">${esc(l.title)}</td>
+          <td>${statusPill(l.status, leadColors)}</td>
+          <td>${l.estimated_value ? fmt(l.estimated_value) : '<span class="text-dim">—</span>'}</td>
+          <td><span style="font-size:12px;color:${probColor}">${l.probability||0}%</span></td>
+          <td>${l.expected_close_date ? fmtDate(l.expected_close_date) : '<span class="text-dim">—</span>'}</td>
+          <td><a class="btn btn-sm" href="/systems/crm/leads.html">View</a></td>
+        </tr>`;
+      }).join("")}</tbody>
+    </table></div>`;
+  }
+
+  if (relatedTab === "quotes") {
+    if (!compQuotes.length) return `<div class="empty-state" style="padding:24px"><div class="empty-icon">💰</div><p>No quotes for this company</p></div>`;
+    const qColors = { draft:{bg:"rgba(255,255,255,.08)",color:"var(--text2)"}, sent:{bg:"rgba(30,92,255,.12)",color:"var(--blue2)"}, accepted:{bg:"rgba(16,185,129,.12)",color:"var(--good)"}, declined:{bg:"rgba(239,68,68,.12)",color:"var(--bad)"}, expired:{bg:"rgba(255,255,255,.06)",color:"var(--text3)"} };
+    return `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Quote #</th><th>Title</th><th>Status</th><th>Total</th><th>Date</th></tr></thead>
+      <tbody>${compQuotes.map(q => `<tr>
+        <td style="font-family:monospace;font-size:13px">${esc(q.quote_number||"—")}</td>
+        <td>${esc(q.title||"—")}</td>
+        <td>${statusPill(q.status, qColors)}</td>
+        <td>${q.total ? fmt(q.total) : '<span class="text-dim">—</span>'}</td>
+        <td>${fmtDate(q.created_at)}</td>
+      </tr>`).join("")}</tbody>
+    </table></div>`;
+  }
+
+  if (relatedTab === "tasks") {
+    if (!compTasks.length) return `<div class="empty-state" style="padding:24px"><div class="empty-icon">✅</div><p>No tasks for this company</p></div>`;
+    const tColors = { pending:{bg:"rgba(245,158,11,.1)",color:"var(--warn)"}, in_progress:{bg:"rgba(30,92,255,.1)",color:"var(--blue2)"}, completed:{bg:"rgba(16,185,129,.1)",color:"var(--good)"}, cancelled:{bg:"rgba(255,255,255,.06)",color:"var(--text3)"} };
+    const pColors = { low:{bg:"rgba(16,185,129,.08)",color:"var(--good)"}, medium:{bg:"rgba(245,158,11,.1)",color:"var(--warn)"}, high:{bg:"rgba(239,68,68,.1)",color:"var(--bad)"}, urgent:{bg:"rgba(239,68,68,.15)",color:"var(--bad)"} };
+    return `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Task</th><th>Status</th><th>Priority</th><th>Due Date</th></tr></thead>
+      <tbody>${compTasks.map(t => `<tr>
+        <td style="font-weight:600">${esc(t.title)}</td>
+        <td>${statusPill(t.status, tColors)}</td>
+        <td>${statusPill(t.priority||"medium", pColors)}</td>
+        <td>${t.due_date ? fmtDate(t.due_date) : '<span class="text-dim">—</span>'}</td>
+      </tr>`).join("")}</tbody>
+    </table></div>`;
+  }
+
+  if (relatedTab === "events") {
+    if (!compEvents.length) return `<div class="empty-state" style="padding:24px"><div class="empty-icon">📅</div><p>No events for this company</p></div>`;
+    return `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Event</th><th>Type</th><th>Date</th></tr></thead>
+      <tbody>${compEvents.map(e => `<tr>
+        <td style="font-weight:600">${esc(e.title)}</td>
+        <td style="text-transform:capitalize;font-size:12px;color:var(--text3)">${esc((e.type||"event").replace(/_/g," "))}</td>
+        <td>${fmtDate(e.start_time)}</td>
+      </tr>`).join("")}</tbody>
+    </table></div>`;
+  }
+
+  if (relatedTab === "projects") {
+    if (!compProjects.length) return `<div class="empty-state" style="padding:24px"><div class="empty-icon">📁</div><p>No projects for this company</p></div>`;
+    const prColors = { active:{bg:"rgba(16,185,129,.1)",color:"var(--good)"}, planning:{bg:"rgba(30,92,255,.1)",color:"var(--blue2)"}, on_hold:{bg:"rgba(245,158,11,.1)",color:"var(--warn)"}, completed:{bg:"rgba(99,102,241,.1)",color:"#818cf8"}, cancelled:{bg:"rgba(255,255,255,.06)",color:"var(--text3)"} };
+    return `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Project</th><th>Status</th><th>Description</th><th>Created</th></tr></thead>
+      <tbody>${compProjects.map(p => `<tr>
+        <td style="font-weight:600">${esc(p.name)}</td>
+        <td>${statusPill(p.status||"active", prColors)}</td>
+        <td style="color:var(--text2);font-size:13px">${p.description ? esc(p.description).slice(0,80)+(p.description.length>80?"…":"") : '<span class="text-dim">—</span>'}</td>
+        <td>${fmtDate(p.created_at)}</td>
+      </tr>`).join("")}</tbody>
+    </table></div>`;
+  }
+
+  if (relatedTab === "tickets") {
+    if (!compTickets.length) return `<div class="empty-state" style="padding:24px"><div class="empty-icon">🎫</div><p>No tickets for this company</p></div>`;
+    const tkColors = { open:{bg:"rgba(30,92,255,.1)",color:"var(--blue2)"}, in_progress:{bg:"rgba(245,158,11,.1)",color:"var(--warn)"}, resolved:{bg:"rgba(16,185,129,.1)",color:"var(--good)"}, closed:{bg:"rgba(255,255,255,.06)",color:"var(--text3)"} };
+    const pColors = { low:{bg:"rgba(16,185,129,.08)",color:"var(--good)"}, medium:{bg:"rgba(245,158,11,.1)",color:"var(--warn)"}, high:{bg:"rgba(239,68,68,.1)",color:"var(--bad)"}, urgent:{bg:"rgba(239,68,68,.15)",color:"var(--bad)"} };
+    return `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Subject</th><th>Status</th><th>Priority</th><th>Created</th></tr></thead>
+      <tbody>${compTickets.map(t => `<tr>
+        <td style="font-weight:600">${esc(t.subject)}</td>
+        <td>${statusPill(t.status, tkColors)}</td>
+        <td>${statusPill(t.priority||"medium", pColors)}</td>
+        <td>${fmtDate(t.created_at)}</td>
+      </tr>`).join("")}</tbody>
+    </table></div>`;
+  }
+
+  return "";
 }
 
 function renderConvList() {
