@@ -29,9 +29,9 @@ export function applyRoleUi(profile) {
   });
 }
 
-// Auto-detect the user's company via SECURITY DEFINER RPC — bypasses RLS lookup chicken-and-egg
+// Auto-detect the user's company via public-schema SECURITY DEFINER RPC on the plain auth client
 async function autoDetectCompany() {
-  const { data, error } = await db.rpc('get_my_company');
+  const { data } = await supabase.rpc('hm_get_my_company');
   const row = data?.[0];
   if (!row) return null;
   return {
