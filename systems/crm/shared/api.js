@@ -466,7 +466,7 @@ export async function auditLog({ action, entityType, entityId, entityName, oldDa
     const p = await getProfile();
     await sb().from("crm_audit_logs").insert({
       tenant_id: tenantId,
-      user_id: p.id,
+      user_id: p.auth_user_id,
       action,
       entity_type: entityType,
       entity_id: entityId || null,
