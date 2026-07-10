@@ -112,7 +112,7 @@ export async function onRequestPost({ request, env }) {
       dietary_requirements: dietary_requirements || null,
       accessibility_needs: accessibility_needs || null,
       employment_status: 'active',
-      onboarding_status: 'completed',
+      onboarding_status: 'complete',
       first_login_at: new Date().toISOString(),
       profile_updated_at: new Date().toISOString()
     }

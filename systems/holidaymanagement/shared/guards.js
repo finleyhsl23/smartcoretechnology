@@ -29,34 +29,40 @@ export function applyRoleUi(profile) {
   });
 }
 
-// Auto-detect the user's company from their employee record
+// Auto-detect the user's company via company_users (RLS allows user_id = auth.uid() SELECT)
 async function autoDetectCompany(userId) {
-  const { data: emp } = await db
-    .from('employees')
-    .select('id, company_id, role, is_admin, employment_status')
+  const { data: cu } = await db
+    .from('company_users')
+    .select('company_id, employee_id, role, status')
     .eq('user_id', userId)
-    .in('employment_status', ['active', 'invited'])
+    .in('status', ['active', 'invited'])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (!emp) return null;
+  if (!cu) return null;
 
   const { data: company } = await db
     .from('companies')
     .select('id, company_name, logo_url')
-    .eq('id', emp.company_id)
+    .eq('id', cu.company_id)
     .maybeSingle();
 
   if (!company) return null;
 
+  const { data: emp } = await db
+    .from('employees')
+    .select('id, role, is_admin')
+    .eq('id', cu.employee_id)
+    .maybeSingle();
+
   return {
     id: company.id,
-    name: company.company_name,   // map DB column → app property
+    name: company.company_name,
     logo_url: company.logo_url || null,
-    role: emp.role,
-    is_admin: emp.is_admin,
-    employee_id: emp.id
+    role: emp?.role || cu.role,
+    is_admin: emp?.is_admin || false,
+    employee_id: cu.employee_id
   };
 }
 
@@ -106,12 +112,11 @@ export async function requireAuth(opts = {}) {
     return null;
   }
 
-  // Always load fresh profile from DB
+  // Always load fresh profile from DB — query by employee_id (RLS allows members to read their company's employees)
   const { data: profile } = await db
     .from('employees')
     .select('*')
-    .eq('user_id', session.user.id)
-    .eq('company_id', company.id)
+    .eq('id', company.employee_id)
     .maybeSingle();
 
   // Sync role/is_admin from live profile back onto the cached company object
