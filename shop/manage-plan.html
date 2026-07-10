@@ -626,7 +626,7 @@
     // Size-scaled modules
     for (const dbMod of activeNonCrm) {
       const base  = o.billing_type === 'yearly'
-        ? (dbMod.yearly_price || dbMod.monthly_price || 0)
+        ? (dbMod.monthly_price * 12 || 0)
         : (dbMod.monthly_price || 0);
       const price = base * mult;
       html += modRow({
@@ -640,7 +640,7 @@
     // CRM section — show all CRM tiers, highlight the active one
     if (allCrm.length) {
       const crmBase = crmActive
-        ? (o.billing_type === 'yearly' ? (crmActive.yearly_price || crmActive.monthly_price || 0) : (crmActive.monthly_price || 0))
+        ? (o.billing_type === 'yearly' ? (crmActive.monthly_price * 12 || 0) : (crmActive.monthly_price || 0))
         : 0;
       html += `<div class="crm-header">
         <div>
@@ -661,7 +661,7 @@
 
       allCrm.forEach(m => {
         const isActive = m.slug === activeCrmSlug;
-        const base = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price || 0) : (m.monthly_price || 0);
+        const base = o.billing_type === 'yearly' ? (m.monthly_price * 12 || 0) : (m.monthly_price || 0);
         const tierName = m.name.replace('SmartCore CRM ', '');
         html += `<div class="crm-opt${isActive ? ' crm-active' : ''}" ${isActive ? '' : `onclick="onCrmClick('${m.slug}')"`}>
           ${isActive ? `<div class="crm-opt-badge">Current plan</div>` : ''}
@@ -744,7 +744,7 @@
     for (const m of allActiveMods) {
       if (m.slug === 'smartcore-core') continue;
       const isCrm   = CRM_SLUGS.includes(m.slug);
-      const base     = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price || 0) : (m.monthly_price || 0);
+      const base     = o.billing_type === 'yearly' ? (m.monthly_price * 12 || 0) : (m.monthly_price || 0);
       const oldPrice = isCrm ? base : base * oldMult;
       const newPrice = isCrm ? base : base * newMult;
       const changed  = !isCrm && Math.abs(newPrice - oldPrice) > 0.001;
@@ -821,9 +821,9 @@
     for (const m of allActiveModules) {
       if (m.slug === 'smartcore-core') continue;
       const isCrm   = CRM_SLUGS.includes(m.slug);
-      const base     = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price || 0) : (m.monthly_price || 0);
+      const base     = o.billing_type === 'yearly' ? (m.monthly_price * 12 || 0) : (m.monthly_price || 0);
       const oldPrice = isCrm ? base : base * mult;
-      const newBase  = isCrm ? (o.billing_type === 'yearly' ? (newMod.yearly_price || newMod.monthly_price || 0) : (newMod.monthly_price || 0)) : null;
+      const newBase  = isCrm ? (o.billing_type === 'yearly' ? (newMod.monthly_price * 12 || 0) : (newMod.monthly_price || 0)) : null;
       const newPrice = isCrm ? newBase : oldPrice;
       const changed  = isCrm && Math.abs((newBase || 0) - base) > 0.001;
       bdHtml += `<div class="breakdown-row${changed ? ' highlight' : ''}">
@@ -1005,7 +1005,7 @@
       const dbMod = moduleMap[m.slug] || m;
       const isCrm = CRM_SLUGS.includes(m.slug);
       const base  = billingType === 'yearly'
-        ? (dbMod.yearly_price || dbMod.monthly_price || m.yearly_price || m.monthly_price || 0)
+        ? ((dbMod.monthly_price || m.monthly_price || 0) * 12)
         : (dbMod.monthly_price || m.monthly_price || 0);
       subtotal += isCrm ? base : base * sizeMultiplier;
     }

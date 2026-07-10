@@ -271,10 +271,6 @@
           <span id="summaryPkgLabel">Package discount</span>
           <span id="summaryPkgAmt" class="text-green-400 font-bold"></span>
         </div>
-        <div class="flex justify-between" style="color:var(--muted)" id="summaryAnnualRow" style="display:none">
-          <span>Annual discount (8%)</span>
-          <span id="summaryAnnualAmt" class="text-green-400 font-bold"></span>
-        </div>
         <div class="flex justify-between font-extrabold text-lg pt-2 border-t" style="border-color:var(--line2)">
           <span>Total</span>
           <span id="summaryTotal">£0.00</span>
@@ -648,7 +644,6 @@ async function loadFlatRateFlags() {
 }
 
 // ── Pricing ───────────────────────────────────────────────
-const ANNUAL_DISC = 0.08;
 const PACKAGE_DISCOUNTS = [
   { min: 12, pct: 0.40, label: '40% package discount' },
   { min:  6, pct: 0.25, label: '25% package discount' },
@@ -662,9 +657,7 @@ function getPackageDiscount(count) {
 const billingType = localStorage.getItem('sc_billing') || 'monthly';
 
 function modulePrice(m) {
-  return billingType === 'yearly'
-    ? (m.yearly_price || m.monthly_price * (1 - ANNUAL_DISC))
-    : m.monthly_price;
+  return billingType === 'yearly' ? m.monthly_price * 12 : m.monthly_price;
 }
 function fmt(n) { return '£' + Number(n || 0).toFixed(2); }
 
@@ -686,16 +679,8 @@ function calcTotals() {
     subtotal += modulePrice(m) * effectiveMultiplier(m);
   });
   const pkgDiscount = subtotal * disc.pct;
-  const annualDiscount = billingType === 'yearly'
-    ? billable.reduce((s, m) => {
-        const mult = effectiveMultiplier(m);
-        return s + (m.yearly_price
-          ? Math.max(0, m.monthly_price * 12 * mult - +m.yearly_price * mult)
-          : m.monthly_price * 12 * mult * ANNUAL_DISC);
-      }, 0)
-    : 0;
   const total = subtotal - pkgDiscount;
-  return { subtotal, pkgDiscount, annualDiscount, total, discLabel: disc.label };
+  return { subtotal, pkgDiscount, total, discLabel: disc.label };
 }
 
 function esc(v) {
@@ -741,12 +726,6 @@ function renderSummary() {
     document.getElementById('summaryPkgRow').style.display = '';
     document.getElementById('summaryPkgLabel').textContent = totals.discLabel;
     document.getElementById('summaryPkgAmt').textContent = '−' + fmt(totals.pkgDiscount);
-  }
-  if (totals.annualDiscount > 0) {
-    const annRow = document.getElementById('summaryAnnualRow');
-    const annAmt = document.getElementById('summaryAnnualAmt');
-    if (annRow) annRow.style.display = '';
-    if (annAmt) annAmt.textContent = 'Saves ' + fmt(totals.annualDiscount) + '/yr vs monthly';
   }
 }
 
@@ -798,9 +777,8 @@ async function submitOrder() {
         slug:          m.slug,
         name:          m.name,
         monthly_price: m.monthly_price,
-        yearly_price:  m.yearly_price,
         is_flat_rate:  flatRateSlugs.has(m.slug),
-        price:         billingType === 'yearly' ? m.yearly_price : m.monthly_price
+        price:         billingType === 'yearly' ? m.monthly_price * 12 : m.monthly_price
       })),
       billing_type:         billingType,
       size_tier:            selectedSizeTier.id,
@@ -808,7 +786,7 @@ async function submitOrder() {
       subtotal:             totals.subtotal,
       discount_percent:     totals.discLabel ? parseFloat(totals.discLabel) : 0,
       discount_amount:      totals.pkgDiscount,
-      annual_discount_amount: totals.annualDiscount,
+      annual_discount_amount: 0,
       total:                totals.total,
       status:               'pending_payment'
     }).select('id');
