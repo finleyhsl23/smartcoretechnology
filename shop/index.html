@@ -1249,14 +1249,16 @@ function groupToggleBasket(groupKey) {
   const selVer = item._versions.find(v => v.id === selId);
   if (!selVer) return;
 
-  // Remove any other version of this group from basket first
+  // Check if selected version is already in basket BEFORE removing anything
+  const wasInBasket = state.basket.some(b => b.id === selId);
+
+  // Remove any version of this group from basket
   item._versions.forEach(v => {
     const idx = state.basket.findIndex(b => b.id === v.id);
     if (idx >= 0) state.basket.splice(idx, 1);
   });
 
-  // If selected version was already the one in basket, we just removed it (toggle off)
-  const wasInBasket = state.basket.findIndex(b => b.id === selId) >= 0;
+  // Only re-add if it wasn't in basket (i.e. this is an add, not a remove)
   if (!wasInBasket) {
     state.basket.push(selVer);
     trackEvent(selId, 'add_to_basket');
