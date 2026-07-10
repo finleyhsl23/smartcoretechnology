@@ -16,7 +16,10 @@ async function init() {
   document.getElementById('closeAddHoliday').addEventListener('click', () => closeModal('addHolidayModal'));
   document.getElementById('closeAddHoliday2').addEventListener('click', () => closeModal('addHolidayModal'));
   document.getElementById('saveHolidayBtn').addEventListener('click', saveHoliday);
-  document.getElementById('syncBankBtn').addEventListener('click', syncBank);
+  document.getElementById('syncBankBtn').addEventListener('click', () => openModal('syncBankModal'));
+  document.getElementById('closeSyncModal').addEventListener('click', () => closeModal('syncBankModal'));
+  document.getElementById('closeSyncModal2').addEventListener('click', () => closeModal('syncBankModal'));
+  document.getElementById('confirmSyncBtn').addEventListener('click', syncBank);
 }
 
 function populateSidebar(company) {
@@ -101,14 +104,22 @@ async function saveHoliday() {
 }
 
 async function syncBank() {
-  const btn = document.getElementById('syncBankBtn');
+  const btn = document.getElementById('confirmSyncBtn');
+  const countryCode = document.getElementById('syncCountryCode').value;
+  const yearsCount = parseInt(document.getElementById('syncYearsCount').value, 10);
+
   setLoadingButton(btn, true, 'Syncing...');
+  showMessage('syncBankMsg', '', 'info');
+
   try {
-    const result = await syncBankHolidays(ctx.company.id);
+    const result = await syncBankHolidays(ctx.company.id, [countryCode], yearsCount);
     await loadHolidays();
-    alert(`Synced ${result.added ?? 0} bank holiday(s).`);
+    showMessage('syncBankMsg', `Synced ${result.added ?? 0} bank holiday(s).`, 'success');
+    if ((result.added ?? 0) > 0) {
+      setTimeout(() => closeModal('syncBankModal'), 1500);
+    }
   } catch (err) {
-    alert('Sync failed: ' + err.message);
+    showMessage('syncBankMsg', 'Sync failed: ' + err.message, 'error');
   } finally {
     setLoadingButton(btn, false);
   }

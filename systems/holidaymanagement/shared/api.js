@@ -351,11 +351,11 @@ export async function deleteCompanyHoliday(id, companyId) {
   if (error) throw error;
 }
 
-export async function syncBankHolidays(companyId, country_codes) {
+export async function syncBankHolidays(companyId, country_codes, years_count) {
   const res = await fetch('/holidaymanagement/bank-holidays', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ company_id: companyId, country_codes })
+    body: JSON.stringify({ company_id: companyId, country_codes, years_count })
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();

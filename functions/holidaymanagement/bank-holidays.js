@@ -39,7 +39,7 @@ export async function onRequestPost({ request, env }) {
   try { body = await request.json(); }
   catch { return new Response('Invalid JSON', { status: 400 }); }
 
-  const { company_id, country_codes = ['GB'] } = body;
+  const { company_id, country_codes = ['GB-ENG'], years_count = 5 } = body;
   if (!company_id) return new Response('company_id required', { status: 400 });
 
   const client = db(SUPABASE_URL, SUPABASE_SERVICE_KEY);
@@ -51,28 +51,41 @@ export async function onRequestPost({ request, env }) {
   const existingDates = new Set((existing || []).map(h => h.holiday_date));
 
   const toInsert = [];
-  const year = new Date().getFullYear();
-  const years = [year, year + 1];
+  const currentYear = new Date().getFullYear();
+  const count = Math.min(Math.max(parseInt(years_count) || 5, 1), 20);
+  const years = Array.from({ length: count }, (_, i) => currentYear + i);
   const multiCountry = country_codes.length > 1;
 
+  // Map GB sub-regions to the Nager API country code
+  const nagerCode = cc => ({ 'GB-ENG': 'GB', 'GB-SCT': 'GB', 'GB-NIR': 'GB' }[cc] || cc);
+  // Map sub-region to Nager county filter (counties field in response)
+  const regionFilter = { 'GB-ENG': 'GB-ENG', 'GB-SCT': 'GB-SCT', 'GB-NIR': 'GB-NIR' };
+
   for (const countryCode of country_codes) {
+    const apiCode = nagerCode(countryCode);
+    const regionCode = regionFilter[countryCode];
     for (const y of years) {
       try {
-        const res = await fetch(`${NAGER_API}/${y}/${countryCode}`);
+        const res = await fetch(`${NAGER_API}/${y}/${apiCode}`);
         if (!res.ok) continue;
         const holidays = await res.json();
         for (const holiday of (holidays || [])) {
-          const key = `${holiday.date}|${countryCode}`;
-          if (!existingDates.has(holiday.date)) {
+          // If it's a GB sub-region, filter by counties
+          if (regionCode && holiday.counties && holiday.counties.length > 0) {
+            if (!holiday.counties.includes(regionCode)) continue;
+          }
+          const dedupeKey = `${holiday.date}|${countryCode}`;
+          if (!existingDates.has(dedupeKey) && !existingDates.has(holiday.date)) {
+            const label = multiCountry
+              ? `${holiday.localName || holiday.name} (${countryCode})`
+              : (holiday.localName || holiday.name);
             toInsert.push({
               company_id,
               holiday_date: holiday.date,
-              name: multiCountry
-                ? `${holiday.localName || holiday.name} (${countryCode})`
-                : (holiday.localName || holiday.name),
+              name: label,
               type: 'bank'
             });
-            existingDates.add(holiday.date);
+            existingDates.add(dedupeKey);
           }
         }
       } catch { /* skip failed country/year */ }
