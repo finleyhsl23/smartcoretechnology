@@ -438,6 +438,7 @@ function render() {
                   </div>
                 </div>
                 <div class="cmd-actions">
+                  <button class="toggle-btn" onclick="runNow('${c.id}')" title="Run this command now manually" style="background:rgba(30,92,255,.1);border-color:rgba(30,92,255,.3);color:var(--blue)">▶ Run</button>
                   <button class="toggle-btn${c.is_active?" on":""}" onclick="toggleCommand('${c.id}',${!c.is_active})">${c.is_active?"On":"Off"}</button>
                   <button class="del-btn" onclick="deleteCommand('${c.id}')">Delete</button>
                 </div>
@@ -672,6 +673,25 @@ window.toggleCommand = async (id, active) => {
   if (error) { toast("bad","Error", error.message); return; }
   toast("ok", active ? "Command enabled" : "Command disabled");
   await loadCommands();
+};
+
+window.runNow = async (id) => {
+  const cmd = commands.find(c => c.id === id);
+  if (!cmd) return;
+  if (!confirm(`Run "${cmd.name}" manually now?\n\nThis will fire the command immediately with no context (useful for testing).`)) return;
+  try {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session?.access_token) { toast("bad","Error","Not logged in."); return; }
+    const res = await fetch('/api/crm/commands-run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ tenant_id: profile.company_id, trigger_type: cmd.trigger_type, trigger_value: cmd.trigger_value || null, ctx: {}, manual: true }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) { toast("bad","Run failed", json.error || res.statusText); return; }
+    toast("ok","Command ran", `Executed ${json.ran ?? 1} action${(json.ran ?? 1) === 1 ? '' : 's'}.`);
+    await loadCommands();
+  } catch(e) { toast("bad","Error", e.message); }
 };
 
 window.deleteCommand = async (id) => {

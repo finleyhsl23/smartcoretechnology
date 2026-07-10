@@ -28,6 +28,7 @@ const NAV_LINKS = [
   // System
   { id: "reminders",  icon: "🔔", label: "Reminders",       href: "/systems/crm/reminders.html",  system: true },
   { id: "commands",   icon: "⚡", label: "Commands",        href: "/systems/crm/commands.html",   system: true },
+  { id: "audit-logs", icon: "🔍", label: "Audit Logs",     href: "/systems/crm/audit-logs.html", system: true, tier: "enterprise" },
   { id: "settings",   icon: "⚙️",  label: "Settings",       href: "/systems/crm/settings.html",   system: true },
 ];
 
@@ -85,7 +86,7 @@ export function renderNav(currentPage, profile, tier, crmSettings) {
       <div class="sidebar-section" style="margin-top:8px">
         <div class="sidebar-section-label">System</div>
       </div>
-      ${NAV_LINKS.filter(l => l.system).map(l => navItem(l, currentPage, tier)).join("")}
+      ${NAV_LINKS.filter(l => l.system && (tierAllows(tier, l.tier))).map(l => navItem(l, currentPage, tier)).join("")}
     </div>
     <div class="sidebar-footer">
       <button id="supportBtn" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;background:rgba(91,143,255,.08);border:1px solid rgba(91,143,255,.2);border-radius:10px;cursor:pointer;color:var(--text-dim);font-size:13px;font-weight:600;margin-bottom:8px;transition:background .15s">

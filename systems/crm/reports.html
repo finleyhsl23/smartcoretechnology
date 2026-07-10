@@ -6,6 +6,44 @@
   <title>Reports — SmartCore CRM</title>
   <link rel="stylesheet" href="/systems/crm/crm.css?v=3"/>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    .report-tabs { display:flex; gap:6px; margin-bottom:20px; flex-wrap:wrap; }
+    .report-tab {
+      padding:7px 16px; border-radius:20px; font-size:13px; font-weight:600;
+      border:1px solid var(--line2); background:var(--card2); color:var(--text3);
+      cursor:pointer; transition:all .15s;
+    }
+    .report-tab.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .date-range-bar {
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      margin-bottom:20px; padding:14px 16px;
+      background:var(--card2); border:1px solid var(--line2); border-radius:12px;
+    }
+    .date-range-bar label { font-size:12px; font-weight:600; color:var(--text3); }
+    .date-range-bar input[type="date"] {
+      background:var(--card); border:1px solid var(--line2); border-radius:8px;
+      color:var(--text); font-size:13px; padding:6px 10px; outline:none; font-family:inherit;
+    }
+    .date-range-bar select {
+      background:var(--card); border:1px solid var(--line2); border-radius:8px;
+      color:var(--text); font-size:13px; padding:6px 10px; outline:none;
+      font-family:inherit; cursor:pointer;
+    }
+    .team-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .team-table th {
+      text-align:left; padding:9px 14px; font-size:11px; font-weight:700;
+      letter-spacing:.05em; text-transform:uppercase; color:var(--text3);
+      border-bottom:1px solid var(--line2);
+    }
+    .team-table td { padding:12px 14px; border-bottom:1px solid var(--line2); color:var(--text2); }
+    .team-table tr:hover td { background:var(--card2); }
+    .team-rank { font-size:16px; font-weight:800; color:var(--text3); width:36px; }
+    .team-rank.gold   { color:#f59e0b; }
+    .team-rank.silver { color:#94a3b8; }
+    .team-rank.bronze { color:#cd7f32; }
+    .team-bar-wrap { display:flex; align-items:center; gap:8px; }
+    .team-bar { height:6px; border-radius:3px; background:var(--accent); min-width:2px; transition:width .3s; }
+  </style>
 </head>
 <body>
 <div class="crm-shell">
@@ -38,6 +76,13 @@ import { esc, fmt, fmtDate, toast, tierGate, loading } from "/systems/crm/shared
 initTheme();
 
 let profile, tier;
+let activeTab = "overview";
+let dateFrom = "", dateTo = "";
+
+// Default: current month
+const now = new Date();
+dateFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+dateTo   = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -48,65 +93,154 @@ try {
   if (!tierHasFeature(tier, "reports")) {
     document.getElementById("content").innerHTML = tierGate("reports");
   } else {
-    await loadReports();
+    await render();
   }
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
-async function loadReports() {
+async function fetchData() {
   const tenantId = profile.company_id;
-  const [leadsData, companiesData, tasksData, quotesData] = await Promise.all([
-    sb().from("crm_leads").select("status,estimated_value,probability,source,created_at,pipeline_stage").eq("tenant_id", tenantId),
-    sb().from("crm_companies").select("status,industry,created_at,company_value").eq("tenant_id", tenantId),
-    sb().from("crm_tasks").select("status,priority,created_at").eq("tenant_id", tenantId),
-    sb().from("crm_quotes").select("status,total,created_at").eq("tenant_id", tenantId),
+  const from = dateFrom + "T00:00:00.000Z";
+  const to   = dateTo   + "T23:59:59.999Z";
+
+  const [leadsRes, companiesRes, tasksRes, quotesRes, staffRes] = await Promise.all([
+    sb().from("crm_leads").select("id,status,estimated_value,probability,source,created_at,pipeline_stage,assigned_to").eq("tenant_id", tenantId).gte("created_at", from).lte("created_at", to),
+    sb().from("crm_companies").select("status,industry,created_at,company_value").eq("tenant_id", tenantId).gte("created_at", from).lte("created_at", to),
+    sb().from("crm_tasks").select("id,status,priority,created_at,assigned_to,completed_at").eq("tenant_id", tenantId).gte("created_at", from).lte("created_at", to),
+    sb().from("crm_quotes").select("id,status,total,created_at,created_by,crm_company_id,accepted_at").eq("tenant_id", tenantId).gte("created_at", from).lte("created_at", to),
+    sb().from("core_employees").select("id,full_name,auth_user_id").eq("company_id", tenantId).order("full_name"),
   ]);
 
-  const leads_ = leadsData.data || [];
-  const comps  = companiesData.data || [];
-  const tasks_ = tasksData.data || [];
-  const quots  = quotesData.data || [];
+  return {
+    leads: leadsRes.data || [],
+    comps: companiesRes.data || [],
+    tasks: tasksRes.data || [],
+    quotes: quotesRes.data || [],
+    staff: staffRes.data || [],
+  };
+}
 
-  // Conversion rate
-  const total = leads_.length;
-  const won = leads_.filter(l => l.status === "won").length;
-  const convRate = total > 0 ? ((won/total)*100).toFixed(1) : 0;
+let _rCharts = [];
+function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 
-  // Pipeline by stage
-  const stages = ["new","contacted","qualified","proposal_sent","negotiation"];
-  const stageCounts = stages.map(s => leads_.filter(l => l.pipeline_stage === s || l.status === s).length);
-  const stageValues = stages.map(s => leads_.filter(l => l.pipeline_stage === s || l.status === s).reduce((acc,l) => acc+(Number(l.estimated_value)||0),0));
+function destroyCharts() { _rCharts.forEach(c => c.destroy()); _rCharts = []; }
+
+function presetDates(preset) {
+  const n = new Date();
+  if (preset === "this_month") {
+    dateFrom = new Date(n.getFullYear(), n.getMonth(), 1).toISOString().slice(0,10);
+    dateTo   = new Date(n.getFullYear(), n.getMonth()+1, 0).toISOString().slice(0,10);
+  } else if (preset === "last_month") {
+    dateFrom = new Date(n.getFullYear(), n.getMonth()-1, 1).toISOString().slice(0,10);
+    dateTo   = new Date(n.getFullYear(), n.getMonth(), 0).toISOString().slice(0,10);
+  } else if (preset === "this_quarter") {
+    const q = Math.floor(n.getMonth()/3);
+    dateFrom = new Date(n.getFullYear(), q*3, 1).toISOString().slice(0,10);
+    dateTo   = new Date(n.getFullYear(), q*3+3, 0).toISOString().slice(0,10);
+  } else if (preset === "this_year") {
+    dateFrom = `${n.getFullYear()}-01-01`;
+    dateTo   = `${n.getFullYear()}-12-31`;
+  } else if (preset === "all_time") {
+    dateFrom = "2020-01-01";
+    dateTo   = new Date().toISOString().slice(0,10);
+  }
+}
+
+async function render() {
+  destroyCharts();
+  const { leads, comps, tasks, quotes, staff } = await fetchData();
+  const content = document.getElementById("content");
+
+  // KPIs
+  const total = leads.length;
+  const won = leads.filter(l => l.status === "won").length;
+  const lost = leads.filter(l => l.status === "lost").length;
+  const convRate = total > 0 ? ((won/total)*100).toFixed(1) : "0.0";
+  const totalPipeline = leads.filter(l => !["won","lost"].includes(l.status)).reduce((s,l) => s+(Number(l.estimated_value)||0),0);
+  const forecast = leads.filter(l => !["won","lost"].includes(l.status)).reduce((s,l) => s+(Number(l.estimated_value)||0)*((l.probability||0)/100),0);
+  const totalQuoteValue = quotes.filter(q => q.status === "accepted").reduce((s,q) => s+(Number(q.total)||0),0);
 
   // Sources
   const sources = {};
-  leads_.forEach(l => { if (l.source) sources[l.source] = (sources[l.source]||0)+1; });
+  leads.forEach(l => { if (l.source) sources[l.source] = (sources[l.source]||0)+1; });
 
-  // Company industries
+  // Industries
   const industries = {};
   comps.forEach(c => { if (c.industry) industries[c.industry] = (industries[c.industry]||0)+1; });
 
-  // Monthly leads (last 6 months)
-  const monthlyLeads = getLast6Months().map(m => leads_.filter(l => l.created_at?.startsWith(m)).length);
-  const monthLabels = getLast6MonthLabels();
+  // Monthly series from dateFrom to dateTo (up to 12 months)
+  const months = getMonthRange(dateFrom, dateTo);
+  const monthlyLeads = months.map(m => leads.filter(l => l.created_at?.startsWith(m)).length);
+  const monthLabels = months.map(m => { const d = new Date(m+"-01"); return d.toLocaleString("en",{month:"short",year:"2-digit"}); });
 
-  const totalPipeline = leads_.filter(l => !["won","lost"].includes(l.status)).reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
-  const forecast = leads_.filter(l => !["won","lost"].includes(l.status)).reduce((s,l) => s + (Number(l.estimated_value)||0) * ((l.probability||0)/100), 0);
-  const totalQuoteValue = quots.filter(q => q.status === "accepted").reduce((s,q) => s + (Number(q.total)||0), 0);
+  // Stage counts
+  const stages = ["new","contacted","qualified","proposal_sent","negotiation"];
+  const stageCounts = stages.map(s => leads.filter(l => l.pipeline_stage === s || l.status === s).length);
 
-  document.getElementById("content").innerHTML = `
+  // Team performance
+  const teamStats = staff.map(emp => {
+    const empLeads  = leads.filter(l => l.assigned_to === emp.id);
+    const empQuotes = quotes.filter(q => q.created_by === emp.auth_user_id);
+    const empTasks  = tasks.filter(t => t.assigned_to === emp.id);
+    const wonLeads  = empLeads.filter(l => l.status === "won");
+    const acceptedQ = empQuotes.filter(q => q.status === "accepted");
+    return {
+      name: emp.full_name,
+      leadsTotal: empLeads.length,
+      leadsWon: wonLeads.length,
+      leadsLost: empLeads.filter(l => l.status === "lost").length,
+      convRate: empLeads.length > 0 ? ((wonLeads.length/empLeads.length)*100).toFixed(0) : "—",
+      quotesAccepted: acceptedQ.length,
+      quotesValue: acceptedQ.reduce((s,q) => s+(Number(q.total)||0),0),
+      tasksDone: empTasks.filter(t => t.status === "completed").length,
+      tasksTotal: empTasks.length,
+      pipeline: empLeads.filter(l => !["won","lost"].includes(l.status)).reduce((s,l) => s+(Number(l.estimated_value)||0),0),
+    };
+  }).filter(e => e.leadsTotal > 0 || e.quotesAccepted > 0 || e.tasksDone > 0)
+    .sort((a,b) => b.quotesValue - a.quotesValue);
+
+  const maxQuoteVal = teamStats[0]?.quotesValue || 1;
+
+  content.innerHTML = `
     <div class="page-header">
       <div class="page-header-left">
         <h1>Reports & Analytics</h1>
-        <p>Business performance overview</p>
+        <p>Business performance — filtered by date range</p>
       </div>
     </div>
 
-    <!-- KPI Summary -->
+    <!-- Date range bar -->
+    <div class="date-range-bar">
+      <label>Period</label>
+      <select id="datePreset" onchange="onPreset(this.value)">
+        <option value="">Custom</option>
+        <option value="this_month" selected>This Month</option>
+        <option value="last_month">Last Month</option>
+        <option value="this_quarter">This Quarter</option>
+        <option value="this_year">This Year</option>
+        <option value="all_time">All Time</option>
+      </select>
+      <label>From</label>
+      <input type="date" id="dFrom" value="${dateFrom}" onchange="onDateChange()"/>
+      <label>To</label>
+      <input type="date" id="dTo"   value="${dateTo}"   onchange="onDateChange()"/>
+      <button class="btn btn-primary btn-sm" onclick="applyDates()" style="padding:6px 16px">Apply</button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="report-tabs">
+      <div class="report-tab ${activeTab==="overview"?"active":""}" onclick="switchTab('overview')">📊 Overview</div>
+      <div class="report-tab ${activeTab==="team"?"active":""}" onclick="switchTab('team')">👥 Team Performance</div>
+      <div class="report-tab ${activeTab==="pipeline"?"active":""}" onclick="switchTab('pipeline')">📋 Pipeline</div>
+      <div class="report-tab ${activeTab==="quotes"?"active":""}" onclick="switchTab('quotes')">💰 Quotes</div>
+    </div>
+
+    <!-- KPI row — always visible -->
     <div class="stats-grid" style="margin-bottom:20px">
       <div class="stat-card" style="--stat-color:var(--blue);--stat-dim:var(--blue-dim)">
         <div class="stat-icon">🎯</div>
         <div class="stat-value">${total}</div>
         <div class="stat-label">Total Leads</div>
-        <div class="stat-change">${won} won · ${leads_.filter(l=>l.status==="lost").length} lost</div>
+        <div class="stat-change">${won} won · ${lost} lost</div>
       </div>
       <div class="stat-card" style="--stat-color:var(--good);--stat-dim:var(--good-dim)">
         <div class="stat-icon">📈</div>
@@ -124,120 +258,217 @@ async function loadReports() {
         <div class="stat-icon">✅</div>
         <div class="stat-value">${fmt(totalQuoteValue)}</div>
         <div class="stat-label">Accepted Quote Value</div>
-        <div class="stat-change">${quots.filter(q=>q.status==="accepted").length} quotes accepted</div>
+        <div class="stat-change">${quotes.filter(q=>q.status==="accepted").length} quotes accepted</div>
       </div>
     </div>
 
-    <div class="grid-2" style="gap:16px;margin-bottom:16px">
-      <!-- Monthly leads chart -->
-      <div class="card">
-        <div class="card-header"><h2>Leads Created (Last 6 Months)</h2></div>
-        <div class="card-body">
-          <div class="chart-wrap"><canvas id="monthlyChart"></canvas></div>
+    <!-- TAB: Overview -->
+    <div id="tab-overview" style="${activeTab!=="overview"?"display:none":""}">
+      <div class="grid-2" style="gap:16px;margin-bottom:16px">
+        <div class="card">
+          <div class="card-header"><h2>Leads Created</h2></div>
+          <div class="card-body"><div class="chart-wrap"><canvas id="monthlyChart"></canvas></div></div>
         </div>
-      </div>
-      <!-- Stage funnel -->
-      <div class="card">
-        <div class="card-header"><h2>Pipeline Funnel</h2></div>
-        <div class="card-body">
-          <div class="chart-wrap"><canvas id="funnelChart"></canvas></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="grid-2" style="gap:16px;margin-bottom:16px">
-      <!-- Lead sources -->
-      <div class="card">
-        <div class="card-header"><h2>Lead Sources</h2></div>
-        <div class="card-body">
-          ${Object.entries(sources).length === 0
-            ? `<div class="empty-state" style="padding:20px"><p>No source data yet</p></div>`
-            : Object.entries(sources).sort((a,b)=>b[1]-a[1]).map(([source, count]) => `
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line2)">
-                <span style="text-transform:capitalize">${source.replace("_"," ")}</span>
-                <div style="display:flex;align-items:center;gap:10px">
-                  <div class="progress-bar" style="width:80px">
-                    <div class="progress-fill" style="width:${total>0?(count/total*100):0}%"></div>
+        <div class="card">
+          <div class="card-header"><h2>Lead Sources</h2></div>
+          <div class="card-body">
+            ${Object.entries(sources).length === 0
+              ? `<div class="empty-state" style="padding:20px"><p>No source data</p></div>`
+              : Object.entries(sources).sort((a,b)=>b[1]-a[1]).map(([src, cnt]) => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line2)">
+                  <span style="text-transform:capitalize">${src.replace(/_/g," ")}</span>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div class="progress-bar" style="width:80px"><div class="progress-fill" style="width:${total>0?(cnt/total*100):0}%"></div></div>
+                    <span class="font-bold">${cnt}</span>
                   </div>
-                  <span class="font-bold">${count}</span>
-                </div>
-              </div>`).join("")}
+                </div>`).join("")}
+          </div>
         </div>
       </div>
-      <!-- Company industries -->
-      <div class="card">
-        <div class="card-header"><h2>Company Industries</h2></div>
-        <div class="card-body">
-          ${Object.entries(industries).length === 0
-            ? `<div class="empty-state" style="padding:20px"><p>No industry data yet</p></div>`
-            : Object.entries(industries).sort((a,b)=>b[1]-a[1]).map(([ind, count]) => `
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line2)">
-                <span>${esc(ind)}</span>
-                <span class="badge badge-blue">${count}</span>
-              </div>`).join("")}
+      <div class="grid-2" style="gap:16px;margin-bottom:16px">
+        <div class="card">
+          <div class="card-header"><h2>Company Industries</h2></div>
+          <div class="card-body">
+            ${Object.entries(industries).length === 0
+              ? `<div class="empty-state" style="padding:20px"><p>No industry data</p></div>`
+              : Object.entries(industries).sort((a,b)=>b[1]-a[1]).map(([ind,cnt]) => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line2)">
+                  <span>${esc(ind)}</span><span class="badge badge-blue">${cnt}</span>
+                </div>`).join("")}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h2>Tasks Summary</h2></div>
+          <div class="card-body">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center;padding:8px 0">
+              ${[["Total",tasks.length,""],["Completed",tasks.filter(t=>t.status==="completed").length,"badge-green"],["Pending",tasks.filter(t=>t.status==="pending"||t.status==="todo").length,"badge-blue"],["Overdue",tasks.filter(t=>t.status!=="completed"&&t.due_date&&new Date(t.due_date)<new Date()).length,"badge-red"]].map(([l,v,c])=>`
+                <div><div style="font-size:26px;font-weight:800;color:var(--text)">${v}</div><span class="badge ${c}">${l}</span></div>`).join("")}
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Quote conversion -->
-    <div class="card" style="margin-bottom:16px">
-      <div class="card-header"><h2>Quote Performance</h2></div>
-      <div class="card-body">
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:16px;text-align:center">
-          ${[["Draft","draft","badge-grey"],["Sent","sent","badge-blue"],["Accepted","accepted","badge-green"],["Rejected","rejected","badge-red"],["Expired","expired","badge-yellow"]].map(([label,st,cls]) => `
-            <div>
-              <div style="font-size:28px;font-weight:800">${quots.filter(q=>q.status===st).length}</div>
-              <span class="badge ${cls}">${label}</span>
-            </div>`).join("")}
+    <!-- TAB: Team Performance -->
+    <div id="tab-team" style="${activeTab!=="team"?"display:none":""}">
+      <div class="card">
+        <div class="card-header"><h2>Team Performance</h2></div>
+        <div class="card-body" style="overflow-x:auto">
+          ${teamStats.length === 0
+            ? `<div class="empty-state" style="padding:40px"><p>No team data for this period. Assign leads and tasks to team members to see their stats here.</p></div>`
+            : `<table class="team-table">
+                <thead>
+                  <tr>
+                    <th style="width:36px">#</th>
+                    <th>Name</th>
+                    <th>Leads</th>
+                    <th>Won</th>
+                    <th>Conv.%</th>
+                    <th>Pipeline</th>
+                    <th>Quotes Accepted</th>
+                    <th>Quote Value</th>
+                    <th>Tasks Done</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${teamStats.map((e, i) => `
+                    <tr>
+                      <td class="team-rank ${i===0?"gold":i===1?"silver":i===2?"bronze":""}">${i===0?"🥇":i===1?"🥈":i===2?"🥉":i+1}</td>
+                      <td style="font-weight:700;color:var(--text)">${esc(e.name)}</td>
+                      <td>${e.leadsTotal}</td>
+                      <td><span style="color:#10b981;font-weight:700">${e.leadsWon}</span></td>
+                      <td>${e.convRate}${e.convRate!=="—"?"%":""}</td>
+                      <td>${fmt(e.pipeline)}</td>
+                      <td>${e.quotesAccepted}</td>
+                      <td>
+                        <div class="team-bar-wrap">
+                          <div class="team-bar" style="width:${Math.round((e.quotesValue/maxQuoteVal)*80)}px"></div>
+                          <span style="font-weight:700;color:var(--text)">${fmt(e.quotesValue)}</span>
+                        </div>
+                      </td>
+                      <td>${e.tasksDone}${e.tasksTotal>0?`<span style="color:var(--text3)"> / ${e.tasksTotal}</span>`:""}</td>
+                    </tr>`).join("")}
+                </tbody>
+              </table>`}
         </div>
+      </div>
+    </div>
+
+    <!-- TAB: Pipeline -->
+    <div id="tab-pipeline" style="${activeTab!=="pipeline"?"display:none":""}">
+      <div class="grid-2" style="gap:16px;margin-bottom:16px">
+        <div class="card">
+          <div class="card-header"><h2>Pipeline Funnel</h2></div>
+          <div class="card-body"><div class="chart-wrap"><canvas id="funnelChart"></canvas></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h2>Stage Breakdown</h2></div>
+          <div class="card-body">
+            ${stages.map((s,i) => {
+              const cnt = stageCounts[i];
+              const val = leads.filter(l=>l.pipeline_stage===s||l.status===s).reduce((a,l)=>a+(Number(l.estimated_value)||0),0);
+              return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line2)">
+                <span style="text-transform:capitalize">${s.replace("_"," ")}</span>
+                <div style="display:flex;gap:12px;align-items:center">
+                  <span class="badge badge-blue">${cnt}</span>
+                  <span style="font-weight:700;color:var(--text)">${fmt(val)}</span>
+                </div>
+              </div>`;
+            }).join("")}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: Quotes -->
+    <div id="tab-quotes" style="${activeTab!=="quotes"?"display:none":""}">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><h2>Quote Performance</h2></div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:16px;text-align:center">
+            ${[["Draft","draft","badge-grey"],["Sent","sent","badge-blue"],["Accepted","accepted","badge-green"],["Rejected","rejected","badge-red"],["Expired","expired","badge-yellow"]].map(([label,st,cls]) => `
+              <div>
+                <div style="font-size:28px;font-weight:800">${quotes.filter(q=>q.status===st).length}</div>
+                <span class="badge ${cls}">${label}</span>
+              </div>`).join("")}
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h2>Quote Value Breakdown</h2></div>
+        <div class="card-body"><div class="chart-wrap"><canvas id="quotesChart"></canvas></div></div>
       </div>
     </div>`;
 
-  // Charts — stored so they can be destroyed/recreated on theme change
-  const _rChartData = { monthLabels, monthlyLeads, stageCounts };
-  let _rCharts = [];
+  // Charts
+  const textColor = cssVar("--text3"), gridColor = cssVar("--line");
 
-  function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
-
-  function buildReportCharts(data) {
-    _rCharts.forEach(c => c.destroy());
-    _rCharts = [];
-    const textColor = cssVar("--text3");
-    const gridColor = cssVar("--line");
-
+  if (activeTab === "overview" && document.getElementById("monthlyChart")) {
     _rCharts.push(new Chart(document.getElementById("monthlyChart").getContext("2d"), {
       type: "bar",
-      data: { labels: data.monthLabels, datasets: [{ label: "Leads", data: data.monthlyLeads, backgroundColor: "rgba(30,92,255,.6)", borderRadius: 6 }] },
+      data: { labels: monthLabels, datasets: [{ label:"Leads", data:monthlyLeads, backgroundColor:"rgba(30,92,255,.6)", borderRadius:6 }] },
       options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{grid:{color:gridColor},ticks:{color:textColor}},y:{grid:{color:gridColor},ticks:{color:textColor,stepSize:1}}} }
     }));
+  }
 
+  if (activeTab === "pipeline" && document.getElementById("funnelChart")) {
     _rCharts.push(new Chart(document.getElementById("funnelChart").getContext("2d"), {
       type: "bar",
-      data: { labels: ["New","Contacted","Qualified","Proposal","Negotiation"], datasets: [{ label:"Leads", data:data.stageCounts, backgroundColor:["#6366f1","#f59e0b","#3b82f6","#8b5cf6","#ec4899"], borderRadius:6, borderSkipped:false }] },
+      data: { labels:["New","Contacted","Qualified","Proposal","Negotiation"], datasets:[{label:"Leads",data:stageCounts,backgroundColor:["#6366f1","#f59e0b","#3b82f6","#8b5cf6","#ec4899"],borderRadius:6,borderSkipped:false}] },
       options: { indexAxis:"y", responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{grid:{color:gridColor},ticks:{color:textColor}},y:{grid:{color:gridColor},ticks:{color:textColor}}} }
     }));
   }
 
-  buildReportCharts(_rChartData);
+  if (activeTab === "quotes" && document.getElementById("quotesChart")) {
+    const qLabels = ["Draft","Sent","Accepted","Rejected","Expired"];
+    const qVals = ["draft","sent","accepted","rejected","expired"].map(s => quotes.filter(q=>q.status===s).reduce((a,q)=>a+(Number(q.total)||0),0));
+    _rCharts.push(new Chart(document.getElementById("quotesChart").getContext("2d"), {
+      type: "bar",
+      data: { labels:qLabels, datasets:[{label:"Value (£)",data:qVals,backgroundColor:["#6b7280","#3b82f6","#10b981","#ef4444","#f59e0b"],borderRadius:6}] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{grid:{color:gridColor},ticks:{color:textColor}},y:{grid:{color:gridColor},ticks:{color:textColor}}} }
+    }));
+  }
+
   new MutationObserver(() => {
-    if (!_rCharts.length) return;
-    const text3 = cssVar("--text3");
-    const line  = cssVar("--line");
+    const t3 = cssVar("--text3"), line = cssVar("--line");
     _rCharts.forEach(c => {
-      c.options.scales.x.grid.color  = line;
-      c.options.scales.x.ticks.color = text3;
-      c.options.scales.y.grid.color  = line;
-      c.options.scales.y.ticks.color = text3;
+      if (c.options.scales?.x) { c.options.scales.x.grid.color=line; c.options.scales.x.ticks.color=t3; }
+      if (c.options.scales?.y) { c.options.scales.y.grid.color=line; c.options.scales.y.ticks.color=t3; }
       c.update();
     });
-  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  }).observe(document.documentElement, { attributes:true, attributeFilter:["data-theme"] });
 }
 
-function getLast6Months() {
-  return Array.from({length:6},(_,i) => { const d=new Date(); d.setMonth(d.getMonth()-5+i); return d.toISOString().slice(0,7); });
-}
-function getLast6MonthLabels() {
-  return Array.from({length:6},(_,i) => { const d=new Date(); d.setMonth(d.getMonth()-5+i); return d.toLocaleString("en",{month:"short"}); });
+window.switchTab = tab => { activeTab = tab; render(); };
+
+window.onPreset = preset => {
+  if (!preset) return;
+  presetDates(preset);
+  document.getElementById("dFrom").value = dateFrom;
+  document.getElementById("dTo").value = dateTo;
+  render();
+};
+
+window.onDateChange = () => {
+  document.getElementById("datePreset").value = "";
+};
+
+window.applyDates = () => {
+  dateFrom = document.getElementById("dFrom").value || dateFrom;
+  dateTo   = document.getElementById("dTo").value   || dateTo;
+  render();
+};
+
+function getMonthRange(from, to) {
+  const months = [];
+  const start = new Date(from.slice(0,7)+"-01");
+  const end   = new Date(to.slice(0,7)+"-01");
+  while (start <= end) {
+    months.push(start.toISOString().slice(0,7));
+    start.setMonth(start.getMonth()+1);
+    if (months.length > 24) break;
+  }
+  return months;
 }
 </script>
 </body>

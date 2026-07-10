@@ -37,20 +37,25 @@ export const companies = {
       .select().single();
     if (error) throw error;
     await activities.log({ crm_company_id: data.id, type: "company_created", title: `Company created: ${data.name}` });
+    auditLog({ action: "create", entityType: "company", entityId: data.id, entityName: data.name, newData: fields });
     return data;
   },
 
   async update(id, fields) {
+    const before = await sb().from("crm_companies").select("*").eq("id", id).single();
     const { data, error } = await sb().from("crm_companies")
       .update({ ...fields, updated_at: new Date().toISOString() })
       .eq("id", id).select().single();
     if (error) throw error;
+    auditLog({ action: "edit", entityType: "company", entityId: id, entityName: data.name, oldData: before.data, newData: fields });
     return data;
   },
 
   async delete(id) {
+    const before = await sb().from("crm_companies").select("*").eq("id", id).single();
     const { error } = await sb().from("crm_companies").delete().eq("id", id);
     if (error) throw error;
+    auditLog({ action: "delete", entityType: "company", entityId: id, entityName: before.data?.name, oldData: before.data });
   },
 };
 
@@ -81,20 +86,26 @@ export const contacts = {
     if (fields.crm_company_id) {
       await activities.log({ crm_company_id: fields.crm_company_id, crm_contact_id: data.id, type: "contact_added", title: `Contact added: ${data.first_name} ${data.last_name}` });
     }
+    const name = `${data.first_name} ${data.last_name}`.trim();
+    auditLog({ action: "create", entityType: "contact", entityId: data.id, entityName: name, newData: fields });
     return data;
   },
 
   async update(id, fields) {
+    const before = await sb().from("crm_contacts").select("*").eq("id", id).single();
     const { data, error } = await sb().from("crm_contacts")
       .update({ ...fields, updated_at: new Date().toISOString() })
       .eq("id", id).select().single();
     if (error) throw error;
+    auditLog({ action: "edit", entityType: "contact", entityId: id, entityName: `${data.first_name} ${data.last_name}`.trim(), oldData: before.data, newData: fields });
     return data;
   },
 
   async delete(id) {
+    const before = await sb().from("crm_contacts").select("*").eq("id", id).single();
     const { error } = await sb().from("crm_contacts").delete().eq("id", id);
     if (error) throw error;
+    auditLog({ action: "delete", entityType: "contact", entityId: id, entityName: `${before.data?.first_name||""} ${before.data?.last_name||""}`.trim(), oldData: before.data });
   },
 };
 
@@ -126,29 +137,36 @@ export const leads = {
     if (fields.crm_company_id) {
       await activities.log({ crm_company_id: fields.crm_company_id, crm_lead_id: data.id, type: "lead_created", title: `Lead created: ${data.title}` });
     }
+    auditLog({ action: "create", entityType: "lead", entityId: data.id, entityName: data.title, newData: fields });
     return data;
   },
 
   async update(id, fields) {
+    const before = await sb().from("crm_leads").select("*").eq("id", id).single();
     const { data, error } = await sb().from("crm_leads")
       .update({ ...fields, updated_at: new Date().toISOString() })
       .eq("id", id).select().single();
     if (error) throw error;
+    auditLog({ action: "edit", entityType: "lead", entityId: id, entityName: data.title, oldData: before.data, newData: fields });
     return data;
   },
 
   async updateStage(id, stage) {
     const statusMap = { new: "new", contacted: "contacted", qualified: "qualified", proposal_sent: "proposal_sent", negotiation: "negotiation", won: "won", lost: "lost" };
+    const before = await sb().from("crm_leads").select("*").eq("id", id).single();
     const { data, error } = await sb().from("crm_leads")
       .update({ pipeline_stage: stage, status: statusMap[stage] || stage, updated_at: new Date().toISOString() })
       .eq("id", id).select().single();
     if (error) throw error;
+    auditLog({ action: "edit", entityType: "lead", entityId: id, entityName: data.title, oldData: { pipeline_stage: before.data?.pipeline_stage }, newData: { pipeline_stage: stage } });
     return data;
   },
 
   async delete(id) {
+    const before = await sb().from("crm_leads").select("*").eq("id", id).single();
     const { error } = await sb().from("crm_leads").delete().eq("id", id);
     if (error) throw error;
+    auditLog({ action: "delete", entityType: "lead", entityId: id, entityName: before.data?.title, oldData: before.data });
   },
 
   async pipelineStats() {
@@ -230,14 +248,17 @@ export const tasks = {
       .insert({ ...fields, tenant_id: tenantId, created_by: p.id })
       .select().single();
     if (error) throw error;
+    auditLog({ action: "create", entityType: "task", entityId: data.id, entityName: data.title, newData: fields });
     return data;
   },
 
   async update(id, fields) {
+    const before = await sb().from("crm_tasks").select("*").eq("id", id).single();
     const { data, error } = await sb().from("crm_tasks")
       .update({ ...fields, updated_at: new Date().toISOString() })
       .eq("id", id).select().single();
     if (error) throw error;
+    auditLog({ action: "edit", entityType: "task", entityId: id, entityName: data.title, oldData: before.data, newData: fields });
     return data;
   },
 
@@ -247,8 +268,10 @@ export const tasks = {
   },
 
   async delete(id) {
+    const before = await sb().from("crm_tasks").select("*").eq("id", id).single();
     const { error } = await sb().from("crm_tasks").delete().eq("id", id);
     if (error) throw error;
+    auditLog({ action: "delete", entityType: "task", entityId: id, entityName: before.data?.title, oldData: before.data });
   },
 };
 
@@ -332,20 +355,25 @@ export const quotes = {
     if (fields.crm_company_id) {
       await activities.log({ crm_company_id: fields.crm_company_id, crm_lead_id: fields.crm_lead_id, type: "quote_created", title: `Quote created: ${quote_number}`, metadata: { quote_id: data.id, total: data.total } });
     }
+    auditLog({ action: "create", entityType: "quote", entityId: data.id, entityName: quote_number, newData: { quote_number, total: data.total } });
     return data;
   },
 
   async update(id, fields) {
+    const before = await sb().from("crm_quotes").select("*").eq("id", id).single();
     const { data, error } = await sb().from("crm_quotes")
       .update({ ...fields, updated_at: new Date().toISOString() })
       .eq("id", id).select().single();
     if (error) throw error;
+    auditLog({ action: "edit", entityType: "quote", entityId: id, entityName: data.quote_number, oldData: { status: before.data?.status }, newData: fields });
     return data;
   },
 
   async delete(id) {
+    const before = await sb().from("crm_quotes").select("*").eq("id", id).single();
     const { error } = await sb().from("crm_quotes").delete().eq("id", id);
     if (error) throw error;
+    auditLog({ action: "delete", entityType: "quote", entityId: id, entityName: before.data?.quote_number, oldData: before.data });
   },
 };
 
@@ -429,6 +457,24 @@ export async function getStaff() {
     .order("full_name");
   if (error) throw error;
   return data || [];
+}
+
+// ── Audit log helper ────────────────────────────────────────
+export async function auditLog({ action, entityType, entityId, entityName, oldData, newData }) {
+  try {
+    const tenantId = await tid();
+    const p = await getProfile();
+    await sb().from("crm_audit_logs").insert({
+      tenant_id: tenantId,
+      user_id: p.id,
+      action,
+      entity_type: entityType,
+      entity_id: entityId || null,
+      entity_name: entityName || null,
+      old_data: oldData || null,
+      new_data: newData || null,
+    });
+  } catch (_) {}
 }
 
 // ── Commands trigger helper ─────────────────────────────────

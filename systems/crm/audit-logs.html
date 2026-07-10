@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Audit Logs — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css?v=3"/>
+  <style>
+    .al-filters {
+      display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; align-items: center;
+    }
+    .al-filters select, .al-filters input[type="date"] {
+      background: var(--card2); border: 1px solid var(--line2); border-radius: 10px;
+      color: var(--text); font-size: 13px; padding: 8px 12px; outline: none;
+      font-family: inherit;
+    }
+    .al-table-wrap { overflow-x: auto; }
+    .al-table {
+      width: 100%; border-collapse: collapse; font-size: 13px; min-width: 700px;
+    }
+    .al-table th {
+      text-align: left; padding: 9px 14px; font-size: 11px; font-weight: 700;
+      letter-spacing: .05em; text-transform: uppercase; color: var(--text3);
+      border-bottom: 1px solid var(--line2); white-space: nowrap;
+    }
+    .al-table td {
+      padding: 11px 14px; border-bottom: 1px solid var(--line2);
+      color: var(--text2); vertical-align: middle;
+    }
+    .al-table tr:hover td { background: var(--card2); }
+    .al-action {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .04em;
+    }
+    .al-action.create { background: rgba(16,185,129,.12); color: #10b981; }
+    .al-action.edit   { background: rgba(30,92,255,.12);  color: var(--accent); }
+    .al-action.delete { background: rgba(239,68,68,.12);  color: #ef4444; }
+    .al-entity { font-weight: 600; color: var(--text); }
+    .al-diff {
+      font-size: 12px; color: var(--text3); max-width: 300px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .al-diff-toggle {
+      background: none; border: none; color: var(--accent); font-size: 11px;
+      cursor: pointer; padding: 0; font-family: inherit; font-weight: 600;
+    }
+    .al-diff-detail {
+      background: var(--card2); border: 1px solid var(--line2); border-radius: 8px;
+      padding: 10px 12px; margin-top: 6px; font-size: 12px; display: none;
+    }
+    .al-diff-detail.open { display: block; }
+    .al-diff-row { display: flex; gap: 8px; margin-bottom: 4px; }
+    .al-diff-key { color: var(--text3); min-width: 120px; font-weight: 600; }
+    .al-diff-old { color: #ef4444; text-decoration: line-through; }
+    .al-diff-new { color: #10b981; }
+    .al-pagination {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 16px; font-size: 13px; color: var(--text3);
+    }
+    .al-pagination-btns { display: flex; gap: 8px; }
+    .al-pagination-btns button {
+      padding: 6px 14px; border-radius: 8px; border: 1px solid var(--line2);
+      background: var(--card2); color: var(--text); font-size: 13px; cursor: pointer;
+    }
+    .al-pagination-btns button:disabled { opacity: .4; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Audit Logs</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content" style="padding:20px">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+
+<script type="module">
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
+import { sb } from "/systems/crm/shared/supabase.js";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, toast, tierGate } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+const PAGE_SIZE = 50;
+let profile, tier;
+let filterUser = "", filterAction = "", filterFrom = "", filterTo = "";
+let page = 0;
+let staffList = [];
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("audit-logs", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+
+  if (!tierHasFeature(tier, "audit_logs")) {
+    document.getElementById("content").innerHTML = tierGate("audit_logs");
+  } else {
+    await init();
+  }
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+async function init() {
+  const { data: staff } = await sb().from("core_employees")
+    .select("id, full_name, auth_user_id")
+    .eq("company_id", profile.company_id)
+    .order("full_name");
+  staffList = staff || [];
+  await render();
+}
+
+async function fetchLogs() {
+  let q = sb().from("crm_audit_logs")
+    .select("*", { count: "exact" })
+    .eq("tenant_id", profile.company_id)
+    .order("created_at", { ascending: false })
+    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+
+  if (filterUser) {
+    const emp = staffList.find(s => s.id === filterUser);
+    if (emp?.auth_user_id) q = q.eq("user_id", emp.auth_user_id);
+  }
+  if (filterAction) q = q.eq("action", filterAction);
+  if (filterFrom) q = q.gte("created_at", filterFrom + "T00:00:00.000Z");
+  if (filterTo)   q = q.lte("created_at", filterTo   + "T23:59:59.999Z");
+
+  return q;
+}
+
+function fmtTs(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  return d.toLocaleDateString("en-GB") + " " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+function diffHtml(log) {
+  if (log.action === "create") return `<span class="al-diff">New ${esc(log.entity_type)}</span>`;
+  if (log.action === "delete") return `<span class="al-diff">Deleted</span>`;
+  if (!log.old_data || !log.new_data) return `<span class="al-diff">—</span>`;
+
+  const changed = Object.entries(log.new_data).filter(([k, v]) => {
+    const skip = ["updated_at","created_at"];
+    if (skip.includes(k)) return false;
+    return JSON.stringify(log.old_data[k]) !== JSON.stringify(v);
+  });
+
+  if (!changed.length) return `<span class="al-diff">No tracked changes</span>`;
+
+  const id = `diff-${log.id}`;
+  const summary = changed.map(([k]) => k.replace(/_/g," ")).slice(0,3).join(", ") + (changed.length > 3 ? ` +${changed.length-3} more` : "");
+  return `
+    <span class="al-diff">${esc(summary)}</span>
+    <button class="al-diff-toggle" onclick="toggleDiff('${id}')">Details</button>
+    <div class="al-diff-detail" id="${id}">
+      ${changed.map(([k,v]) => `
+        <div class="al-diff-row">
+          <span class="al-diff-key">${esc(k.replace(/_/g," "))}</span>
+          <span class="al-diff-old">${esc(String(log.old_data[k] ?? ""))}</span>
+          <span>→</span>
+          <span class="al-diff-new">${esc(String(v ?? ""))}</span>
+        </div>`).join("")}
+    </div>`;
+}
+
+window.toggleDiff = id => {
+  document.getElementById(id)?.classList.toggle("open");
+};
+
+function userNameFromLog(log) {
+  const emp = staffList.find(s => s.auth_user_id === log.user_id);
+  return emp?.full_name || log.user_id?.slice(0,8) || "Unknown";
+}
+
+async function render() {
+  const content = document.getElementById("content");
+
+  const { data: logs, count, error } = await fetchLogs();
+  if (error) { toast("bad","Error",error.message); return; }
+
+  const totalPages = Math.ceil((count||0) / PAGE_SIZE);
+
+  content.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Audit Logs</h1>
+        <p>Full history of every create, edit and delete across your CRM</p>
+      </div>
+    </div>
+
+    <div class="al-filters">
+      <select id="filterUser" onchange="applyFilter()">
+        <option value="">All Users</option>
+        ${staffList.map(s => `<option value="${s.id}" ${filterUser===s.id?"selected":""}>${esc(s.full_name)}</option>`).join("")}
+      </select>
+      <select id="filterAction" onchange="applyFilter()">
+        <option value="">All Actions</option>
+        <option value="create" ${filterAction==="create"?"selected":""}>Create</option>
+        <option value="edit"   ${filterAction==="edit"  ?"selected":""}>Edit</option>
+        <option value="delete" ${filterAction==="delete"?"selected":""}>Delete</option>
+      </select>
+      <input type="date" id="filterFrom" value="${filterFrom}" onchange="applyFilter()" title="From date"/>
+      <input type="date" id="filterTo"   value="${filterTo}"   onchange="applyFilter()" title="To date"/>
+      ${filterUser||filterAction||filterFrom||filterTo ? `<button class="btn btn-sm" onclick="clearFilters()">Clear</button>` : ""}
+      <span style="margin-left:auto;font-size:12px;color:var(--text3)">${count||0} entries</span>
+    </div>
+
+    <div class="card">
+      <div class="al-table-wrap">
+        ${!logs?.length ? `<div class="empty-state" style="padding:40px"><p>No audit log entries found.</p></div>` : `
+        <table class="al-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>User</th>
+              <th>Action</th>
+              <th>Record Type</th>
+              <th>Record</th>
+              <th>Changes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${logs.map(log => `
+              <tr>
+                <td style="white-space:nowrap;color:var(--text3)">${fmtTs(log.created_at)}</td>
+                <td style="font-weight:600">${esc(userNameFromLog(log))}</td>
+                <td><span class="al-action ${log.action}">${log.action === "create" ? "✚ Create" : log.action === "edit" ? "✎ Edit" : "✕ Delete"}</span></td>
+                <td style="text-transform:capitalize">${esc(log.entity_type||"")}</td>
+                <td class="al-entity">${esc(log.entity_name||"—")}</td>
+                <td>${diffHtml(log)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`}
+      </div>
+    </div>
+
+    <div class="al-pagination">
+      <span>Page ${page+1} of ${totalPages||1}</span>
+      <div class="al-pagination-btns">
+        <button onclick="goPage(${page-1})" ${page===0?"disabled":""}>← Previous</button>
+        <button onclick="goPage(${page+1})" ${page>=totalPages-1?"disabled":""}>Next →</button>
+      </div>
+    </div>`;
+}
+
+window.applyFilter = () => {
+  filterUser   = document.getElementById("filterUser")?.value   || "";
+  filterAction = document.getElementById("filterAction")?.value || "";
+  filterFrom   = document.getElementById("filterFrom")?.value   || "";
+  filterTo     = document.getElementById("filterTo")?.value     || "";
+  page = 0;
+  render();
+};
+
+window.clearFilters = () => {
+  filterUser = ""; filterAction = ""; filterFrom = ""; filterTo = "";
+  page = 0;
+  render();
+};
+
+window.goPage = (p) => {
+  if (p < 0) return;
+  page = p;
+  render();
+  document.getElementById("content").scrollTo({ top: 0 });
+};
+</script>
+</body>
+</html>
