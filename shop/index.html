@@ -429,6 +429,57 @@
     .checkout-btn:active{transform:scale(.99)}
     .basket-hint{font-size:12px;color:var(--muted);text-align:center;margin-top:12px;line-height:1.5}
 
+    /* ── Mini basket sidebar ────────────────────────────── */
+    #miniBasket{
+      position:fixed;top:72px;right:20px;z-index:300;
+      width:300px;
+      background:#13151f;
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:18px;
+      box-shadow:0 24px 60px rgba(0,0,0,.7);
+      padding:16px;
+      transform:translateX(calc(100% + 32px));
+      opacity:0;
+      transition:transform .3s cubic-bezier(.34,1.2,.64,1), opacity .25s ease;
+      pointer-events:none;
+    }
+    #miniBasket.show{
+      transform:translateX(0);
+      opacity:1;
+      pointer-events:auto;
+    }
+    .mini-basket-title{font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;margin-bottom:12px}
+    .mini-basket-items{display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto}
+    .mini-basket-item{
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      padding:10px 12px;
+      background:rgba(255,255,255,.05);
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:11px;
+    }
+    .mini-basket-item-name{font-size:13px;font-weight:600;letter-spacing:-.01em;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .mini-basket-item-price{font-size:13px;font-weight:700;flex-shrink:0;color:var(--accent)}
+    .mini-basket-item-remove{
+      width:20px;height:20px;border-radius:50%;
+      background:rgba(255,255,255,.08);border:none;
+      color:var(--muted);cursor:pointer;font-size:11px;
+      display:flex;align-items:center;justify-content:center;
+      flex-shrink:0;transition:background .15s,color .15s;
+      font-family:inherit;padding:0;
+    }
+    .mini-basket-item-remove:hover{background:rgba(255,69,58,.18);color:#ff453a}
+    .mini-basket-footer{margin-top:12px;border-top:1px solid rgba(255,255,255,.08);padding-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .mini-basket-total{font-size:15px;font-weight:800;letter-spacing:-.02em}
+    .mini-basket-total-label{font-size:11px;color:var(--muted);margin-bottom:2px}
+    .mini-basket-cta{
+      background:var(--accent);color:#fff;border:none;border-radius:10px;
+      padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;
+      font-family:inherit;letter-spacing:-.01em;transition:background .15s;white-space:nowrap;
+    }
+    .mini-basket-cta:hover{background:#4a7ef5}
+    .mini-basket-empty{font-size:13px;color:var(--muted);text-align:center;padding:12px 0}
+    @media(max-width:600px){#miniBasket{width:calc(100vw - 32px);right:16px;top:64px}}
+
     /* ── Detail (full-screen) ────────────────────────────── */
     #detail{
       position:fixed;inset:0;z-index:200;
@@ -735,6 +786,19 @@
       </div>
       <button class="bar-cta" onclick="goCheckout()">Review Basket →</button>
     </div>
+  </div>
+</div>
+
+<!-- MINI BASKET SIDEBAR -->
+<div id="miniBasket" onmouseenter="clearTimeout(_miniBasketTimer)" onmouseleave="showMiniBasket()">
+  <div class="mini-basket-title">Basket</div>
+  <div class="mini-basket-items" id="miniBasketItems"></div>
+  <div class="mini-basket-footer">
+    <div>
+      <div class="mini-basket-total-label">Total</div>
+      <div class="mini-basket-total" id="miniBasketTotal">£0.00</div>
+    </div>
+    <button class="mini-basket-cta" onclick="closeMiniBasket();goCheckout()">Checkout →</button>
   </div>
 </div>
 
@@ -1267,6 +1331,7 @@ function groupToggleBasket(groupKey) {
   saveBasket();
   updateBasketBar();
   renderGrid();
+  showMiniBasket();
   // Re-render detail panel
   _renderGroupDetail(item);
   updateDetailNavBtn(state.basket.some(b => b.id === selId));
@@ -1454,6 +1519,54 @@ function toggleBasket(id) {
   saveBasket();
   updateBasketBar();
   renderGrid();
+  showMiniBasket();
+}
+
+// ── Mini basket ───────────────────────────────────────────
+let _miniBasketTimer = null;
+
+function showMiniBasket() {
+  renderMiniBasket();
+  const el = $id('miniBasket');
+  el.classList.add('show');
+  clearTimeout(_miniBasketTimer);
+  _miniBasketTimer = setTimeout(closeMiniBasket, 4000);
+}
+
+function closeMiniBasket() {
+  clearTimeout(_miniBasketTimer);
+  $id('miniBasket').classList.remove('show');
+}
+
+function renderMiniBasket() {
+  const billable = state.basket.filter(m => m.slug !== 'smartcore-core');
+  const t = calcTotals();
+  const items = $id('miniBasketItems');
+
+  if (billable.length === 0) {
+    items.innerHTML = '<div class="mini-basket-empty">Your basket is empty</div>';
+  } else {
+    items.innerHTML = billable.map(m => {
+      const price = modulePrice(m);
+      return `<div class="mini-basket-item">
+        <span class="mini-basket-item-name">${esc(m.name)}</span>
+        <span class="mini-basket-item-price">${price === null ? 'Custom' : fmtMo(price)}</span>
+        <button class="mini-basket-item-remove" onclick="miniRemove('${m.id}')" title="Remove">✕</button>
+      </div>`;
+    }).join('');
+  }
+
+  $id('miniBasketTotal').textContent = t.total === null ? 'Custom' : fmt(t.total) + (state.billing === 'yearly' ? '/yr' : '/mo');
+}
+
+function miniRemove(id) {
+  const idx = state.basket.findIndex(b => b.id === id);
+  if (idx >= 0) state.basket.splice(idx, 1);
+  saveBasket();
+  updateBasketBar();
+  renderGrid();
+  renderMiniBasket();
+  if (state.basket.filter(m => m.slug !== 'smartcore-core').length === 0) closeMiniBasket();
 }
 
 function updateBasketBar() {
