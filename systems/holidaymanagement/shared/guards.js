@@ -29,40 +29,18 @@ export function applyRoleUi(profile) {
   });
 }
 
-// Auto-detect the user's company via company_users (RLS allows user_id = auth.uid() SELECT)
-async function autoDetectCompany(userId) {
-  const { data: cu } = await db
-    .from('company_users')
-    .select('company_id, employee_id, role, status')
-    .eq('user_id', userId)
-    .in('status', ['active', 'invited'])
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!cu) return null;
-
-  const { data: company } = await db
-    .from('companies')
-    .select('id, company_name, logo_url')
-    .eq('id', cu.company_id)
-    .maybeSingle();
-
-  if (!company) return null;
-
-  const { data: emp } = await db
-    .from('employees')
-    .select('id, role, is_admin')
-    .eq('id', cu.employee_id)
-    .maybeSingle();
-
+// Auto-detect the user's company via SECURITY DEFINER RPC — bypasses RLS lookup chicken-and-egg
+async function autoDetectCompany() {
+  const { data, error } = await db.rpc('get_my_company');
+  const row = data?.[0];
+  if (!row) return null;
   return {
-    id: company.id,
-    name: company.company_name,
-    logo_url: company.logo_url || null,
-    role: emp?.role || cu.role,
-    is_admin: emp?.is_admin || false,
-    employee_id: cu.employee_id
+    id: row.company_id,
+    name: row.company_name,
+    logo_url: row.logo_url || null,
+    role: row.role,
+    is_admin: row.is_admin,
+    employee_id: row.employee_id
   };
 }
 
@@ -102,7 +80,7 @@ export async function requireAuth(opts = {}) {
   // Use cached company, or auto-detect from DB
   let company = getSelectedCompany();
   if (!company) {
-    company = await autoDetectCompany(session.user.id);
+    company = await autoDetectCompany();
     if (company) setSelectedCompany(company);
   }
 
