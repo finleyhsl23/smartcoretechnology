@@ -1662,6 +1662,24 @@ function openView(emp) {
     btn.onclick=()=>{ closeView(); openInvite(emp); };
     actions.appendChild(btn);
   }
+  if (emp.auth_user_id && emp.work_email) {
+    const resetBtn = document.createElement('button');
+    resetBtn.className='btn-ghost'; resetBtn.textContent='Send Password Reset';
+    resetBtn.onclick=async()=>{
+      if (!confirm(`Send a password reset email to ${emp.work_email}?`)) return;
+      resetBtn.disabled=true; resetBtn.textContent='Sending…';
+      try {
+        const r = await api('POST','send-password-reset',{employee_id:emp.id});
+        if (r.error) throw new Error(r.error);
+        toast('ok','Email Sent',`Password reset link sent to ${emp.work_email}`);
+      } catch(e) {
+        toast('err','Failed',e.message);
+      } finally {
+        resetBtn.disabled=false; resetBtn.textContent='Send Password Reset';
+      }
+    };
+    actions.appendChild(resetBtn);
+  }
 
   const status = document.getElementById('evStatus');
   status.innerHTML = emp.onboarding_completed
