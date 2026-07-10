@@ -95,7 +95,7 @@ export async function requireAuth(opts = {}) {
 
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
-    window.location.href = '/systems/holidaymanagement/login.html';
+    window.location.href = '/modules/';
     return null;
   }
 
@@ -149,6 +149,6 @@ function setupLogout() {
   btn.addEventListener('click', async () => {
     clearSelectedCompany();
     await supabase.auth.signOut();
-    window.location.href = '/systems/holidaymanagement/login.html';
+    window.location.href = '/modules/';
   });
 }
