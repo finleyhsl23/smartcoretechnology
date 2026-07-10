@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Referrals — SmartCore</title>
+  <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+    :root{
+      --bg:    #03060f;
+      --bg1:   #080f1f;
+      --bg2:   #0c1628;
+      --card:  rgba(8,15,31,0.9);
+      --line:  rgba(255,255,255,.07);
+      --line2: rgba(255,255,255,.04);
+      --text:  #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #475569;
+      --blue:  #3b82f6;
+      --blue2: #60a5fa;
+      --blue-dim: rgba(59,130,246,.1);
+      --good:  #22c55e;
+      --good-dim: rgba(34,197,94,.1);
+      --warn:  #f59e0b;
+      --warn-dim: rgba(245,158,11,.1);
+      --bad:   #ef4444;
+      --bad-dim: rgba(239,68,68,.1);
+      --purple: #8b5cf6;
+      --purple-dim: rgba(139,92,246,.1);
+    }
+
+    body{
+      background:var(--bg);
+      color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;
+      min-height:100vh;
+      -webkit-font-smoothing:antialiased;
+    }
+
+    body::before{
+      content:'';position:fixed;inset:0;
+      background-image:
+        linear-gradient(rgba(59,130,246,.025) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(59,130,246,.025) 1px,transparent 1px);
+      background-size:60px 60px;
+      pointer-events:none;z-index:0;
+    }
+
+    /* ── Login ─────────────────────────────────────────────── */
+    #loginWrap{
+      position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+      z-index:100;background:var(--bg);
+    }
+    .login-box{
+      width:100%;max-width:380px;padding:40px 36px;
+      background:var(--bg1);border:1px solid var(--line);border-radius:20px;
+      box-shadow:0 0 80px rgba(59,130,246,.08);
+    }
+    .login-logo{display:flex;align-items:center;gap:12px;margin-bottom:28px}
+    .login-logo img{width:40px;height:40px;border-radius:10px}
+    .login-logo-text{font-size:16px;font-weight:800;letter-spacing:-.02em}
+    .login-logo-sub{font-size:10px;color:var(--text3);letter-spacing:.12em;text-transform:uppercase;margin-top:1px}
+    .login-box h2{font-size:22px;font-weight:800;margin-bottom:4px}
+    .login-box .sub{font-size:13px;color:var(--text2);margin-bottom:24px}
+    .lfield{margin-bottom:15px}
+    .lfield label{display:block;font-size:11px;font-weight:600;color:#64748b;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px}
+    .lfield input{
+      width:100%;background:#020817;border:1px solid rgba(255,255,255,.09);
+      border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;
+      transition:border-color .2s,box-shadow .2s;
+    }
+    .lfield input:focus{border-color:rgba(99,130,246,.5);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+    .lbtn{
+      width:100%;background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;
+      border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;
+      cursor:pointer;margin-top:6px;transition:opacity .2s;letter-spacing:.01em;
+    }
+    .lbtn:hover{opacity:.9}
+    .lbtn:disabled{opacity:.4;cursor:not-allowed}
+    .lerr{
+      background:var(--bad-dim);border:1px solid rgba(239,68,68,.2);color:#fca5a5;
+      border-radius:8px;padding:10px 13px;font-size:13px;margin-bottom:14px;display:none;
+    }
+
+    /* ── Shell ─────────────────────────────────────────────── */
+    #shell{display:none;position:relative;z-index:1;min-height:100vh}
+
+    /* ── Nav ───────────────────────────────────────────────── */
+    .nav{
+      position:sticky;top:0;z-index:50;
+      background:rgba(3,6,15,.88);backdrop-filter:blur(16px);
+      border-bottom:1px solid var(--line);
+      padding:0 32px;height:60px;
+      display:flex;align-items:center;justify-content:space-between;
+    }
+    .nav-left{display:flex;align-items:center;gap:16px}
+    .nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none}
+    .nav-brand img{width:32px;height:32px;border-radius:8px}
+    .nav-brand span{font-size:14px;font-weight:800;letter-spacing:-.01em;color:var(--text)}
+    .nav-divider{width:1px;height:20px;background:var(--line)}
+    .nav-page{font-size:13px;color:var(--text2);font-weight:500}
+    .nav-right{display:flex;align-items:center;gap:14px}
+    .nav-user{font-size:12px;color:var(--text2)}
+    .nav-user b{color:var(--text);font-weight:600}
+    .nav-back{
+      background:transparent;border:1px solid var(--line);color:var(--text2);
+      border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;
+      text-decoration:none;display:inline-block;transition:border-color .15s,color .15s;
+    }
+    .nav-back:hover{border-color:rgba(59,130,246,.4);color:var(--blue2)}
+    .nav-signout{
+      background:transparent;border:1px solid var(--line);color:var(--text2);
+      border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;
+      transition:border-color .15s,color .15s;
+    }
+    .nav-signout:hover{border-color:rgba(239,68,68,.4);color:#ef4444}
+
+    /* ── Layout ────────────────────────────────────────────── */
+    .page{max-width:1100px;margin:0 auto;padding:36px 24px 80px;position:relative;z-index:1}
+
+    .page-header{margin-bottom:32px}
+    .page-header h1{font-size:26px;font-weight:900;letter-spacing:-.03em;margin-bottom:4px}
+    .page-header p{font-size:14px;color:var(--text2)}
+
+    .layout{display:grid;grid-template-columns:380px 1fr;gap:28px;align-items:start}
+    @media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+    /* ── Card ──────────────────────────────────────────────── */
+    .card{
+      background:var(--bg1);border:1px solid var(--line);border-radius:16px;overflow:hidden;
+    }
+    .card-head{
+      padding:18px 22px;border-bottom:1px solid var(--line2);
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+    }
+    .card-head h2{font-size:15px;font-weight:700}
+    .card-head .sub{font-size:12px;color:var(--text2);margin-top:2px}
+    .card-body{padding:22px}
+
+    /* ── Form ──────────────────────────────────────────────── */
+    .form-group{margin-bottom:16px}
+    .form-label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text2);margin-bottom:6px}
+    .form-label span{color:var(--bad);margin-left:2px}
+    .form-control{
+      width:100%;padding:10px 13px;
+      background:#020817;border:1px solid rgba(255,255,255,.09);
+      border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;outline:none;
+      transition:border-color .2s,box-shadow .2s;
+    }
+    .form-control:focus{border-color:rgba(59,130,246,.5);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+    .form-control::placeholder{color:var(--text3)}
+    textarea.form-control{resize:vertical;min-height:80px}
+    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    @media(max-width:500px){.form-row{grid-template-columns:1fr}}
+
+    .section-divider{
+      font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+      color:var(--text3);margin:20px 0 16px;display:flex;align-items:center;gap:10px;
+    }
+    .section-divider::after{content:'';flex:1;height:1px;background:var(--line2)}
+
+    .btn-submit{
+      width:100%;padding:12px;
+      background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;
+      border:none;border-radius:10px;font-size:14px;font-weight:700;
+      cursor:pointer;transition:opacity .15s,box-shadow .2s;margin-top:4px;
+      font-family:inherit;
+    }
+    .btn-submit:hover{opacity:.9;box-shadow:0 4px 20px rgba(59,130,246,.35)}
+    .btn-submit:disabled{opacity:.4;cursor:not-allowed}
+
+    /* ── Admin filter bar ──────────────────────────────────── */
+    .filter-bar{
+      display:flex;gap:10px;flex-wrap:wrap;padding:14px 22px;
+      border-bottom:1px solid var(--line2);align-items:center;
+    }
+    .filter-bar input,.filter-bar select{
+      background:#020817;border:1px solid rgba(255,255,255,.09);
+      border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;
+      font-family:inherit;outline:none;transition:border-color .2s;
+    }
+    .filter-bar input{flex:1;min-width:160px}
+    .filter-bar input:focus,.filter-bar select:focus{border-color:rgba(59,130,246,.4)}
+    .filter-bar .count{font-size:12px;color:var(--text2);margin-left:auto;white-space:nowrap}
+
+    /* ── Table ─────────────────────────────────────────────── */
+    .tbl-wrap{overflow-x:auto}
+    .tbl{width:100%;border-collapse:collapse;font-size:13px}
+    .tbl th{
+      padding:10px 16px;text-align:left;font-size:11px;font-weight:700;
+      text-transform:uppercase;letter-spacing:.06em;color:var(--text3);
+      border-bottom:1px solid var(--line);white-space:nowrap;
+    }
+    .tbl td{padding:13px 16px;border-bottom:1px solid var(--line2);vertical-align:middle}
+    .tbl tbody tr:last-child td{border-bottom:none}
+    .tbl tbody tr{transition:background .1s}
+    .tbl tbody tr:hover td{background:rgba(59,130,246,.04)}
+
+    .name-cell{font-weight:600;color:var(--text)}
+    .muted{color:var(--text2);font-size:12px}
+    .dim{color:var(--text3);font-size:12px}
+
+    /* ── Status badges ─────────────────────────────────────── */
+    .badge{
+      display:inline-flex;align-items:center;gap:5px;
+      padding:3px 10px;border-radius:99px;
+      font-size:11px;font-weight:700;white-space:nowrap;
+    }
+    .badge-new      {background:var(--blue-dim);   color:var(--blue2);  border:1px solid rgba(59,130,246,.2)}
+    .badge-contacted{background:var(--warn-dim);   color:var(--warn);   border:1px solid rgba(245,158,11,.2)}
+    .badge-converted{background:var(--good-dim);   color:var(--good);   border:1px solid rgba(34,197,94,.2)}
+    .badge-declined {background:var(--bad-dim);    color:var(--bad);    border:1px solid rgba(239,68,68,.2)}
+
+    /* ── Status select (admin inline) ──────────────────────── */
+    .status-select{
+      background:transparent;border:none;color:inherit;font-size:11px;font-weight:700;
+      font-family:inherit;cursor:pointer;outline:none;padding:0;
+    }
+
+    /* ── Empty state ───────────────────────────────────────── */
+    .empty{text-align:center;padding:48px 20px;color:var(--text3)}
+    .empty .ei{font-size:40px;margin-bottom:12px;opacity:.35}
+    .empty p{font-size:13px}
+
+    /* ── Toast ─────────────────────────────────────────────── */
+    #toastwrap{
+      position:fixed;right:16px;bottom:16px;z-index:9999;
+      display:flex;flex-direction:column;gap:8px;max-width:340px;
+    }
+    .toast{
+      background:var(--bg2);border:1px solid var(--line);border-radius:12px;
+      padding:12px 16px;box-shadow:0 8px 32px rgba(0,0,0,.5);
+      display:flex;gap:10px;align-items:flex-start;
+      animation:slideUp .2s ease;font-size:13px;
+    }
+    .toast-dot{width:8px;height:8px;border-radius:50%;margin-top:4px;flex-shrink:0}
+    .toast-dot.ok{background:var(--good)}
+    .toast-dot.bad{background:var(--bad)}
+    .toast b{display:block;font-size:13px}
+    .toast p{color:var(--text2);font-size:12px;margin-top:2px}
+    @keyframes slideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+    /* ── Admin view extras ─────────────────────────────────── */
+    .admin-banner{
+      background:linear-gradient(135deg,rgba(139,92,246,.12),rgba(59,130,246,.08));
+      border:1px solid rgba(139,92,246,.25);border-radius:12px;
+      padding:14px 18px;margin-bottom:24px;
+      display:flex;align-items:center;gap:12px;font-size:13px;color:var(--text2);
+    }
+    .admin-banner strong{color:var(--text);font-weight:700}
+
+    .submitter-chip{
+      display:inline-flex;align-items:center;gap:5px;
+      font-size:11px;font-weight:600;color:var(--text2);
+    }
+
+    @media(max-width:580px){
+      .nav{padding:0 16px}
+      .page{padding:20px 14px 60px}
+      .card-body{padding:16px}
+    }
+
+    .spinner-wrap{display:flex;justify-content:center;padding:48px}
+    .spinner{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginWrap" style="display:none">
+  <div class="login-box">
+    <div class="login-logo">
+      <img src="/SmartCore Official Logos/SC Icon - Black Background.png" alt="SC">
+      <div>
+        <div class="login-logo-text">SmartCore</div>
+        <div class="login-logo-sub">Technology</div>
+      </div>
+    </div>
+    <h2>Sign in</h2>
+    <p class="sub">Access the referrals portal</p>
+    <div class="lerr" id="lErr"></div>
+    <div class="lfield"><label>Email</label><input type="email" id="lEmail" placeholder="you@company.com" autocomplete="email"/></div>
+    <div class="lfield"><label>Password</label><input type="password" id="lPw" placeholder="••••••••" autocomplete="current-password"/></div>
+    <button class="lbtn" id="lBtn">Sign in</button>
+  </div>
+</div>
+
+<!-- SHELL -->
+<div id="shell">
+  <nav class="nav">
+    <div class="nav-left">
+      <a class="nav-brand" href="/modules/">
+        <img src="/SmartCore Official Logos/SC Icon - Black Background.png" alt="SC">
+        <span>SmartCore</span>
+      </a>
+      <div class="nav-divider"></div>
+      <span class="nav-page">Referrals</span>
+    </div>
+    <div class="nav-right">
+      <span class="nav-user">Signed in as <b id="navName">—</b></span>
+      <a class="nav-back" href="/modules/">← Modules</a>
+      <button class="nav-signout" id="signOutBtn">Sign out</button>
+    </div>
+  </nav>
+
+  <div class="page">
+    <div class="page-header">
+      <h1>🤝 Referrals</h1>
+      <p>Know someone who'd benefit from SmartCore? Send us their details and we'll take it from there.</p>
+    </div>
+
+    <div id="adminBanner" style="display:none" class="admin-banner">
+      <span style="font-size:20px">🛡️</span>
+      <div><strong>SmartCore Admin View</strong> — you can see all referrals from every company and update their status.</div>
+    </div>
+
+    <div class="layout">
+      <!-- FORM -->
+      <div class="card" id="formCard">
+        <div class="card-head">
+          <div>
+            <h2>Submit a referral</h2>
+            <div class="sub">Fill in what you know — even just a name and number is enough.</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="section-divider">Their details</div>
+          <div class="form-group">
+            <label class="form-label">Full name <span>*</span></label>
+            <input class="form-control" id="fName" placeholder="e.g. Sarah Johnson" type="text"/>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Email</label>
+              <input class="form-control" id="fEmail" placeholder="sarah@company.com" type="email"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Phone</label>
+              <input class="form-control" id="fPhone" placeholder="07700 900000" type="tel"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Company / Business</label>
+            <input class="form-control" id="fCompany" placeholder="e.g. Acme Ltd" type="text"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Notes</label>
+            <textarea class="form-control" id="fNotes" placeholder="Anything useful — what they do, why they might be a good fit, how you know them…"></textarea>
+          </div>
+          <button class="btn-submit" id="submitBtn" onclick="submitReferral()">Submit Referral</button>
+        </div>
+      </div>
+
+      <!-- LIST -->
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2 id="listTitle">Your referrals</h2>
+            <div class="sub" id="listSub">Everyone you've referred so far</div>
+          </div>
+        </div>
+
+        <div id="adminFilters" style="display:none" class="filter-bar">
+          <input type="text" id="searchInput" placeholder="Search name, company, email…" oninput="filterList()"/>
+          <select id="statusFilter" onchange="filterList()">
+            <option value="">All statuses</option>
+            <option value="new">New</option>
+            <option value="contacted">Contacted</option>
+            <option value="converted">Converted</option>
+            <option value="declined">Declined</option>
+          </select>
+          <span class="count" id="resultCount"></span>
+        </div>
+
+        <div class="tbl-wrap" id="listWrap">
+          <div class="spinner-wrap"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toastwrap"></div>
+
+<script>
+const SUPABASE_URL  = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+let currentUser = null;
+let currentEmp  = null;
+let isAdmin     = false;
+let allReferrals = [];
+
+// ── Auth ───────────────────────────────────────────────────────────────────
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_IN' && session) { boot(session.user); return; }
+  if (event === 'SIGNED_OUT') { showLogin(); }
+});
+
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { showLogin(); return; }
+  boot(session.user);
+}
+
+async function boot(user) {
+  currentUser = user;
+  show('shell'); hide('loginWrap');
+
+  const { data: empRows } = await sb
+    .from('core_employees')
+    .select('id, company_id, full_name, work_email, role')
+    .eq('auth_user_id', user.id)
+    .limit(1);
+
+  currentEmp = empRows?.[0] || null;
+  const name = currentEmp?.full_name || user.email;
+  document.getElementById('navName').textContent = name;
+
+  isAdmin = !!(currentEmp?.work_email?.toLowerCase().endsWith('@smartcoretechnology.co.uk'));
+
+  if (isAdmin) {
+    show('adminBanner');
+    show('adminFilters');
+    document.getElementById('listTitle').textContent = 'All referrals';
+    document.getElementById('listSub').textContent = 'Every referral submitted across all companies';
+  }
+
+  await loadReferrals();
+}
+
+function showLogin() {
+  hide('shell'); show('loginWrap');
+  document.getElementById('listWrap').innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+}
+
+// ── Login ──────────────────────────────────────────────────────────────────
+document.getElementById('lBtn').addEventListener('click', async () => {
+  const email = document.getElementById('lEmail').value.trim();
+  const pw    = document.getElementById('lPw').value;
+  const err   = document.getElementById('lErr');
+  const btn   = document.getElementById('lBtn');
+  err.style.display = 'none';
+  if (!email || !pw) { err.textContent = 'Please enter your email and password.'; err.style.display = 'block'; return; }
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+  btn.disabled = false; btn.textContent = 'Sign in';
+  if (error) { err.textContent = error.message; err.style.display = 'block'; }
+});
+['lEmail','lPw'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('lBtn').click(); }));
+
+document.getElementById('signOutBtn').addEventListener('click', async () => {
+  await sb.auth.signOut();
+});
+
+// ── Load referrals ─────────────────────────────────────────────────────────
+async function loadReferrals() {
+  document.getElementById('listWrap').innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+  const { data, error } = await sb
+    .from('referrals')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) { toast('bad', 'Error', error.message); return; }
+  allReferrals = data || [];
+  renderList(allReferrals);
+}
+
+function filterList() {
+  const q      = document.getElementById('searchInput')?.value.toLowerCase() || '';
+  const status = document.getElementById('statusFilter')?.value || '';
+  const filtered = allReferrals.filter(r => {
+    const matchQ = !q || [r.referee_name, r.referee_company, r.referee_email, r.submitted_by_name, r.submitted_by_company]
+      .some(v => v?.toLowerCase().includes(q));
+    const matchS = !status || r.status === status;
+    return matchQ && matchS;
+  });
+  renderList(filtered);
+  if (document.getElementById('resultCount')) {
+    document.getElementById('resultCount').textContent = `${filtered.length} referral${filtered.length !== 1 ? 's' : ''}`;
+  }
+}
+
+function renderList(rows) {
+  const wrap = document.getElementById('listWrap');
+  if (!rows.length) {
+    wrap.innerHTML = `<div class="empty"><div class="ei">🤝</div><p>${isAdmin ? 'No referrals submitted yet.' : "You haven't submitted any referrals yet. Use the form to get started."}</p></div>`;
+    return;
+  }
+
+  const statusOptions = ['new','contacted','converted','declined'];
+  const statusLabels  = { new:'New', contacted:'Contacted', converted:'Converted', declined:'Declined' };
+
+  wrap.innerHTML = `<table class="tbl">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Contact</th>
+        <th>Company</th>
+        ${isAdmin ? '<th>Referred by</th>' : ''}
+        <th>Notes</th>
+        <th>Status</th>
+        <th>Date</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.map(r => `
+        <tr>
+          <td class="name-cell">${esc(r.referee_name)}</td>
+          <td>
+            ${r.referee_email ? `<div class="muted">${esc(r.referee_email)}</div>` : ''}
+            ${r.referee_phone ? `<div class="dim">${esc(r.referee_phone)}</div>` : ''}
+            ${!r.referee_email && !r.referee_phone ? '<span class="dim">—</span>' : ''}
+          </td>
+          <td>${r.referee_company ? `<span class="muted">${esc(r.referee_company)}</span>` : '<span class="dim">—</span>'}</td>
+          ${isAdmin ? `<td>
+            <div class="submitter-chip">
+              <span>${esc(r.submitted_by_name)}</span>
+            </div>
+            ${r.submitted_by_company ? `<div class="dim">${esc(r.submitted_by_company)}</div>` : ''}
+          </td>` : ''}
+          <td style="max-width:200px">
+            ${r.referee_notes
+              ? `<span class="dim" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:180px" title="${esc(r.referee_notes)}">${esc(r.referee_notes)}</span>`
+              : '<span class="dim">—</span>'}
+          </td>
+          <td>
+            ${isAdmin
+              ? `<select class="badge badge-${r.status} status-select" onchange="updateStatus('${r.id}', this.value, this)">
+                  ${statusOptions.map(s => `<option value="${s}" ${r.status===s?'selected':''}>${statusLabels[s]}</option>`).join('')}
+                </select>`
+              : `<span class="badge badge-${r.status}">${statusLabels[r.status] || r.status}</span>`
+            }
+          </td>
+          <td class="dim" style="white-space:nowrap">${fmtDate(r.created_at)}</td>
+        </tr>`).join('')}
+    </tbody>
+  </table>`;
+
+  if (isAdmin && document.getElementById('resultCount')) {
+    document.getElementById('resultCount').textContent = `${rows.length} referral${rows.length !== 1 ? 's' : ''}`;
+  }
+}
+
+// ── Submit referral ────────────────────────────────────────────────────────
+async function submitReferral() {
+  const name    = document.getElementById('fName').value.trim();
+  const email   = document.getElementById('fEmail').value.trim();
+  const phone   = document.getElementById('fPhone').value.trim();
+  const company = document.getElementById('fCompany').value.trim();
+  const notes   = document.getElementById('fNotes').value.trim();
+
+  if (!name) { toast('bad', 'Missing', 'Please enter the referral\'s name.'); return; }
+  if (!email && !phone) { toast('bad', 'Missing', 'Please enter at least an email or phone number.'); return; }
+
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = 'Submitting…';
+
+  const { data: companyRow } = currentEmp?.company_id
+    ? await sb.from('smartcore_core_companies').select('company_name').eq('id', currentEmp.company_id).single()
+    : { data: null };
+
+  const { error } = await sb.from('referrals').insert({
+    submitted_by_user_id:    currentUser.id,
+    submitted_by_name:       currentEmp?.full_name || currentUser.email,
+    submitted_by_email:      currentEmp?.work_email || currentUser.email,
+    submitted_by_company_id: currentEmp?.company_id || null,
+    submitted_by_company:    companyRow?.company_name || null,
+    referee_name:            name,
+    referee_email:           email || null,
+    referee_phone:           phone || null,
+    referee_company:         company || null,
+    referee_notes:           notes || null,
+  });
+
+  btn.disabled = false; btn.textContent = 'Submit Referral';
+
+  if (error) { toast('bad', 'Error', error.message); return; }
+
+  toast('ok', 'Referral submitted', `Thanks for referring ${name}!`);
+  document.getElementById('fName').value    = '';
+  document.getElementById('fEmail').value   = '';
+  document.getElementById('fPhone').value   = '';
+  document.getElementById('fCompany').value = '';
+  document.getElementById('fNotes').value   = '';
+  await loadReferrals();
+}
+
+// ── Update status (admin only) ─────────────────────────────────────────────
+async function updateStatus(id, newStatus, selectEl) {
+  const oldClass = selectEl.className;
+  selectEl.className = `badge badge-${newStatus} status-select`;
+  const { error } = await sb.from('referrals')
+    .update({ status: newStatus, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) {
+    selectEl.className = oldClass;
+    toast('bad', 'Error', error.message);
+    return;
+  }
+  const r = allReferrals.find(r => r.id === id);
+  if (r) r.status = newStatus;
+  toast('ok', 'Status updated');
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmtDate(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+}
+
+function show(id) { document.getElementById(id).style.display = ''; }
+function hide(id) { document.getElementById(id).style.display = 'none'; }
+
+function toast(type, title, msg) {
+  const wrap = document.getElementById('toastwrap');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<div class="toast-dot ${type}"></div><div><b>${esc(title)}</b>${msg ? `<p>${esc(msg)}</p>` : ''}</div>`;
+  wrap.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+init();
+</script>
+</body>
+</html>
