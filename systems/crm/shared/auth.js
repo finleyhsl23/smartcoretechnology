@@ -99,8 +99,20 @@ export async function requireCRMAccess() {
 
   const resolvedTier = mod.tier || "lite";
 
-  // Seat check — owners always have access; everyone else must have a seat
-  if (profile.role !== "owner") {
+  // Seat check — up to 3 owners get a free seat; beyond that they go through the normal check
+  let ownerFreePass = false;
+  if (profile.role === "owner") {
+    const { data: owners } = await sb()
+      .from("core_employees")
+      .select("id")
+      .eq("company_id", profile.company_id)
+      .eq("role", "owner")
+      .order("created_at", { ascending: true })
+      .limit(3);
+    ownerFreePass = (owners || []).some(o => o.id === profile.id);
+  }
+
+  if (!ownerFreePass) {
     const session = await sb().auth.getSession();
     const token = session?.data?.session?.access_token;
     if (token) {
