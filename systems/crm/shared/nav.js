@@ -417,7 +417,7 @@ async function sendSupportMessage() {
     const res = await fetch("/api/crm/support-chat", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-      body: JSON.stringify({ messages: supportMessages }),
+      body: JSON.stringify({ messages: supportMessages, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
     });
     const json = await res.json();
     thinking.remove();

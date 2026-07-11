@@ -5,13 +5,29 @@
 const SUPABASE_URL = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts';
 
-const SYSTEM_PROMPT = `You are the SmartCore CRM AI assistant. You have full access to the user's CRM data and can read, create, update, and delete records on their behalf.
+function buildSystemPrompt(timezone) {
+  const tz = timezone || 'UTC';
+  const now = new Date();
+  let localStr;
+  try {
+    const fmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz,
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: true,
+      timeZoneName: 'short',
+    });
+    localStr = fmt.format(now);
+  } catch {
+    localStr = now.toUTCString();
+  }
+  return `You are the SmartCore CRM AI assistant. You have full access to the user's CRM data and can read, create, update, and delete records on their behalf.
 
 When users ask you to do something (add a company, create a task, schedule a meeting, log a conversation, etc.) — do it immediately using the available tools. Don't just explain how; take action.
 
 Be concise and friendly. After completing an action, confirm what you did in one sentence. Use **bold** for company names, lead titles, and key values.
 
-Today's date: ${new Date().toISOString().slice(0, 10)}`;
+The current date and time for this user is: ${localStr}`;
+}
 
 const BASE_TOOLS = [
   {
@@ -923,6 +939,7 @@ export async function onRequestPost(context) {
     const body = await request.json();
     const messages = Array.isArray(body.messages) ? [...body.messages] : [];
     if (!messages.length) return json({ ok: false, error: 'No messages' }, 400);
+    const SYSTEM_PROMPT = buildSystemPrompt(body.timezone || null);
 
     // Agentic loop — up to 6 rounds of tool use
     let rounds = 0;
