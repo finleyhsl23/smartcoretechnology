@@ -126,17 +126,24 @@ export async function requireCRMAccess() {
         if (!seatData.has_seat) {
           wireEscapeButtons();
           const isExcessOwner = profile.role === "owner";
+          const isDark = (localStorage.getItem("smartcore-crm-theme") || document.documentElement.getAttribute("data-theme") || "dark") !== "light";
+          const bg       = isDark ? "#05081a"              : "#f1f5f9";
+          const fg       = isDark ? "#e9f0ff"              : "#0f172a";
+          const fgMuted  = isDark ? "rgba(233,240,255,.6)" : "#475569";
+          const btnBack  = isDark ? "#1e3a8a"              : "#1e40af";
+          const btnSign  = isDark ? "#374151"              : "#64748b";
+          const strongFg = isDark ? "#e9f0ff"              : "#0f172a";
           document.body.innerHTML = `
-            <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#05081a;color:#e9f0ff;font-family:system-ui">
+            <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:${bg};color:${fg};font-family:system-ui">
               <div style="text-align:center;max-width:480px;padding:24px">
                 <div style="font-size:48px;margin-bottom:16px">${isExcessOwner ? '👑' : '🪑'}</div>
-                <h2 style="font-size:20px;margin-bottom:8px">${isExcessOwner ? 'Owner Seat Limit Reached' : 'No CRM Seat Assigned'}</h2>
-                <p style="color:rgba(233,240,255,.6);margin-bottom:20px">${isExcessOwner
-                  ? 'SmartCore only allows the first 3 owners (filtered by account creation date) to bypass the seat check for free. Please ask one of the other owners or admins to assign you a seat in <strong style="color:#e9f0ff">CRM Settings → Seats</strong>.'
+                <h2 style="font-size:20px;margin-bottom:8px;color:${fg}">${isExcessOwner ? 'Owner Seat Limit Reached' : 'No CRM Seat Assigned'}</h2>
+                <p style="color:${fgMuted};margin-bottom:20px">${isExcessOwner
+                  ? `SmartCore only allows the first 3 owners (filtered by account creation date) to bypass the seat check for free. Please ask one of the other owners or admins to assign you a seat in <strong style="color:${strongFg}">CRM Settings → Seats</strong>.`
                   : "You haven't been given access to SmartCore CRM yet. Ask your admin or owner to assign you a seat in CRM Settings."
                 }</p>
-                <a href="/modules/" style="background:#1e3a8a;color:#fff;padding:10px 24px;border-radius:99px;text-decoration:none;font-weight:600;margin-right:8px">← Back to Modules</a>
-                <button onclick="(async()=>{await (await import('/systems/crm/shared/supabase.js')).sb().auth.signOut();window.location.href='/modules/';})()" style="background:#374151;color:#fff;padding:10px 24px;border-radius:99px;border:none;cursor:pointer;font-weight:600">Sign Out</button>
+                <a href="/modules/" style="background:${btnBack};color:#fff;padding:10px 24px;border-radius:99px;text-decoration:none;font-weight:600;margin-right:8px">← Back to Modules</a>
+                <button onclick="(async()=>{await (await import('/systems/crm/shared/supabase.js')).sb().auth.signOut();window.location.href='/modules/';})()" style="background:${btnSign};color:#fff;padding:10px 24px;border-radius:99px;border:none;cursor:pointer;font-weight:600">Sign Out</button>
               </div>
             </div>`;
           throw new Error("No CRM seat");
