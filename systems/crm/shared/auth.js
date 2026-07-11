@@ -127,7 +127,7 @@ export async function requireCRMAccess() {
           wireEscapeButtons();
           const isExcessOwner = profile.role === "owner";
           const isDark = (localStorage.getItem("smartcore-crm-theme") || document.documentElement.getAttribute("data-theme") || "dark") !== "light";
-          const bg       = isDark ? "#05081a"              : "#f1f5f9";
+          const bg       = isDark ? "#05081a"              : "#ffffff";
           const fg       = isDark ? "#e9f0ff"              : "#0f172a";
           const fgMuted  = isDark ? "rgba(233,240,255,.6)" : "#475569";
           const btnBack  = isDark ? "#1e3a8a"              : "#1e40af";
