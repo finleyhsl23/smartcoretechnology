@@ -125,12 +125,16 @@ export async function requireCRMAccess() {
         const seatData = await seatRes.json();
         if (!seatData.has_seat) {
           wireEscapeButtons();
+          const isExcessOwner = profile.role === "owner";
           document.body.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#05081a;color:#e9f0ff;font-family:system-ui">
-              <div style="text-align:center;max-width:420px;padding:24px">
-                <div style="font-size:48px;margin-bottom:16px">🪑</div>
-                <h2 style="font-size:20px;margin-bottom:8px">No CRM Seat Assigned</h2>
-                <p style="color:rgba(233,240,255,.6);margin-bottom:20px">You haven't been given access to SmartCore CRM yet. Ask your admin or owner to assign you a seat.</p>
+              <div style="text-align:center;max-width:480px;padding:24px">
+                <div style="font-size:48px;margin-bottom:16px">${isExcessOwner ? '👑' : '🪑'}</div>
+                <h2 style="font-size:20px;margin-bottom:8px">${isExcessOwner ? 'Owner Seat Limit Reached' : 'No CRM Seat Assigned'}</h2>
+                <p style="color:rgba(233,240,255,.6);margin-bottom:20px">${isExcessOwner
+                  ? 'SmartCore only allows the first 3 owners (filtered by account creation date) to bypass the seat check for free. Please ask one of the other owners or admins to assign you a seat in <strong style="color:#e9f0ff">CRM Settings → Seats</strong>.'
+                  : "You haven't been given access to SmartCore CRM yet. Ask your admin or owner to assign you a seat in CRM Settings."
+                }</p>
                 <a href="/modules/" style="background:#1e3a8a;color:#fff;padding:10px 24px;border-radius:99px;text-decoration:none;font-weight:600;margin-right:8px">← Back to Modules</a>
                 <button onclick="(async()=>{await (await import('/systems/crm/shared/supabase.js')).sb().auth.signOut();window.location.href='/modules/';})()" style="background:#374151;color:#fff;padding:10px 24px;border-radius:99px;border:none;cursor:pointer;font-weight:600">Sign Out</button>
               </div>
