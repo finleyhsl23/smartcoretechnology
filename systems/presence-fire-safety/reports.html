@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Reports — SmartCore Presence &amp; Fire Safety</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="pfs-shell">
+  <nav class="pfs-sidebar" id="pfsNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="pfs-main">
+    <div class="pfs-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Reports</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="pfs-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="reportsBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<style>
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .rpt-filter-bar { display:flex; flex-wrap:wrap; gap: 14px; align-items:flex-end; margin-bottom: 20px; }
+  .rpt-field { display:flex; flex-direction:column; gap:6px; min-width: 160px; }
+  .rpt-field .form-input { min-height: 40px; }
+  .rpt-actions { display:flex; gap:10px; margin-left:auto; }
+  .rpt-summary { display:flex; align-items:center; justify-content:space-between; margin-bottom: 14px; gap: 10px; flex-wrap:wrap; }
+  .rpt-summary p { margin:0; color: var(--text2); font-size: 13px; }
+  .rpt-evac-detail { font-size: 12.5px; }
+</style>
+
+<script type="module">
+  import { sb } from "/systems/presence-fire-safety/shared/supabase.js";
+  import { requirePresenceModuleAccess, hasPermission, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
+  import { sites, presence, visitors, contractors, evacuation } from "/systems/presence-fire-safety/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/presence-fire-safety/shared/nav.js";
+  import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import {
+    esc, toast, fmtDate, fmtDateTime, fmtTime, modal,
+    loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
+    offlineBanner, setInner, refreshIcons,
+  } from "/systems/presence-fire-safety/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null, _companyId = null, _companyName = null, _siteList = [];
+  let _reportType = "current";
+  let _filters = { siteId: "", from: "", to: "", subjectType: "", dept: "" };
+  let _currentRows = [];
+
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    renderNav("reports", profile);
+    initMobileNav();
+    initTopbar();
+    wireOfflineBanner();
+
+    if (!hasPermission("presence.export_reports")) {
+      setInner("reportsBody", permissionDeniedState("You don't have permission to view Presence & Fire Safety reports."));
+    } else {
+      _siteList = await sites.list(_companyId);
+      _companyName = await getCompanyName(_companyId);
+      const selectedSiteId = await ensureSiteSelected(_companyId);
+      _filters.siteId = selectedSiteId || "";
+      renderShell();
+      runReport();
+    }
+  } catch (e) {
+    renderAccessBlocked(e);
+  }
+
+  async function getCompanyName(companyId) {
+    try {
+      const { data } = await sb().from("companies").select("name").eq("id", companyId).maybeSingle();
+      return data?.name || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function siteName(id) {
+    return _siteList.find(s => s.id === id)?.name || "—";
+  }
+
+  // ── Report definitions: one place for table columns + CSV row shaping ────
+  const REPORT_DEFS = {
+    current: {
+      label: "Current Onsite Register",
+      needsDateRange: false,
+      needsSubjectType: true,
+      needsDept: true,
+      columns: ["Name", "Type", "Department / Organisation", "Site", "Since"],
+      subjectType: r => r.subject_type,
+      dept: r => r.core_employees?.core_departments?.name || null,
+      name: r => subjectLabel(r, "current"),
+      toRow: r => [subjectLabel(r, "current"), r.subject_type, r.core_employees?.core_departments?.name || subjectOrg(r, "current") || "", siteName(r.site_id), fmtDateTime(r.last_seen_at)],
+    },
+    presence_history: {
+      label: "Presence History",
+      needsDateRange: true,
+      needsSubjectType: true,
+      needsDept: true,
+      columns: ["Name", "Type", "Direction", "Method", "Site", "Occurred At"],
+      subjectType: r => r.subject_type,
+      dept: r => r.core_employees?.core_departments?.name || null,
+      name: r => subjectLabel(r, "presence_history"),
+      toRow: r => [subjectLabel(r, "presence_history"), r.subject_type, r.direction, r.method, r.sites?.name || siteName(r.site_id), fmtDateTime(r.occurred_at)],
+    },
+    visitor_history: {
+      label: "Visitor History",
+      needsDateRange: true,
+      needsSubjectType: false,
+      needsDept: false,
+      columns: ["Visitor", "Organisation", "Site", "Status", "Signed In", "Signed Out"],
+      toRow: r => [`${r.presence_fire_safety_visitors?.first_name || ""} ${r.presence_fire_safety_visitors?.last_name || ""}`.trim(), r.presence_fire_safety_visitors?.organisation || "", siteName(r.site_id), r.status, fmtDateTime(r.signed_in_at), fmtDateTime(r.signed_out_at)],
+    },
+    contractor_history: {
+      label: "Contractor History",
+      needsDateRange: true,
+      needsSubjectType: false,
+      needsDept: false,
+      columns: ["Business", "Contact", "Site", "Status", "Signed In", "Signed Out"],
+      toRow: r => [r.presence_fire_safety_contractors?.business_name || "", r.presence_fire_safety_contractors?.contact_name || "", siteName(r.site_id), r.status, fmtDateTime(r.signed_in_at), fmtDateTime(r.signed_out_at)],
+    },
+    evacuation_history: {
+      label: "Evacuation History",
+      needsDateRange: false,
+      needsSubjectType: false,
+      needsDept: false,
+      columns: ["Site", "Started", "Completed", "Status", "Snapshotted", "Safe", "Missing", "Unaccounted"],
+      toRow: r => [r.sites?.name || "", fmtDateTime(r.started_at), fmtDateTime(r.completed_at), r.status, r.snapshot_count, r.safe_count, r.missing_count, r.unaccounted_count],
+    },
+  };
+
+  function subjectLabel(r, kind) {
+    if (r.subject_type === "employee") return r.core_employees?.full_name || "Employee";
+    if (r.subject_type === "visitor") {
+      const v = kind === "current" ? r.presence_fire_safety_visitor_visits?.presence_fire_safety_visitors : r.presence_fire_safety_visitor_visits?.presence_fire_safety_visitors;
+      return v ? `${v.first_name} ${v.last_name}` : "Visitor";
+    }
+    if (r.subject_type === "contractor") {
+      const c = r.presence_fire_safety_contractor_visits?.presence_fire_safety_contractors;
+      return c ? c.business_name : "Contractor";
+    }
+    return "—";
+  }
+  function subjectOrg(r) {
+    if (r.subject_type === "visitor") return r.presence_fire_safety_visitor_visits?.presence_fire_safety_visitors?.organisation;
+    if (r.subject_type === "contractor") return r.presence_fire_safety_contractor_visits?.presence_fire_safety_contractors?.business_name;
+    return null;
+  }
+
+  // ── Shell / filter bar ────────────────────────────────────────────────────
+  function renderShell() {
+    setInner("reportsBody", `
+      <div class="card">
+        <div class="rpt-filter-bar">
+          <label class="rpt-field">
+            <span class="form-label">Report type</span>
+            <select id="f_reportType" class="form-input">
+              ${Object.entries(REPORT_DEFS).map(([key, def]) => `<option value="${key}" ${key === _reportType ? "selected" : ""}>${esc(def.label)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="rpt-field">
+            <span class="form-label">Site</span>
+            <select id="f_site" class="form-input">
+              <option value="">All sites</option>
+              ${_siteList.map(s => `<option value="${s.id}" ${s.id === _filters.siteId ? "selected" : ""}>${esc(s.name)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="rpt-field" id="f_from_wrap"><span class="form-label">From</span><input type="date" id="f_from" class="form-input"/></label>
+          <label class="rpt-field" id="f_to_wrap"><span class="form-label">To</span><input type="date" id="f_to" class="form-input"/></label>
+          <label class="rpt-field" id="f_subjectType_wrap">
+            <span class="form-label">Subject type</span>
+            <select id="f_subjectType" class="form-input">
+              <option value="">All</option>
+              <option value="employee">Employees</option>
+              <option value="visitor">Visitors</option>
+              <option value="contractor">Contractors</option>
+            </select>
+          </label>
+          <label class="rpt-field" id="f_dept_wrap"><span class="form-label">Department</span><input type="text" id="f_dept" class="form-input" placeholder="e.g. Warehouse"/></label>
+          <div class="rpt-actions">
+            <button class="btn btn-primary" id="runReportBtn" type="button">Run Report</button>
+            <button class="btn" id="exportCsvBtn" type="button"><i data-lucide="download"></i> Export CSV</button>
+          </div>
+        </div>
+      </div>
+      <div id="reportResults"></div>
+    `);
+    refreshIcons();
+    applyFieldVisibility();
+
+    document.getElementById("f_reportType").addEventListener("change", e => { _reportType = e.target.value; applyFieldVisibility(); });
+    document.getElementById("runReportBtn").addEventListener("click", () => {
+      _filters.siteId = document.getElementById("f_site").value;
+      _filters.from = document.getElementById("f_from").value;
+      _filters.to = document.getElementById("f_to").value;
+      _filters.subjectType = document.getElementById("f_subjectType").value;
+      _filters.dept = document.getElementById("f_dept").value.trim().toLowerCase();
+      runReport();
+    });
+    document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
+  }
+
+  function applyFieldVisibility() {
+    const def = REPORT_DEFS[_reportType];
+    document.getElementById("f_from_wrap").style.display = def.needsDateRange ? "" : "none";
+    document.getElementById("f_to_wrap").style.display = def.needsDateRange ? "" : "none";
+    document.getElementById("f_subjectType_wrap").style.display = def.needsSubjectType ? "" : "none";
+    document.getElementById("f_dept_wrap").style.display = def.needsDept ? "" : "none";
+  }
+
+  // ── Fetch + render ─────────────────────────────────────────────────────
+  async function runReport() {
+    setInner("reportResults", loadingState("Running report…"));
+    const def = REPORT_DEFS[_reportType];
+    try {
+      let rows = await fetchReportRows(_reportType, _filters);
+
+      // Subject type / department filters are applied client-side since not
+      // every underlying query supports them server-side (kept simple —
+      // dataset sizes here are report-scoped, not the full event ledger).
+      if (def.needsSubjectType && _filters.subjectType) rows = rows.filter(r => def.subjectType(r) === _filters.subjectType);
+      if (def.needsDept && _filters.dept) rows = rows.filter(r => (def.dept(r) || "").toLowerCase().includes(_filters.dept));
+
+      _currentRows = rows;
+      renderResults(rows, def);
+    } catch (e) {
+      _currentRows = [];
+      setInner("reportResults", errorState({ title: "Couldn't run this report", message: e.message, retryId: "reportRetry" }));
+      document.getElementById("reportRetry")?.addEventListener("click", runReport);
+    }
+  }
+
+  async function fetchReportRows(type, filters) {
+    const fromIso = filters.from ? new Date(filters.from + "T00:00:00").toISOString() : undefined;
+    const toIso = filters.to ? new Date(filters.to + "T23:59:59").toISOString() : undefined;
+    if (type === "current") {
+      return presence.liveRegister(_companyId, filters.siteId || null);
+    }
+    if (type === "presence_history") {
+      return presence.history(_companyId, { siteId: filters.siteId || null, from: fromIso, to: toIso, limit: 500 });
+    }
+    if (type === "visitor_history") {
+      return visitors.history(_companyId, { siteId: filters.siteId || null, from: fromIso, to: toIso, limit: 500 });
+    }
+    if (type === "contractor_history") {
+      return contractors.history(_companyId, { siteId: filters.siteId || null, from: fromIso, to: toIso, limit: 500 });
+    }
+    if (type === "evacuation_history") {
+      let rows = await evacuation.history(_companyId, { limit: 200 });
+      if (filters.siteId) rows = rows.filter(r => r.site_id === filters.siteId);
+      return rows;
+    }
+    return [];
+  }
+
+  function renderResults(rows, def) {
+    setInner("reportResults", `
+      <div class="rpt-summary">
+        <p>${rows.length} result${rows.length === 1 ? "" : "s"}</p>
+      </div>
+      ${rows.length === 0 ? emptyState({ icon: "file-search", title: "No results", message: "Try widening your filters or date range." }) : `
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr>${def.columns.map(c => `<th>${esc(c)}</th>`).join("")}${_reportType === "evacuation_history" ? "<th></th>" : ""}</tr></thead>
+          <tbody>
+            ${rows.map(r => `<tr>${def.toRow(r).map(v => `<td>${esc(v ?? "—")}</td>`).join("")}${_reportType === "evacuation_history" ? `<td><button class="btn" data-view-session="${esc(r.id)}" type="button">View roll call</button></td>` : ""}</tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`}
+    `);
+    if (_reportType === "evacuation_history") {
+      document.querySelectorAll("[data-view-session]").forEach(btn => {
+        btn.addEventListener("click", () => viewEvacuationSession(btn.dataset.viewSession));
+      });
+    }
+  }
+
+  async function viewEvacuationSession(sessionId) {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Roll Call</h3></div>
+      <div class="modal-body" id="evacSessionModalBody">${loadingState("Loading roll call…")}</div>
+      <div class="modal-footer"><button class="btn modal-close" type="button">Close</button></div>`, { size: "" });
+    try {
+      const people = await evacuation.rollCall(sessionId);
+      const body = overlay.querySelector("#evacSessionModalBody");
+      body.innerHTML = people.length === 0 ? emptyState({ icon: "users", title: "No one was recorded in this session" }) : `
+        <div class="tbl-wrap">
+          <table class="tbl rpt-evac-detail">
+            <thead><tr><th>Name</th><th>Type</th><th>Department</th><th>Status</th></tr></thead>
+            <tbody>
+              ${people.map(p => `<tr><td>${esc(p.display_name_snapshot)}</td><td>${esc(p.subject_type)}</td><td>${esc(p.department_snapshot || "—")}</td><td>${esc(p.roll_call_status)}</td></tr>`).join("")}
+            </tbody>
+          </table>
+        </div>`;
+      refreshIcons();
+    } catch (e) {
+      overlay.querySelector("#evacSessionModalBody").innerHTML = errorState({ title: "Couldn't load roll call", message: e.message });
+    }
+  }
+
+  // ── CSV export ───────────────────────────────────────────────────────────
+  // First-pass client-side export from the already-loaded/filtered result
+  // set. /api/presence-fire-safety/export-csv did not exist at the time this
+  // page was built (checked functions/api/presence-fire-safety/) — once a
+  // server-side export endpoint ships, very large exports should call it
+  // with the user's bearer token instead of generating the CSV in-browser.
+  function exportCsv() {
+    if (!_currentRows.length) { toast("info", "Nothing to export", "Run a report with results first."); return; }
+    const def = REPORT_DEFS[_reportType];
+    const metaRows = [
+      ["SmartCore Presence & Fire Safety — Report Export"],
+      ["Report", def.label],
+      ["Exported at", new Date().toISOString()],
+      ["Company", _companyName || _companyId],
+      ["Site filter", _filters.siteId ? siteName(_filters.siteId) : "All sites"],
+      ["Date range", `${_filters.from || "—"} to ${_filters.to || "—"}`],
+      ["Subject type filter", _filters.subjectType || "All"],
+      ["Department filter", _filters.dept || "All"],
+      ["Exported by", _profile.full_name || _profile.email || "Unknown"],
+      [],
+    ];
+    const csv = [...metaRows, def.columns, ...(_currentRows.map(def.toRow))]
+      .map(row => row.map(csvCell).join(","))
+      .join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pfs-${_reportType}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+  function csvCell(v) {
+    const s = String(v ?? "");
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }
+
+  // ── Access-blocked / offline ─────────────────────────────────────────────
+  function renderAccessBlocked(e) {
+    const msg = e?.message || "";
+    document.body.innerHTML = `
+      <div class="pfs-shell">
+        <div class="pfs-main" style="width:100%">
+          <div class="pfs-topbar">
+            <h1>Reports</h1>
+            <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+            <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+          </div>
+          <div class="pfs-content" id="content"></div>
+        </div>
+      </div>
+      <div id="toastwrap" aria-live="polite"></div>`;
+    initTheme();
+    initTopbar();
+
+    let html;
+    if (msg.includes("not enabled")) html = moduleDisabledState();
+    else if (msg.includes("permission") || msg.includes("No access")) html = permissionDeniedState(msg);
+    else if (msg.includes("profile") || msg.includes("session")) html = permissionDeniedState(msg || "Your account isn't set up for this module yet.");
+    else html = errorState({ title: "Couldn't load Reports", message: msg, retryId: "blockedRetry" });
+
+    setInner("content", html);
+    document.getElementById("blockedRetry")?.addEventListener("click", () => window.location.reload());
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+</script>
+</body>
+</html>

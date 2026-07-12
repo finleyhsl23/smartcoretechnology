@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Emergency Evacuation — SmartCore Presence &amp; Fire Safety</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="pfs-shell">
+  <nav class="pfs-sidebar" id="pfsNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="pfs-main">
+    <div class="pfs-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Emergency Evacuation</h1>
+      <label class="sr-only" for="siteSwitcher">Site</label>
+      <select id="siteSwitcher" aria-label="Select site"></select>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="pfs-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="evacBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<style>
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+
+  /* ── PIN entry / unlock screen ─────────────────────────────────────── */
+  .evac-emergency-wrap { display:flex; justify-content:center; padding: 12px 0 32px; }
+  .evac-pin-card { max-width: 440px; width:100%; text-align:center; padding: 32px 28px; }
+  .evac-flame-icon { width:64px; height:64px; border-radius:50%; background:rgba(239,68,68,.14); color:var(--bad); display:flex; align-items:center; justify-content:center; margin: 0 auto 16px; }
+  .evac-flame-icon i { width:32px; height:32px; }
+  .evac-flame-icon-ok { background: rgba(34,197,94,.14); color: var(--good); }
+  .evac-pin-card h2 { margin: 0 0 8px; font-size: 22px; }
+  .evac-pin-card p { margin: 0 0 20px; color: var(--text2); font-size: 14px; }
+  .evac-pin-input {
+    width:100%; text-align:center; font-size: 32px; letter-spacing: 12px; font-weight:700;
+    padding: 14px 12px; border-radius: 12px; background: var(--card2); border: 1px solid var(--line);
+    color: var(--text); margin-bottom: 18px; min-height: 60px;
+  }
+  .evac-pin-input:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .evac-keypad { display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 22px; }
+  .evac-key {
+    min-height: 64px; font-size: 22px; font-weight: 700; border-radius: 14px;
+    background: var(--card2); border: 1px solid var(--line); color: var(--text);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .evac-key:hover:not(:disabled) { border-color: var(--accent); }
+  .evac-key:disabled { opacity: .4; }
+  .evac-key i { width: 24px; height: 24px; }
+  .evac-key-clear { font-size: 14px; }
+  .evac-big-btn { width:100%; min-height: 60px; font-size: 18px; font-weight: 800; letter-spacing: .3px; border-radius: 14px; }
+  .evac-pin-error { text-align:left; margin-bottom: 12px; font-size: 14px; }
+  #evacPinAlert .btn { margin-top: 4px; }
+  .evac-unlocked-card .form-input { margin-bottom: 18px; }
+
+  /* ── Active session ────────────────────────────────────────────────── */
+  .evac-active-banner {
+    display:flex; align-items:center; gap:14px; background: rgba(239,68,68,.14);
+    border: 1px solid rgba(239,68,68,.35); color: var(--bad); padding: 16px 20px;
+    border-radius: 14px; margin-bottom: 18px;
+  }
+  .evac-active-banner i:first-child { width: 26px; height: 26px; flex-shrink:0; }
+  .evac-active-banner strong { display:block; font-size: 15px; }
+  .evac-active-banner span { display:block; font-size: 12.5px; color: var(--text2); font-weight: 500; }
+  .evac-active-banner > div:nth-child(2) { flex:1; }
+  .evac-stat-grid .stat-value { font-size: 32px; }
+  .evac-stat-safe .stat-value { color: var(--good); }
+  .evac-stat-missing .stat-value { color: var(--bad); }
+  .evac-stat-unaccounted .stat-value { color: var(--warn); }
+  .evac-assembly-note { display:flex; align-items:center; gap:8px; font-size: 13.5px; color: var(--text2); margin-bottom: 18px; }
+  .evac-assembly-note i { width:16px; height:16px; }
+  .evac-filter-bar { display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom: 16px; }
+  .evac-filter-row { display:flex; gap: 10px; flex-wrap: wrap; flex:1; min-width: 260px; }
+  .evac-filter-row .form-input { min-width: 160px; width:auto; flex: 1; }
+  .evac-status-actions { display:flex; flex-wrap:wrap; gap: 6px; }
+  .evac-status-btn { min-height: 44px; padding: 8px 12px; font-size: 12.5px; }
+  .evac-status-btn-active { background: var(--accent); border-color: var(--accent); color:#fff; }
+  .evac-row-notes { font-size: 11.5px; color: var(--text3); margin-top: 4px; max-width: 220px; }
+  .evac-readonly-note { display:flex; align-items:center; gap:8px; font-size: 13px; color: var(--text3); margin-bottom: 14px; }
+  @media (max-width: 640px) {
+    .evac-keypad { gap: 8px; }
+    .evac-key { min-height: 56px; font-size: 20px; }
+  }
+</style>
+
+<script type="module">
+  import { requirePresenceModuleAccess, hasPermission, getSelectedSiteId, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
+  import { sites, evacuation } from "/systems/presence-fire-safety/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
+  import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import {
+    esc, toast, fmtDateTime, fmtTime, confirmDialog, modal,
+    loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
+    offlineBanner, staleBadge, setInner, refreshIcons,
+  } from "/systems/presence-fire-safety/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null, _companyId = null, _siteList = [], _currentSite = null;
+  let _loadToken = 0;
+  let _pollTimer = null;
+  let _unlockToken = null, _unlockExpiresAt = null;
+  let _session = null;
+  let _people = [];
+  let _lastRefreshed = null;
+  let _filters = { q: "", type: "", dept: "" };
+
+  const CAN = {};
+
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    CAN.unlock = hasPermission("evacuation.unlock");
+    CAN.start = hasPermission("evacuation.start");
+    CAN.manageRollCall = hasPermission("evacuation.manage_roll_call");
+    CAN.complete = hasPermission("evacuation.complete");
+    CAN.viewLive = hasPermission("presence.view_live_register");
+
+    renderNav("evacuation", profile);
+    initMobileNav();
+    initTopbar();
+    wireOfflineBanner();
+
+    _siteList = await sites.list(_companyId);
+    const selectedSiteId = await ensureSiteSelected(_companyId);
+    renderSiteSwitcher(document.getElementById("siteSwitcher"), _siteList, selectedSiteId, async (newSiteId) => {
+      setSelectedSiteId(newSiteId);
+      await loadState(newSiteId);
+    });
+
+    await loadState(selectedSiteId);
+
+    // Reload whenever the tab regains focus/visibility — covers a tablet
+    // that was refreshed or backgrounded mid-emergency; we never trust
+    // client-held state to still be accurate, always re-derive from the
+    // server via evacuation.activeSession().
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && _currentSite && !_pollTimer) {
+        loadState(_currentSite.id);
+      }
+    });
+  } catch (e) {
+    renderAccessBlocked(e);
+  }
+
+  async function loadState(siteId) {
+    const token = ++_loadToken;
+    stopPolling();
+    _unlockToken = null;
+    setInner("evacBody", loadingState("Checking evacuation status…"));
+    _currentSite = _siteList.find(s => s.id === siteId) || null;
+
+    if (!siteId) {
+      setInner("evacBody", emptyState({
+        icon: "map-pin", title: "No site configured",
+        message: "Ask an administrator to set up a site for your company before using evacuation.",
+      }));
+      return;
+    }
+
+    try {
+      const session = await evacuation.activeSession(_companyId, siteId);
+      if (token !== _loadToken) return;
+      _lastRefreshed = new Date();
+
+      if (session) {
+        _session = session;
+        const people = await evacuation.rollCall(session.id);
+        if (token !== _loadToken) return;
+        _people = people;
+        renderActiveSession();
+        startPolling(siteId);
+      } else {
+        _session = null;
+        _people = [];
+        renderNoSession();
+      }
+    } catch (e) {
+      if (token !== _loadToken) return;
+      setInner("evacBody", errorState({
+        title: "Couldn't load evacuation status",
+        message: e.message || "Something went wrong.",
+        retryId: "evacRetry",
+      }));
+      document.getElementById("evacRetry")?.addEventListener("click", () => loadState(siteId));
+    }
+  }
+
+  // ── State: no active session ───────────────────────────────────────────
+  function renderNoSession() {
+    if (CAN.unlock) {
+      renderUnlockForm();
+    } else if (CAN.viewLive) {
+      setInner("evacBody", emptyState({
+        icon: "shield-check", title: "No evacuation in progress",
+        message: `There is no active evacuation at ${_currentSite?.name || "this site"} right now.`,
+      }));
+    } else {
+      setInner("evacBody", permissionDeniedState("You don't have permission to start an emergency evacuation."));
+    }
+  }
+
+  function renderUnlockForm() {
+    setInner("evacBody", `
+      <div class="evac-emergency-wrap">
+        <div class="card evac-pin-card">
+          <div class="evac-flame-icon"><i data-lucide="flame"></i></div>
+          <h2>Emergency Evacuation</h2>
+          <p>Enter the evacuation PIN to unlock the start screen for <strong>${esc(_currentSite?.name || "this site")}</strong>.</p>
+          <div id="evacPinAlert" aria-live="assertive"></div>
+          <input type="password" id="pinInput" class="evac-pin-input" inputmode="numeric" pattern="[0-9]*"
+                 autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12" aria-label="Evacuation PIN"/>
+          <div class="evac-keypad" role="group" aria-label="PIN keypad">
+            ${[1,2,3,4,5,6,7,8,9].map(n => `<button type="button" class="evac-key" data-key="${n}">${n}</button>`).join("")}
+            <button type="button" class="evac-key evac-key-clear" data-key="clear">Clear</button>
+            <button type="button" class="evac-key" data-key="0">0</button>
+            <button type="button" class="evac-key evac-key-back" data-key="back" aria-label="Backspace"><i data-lucide="delete"></i></button>
+          </div>
+          <button id="unlockBtn" class="btn btn-danger evac-big-btn" disabled>Unlock</button>
+        </div>
+      </div>`);
+
+    const pinInput = document.getElementById("pinInput");
+    const unlockBtn = document.getElementById("unlockBtn");
+    let locked = false;
+
+    function updateBtnState() {
+      unlockBtn.disabled = locked || pinInput.value.length < 4;
+    }
+    pinInput.addEventListener("input", () => {
+      pinInput.value = pinInput.value.replace(/[^0-9]/g, "").slice(0, 12);
+      updateBtnState();
+    });
+    document.querySelectorAll(".evac-key").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (locked) return;
+        const key = btn.dataset.key;
+        if (key === "clear") pinInput.value = "";
+        else if (key === "back") pinInput.value = pinInput.value.slice(0, -1);
+        else if (pinInput.value.length < 12) pinInput.value += key;
+        updateBtnState();
+        pinInput.focus();
+      });
+    });
+
+    unlockBtn.addEventListener("click", async () => {
+      const pin = pinInput.value;
+      unlockBtn.disabled = true;
+      unlockBtn.textContent = "Verifying…";
+      document.getElementById("evacPinAlert").innerHTML = "";
+      try {
+        const result = await evacuation.verifyPin(_companyId, _currentSite.id, pin);
+        _unlockToken = result.unlock_token;
+        _unlockExpiresAt = result.expires_at;
+        renderUnlockedForm();
+      } catch (e) {
+        const msg = e.message || "Incorrect PIN";
+        // The lockout RPC error message ("Too many failed attempts…") is the
+        // server's authoritative signal — we surface it verbatim and disable
+        // the form rather than tracking our own countdown/attempt count.
+        const lockedOut = /too many failed attempts/i.test(msg);
+        pinInput.value = "";
+        document.getElementById("evacPinAlert").innerHTML = `
+          <div class="form-error evac-pin-error" role="alert">${esc(msg)}</div>
+          ${lockedOut ? `<button class="btn" id="pinTryAgainBtn" type="button">Try again</button>` : ""}`;
+        if (lockedOut) {
+          locked = true;
+          pinInput.disabled = true;
+          document.querySelectorAll(".evac-key").forEach(b => b.disabled = true);
+          unlockBtn.disabled = true;
+          unlockBtn.textContent = "Unlock";
+          document.getElementById("pinTryAgainBtn")?.addEventListener("click", () => {
+            locked = false;
+            pinInput.disabled = false;
+            document.querySelectorAll(".evac-key").forEach(b => b.disabled = false);
+            document.getElementById("evacPinAlert").innerHTML = "";
+            updateBtnState();
+            pinInput.focus();
+          });
+        } else {
+          unlockBtn.textContent = "Unlock";
+          updateBtnState();
+          pinInput.focus();
+        }
+        refreshIcons();
+      }
+    });
+    refreshIcons();
+    pinInput.focus();
+  }
+
+  function renderUnlockedForm() {
+    setInner("evacBody", `
+      <div class="evac-emergency-wrap">
+        <div class="card evac-pin-card evac-unlocked-card">
+          <div class="evac-flame-icon evac-flame-icon-ok"><i data-lucide="lock-open"></i></div>
+          <h2>Unlocked</h2>
+          <p>Unlock expires at <strong>${esc(fmtTime(_unlockExpiresAt))}</strong>.
+             ${CAN.start ? "Confirm the assembly point and start the evacuation." : "You don't have permission to start the evacuation — ask a fire marshal to continue."}</p>
+          ${CAN.start ? `
+            <label class="form-label" for="assemblyPointInput">Assembly point</label>
+            <input class="form-input" id="assemblyPointInput" value="${esc(_currentSite?.assembly_point || "")}" placeholder="e.g. Car park, north gate"/>
+            <button id="startEvacBtn" class="btn btn-danger evac-big-btn">START EVACUATION</button>
+          ` : `<button id="cancelUnlockBtn" class="btn evac-big-btn" type="button">Back</button>`}
+        </div>
+      </div>`);
+    refreshIcons();
+    document.getElementById("startEvacBtn")?.addEventListener("click", onStartEvacuation);
+    document.getElementById("cancelUnlockBtn")?.addEventListener("click", () => { _unlockToken = null; renderNoSession(); });
+  }
+
+  async function onStartEvacuation() {
+    const btn = document.getElementById("startEvacBtn");
+    const assemblyPoint = document.getElementById("assemblyPointInput")?.value?.trim() || null;
+    btn.disabled = true;
+    btn.textContent = "Starting…";
+    try {
+      await evacuation.start(_companyId, _currentSite.id, _unlockToken, assemblyPoint);
+      _unlockToken = null;
+      toast("success", "Evacuation started", "Roll call is now live.");
+      await loadState(_currentSite.id);
+    } catch (e) {
+      const msg = e.message || "Could not start evacuation";
+      if (/already active/i.test(msg)) {
+        // Someone else started it between our unlock and our click — just
+        // switch straight to the live roll call rather than erroring out.
+        toast("info", "Evacuation already in progress", "Someone else already started it — showing the live roll call.");
+        _unlockToken = null;
+        await loadState(_currentSite.id);
+      } else {
+        toast("error", "Couldn't start evacuation", msg);
+        btn.disabled = false;
+        btn.textContent = "START EVACUATION";
+      }
+    }
+  }
+
+  // ── State: active session / roll call ──────────────────────────────────
+  const TYPE_BADGE = { employee: "badge-blue", visitor: "badge-yellow", contractor: "badge-grey" };
+  const STATUS_BADGE = {
+    unaccounted: "badge-grey", safe: "badge-green", missing: "badge-red",
+    left_before_roll_call: "badge-yellow", not_expected: "badge-grey", other: "badge-blue",
+  };
+  const STATUS_LABEL = {
+    unaccounted: "Unaccounted", safe: "Safe", missing: "Missing",
+    left_before_roll_call: "Left before roll call", not_expected: "Not expected", other: "Other",
+  };
+
+  function renderActiveSession() {
+    _filters = { q: "", type: "", dept: "" };
+    const depts = [...new Set(_people.map(p => p.department_snapshot).filter(Boolean))].sort();
+
+    setInner("evacBody", `
+      <div class="evac-active-banner" role="alert">
+        <i data-lucide="flame"></i>
+        <div>
+          <strong>Evacuation in progress</strong>
+          <span>${esc(_currentSite?.name || "")} · started ${esc(fmtDateTime(_session.started_at))}</span>
+        </div>
+        <span id="evacStaleBadge">${staleBadge(_lastRefreshed)}</span>
+      </div>
+
+      ${!CAN.manageRollCall ? `<div class="evac-readonly-note"><i data-lucide="eye"></i> Read-only — you don't have permission to update roll call status.</div>` : ""}
+
+      <div class="stat-grid evac-stat-grid" id="evacStats" aria-live="polite"></div>
+
+      ${_session.assembly_point ? `<div class="evac-assembly-note"><i data-lucide="map-pin"></i> Assembly point: <strong>${esc(_session.assembly_point)}</strong></div>` : ""}
+
+      <div class="card evac-filter-bar">
+        <div class="evac-filter-row">
+          <input type="search" id="rcSearch" class="form-input" placeholder="Search by name…" aria-label="Search roll call"/>
+          <select id="rcTypeFilter" class="form-input" aria-label="Filter by type">
+            <option value="">All types</option>
+            <option value="employee">Employees</option>
+            <option value="visitor">Visitors</option>
+            <option value="contractor">Contractors</option>
+          </select>
+          <select id="rcDeptFilter" class="form-input" aria-label="Filter by department">
+            <option value="">All departments</option>
+            ${depts.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join("")}
+          </select>
+        </div>
+        ${CAN.complete ? `<button id="completeEvacBtn" class="btn btn-danger">Complete Evacuation</button>` : ""}
+      </div>
+
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>Name</th><th>Type</th><th>Department</th><th>Signed in</th><th>Status</th>
+            ${CAN.manageRollCall ? "<th>Mark as</th>" : ""}
+          </tr></thead>
+          <tbody id="rollCallBody"></tbody>
+        </table>
+      </div>
+    `);
+
+    updateStatsTiles();
+    renderRollCallRows();
+
+    document.getElementById("rcSearch").addEventListener("input", e => { _filters.q = e.target.value.toLowerCase(); renderRollCallRows(); });
+    document.getElementById("rcTypeFilter").addEventListener("change", e => { _filters.type = e.target.value; renderRollCallRows(); });
+    document.getElementById("rcDeptFilter").addEventListener("change", e => { _filters.dept = e.target.value; renderRollCallRows(); });
+    document.getElementById("completeEvacBtn")?.addEventListener("click", onCompleteEvacuation);
+    document.getElementById("rollCallBody").addEventListener("click", onRollCallAction);
+
+    refreshIcons();
+  }
+
+  function updateStatsTiles() {
+    const s = _session;
+    const otherCount = _people.filter(p => ["left_before_roll_call", "not_expected", "other"].includes(p.roll_call_status)).length;
+    setInner("evacStats", `
+      <div class="stat-card evac-stat-total"><div class="stat-value">${s.snapshot_count}</div><div class="stat-label">Total Snapshotted</div></div>
+      <div class="stat-card evac-stat-safe"><div class="stat-value">${s.safe_count}</div><div class="stat-label">Safe</div></div>
+      <div class="stat-card evac-stat-missing"><div class="stat-value">${s.missing_count}</div><div class="stat-label">Missing</div></div>
+      <div class="stat-card evac-stat-unaccounted"><div class="stat-value">${s.unaccounted_count}</div><div class="stat-label">Unaccounted</div></div>
+      <div class="stat-card"><div class="stat-value">${otherCount}</div><div class="stat-label">Other / Not Expected</div></div>
+    `);
+  }
+
+  function renderRollCallRows() {
+    const tbody = document.getElementById("rollCallBody");
+    if (!tbody) return;
+    const filtered = _people.filter(p => {
+      if (_filters.type && p.subject_type !== _filters.type) return false;
+      if (_filters.dept && p.department_snapshot !== _filters.dept) return false;
+      if (_filters.q && !p.display_name_snapshot.toLowerCase().includes(_filters.q)) return false;
+      return true;
+    });
+
+    if (!filtered.length) {
+      tbody.innerHTML = `<tr><td colspan="${CAN.manageRollCall ? 6 : 5}" style="padding:0">${emptyState({ icon: "search", title: "No matches", message: "Try adjusting your search or filters." })}</td></tr>`;
+      refreshIcons();
+      return;
+    }
+
+    tbody.innerHTML = filtered.map(rollCallRow).join("");
+    refreshIcons();
+  }
+
+  function rollCallRow(p) {
+    const actions = CAN.manageRollCall ? `
+      <td>
+        <div class="evac-status-actions">
+          ${statusBtn(p, "safe", "Safe")}
+          ${statusBtn(p, "missing", "Missing")}
+          ${statusBtn(p, "left_before_roll_call", "Left")}
+          ${statusBtn(p, "not_expected", "N/Exp")}
+          ${statusBtn(p, "other", "Other")}
+        </div>
+      </td>` : "";
+    return `
+      <tr>
+        <td>${esc(p.display_name_snapshot)}</td>
+        <td><span class="badge ${TYPE_BADGE[p.subject_type] || "badge-grey"}">${esc(p.subject_type)}</span></td>
+        <td>${esc(p.department_snapshot || "—")}</td>
+        <td>${p.sign_in_time_snapshot ? esc(fmtTime(p.sign_in_time_snapshot)) : "—"}</td>
+        <td>
+          <span class="badge ${STATUS_BADGE[p.roll_call_status] || "badge-grey"}">${esc(STATUS_LABEL[p.roll_call_status] || p.roll_call_status)}</span>
+          ${p.notes ? `<div class="evac-row-notes">${esc(p.notes)}</div>` : ""}
+        </td>
+        ${actions}
+      </tr>`;
+  }
+
+  function statusBtn(p, status, label) {
+    const active = p.roll_call_status === status;
+    return `<button type="button" class="btn evac-status-btn ${active ? "evac-status-btn-active" : ""}" data-id="${esc(p.id)}" data-status="${esc(status)}" ${active ? 'aria-pressed="true"' : ""}>${esc(label)}</button>`;
+  }
+
+  async function onRollCallAction(e) {
+    const btn = e.target.closest("button[data-status]");
+    if (!btn || !CAN.manageRollCall) return;
+    const personId = btn.dataset.id;
+    const status = btn.dataset.status;
+    const person = _people.find(p => p.id === personId);
+    if (!person) return;
+
+    if (status === "other") {
+      const overlay = modal(`
+        <div class="modal-header"><h3>Mark as Other</h3></div>
+        <div class="modal-body">
+          <label class="form-label" for="otherNotes">Notes</label>
+          <textarea id="otherNotes" class="form-input" rows="3" placeholder="Explain the status…"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="btn modal-close" type="button">Cancel</button>
+          <button class="btn btn-primary" id="otherSaveBtn" type="button">Save</button>
+        </div>`);
+      overlay.querySelector("#otherSaveBtn").addEventListener("click", async () => {
+        const notes = overlay.querySelector("#otherNotes").value.trim();
+        overlay.remove();
+        await applyRollCallUpdate(personId, "other", notes || null);
+      });
+      return;
+    }
+
+    await applyRollCallUpdate(personId, status, null);
+  }
+
+  async function applyRollCallUpdate(personId, status, notes) {
+    try {
+      const updated = await evacuation.updateRollCall(personId, status, notes);
+      const idx = _people.findIndex(p => p.id === personId);
+      const name = idx !== -1 ? _people[idx].display_name_snapshot : "Person";
+      if (idx !== -1) _people[idx] = { ..._people[idx], ...updated };
+      recomputeLocalCounts();
+      updateStatsTiles();
+      renderRollCallRows();
+      toast("success", "Roll call updated", `${name} marked ${(STATUS_LABEL[status] || status).toLowerCase()}.`);
+    } catch (e) {
+      toast("error", "Couldn't update roll call", e.message || "Please try again.");
+    }
+  }
+
+  function recomputeLocalCounts() {
+    // Optimistic local recount for instant feedback; the next poll reconciles
+    // against the server's authoritative session counters.
+    _session = {
+      ..._session,
+      safe_count: _people.filter(p => p.roll_call_status === "safe").length,
+      missing_count: _people.filter(p => p.roll_call_status === "missing").length,
+      unaccounted_count: _people.filter(p => p.roll_call_status === "unaccounted").length,
+    };
+  }
+
+  function onCompleteEvacuation() {
+    confirmDialog(
+      "Complete Evacuation?",
+      `This ends the active evacuation session for ${_currentSite?.name || "this site"}. This cannot be undone — make sure the roll call is finished.`,
+      async () => {
+        try {
+          await evacuation.complete(_session.id);
+          stopPolling();
+          toast("success", "Evacuation completed", "The session has been closed.");
+          await loadState(_currentSite.id);
+        } catch (e) {
+          toast("error", "Couldn't complete evacuation", e.message || "Please try again.");
+        }
+      },
+      { confirmLabel: "Complete Evacuation" }
+    );
+  }
+
+  // ── Polling ─────────────────────────────────────────────────────────────
+  // Refreshes the roll call every ~6s so other marshals' updates show up
+  // without a manual reload. Supabase Realtime (postgres_changes on
+  // presence_fire_safety_evacuation_people / _sessions) could replace this
+  // poll with a push-based subscription later without changing the data
+  // contract — activeSession()/rollCall() return the same shapes either way.
+  function startPolling(siteId) {
+    stopPolling();
+    _pollTimer = setInterval(() => pollTick(siteId), 6000);
+  }
+  function stopPolling() {
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  }
+
+  async function pollTick(siteId) {
+    if (document.hidden) return;
+    try {
+      const session = await evacuation.activeSession(_companyId, siteId);
+      if (!session) {
+        stopPolling();
+        toast("info", "Evacuation ended", "This evacuation session is no longer active.");
+        await loadState(siteId);
+        return;
+      }
+      const people = await evacuation.rollCall(session.id);
+      _session = session;
+      _people = people;
+      _lastRefreshed = new Date();
+      updateStatsTiles();
+      renderRollCallRows();
+      setInner("evacStaleBadge", staleBadge(_lastRefreshed));
+    } catch (e) {
+      // Transient poll failures are not surfaced as page-level errors — the
+      // next tick retries; the page keeps showing the last-known state.
+      console.warn("Evacuation poll failed:", e.message);
+    }
+  }
+
+  // ── Access-blocked / offline (matches the pattern used across the module) ─
+  function renderAccessBlocked(e) {
+    const msg = e?.message || "";
+    document.body.innerHTML = `
+      <div class="pfs-shell">
+        <div class="pfs-main" style="width:100%">
+          <div class="pfs-topbar">
+            <h1>Emergency Evacuation</h1>
+            <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+            <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+          </div>
+          <div class="pfs-content" id="content"></div>
+        </div>
+      </div>
+      <div id="toastwrap" aria-live="polite"></div>`;
+    initTheme();
+    initTopbar();
+
+    let html;
+    if (msg.includes("not enabled")) html = moduleDisabledState();
+    else if (msg.includes("permission") || msg.includes("No access")) html = permissionDeniedState(msg);
+    else if (msg.includes("profile") || msg.includes("session")) html = permissionDeniedState(msg || "Your account isn't set up for this module yet.");
+    else html = errorState({ title: "Couldn't load Emergency Evacuation", message: msg, retryId: "blockedRetry" });
+
+    setInner("content", html);
+    document.getElementById("blockedRetry")?.addEventListener("click", () => window.location.reload());
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+</script>
+</body>
+</html>

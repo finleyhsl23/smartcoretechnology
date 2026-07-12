@@ -123,7 +123,8 @@ export const presence = {
         id, subject_type, current_status, last_seen_at, site_id,
         core_employees(id, full_name, job_title, department_id, core_departments(name)),
         presence_fire_safety_visitor_visits(id, host_employee_id, visit_reason, presence_fire_safety_visitors(first_name, last_name, organisation)),
-        presence_fire_safety_contractor_visits(id, host_employee_id, work_purpose, presence_fire_safety_contractors(business_name, contact_name))
+        presence_fire_safety_contractor_visits(id, host_employee_id, work_purpose, presence_fire_safety_contractors(business_name, contact_name)),
+        presence_fire_safety_events!presence_fire_safety_current_presence_last_event_id_fkey(method)
       `)
       .eq("company_id", companyId)
       .eq("current_status", "in")

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Visitor History — SmartCore Presence &amp; Fire Safety</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="pfs-shell">
+  <nav class="pfs-sidebar" id="pfsNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="pfs-main">
+    <div class="pfs-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Visitor History</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="pfs-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="pageBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<style>
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .hist-filter-bar { display:flex; flex-wrap:wrap; gap: 14px; align-items:flex-end; margin-bottom: 20px; }
+  .hist-field { display:flex; flex-direction:column; gap:6px; min-width: 160px; }
+</style>
+
+<script type="module">
+  import { requirePresenceModuleAccess, hasPermission, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
+  import { sites, visitors } from "/systems/presence-fire-safety/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/presence-fire-safety/shared/nav.js";
+  import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import {
+    esc, toast, fmtDateTime,
+    loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
+    offlineBanner, setInner, refreshIcons,
+  } from "/systems/presence-fire-safety/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null, _companyId = null, _siteList = [], _allRows = [];
+
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    renderNav("reports", profile);
+    initMobileNav();
+    initTopbar();
+    wireOfflineBanner();
+
+    if (!hasPermission("presence.view_live_register")) {
+      setInner("pageBody", permissionDeniedState("You don't have permission to view visitor history."));
+    } else {
+      _siteList = await sites.list(_companyId);
+      const selectedSiteId = await ensureSiteSelected(_companyId);
+      renderShell(selectedSiteId);
+      loadHistory();
+    }
+  } catch (e) {
+    renderAccessBlocked(e);
+  }
+
+  function renderShell(selectedSiteId) {
+    setInner("pageBody", `
+      <div class="card">
+        <div class="hist-filter-bar">
+          <label class="hist-field"><span class="form-label">Search</span><input type="search" id="f_search" class="form-input" placeholder="Name or organisation…"/></label>
+          <label class="hist-field">
+            <span class="form-label">Site</span>
+            <select id="f_site" class="form-input">
+              <option value="">All sites</option>
+              ${_siteList.map(s => `<option value="${s.id}" ${s.id === selectedSiteId ? "selected" : ""}>${esc(s.name)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="hist-field"><span class="form-label">From</span><input type="date" id="f_from" class="form-input"/></label>
+          <label class="hist-field"><span class="form-label">To</span><input type="date" id="f_to" class="form-input"/></label>
+          <button class="btn btn-primary" id="applyBtn" type="button">Apply</button>
+        </div>
+      </div>
+      <div id="historyResults" style="margin-top:20px"></div>
+    `);
+    document.getElementById("applyBtn").addEventListener("click", loadHistory);
+    document.getElementById("f_search").addEventListener("input", () => renderRows());
+  }
+
+  async function loadHistory() {
+    setInner("historyResults", loadingState("Loading visitor history…"));
+    const siteId = document.getElementById("f_site").value || null;
+    const from = document.getElementById("f_from").value;
+    const to = document.getElementById("f_to").value;
+    try {
+      _allRows = await visitors.history(_companyId, {
+        siteId,
+        from: from ? new Date(from + "T00:00:00").toISOString() : undefined,
+        to: to ? new Date(to + "T23:59:59").toISOString() : undefined,
+        limit: 300,
+      });
+      renderRows();
+    } catch (e) {
+      setInner("historyResults", errorState({ title: "Couldn't load visitor history", message: e.message, retryId: "histRetry" }));
+      document.getElementById("histRetry")?.addEventListener("click", loadHistory);
+    }
+  }
+
+  function siteName(id) {
+    return _siteList.find(s => s.id === id)?.name || "—";
+  }
+
+  function renderRows() {
+    const q = (document.getElementById("f_search")?.value || "").trim().toLowerCase();
+    const rows = _allRows.filter(r => {
+      if (!q) return true;
+      const v = r.presence_fire_safety_visitors;
+      const hay = `${v?.first_name || ""} ${v?.last_name || ""} ${v?.organisation || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+
+    setInner("historyResults", rows.length === 0 ? emptyState({ icon: "user-round", title: "No visitor visits found", message: "Try widening your filters or date range." }) : `
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Visitor</th><th>Organisation</th><th>Site</th><th>Status</th><th>Signed In</th><th>Signed Out</th></tr></thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td>${esc(`${r.presence_fire_safety_visitors?.first_name || ""} ${r.presence_fire_safety_visitors?.last_name || ""}`.trim() || "—")}</td>
+                <td>${esc(r.presence_fire_safety_visitors?.organisation || "—")}</td>
+                <td>${esc(siteName(r.site_id))}</td>
+                <td><span class="badge ${r.status === "signed_in" ? "badge-green" : r.status === "cancelled" ? "badge-red" : "badge-grey"}">${esc(r.status)}</span></td>
+                <td>${esc(fmtDateTime(r.signed_in_at))}</td>
+                <td>${esc(fmtDateTime(r.signed_out_at))}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`);
+  }
+
+  function renderAccessBlocked(e) {
+    const msg = e?.message || "";
+    document.body.innerHTML = `
+      <div class="pfs-shell">
+        <div class="pfs-main" style="width:100%">
+          <div class="pfs-topbar">
+            <h1>Visitor History</h1>
+            <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+            <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+          </div>
+          <div class="pfs-content" id="content"></div>
+        </div>
+      </div>
+      <div id="toastwrap" aria-live="polite"></div>`;
+    initTheme();
+    initTopbar();
+
+    let html;
+    if (msg.includes("not enabled")) html = moduleDisabledState();
+    else if (msg.includes("permission") || msg.includes("No access")) html = permissionDeniedState(msg);
+    else if (msg.includes("profile") || msg.includes("session")) html = permissionDeniedState(msg || "Your account isn't set up for this module yet.");
+    else html = errorState({ title: "Couldn't load Visitor History", message: msg, retryId: "blockedRetry" });
+
+    setInner("content", html);
+    document.getElementById("blockedRetry")?.addEventListener("click", () => window.location.reload());
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+</script>
+</body>
+</html>

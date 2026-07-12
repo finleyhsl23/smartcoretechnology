@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Employee Sign In/Out — SmartCore Presence &amp; Fire Safety</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="pfs-shell">
+  <nav class="pfs-sidebar" id="pfsNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="pfs-main">
+    <div class="pfs-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Employee Sign In/Out</h1>
+      <label class="sr-only" for="siteSwitcher">Site</label>
+      <select id="siteSwitcher" aria-label="Select site"></select>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="pfs-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="kioskBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<style>
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .pfs-tabs { display:flex; gap:8px; margin-bottom: 22px; background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
+  .pfs-tab { flex:1; border:none; background:transparent; color: var(--text2); padding: 10px 18px; border-radius: 999px; font-weight:700; font-size: 14px; min-height: 44px; }
+  .pfs-tab[aria-selected="true"] { background: var(--accent); color:#fff; }
+  .pfs-tab:disabled { opacity:.4; cursor:not-allowed; }
+  .kiosk-card { width: min(480px, 100%); }
+  .kiosk-search { width:100%; }
+  .kiosk-results { display:flex; flex-direction:column; gap:8px; margin-top:14px; width:100%; max-height: 340px; overflow-y:auto; }
+  .kiosk-result-btn { display:flex; align-items:center; gap:12px; width:100%; text-align:left; background: var(--card2); border:1px solid var(--line); border-radius: 12px; padding: 12px 16px; color: var(--text); min-height: 52px; }
+  .kiosk-result-btn:hover, .kiosk-result-btn:focus-visible { border-color: var(--accent); }
+  .kiosk-result-name { font-weight:700; font-size:14.5px; }
+  .kiosk-result-meta { font-size:12px; color: var(--text3); }
+  .kiosk-identity { display:flex; flex-direction:column; align-items:center; gap:6px; margin-bottom: 22px; }
+  .kiosk-identity .avatar { width:64px; height:64px; font-size:22px; }
+  .kiosk-identity h2 { margin: 6px 0 0; font-size: 20px; }
+  .kiosk-identity p { margin:0; color: var(--text2); font-size:13.5px; }
+  .kiosk-actions { display:flex; flex-direction:column; gap:12px; width:100%; }
+  .kiosk-actions .btn { width:100%; }
+  .code-row { display:flex; gap:8px; width:100%; margin-top: 10px; }
+  .code-row .form-input { flex:1; }
+  .pfs-divider { display:flex; align-items:center; gap:10px; color: var(--text3); font-size:12px; margin: 16px 0; width:100%; }
+  .pfs-divider::before, .pfs-divider::after { content:""; flex:1; height:1px; background: var(--line); }
+  .success-icon { width:64px; height:64px; color: var(--good); }
+  .success-icon i { width:64px; height:64px; }
+</style>
+
+<script type="module">
+  import { requirePresenceModuleAccess, hasPermission, listSites, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
+  import { employees, badges, presence, settings } from "/systems/presence-fire-safety/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
+  import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import { isBarcodeDetectorSupported, startQrScanner } from "/systems/presence-fire-safety/shared/qr.js";
+  import {
+    esc, toast, fmtDateTime, initials,
+    loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
+    offlineBanner, setInner,
+  } from "/systems/presence-fire-safety/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null;
+  let _companyId = null;
+  let _siteId = null;
+  let _canSignOthers = false;
+  let _companySettings = null;
+  let _qrSupported = isBarcodeDetectorSupported();
+  let _scanner = null;          // { stop, switchCamera } while the scan tab is active
+  let _selected = null;         // the identified employee { id, full_name, job_title, ... }
+  let _currentStatus = null;    // 'in' | 'out' | null (unknown)
+  let _submitting = false;
+  let _requestId = null;        // held across retries of the SAME attempt (idempotency)
+  let _searchDebounce = null;
+
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    _profile = profile;
+    _companyId = profile.company_id;
+    _canSignOthers = hasPermission("presence.sign_others_in_out");
+
+    renderNav("employee-signin", profile);
+    initMobileNav();
+    initTopbar();
+    wireOfflineBanner();
+
+    const siteList = await listSites(_companyId);
+    _siteId = await ensureSiteSelected(_companyId);
+    renderSiteSwitcher(document.getElementById("siteSwitcher"), siteList, _siteId, (newSiteId) => {
+      setSelectedSiteId(newSiteId);
+      _siteId = newSiteId;
+      toast("info", "Site changed", "Sign-ins will now be recorded at the newly selected site.");
+    });
+
+    _companySettings = await settings.get(_companyId).catch(() => null);
+
+    if (!_siteId) {
+      setInner("kioskBody", emptyState({ icon: "map-pin", title: "No site configured", message: "Ask an administrator to set up a site before signing in." }));
+    } else {
+      renderTabs(_qrSupported ? "scan" : "manual");
+    }
+  } catch (e) {
+    renderAccessBlocked(e);
+  }
+
+  // ── Tab shell ─────────────────────────────────────────────────────────
+  function renderTabs(active) {
+    stopScanner();
+    const allowManual = _companySettings?.allow_manual_employee_lookup !== false;
+    const allowCode = !!_companySettings?.allow_employee_code_lookup;
+
+    setInner("kioskBody", `
+      <div class="pfs-kiosk">
+        <div class="pfs-tabs kiosk-card" role="tablist" aria-label="Sign-in method">
+          <button class="pfs-tab" id="tabScan" role="tab" aria-selected="${active === "scan"}" ${!_qrSupported ? "disabled" : ""}>Scan QR</button>
+          <button class="pfs-tab" id="tabManual" role="tab" aria-selected="${active === "manual"}">Manual Lookup</button>
+        </div>
+        <div id="tabPanel" class="kiosk-card"></div>
+      </div>`);
+
+    document.getElementById("tabScan").addEventListener("click", () => { if (_qrSupported) renderTabs("scan"); });
+    document.getElementById("tabManual").addEventListener("click", () => renderTabs("manual"));
+
+    if (active === "scan" && _qrSupported) renderScanPanel();
+    else renderManualPanel(allowManual, allowCode);
+  }
+
+  // ── Scan panel ────────────────────────────────────────────────────────
+  function renderScanPanel() {
+    setInner("tabPanel", `
+      <div class="pfs-qr-frame" style="margin:0 auto"><video id="qrVideo" playsinline muted aria-label="Camera preview for badge scanning"></video></div>
+      <p class="text-muted" style="margin-top:14px">Hold your badge QR code up to the camera.</p>
+      <button class="btn" id="switchCamBtn" style="margin-top:8px">Switch camera</button>
+      <div id="scanStatus" role="status" aria-live="polite"></div>`);
+
+    const video = document.getElementById("qrVideo");
+    _scanner = startQrScanner(video, {
+      onDetect: (value) => onBadgeScanned(value),
+      onError: (err) => {
+        if (err.message === "BARCODE_DETECTOR_UNSUPPORTED") {
+          _qrSupported = false;
+          toast("info", "QR scanning unavailable", "Your browser doesn't support camera-based scanning. Switched to manual lookup.");
+          renderTabs("manual");
+        } else {
+          setInner("scanStatus", `<p class="form-error">Camera error: ${esc(err.message || "could not access camera")}. Try Manual Lookup instead.</p>`);
+        }
+      },
+    });
+    document.getElementById("switchCamBtn").addEventListener("click", () => _scanner?.switchCamera());
+  }
+
+  async function onBadgeScanned(token) {
+    if (_selected) return; // already resolving/showing a confirm screen
+    try {
+      const badge = await badges.byToken(_companyId, token);
+      if (!badge) {
+        setInner("scanStatus", `<p class="form-error">Badge not recognised. Try again or use Manual Lookup.</p>`);
+        return;
+      }
+      await selectEmployee(badge.core_employees, "qr");
+    } catch (e) {
+      setInner("scanStatus", `<p class="form-error">${esc(e.message || "Could not look up that badge.")}</p>`);
+    }
+  }
+
+  // ── Manual panel ──────────────────────────────────────────────────────
+  function renderManualPanel(allowManual, allowCode) {
+    if (!allowManual && !allowCode) {
+      setInner("tabPanel", emptyState({ icon: "ban", title: "Manual lookup disabled", message: "Ask an administrator to enable manual or code lookup for this company." }));
+      return;
+    }
+    setInner("tabPanel", `
+      ${allowManual ? `
+        <label class="form-label" for="empSearch">Search by name or employee ID</label>
+        <input class="form-input kiosk-search" id="empSearch" type="text" placeholder="Start typing a name…" autocomplete="off"/>
+        <div class="kiosk-results" id="empResults"></div>` : ""}
+      ${allowManual && allowCode ? `<div class="pfs-divider">or</div>` : ""}
+      ${allowCode ? `
+        <label class="form-label" for="empCode">Enter employee code</label>
+        <div class="code-row">
+          <input class="form-input" id="empCode" type="text" placeholder="e.g. EMP-0042" autocomplete="off"/>
+          <button class="btn btn-primary" id="codeGoBtn">Go</button>
+        </div>
+        <div id="codeStatus" role="status" aria-live="polite"></div>` : ""}
+    `);
+
+    if (allowManual) {
+      const input = document.getElementById("empSearch");
+      input.addEventListener("input", () => {
+        clearTimeout(_searchDebounce);
+        const q = input.value.trim();
+        _searchDebounce = setTimeout(() => runSearch(q), 300);
+      });
+      input.focus();
+    }
+    if (allowCode) {
+      const codeInput = document.getElementById("empCode");
+      const go = async () => {
+        const code = codeInput.value.trim();
+        if (!code) return;
+        try {
+          const emp = await employees.byCode(_companyId, code);
+          if (!emp) { setInner("codeStatus", `<p class="form-error">No employee found with that code.</p>`); return; }
+          await selectEmployee(emp, "manual");
+        } catch (e) {
+          setInner("codeStatus", `<p class="form-error">${esc(e.message || "Lookup failed")}</p>`);
+        }
+      };
+      document.getElementById("codeGoBtn").addEventListener("click", go);
+      codeInput.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+    }
+  }
+
+  async function runSearch(query) {
+    const results = document.getElementById("empResults");
+    if (!results) return;
+    if (!query) { results.innerHTML = ""; return; }
+    try {
+      const rows = await employees.search(_companyId, query, { limit: 10 });
+      results.innerHTML = rows.length ? rows.map(r => `
+        <button type="button" class="kiosk-result-btn" data-id="${esc(r.id)}">
+          <div class="avatar avatar-sm">${esc(initials(r.full_name))}</div>
+          <div>
+            <div class="kiosk-result-name">${esc(r.full_name)}</div>
+            <div class="kiosk-result-meta">${esc(r.job_title || "")}${r.employee_id ? " · " + esc(r.employee_id) : ""}</div>
+          </div>
+        </button>`).join("") : `<p class="text-muted">No matches.</p>`;
+      results.querySelectorAll(".kiosk-result-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const row = rows.find(r => r.id === btn.dataset.id);
+          if (row) handleManualSelect(row);
+        });
+      });
+    } catch (e) {
+      results.innerHTML = `<p class="form-error">${esc(e.message || "Search failed")}</p>`;
+    }
+  }
+
+  function handleManualSelect(row) {
+    if (row.id !== _profile.id && !_canSignOthers) {
+      // Signing others in/out requires presence.sign_others_in_out — this
+      // path is hidden by simply refusing to proceed rather than letting the
+      // request reach the server and fail there.
+      toast("error", "Not permitted", "You don't have permission to sign in other employees. You can only sign yourself in/out.");
+      return;
+    }
+    selectEmployee(row, "manual");
+  }
+
+  // ── Identify -> confirm ───────────────────────────────────────────────
+  async function selectEmployee(emp, method) {
+    if (!emp) return;
+    if (emp.id !== _profile.id && !_canSignOthers) {
+      toast("error", "Not permitted", "You don't have permission to sign in other employees.");
+      return;
+    }
+    stopScanner();
+    _selected = emp;
+    _requestId = null; // a freshly identified employee always starts a new attempt
+    setInner("tabPanel", loadingState("Checking current status…"));
+    try {
+      _currentStatus = (await presence.myCurrentStatus(emp.id))?.current_status ?? null;
+    } catch {
+      _currentStatus = null;
+    }
+    renderConfirm(method);
+  }
+
+  function renderConfirm(method) {
+    const isSelf = _selected.id === _profile.id;
+    const statusBadge = _currentStatus === "in" ? `<span class="badge badge-green">Currently In</span>`
+      : _currentStatus === "out" ? `<span class="badge badge-grey">Currently Out</span>`
+      : `<span class="badge badge-yellow">Status Unknown</span>`;
+
+    const actionButtons = _currentStatus === "in"
+      ? `<button class="btn btn-danger" id="confirmBtn" data-direction="out">Confirm Sign Out</button>`
+      : _currentStatus === "out"
+      ? `<button class="btn btn-primary" id="confirmBtn" data-direction="in">Confirm Sign In</button>`
+      : `<button class="btn btn-primary" id="confirmIn" data-direction="in">Sign In</button>
+         <button class="btn btn-danger" id="confirmOut" data-direction="out">Sign Out</button>`;
+
+    setInner("tabPanel", `
+      <div class="kiosk-identity">
+        <div class="avatar">${esc(initials(_selected.full_name))}</div>
+        <h2>${esc(_selected.full_name)}</h2>
+        <p>${esc(_selected.job_title || "")}</p>
+        ${statusBadge}
+        ${!isSelf ? `<p class="text-muted" style="margin-top:6px">Signing in on behalf of this employee.</p>` : ""}
+      </div>
+      <div class="kiosk-actions">
+        ${actionButtons}
+        <button class="btn" id="cancelBtn">Cancel</button>
+      </div>
+      <div id="confirmStatus" role="status" aria-live="polite"></div>`);
+
+    ["confirmBtn", "confirmIn", "confirmOut"].forEach(id => {
+      document.getElementById(id)?.addEventListener("click", (e) => submitSignEvent(e.currentTarget.dataset.direction, method));
+    });
+    document.getElementById("cancelBtn").addEventListener("click", () => {
+      _selected = null; _currentStatus = null; _requestId = null;
+      renderTabs(_qrSupported ? "scan" : "manual");
+    });
+  }
+
+  async function submitSignEvent(direction, method) {
+    if (_submitting) return; // guard against double-submit while a request is in flight
+    _submitting = true;
+    if (!_requestId) _requestId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    const btns = document.querySelectorAll("#confirmBtn, #confirmIn, #confirmOut, #cancelBtn");
+    btns.forEach(b => b.disabled = true);
+    setInner("confirmStatus", loadingState("Recording…"));
+
+    const isSelf = _selected.id === _profile.id;
+    const recordMethod = method === "qr" ? "qr" : (isSelf ? "manual" : "admin");
+
+    try {
+      if (isSelf) {
+        await presence.signSelf({ siteId: _siteId, direction, method: recordMethod, requestId: _requestId });
+      } else {
+        await presence.signOthersByEmployee({ siteId: _siteId, employeeId: _selected.id, direction, method: recordMethod, requestId: _requestId });
+      }
+      renderSuccess(direction);
+    } catch (e) {
+      btns.forEach(b => b.disabled = false);
+      setInner("confirmStatus", errorState({
+        title: "Couldn't record this",
+        message: e.message || "Please try again.",
+        retryId: "retrySubmit",
+      }));
+      // Reuse the SAME _requestId on retry so the server can de-duplicate a
+      // partially-succeeded network request; only a fresh employee selection
+      // or Cancel generates a new one.
+      document.getElementById("retrySubmit")?.addEventListener("click", () => submitSignEvent(direction, method));
+    } finally {
+      _submitting = false;
+    }
+  }
+
+  function renderSuccess(direction) {
+    const name = esc(_selected.full_name);
+    setInner("tabPanel", `
+      <div class="kiosk-identity">
+        <div class="success-icon"><i data-lucide="check-circle-2"></i></div>
+        <h2>${direction === "in" ? "Signed In" : "Signed Out"}</h2>
+        <p>${name} — ${fmtDateTime(new Date())}</p>
+      </div>
+      <div class="kiosk-actions">
+        <button class="btn btn-primary" id="doneBtn">Done</button>
+      </div>`);
+    document.getElementById("doneBtn").addEventListener("click", resetToStart);
+    toast("success", direction === "in" ? "Signed in" : "Signed out", name);
+    // Auto-return to the scan/search screen after a short pause so the kiosk
+    // is ready for the next person without requiring a tap.
+    setTimeout(resetToStart, 4000);
+  }
+
+  function resetToStart() {
+    _selected = null; _currentStatus = null; _requestId = null;
+    renderTabs(_qrSupported ? "scan" : "manual");
+  }
+
+  function stopScanner() {
+    if (_scanner) { _scanner.stop(); _scanner = null; }
+  }
+
+  // ── Access-blocked rendering (see index.html for rationale) ────────────
+  function renderAccessBlocked(e) {
+    const msg = e?.message || "";
+    document.body.innerHTML = `
+      <div class="pfs-shell">
+        <div class="pfs-main" style="width:100%">
+          <div class="pfs-topbar">
+            <h1>Presence &amp; Fire Safety</h1>
+            <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+            <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+          </div>
+          <div class="pfs-content" id="content"></div>
+        </div>
+      </div>
+      <div id="toastwrap" aria-live="polite"></div>`;
+    initTheme();
+    initTopbar();
+
+    let html;
+    if (msg.includes("not enabled")) html = moduleDisabledState();
+    else if (msg.includes("permission") || msg.includes("No access")) html = permissionDeniedState(msg);
+    else if (msg.includes("profile") || msg.includes("session")) html = permissionDeniedState(msg || "Your account isn't set up for this module yet.");
+    else html = errorState({ title: "Couldn't load Presence & Fire Safety", message: msg, retryId: "blockedRetry" });
+
+    setInner("content", html);
+    document.getElementById("blockedRetry")?.addEventListener("click", () => window.location.reload());
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+
+  window.addEventListener("beforeunload", stopScanner);
+</script>
+</body>
+</html>

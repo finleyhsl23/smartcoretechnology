@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Audit History — SmartCore Presence &amp; Fire Safety</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="pfs-shell">
+  <nav class="pfs-sidebar" id="pfsNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="pfs-main">
+    <div class="pfs-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Audit History</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="pfs-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="pageBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<style>
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .audit-json { font-family: ui-monospace, monospace; font-size: 12px; background: var(--card2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; }
+  .audit-json-toggle { font-size: 12px; color: var(--accent2); cursor: pointer; background:none; border:none; padding:0; }
+</style>
+
+<script type="module">
+  import { requirePresenceModuleAccess, hasPermission } from "/systems/presence-fire-safety/shared/auth.js";
+  import { auditLog } from "/systems/presence-fire-safety/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/presence-fire-safety/shared/nav.js";
+  import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import {
+    esc, fmtDateTime,
+    loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
+    offlineBanner, setInner, refreshIcons,
+  } from "/systems/presence-fire-safety/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null, _companyId = null, _allRows = [];
+
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    renderNav("reports", profile);
+    initMobileNav();
+    initTopbar();
+    wireOfflineBanner();
+
+    // The RLS policy on presence_fire_safety_audit_logs is the real security
+    // boundary (export_reports permission OR owner/admin role); this client
+    // check only controls whether we bother rendering the page at all.
+    if (!hasPermission("presence.export_reports")) {
+      setInner("pageBody", permissionDeniedState("You don't have permission to view the audit log."));
+    } else {
+      renderShell();
+      loadAudit();
+    }
+  } catch (e) {
+    renderAccessBlocked(e);
+  }
+
+  function renderShell() {
+    setInner("pageBody", `
+      <div class="card" style="margin-bottom:20px">
+        <label class="form-label" for="f_search">Search action / entity type</label>
+        <input type="search" id="f_search" class="form-input" placeholder="e.g. evacuation_started, visitor…"/>
+      </div>
+      <div id="auditResults"></div>
+    `);
+    document.getElementById("f_search").addEventListener("input", renderRows);
+  }
+
+  async function loadAudit() {
+    setInner("auditResults", loadingState("Loading audit history…"));
+    try {
+      _allRows = await auditLog.list(_companyId, { limit: 200 });
+      renderRows();
+    } catch (e) {
+      setInner("auditResults", errorState({ title: "Couldn't load audit history", message: e.message, retryId: "auditRetry" }));
+      document.getElementById("auditRetry")?.addEventListener("click", loadAudit);
+    }
+  }
+
+  function renderRows() {
+    const q = (document.getElementById("f_search")?.value || "").trim().toLowerCase();
+    const rows = _allRows.filter(r => !q || r.action.toLowerCase().includes(q) || r.entity_type.toLowerCase().includes(q));
+
+    setInner("auditResults", rows.length === 0 ? emptyState({ icon: "history", title: "No audit entries found" }) : `
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>When</th><th>Action</th><th>Entity</th><th>Actor</th><th>Details</th></tr></thead>
+          <tbody>
+            ${rows.map((r, i) => `
+              <tr>
+                <td>${esc(fmtDateTime(r.created_at))}</td>
+                <td>${esc(r.action)}</td>
+                <td>${esc(r.entity_type)}${r.entity_id ? ` <span class="text-muted">(${esc(String(r.entity_id).slice(0, 8))}…)</span>` : ""}</td>
+                <td>${esc(r.core_employees?.full_name || "System")}</td>
+                <td>${detailsCell(r, i)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`);
+
+    document.querySelectorAll("[data-audit-toggle]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const target = document.getElementById(btn.dataset.auditToggle);
+        const open = target.style.display !== "none";
+        target.style.display = open ? "none" : "block";
+        btn.textContent = open ? "Show details" : "Hide details";
+      });
+    });
+  }
+
+  function detailsCell(r, i) {
+    if (!r.previous_values && !r.new_values) return "—";
+    const id = `auditDetails${i}`;
+    const payload = { before: r.previous_values || null, after: r.new_values || null };
+    return `
+      <button type="button" class="audit-json-toggle" data-audit-toggle="${id}">Show details</button>
+      <pre class="audit-json" id="${id}" style="display:none">${esc(JSON.stringify(payload, null, 2))}</pre>`;
+  }
+
+  function renderAccessBlocked(e) {
+    const msg = e?.message || "";
+    document.body.innerHTML = `
+      <div class="pfs-shell">
+        <div class="pfs-main" style="width:100%">
+          <div class="pfs-topbar">
+            <h1>Audit History</h1>
+            <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+            <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+          </div>
+          <div class="pfs-content" id="content"></div>
+        </div>
+      </div>
+      <div id="toastwrap" aria-live="polite"></div>`;
+    initTheme();
+    initTopbar();
+
+    let html;
+    if (msg.includes("not enabled")) html = moduleDisabledState();
+    else if (msg.includes("permission") || msg.includes("No access")) html = permissionDeniedState(msg);
+    else if (msg.includes("profile") || msg.includes("session")) html = permissionDeniedState(msg || "Your account isn't set up for this module yet.");
+    else html = errorState({ title: "Couldn't load Audit History", message: msg, retryId: "blockedRetry" });
+
+    setInner("content", html);
+    document.getElementById("blockedRetry")?.addEventListener("click", () => window.location.reload());
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+</script>
+</body>
+</html>

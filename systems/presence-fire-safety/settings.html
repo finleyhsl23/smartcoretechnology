@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Settings — SmartCore Presence &amp; Fire Safety</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="pfs-shell">
+  <nav class="pfs-sidebar" id="pfsNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="pfs-main">
+    <div class="pfs-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Settings</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="pfs-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="settingsBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<style>
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .set-tabs { display:flex; gap:6px; border-bottom: 1px solid var(--line); margin-bottom: 20px; flex-wrap: wrap; }
+  .set-tab { background:none; border:none; padding: 10px 16px; font-size: 13.5px; font-weight: 700; color: var(--text3); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .set-tab.active { color: var(--accent2); border-bottom-color: var(--accent); }
+  .set-tabpanel { display:none; }
+  .set-tabpanel.active { display:block; }
+  .set-field-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; margin-bottom: 20px; }
+  .set-field { display:flex; flex-direction:column; }
+  .set-checkbox-field { display:flex; align-items:center; gap: 10px; padding: 10px 0; }
+  .set-checkbox-field input { width: 18px; height: 18px; }
+  .set-section-title { font-size: 15px; margin: 0 0 4px; }
+  .set-section-desc { color: var(--text2); font-size: 13px; margin: 0 0 16px; }
+  .set-pin-row { display:flex; align-items:center; gap: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 20px; }
+  .set-pin-row i { color: var(--warn); width: 22px; height: 22px; }
+  .set-pin-row > div { flex:1; }
+  .set-actions-bar { display:flex; justify-content:flex-end; gap:10px; margin-top: 8px; }
+  .set-search-combo { position:relative; }
+  .set-search-results { position:absolute; top:100%; left:0; right:0; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; margin-top: 4px; max-height: 240px; overflow-y:auto; z-index: 10; }
+  .set-search-result { padding: 10px 14px; font-size: 13.5px; cursor: pointer; }
+  .set-search-result:hover, .set-search-result.active { background: var(--card2); }
+  .set-selected-chip { display:inline-flex; align-items:center; gap:8px; background: var(--card2); border: 1px solid var(--line); border-radius: 99px; padding: 6px 12px; font-size: 13px; margin-top: 8px; }
+  .set-selected-chip button { background:none; border:none; color: var(--text3); }
+  .set-token { font-family: ui-monospace, monospace; font-size: 12px; }
+  .set-card-header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
+  .set-reveal-secret { font-family: ui-monospace, monospace; font-size: 14px; background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; word-break: break-all; margin: 12px 0; }
+</style>
+
+<script type="module">
+  import { requirePresenceModuleAccess, hasPermission } from "/systems/presence-fire-safety/shared/auth.js";
+  import { sites, settings, badges, devices, employees } from "/systems/presence-fire-safety/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/presence-fire-safety/shared/nav.js";
+  import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import {
+    esc, toast, fmtDateTime, timeAgo, confirmDialog, modal,
+    loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
+    offlineBanner, setInner, refreshIcons,
+  } from "/systems/presence-fire-safety/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null, _companyId = null, _siteList = [];
+  let _activeTab = "module";
+
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    renderNav("settings", profile);
+    initMobileNav();
+    initTopbar();
+    wireOfflineBanner();
+
+    if (!hasPermission("presence.manage_settings")) {
+      setInner("settingsBody", permissionDeniedState("You don't have permission to manage Presence & Fire Safety settings."));
+    } else {
+      _siteList = await sites.list(_companyId);
+      renderShell();
+    }
+  } catch (e) {
+    renderAccessBlocked(e);
+  }
+
+  // ── Shell / tabs ─────────────────────────────────────────────────────────
+  function renderShell() {
+    setInner("settingsBody", `
+      <div class="set-tabs" role="tablist" aria-label="Settings sections">
+        <button class="set-tab" role="tab" data-tab="module" type="button">Module Settings</button>
+        <button class="set-tab" role="tab" data-tab="sites" type="button">Site Settings</button>
+        ${hasPermission("presence.manage_badges") ? `<button class="set-tab" role="tab" data-tab="badges" type="button">Badges</button>` : ""}
+        <button class="set-tab" role="tab" data-tab="devices" type="button">Devices</button>
+      </div>
+      <div class="set-tabpanel" id="panel-module" role="tabpanel"></div>
+      <div class="set-tabpanel" id="panel-sites" role="tabpanel"></div>
+      <div class="set-tabpanel" id="panel-badges" role="tabpanel"></div>
+      <div class="set-tabpanel" id="panel-devices" role="tabpanel"></div>
+    `);
+    document.querySelectorAll(".set-tab").forEach(btn => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
+    switchTab("module");
+  }
+
+  function switchTab(tab) {
+    _activeTab = tab;
+    document.querySelectorAll(".set-tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+    document.querySelectorAll(".set-tabpanel").forEach(p => p.classList.toggle("active", p.id === `panel-${tab}`));
+    if (tab === "module") loadModuleSettings();
+    else if (tab === "sites") loadSiteSettings();
+    else if (tab === "badges") loadBadges();
+    else if (tab === "devices") loadDevices();
+  }
+
+  // ── Module settings ──────────────────────────────────────────────────────
+  const DEFAULT_SETTINGS = {
+    default_sign_in_method: "manual",
+    allow_manual_employee_lookup: true,
+    allow_employee_code_lookup: true,
+    visitor_photo_enabled: false,
+    contractor_management_enabled: true,
+    auto_sign_out_enabled: false,
+    auto_sign_out_time: null,
+    evacuation_unlock_duration_minutes: 20,
+    failed_pin_limit: 5,
+    failed_pin_lockout_minutes: 10,
+    data_retention_days: 730,
+  };
+
+  async function loadModuleSettings() {
+    setInner("panel-module", loadingState("Loading settings…"));
+    try {
+      const row = await settings.get(_companyId);
+      renderModuleSettings({ ...DEFAULT_SETTINGS, ...(row || {}) }, !!row?.evacuation_pin_hash);
+    } catch (e) {
+      setInner("panel-module", errorState({ title: "Couldn't load settings", message: e.message, retryId: "moduleRetry" }));
+      document.getElementById("moduleRetry")?.addEventListener("click", loadModuleSettings);
+    }
+  }
+
+  function renderModuleSettings(s, pinConfigured) {
+    setInner("panel-module", `
+      <div class="card" style="margin-bottom:20px">
+        <div class="set-pin-row">
+          <i data-lucide="${pinConfigured ? "shield-check" : "shield-alert"}"></i>
+          <div>
+            <strong>Evacuation PIN</strong>
+            <p class="set-section-desc" style="margin:2px 0 0">${pinConfigured ? "A PIN is configured for this company." : "No evacuation PIN has been set yet — evacuations can't be unlocked until one is set."}</p>
+          </div>
+          <button class="btn btn-primary" id="setPinBtn" type="button">${pinConfigured ? "Change PIN" : "Set PIN"}</button>
+        </div>
+
+        <h2 class="set-section-title">Sign-in &amp; visitor/contractor behaviour</h2>
+        <p class="set-section-desc">Defaults applied across every site unless overridden per-site.</p>
+        <div class="set-field-grid">
+          <label class="set-field">
+            <span class="form-label">Default sign-in method</span>
+            <select id="f_default_sign_in_method" class="form-input">
+              <option value="manual" ${s.default_sign_in_method === "manual" ? "selected" : ""}>Manual</option>
+              <option value="qr" ${s.default_sign_in_method === "qr" ? "selected" : ""}>QR badge</option>
+              <option value="kiosk" ${s.default_sign_in_method === "kiosk" ? "selected" : ""}>Kiosk</option>
+            </select>
+          </label>
+          <label class="set-field">
+            <span class="form-label">Data retention (days)</span>
+            <input type="number" id="f_data_retention_days" class="form-input" min="30" max="3650" value="${esc(s.data_retention_days)}"/>
+          </label>
+        </div>
+        <label class="set-checkbox-field"><input type="checkbox" id="f_allow_manual_employee_lookup" ${s.allow_manual_employee_lookup ? "checked" : ""}/> Allow manual employee name lookup at sign-in</label>
+        <label class="set-checkbox-field"><input type="checkbox" id="f_allow_employee_code_lookup" ${s.allow_employee_code_lookup ? "checked" : ""}/> Allow employee code lookup at sign-in</label>
+        <label class="set-checkbox-field"><input type="checkbox" id="f_visitor_photo_enabled" ${s.visitor_photo_enabled ? "checked" : ""}/> Capture a photo when signing in visitors</label>
+        <label class="set-checkbox-field"><input type="checkbox" id="f_contractor_management_enabled" ${s.contractor_management_enabled ? "checked" : ""}/> Enable contractor management</label>
+        <label class="set-checkbox-field">
+          <input type="checkbox" id="f_auto_sign_out_enabled" ${s.auto_sign_out_enabled ? "checked" : ""}/> Automatically sign everyone out at a fixed time
+        </label>
+        <div class="set-field-grid">
+          <label class="set-field">
+            <span class="form-label">Auto sign-out time</span>
+            <input type="time" id="f_auto_sign_out_time" class="form-input" value="${esc((s.auto_sign_out_time || "").slice(0, 5))}" ${s.auto_sign_out_enabled ? "" : "disabled"}/>
+          </label>
+        </div>
+
+        <h2 class="set-section-title" style="margin-top:8px">Evacuation</h2>
+        <p class="set-section-desc">Controls the PIN unlock window and lockout behaviour used by the Evacuation page.</p>
+        <div class="set-field-grid">
+          <label class="set-field">
+            <span class="form-label">Unlock duration (minutes)</span>
+            <input type="number" id="f_evacuation_unlock_duration_minutes" class="form-input" min="1" max="180" value="${esc(s.evacuation_unlock_duration_minutes)}"/>
+          </label>
+          <label class="set-field">
+            <span class="form-label">Failed PIN attempts before lockout</span>
+            <input type="number" id="f_failed_pin_limit" class="form-input" min="1" max="20" value="${esc(s.failed_pin_limit)}"/>
+          </label>
+          <label class="set-field">
+            <span class="form-label">Lockout duration (minutes)</span>
+            <input type="number" id="f_failed_pin_lockout_minutes" class="form-input" min="1" max="180" value="${esc(s.failed_pin_lockout_minutes)}"/>
+          </label>
+        </div>
+
+        <div class="set-actions-bar">
+          <button class="btn btn-primary" id="saveModuleSettingsBtn" type="button">Save Settings</button>
+        </div>
+      </div>
+    `);
+    refreshIcons();
+
+    document.getElementById("f_auto_sign_out_enabled").addEventListener("change", e => {
+      document.getElementById("f_auto_sign_out_time").disabled = !e.target.checked;
+    });
+    document.getElementById("setPinBtn").addEventListener("click", openSetPinModal);
+    document.getElementById("saveModuleSettingsBtn").addEventListener("click", saveModuleSettings);
+  }
+
+  async function saveModuleSettings() {
+    const btn = document.getElementById("saveModuleSettingsBtn");
+    const autoSignOutEnabled = document.getElementById("f_auto_sign_out_enabled").checked;
+    // Explicit field list — evacuation_pin_hash is never read from the form
+    // or included here; it is only ever changed via setEvacuationPin().
+    const fields = {
+      default_sign_in_method: document.getElementById("f_default_sign_in_method").value,
+      allow_manual_employee_lookup: document.getElementById("f_allow_manual_employee_lookup").checked,
+      allow_employee_code_lookup: document.getElementById("f_allow_employee_code_lookup").checked,
+      visitor_photo_enabled: document.getElementById("f_visitor_photo_enabled").checked,
+      contractor_management_enabled: document.getElementById("f_contractor_management_enabled").checked,
+      auto_sign_out_enabled: autoSignOutEnabled,
+      auto_sign_out_time: autoSignOutEnabled ? (document.getElementById("f_auto_sign_out_time").value || null) : null,
+      evacuation_unlock_duration_minutes: parseInt(document.getElementById("f_evacuation_unlock_duration_minutes").value, 10),
+      failed_pin_limit: parseInt(document.getElementById("f_failed_pin_limit").value, 10),
+      failed_pin_lockout_minutes: parseInt(document.getElementById("f_failed_pin_lockout_minutes").value, 10),
+      data_retention_days: parseInt(document.getElementById("f_data_retention_days").value, 10),
+    };
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    try {
+      await settings.upsert(_companyId, fields);
+      toast("success", "Settings saved");
+    } catch (e) {
+      toast("error", "Couldn't save settings", e.message || "Please try again.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Save Settings";
+    }
+  }
+
+  function openSetPinModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Set Evacuation PIN</h3></div>
+      <div class="modal-body">
+        <p class="text-muted" style="margin-top:0">4–12 digits. This PIN unlocks the emergency evacuation start screen — share it only with designated fire marshals.</p>
+        <label class="form-label" for="newPin">New PIN</label>
+        <input type="password" id="newPin" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="12" style="margin-bottom:14px"/>
+        <label class="form-label" for="confirmPin">Confirm PIN</label>
+        <input type="password" id="confirmPin" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="12"/>
+        <div class="form-error" id="pinModalError" role="alert" style="margin-top:10px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close" type="button">Cancel</button>
+        <button class="btn btn-primary" id="savePinBtn" type="button">Save PIN</button>
+      </div>`);
+
+    overlay.querySelector("#savePinBtn").addEventListener("click", async () => {
+      const pin = overlay.querySelector("#newPin").value;
+      const confirmPin = overlay.querySelector("#confirmPin").value;
+      const errEl = overlay.querySelector("#pinModalError");
+      errEl.textContent = "";
+      if (!/^[0-9]{4,12}$/.test(pin)) { errEl.textContent = "PIN must be 4–12 digits."; return; }
+      if (pin !== confirmPin) { errEl.textContent = "PINs don't match."; return; }
+      const btn = overlay.querySelector("#savePinBtn");
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+      try {
+        await settings.setEvacuationPin(_companyId, pin);
+        overlay.remove();
+        toast("success", "Evacuation PIN updated");
+        loadModuleSettings();
+      } catch (e) {
+        errEl.textContent = e.message || "Couldn't set PIN.";
+        btn.disabled = false;
+        btn.textContent = "Save PIN";
+      }
+    });
+  }
+
+  // ── Site settings ────────────────────────────────────────────────────────
+  async function loadSiteSettings() {
+    setInner("panel-sites", loadingState("Loading sites…"));
+    try {
+      _siteList = await sites.list(_companyId);
+      renderSiteSettings();
+    } catch (e) {
+      setInner("panel-sites", errorState({ title: "Couldn't load sites", message: e.message, retryId: "sitesRetry" }));
+      document.getElementById("sitesRetry")?.addEventListener("click", loadSiteSettings);
+    }
+  }
+
+  function renderSiteSettings() {
+    setInner("panel-sites", `
+      <div class="set-card-header-row">
+        <h2 class="set-section-title" style="margin:0">Sites</h2>
+        <button class="btn btn-primary" id="addSiteBtn" type="button"><i data-lucide="plus"></i> Add Site</button>
+      </div>
+      ${_siteList.length === 0 ? emptyState({ icon: "map-pin", title: "No sites yet", message: "Add your first site to start using Presence & Fire Safety." }) : `
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Name</th><th>Timezone</th><th>Assembly point</th><th>Default</th><th>Active</th><th></th></tr></thead>
+          <tbody>
+            ${_siteList.map(s => `
+              <tr>
+                <td>${esc(s.name)}</td>
+                <td>${esc(s.timezone)}</td>
+                <td>${esc(s.assembly_point || "—")}</td>
+                <td>${s.is_default ? '<span class="badge badge-blue">Default</span>' : "—"}</td>
+                <td><span class="badge ${s.is_active ? "badge-green" : "badge-grey"}">${s.is_active ? "Active" : "Inactive"}</span></td>
+                <td><button class="btn" data-edit-site="${esc(s.id)}" type="button">Edit</button></td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`}
+    `);
+    refreshIcons();
+    document.getElementById("addSiteBtn").addEventListener("click", () => openSiteModal(null));
+    document.querySelectorAll("[data-edit-site]").forEach(btn => {
+      btn.addEventListener("click", () => openSiteModal(_siteList.find(s => s.id === btn.dataset.editSite)));
+    });
+  }
+
+  function openSiteModal(site) {
+    const isNew = !site;
+    const s = site || { name: "", address_line_1: "", address_line_2: "", city: "", county: "", postcode: "", country: "United Kingdom", timezone: "Europe/London", assembly_point: "", evacuation_notes: "", is_default: false, is_active: true };
+    const overlay = modal(`
+      <div class="modal-header"><h3>${isNew ? "Add Site" : "Edit Site"}</h3></div>
+      <div class="modal-body">
+        <div class="set-field-grid">
+          <label class="set-field"><span class="form-label">Name</span><input class="form-input" id="s_name" value="${esc(s.name)}"/></label>
+          <label class="set-field"><span class="form-label">Timezone</span><input class="form-input" id="s_timezone" value="${esc(s.timezone)}"/></label>
+        </div>
+        <div class="set-field-grid">
+          <label class="set-field"><span class="form-label">Address line 1</span><input class="form-input" id="s_address1" value="${esc(s.address_line_1 || "")}"/></label>
+          <label class="set-field"><span class="form-label">Address line 2</span><input class="form-input" id="s_address2" value="${esc(s.address_line_2 || "")}"/></label>
+        </div>
+        <div class="set-field-grid">
+          <label class="set-field"><span class="form-label">City</span><input class="form-input" id="s_city" value="${esc(s.city || "")}"/></label>
+          <label class="set-field"><span class="form-label">County</span><input class="form-input" id="s_county" value="${esc(s.county || "")}"/></label>
+          <label class="set-field"><span class="form-label">Postcode</span><input class="form-input" id="s_postcode" value="${esc(s.postcode || "")}"/></label>
+        </div>
+        <label class="set-field" style="margin-bottom:14px"><span class="form-label">Assembly point</span><input class="form-input" id="s_assembly" value="${esc(s.assembly_point || "")}" placeholder="e.g. Car park, north gate"/></label>
+        <label class="set-field" style="margin-bottom:14px"><span class="form-label">Evacuation notes</span><textarea class="form-input" id="s_notes" rows="2">${esc(s.evacuation_notes || "")}</textarea></label>
+        <label class="set-checkbox-field"><input type="checkbox" id="s_is_default" ${s.is_default ? "checked" : ""}/> Default site for this company</label>
+        <label class="set-checkbox-field"><input type="checkbox" id="s_is_active" ${s.is_active ? "checked" : ""}/> Active</label>
+        <div class="form-error" id="siteModalError" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close" type="button">Cancel</button>
+        <button class="btn btn-primary" id="saveSiteBtn" type="button">${isNew ? "Add Site" : "Save Changes"}</button>
+      </div>`);
+
+    overlay.querySelector("#saveSiteBtn").addEventListener("click", async () => {
+      const errEl = overlay.querySelector("#siteModalError");
+      errEl.textContent = "";
+      const name = overlay.querySelector("#s_name").value.trim();
+      if (!name) { errEl.textContent = "Site name is required."; return; }
+      const fields = {
+        name,
+        timezone: overlay.querySelector("#s_timezone").value.trim() || "Europe/London",
+        address_line_1: overlay.querySelector("#s_address1").value.trim() || null,
+        address_line_2: overlay.querySelector("#s_address2").value.trim() || null,
+        city: overlay.querySelector("#s_city").value.trim() || null,
+        county: overlay.querySelector("#s_county").value.trim() || null,
+        postcode: overlay.querySelector("#s_postcode").value.trim() || null,
+        assembly_point: overlay.querySelector("#s_assembly").value.trim() || null,
+        evacuation_notes: overlay.querySelector("#s_notes").value.trim() || null,
+        is_default: overlay.querySelector("#s_is_default").checked,
+        is_active: overlay.querySelector("#s_is_active").checked,
+      };
+      const btn = overlay.querySelector("#saveSiteBtn");
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+      try {
+        if (isNew) await sites.create(_companyId, fields);
+        else await sites.update(site.id, fields);
+        overlay.remove();
+        toast("success", isNew ? "Site added" : "Site updated");
+        loadSiteSettings();
+      } catch (e) {
+        // Only one default site per company is allowed (DB unique index) —
+        // surface that constraint clearly instead of a raw Postgres error.
+        const raw = e.message || "";
+        errEl.textContent = /duplicate key|one_default/i.test(raw)
+          ? "Only one site can be marked as default. Unmark the current default site first."
+          : raw || "Couldn't save this site.";
+        btn.disabled = false;
+        btn.textContent = isNew ? "Add Site" : "Save Changes";
+      }
+    });
+  }
+
+  // ── Badges ───────────────────────────────────────────────────────────────
+  let _badgeSearchTimer = null;
+  let _selectedEmployee = null;
+
+  async function loadBadges() {
+    if (!hasPermission("presence.manage_badges")) {
+      setInner("panel-badges", permissionDeniedState("You don't have permission to manage badges."));
+      return;
+    }
+    setInner("panel-badges", loadingState("Loading badges…"));
+    try {
+      const list = await badges.list(_companyId);
+      renderBadges(list);
+    } catch (e) {
+      setInner("panel-badges", errorState({ title: "Couldn't load badges", message: e.message, retryId: "badgesRetry" }));
+      document.getElementById("badgesRetry")?.addEventListener("click", loadBadges);
+    }
+  }
+
+  function renderBadges(list) {
+    _selectedEmployee = null;
+    setInner("panel-badges", `
+      <div class="card" style="margin-bottom:20px">
+        <h2 class="set-section-title">Issue a new badge</h2>
+        <p class="set-section-desc">Search for an employee, then issue an active QR badge for them.</p>
+        <div class="set-search-combo">
+          <input type="text" id="badgeEmpSearch" class="form-input" placeholder="Search employees by name or ID…" autocomplete="off"/>
+          <div class="set-search-results" id="badgeEmpResults" hidden></div>
+        </div>
+        <div id="badgeSelectedChip"></div>
+        <div class="set-actions-bar">
+          <button class="btn btn-primary" id="issueBadgeBtn" type="button" disabled>Issue Badge</button>
+        </div>
+      </div>
+
+      <h2 class="set-section-title">All badges</h2>
+      ${list.length === 0 ? emptyState({ icon: "id-card", title: "No badges issued yet" }) : `
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Employee</th><th>Token</th><th>Status</th><th>Issued</th><th></th></tr></thead>
+          <tbody>
+            ${list.map(b => `
+              <tr>
+                <td>${esc(b.core_employees?.full_name || "—")} ${b.core_employees?.employee_id ? `<span class="text-muted">(${esc(b.core_employees.employee_id)})</span>` : ""}</td>
+                <td class="set-token">${esc(b.badge_token)}</td>
+                <td><span class="badge ${b.status === "active" ? "badge-green" : b.status === "revoked" ? "badge-red" : "badge-grey"}">${esc(b.status)}</span></td>
+                <td>${esc(fmtDateTime(b.issued_at))}</td>
+                <td>${b.status === "active" ? `<button class="btn btn-danger" data-revoke-badge="${esc(b.id)}" type="button">Revoke</button>` : "—"}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`}
+    `);
+
+    const searchInput = document.getElementById("badgeEmpSearch");
+    const resultsBox = document.getElementById("badgeEmpResults");
+    const issueBtn = document.getElementById("issueBadgeBtn");
+
+    searchInput.addEventListener("input", () => {
+      clearTimeout(_badgeSearchTimer);
+      const q = searchInput.value.trim();
+      _selectedEmployee = null;
+      issueBtn.disabled = true;
+      document.getElementById("badgeSelectedChip").innerHTML = "";
+      if (!q) { resultsBox.hidden = true; resultsBox.innerHTML = ""; return; }
+      _badgeSearchTimer = setTimeout(async () => {
+        try {
+          const results = await employees.search(_companyId, q, { limit: 8 });
+          resultsBox.innerHTML = results.length
+            ? results.map(r => `<div class="set-search-result" data-emp-id="${esc(r.id)}" data-emp-name="${esc(r.full_name)}">${esc(r.full_name)}${r.employee_id ? ` <span class="text-muted">(${esc(r.employee_id)})</span>` : ""}</div>`).join("")
+            : `<div class="set-search-result text-muted">No employees found</div>`;
+          resultsBox.hidden = false;
+          resultsBox.querySelectorAll("[data-emp-id]").forEach(el => {
+            el.addEventListener("click", () => {
+              _selectedEmployee = { id: el.dataset.empId, name: el.dataset.empName };
+              document.getElementById("badgeSelectedChip").innerHTML = `<span class="set-selected-chip">${esc(_selectedEmployee.name)} <button type="button" id="clearEmpChip" aria-label="Clear">✕</button></span>`;
+              document.getElementById("clearEmpChip").addEventListener("click", () => {
+                _selectedEmployee = null;
+                document.getElementById("badgeSelectedChip").innerHTML = "";
+                issueBtn.disabled = true;
+              });
+              issueBtn.disabled = false;
+              resultsBox.hidden = true;
+              searchInput.value = "";
+            });
+          });
+        } catch (e) {
+          resultsBox.innerHTML = `<div class="set-search-result text-muted">${esc(e.message)}</div>`;
+          resultsBox.hidden = false;
+        }
+      }, 250);
+    });
+
+    issueBtn.addEventListener("click", async () => {
+      if (!_selectedEmployee) return;
+      issueBtn.disabled = true;
+      issueBtn.textContent = "Issuing…";
+      try {
+        await badges.issue(_companyId, _selectedEmployee.id);
+        toast("success", "Badge issued", `A new badge was issued for ${_selectedEmployee.name}.`);
+        loadBadges();
+      } catch (e) {
+        const msg = /duplicate key|one_active/i.test(e.message || "")
+          ? "This employee already has an active badge. Revoke it first."
+          : (e.message || "Couldn't issue badge.");
+        toast("error", "Couldn't issue badge", msg);
+        issueBtn.disabled = false;
+        issueBtn.textContent = "Issue Badge";
+      }
+    });
+
+    document.querySelectorAll("[data-revoke-badge]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        confirmDialog("Revoke this badge?", "The employee will no longer be able to use it to sign in or out. This cannot be undone.", async () => {
+          try {
+            await badges.revoke(btn.dataset.revokeBadge);
+            toast("success", "Badge revoked");
+            loadBadges();
+          } catch (e) {
+            toast("error", "Couldn't revoke badge", e.message || "Please try again.");
+          }
+        }, { confirmLabel: "Revoke Badge" });
+      });
+    });
+  }
+
+  // ── Devices ──────────────────────────────────────────────────────────────
+  async function loadDevices() {
+    setInner("panel-devices", loadingState("Loading devices…"));
+    try {
+      const list = await devices.list(_companyId);
+      renderDevices(list);
+    } catch (e) {
+      setInner("panel-devices", errorState({ title: "Couldn't load devices", message: e.message, retryId: "devicesRetry" }));
+      document.getElementById("devicesRetry")?.addEventListener("click", loadDevices);
+    }
+  }
+
+  function renderDevices(list) {
+    const siteName = (id) => _siteList.find(s => s.id === id)?.name || "—";
+    setInner("panel-devices", `
+      <div class="set-card-header-row">
+        <h2 class="set-section-title" style="margin:0">Devices</h2>
+        <button class="btn btn-primary" id="registerDeviceBtn" type="button"><i data-lucide="plus"></i> Register Device</button>
+      </div>
+      ${list.length === 0 ? emptyState({ icon: "tablet", title: "No devices registered" }) : `
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Name</th><th>Type</th><th>Site</th><th>Status</th><th>Last seen</th><th></th></tr></thead>
+          <tbody>
+            ${list.map(d => `
+              <tr>
+                <td>${esc(d.device_name)}</td>
+                <td>${esc(d.device_type)}</td>
+                <td>${esc(siteName(d.site_id))}</td>
+                <td><span class="badge ${d.active ? "badge-green" : "badge-grey"}">${d.active ? "Active" : "Deactivated"}</span></td>
+                <td>${esc(timeAgo(d.last_seen_at))}</td>
+                <td>${d.active ? `<button class="btn btn-danger" data-deactivate-device="${esc(d.id)}" type="button">Deactivate</button>` : "—"}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`}
+    `);
+    refreshIcons();
+
+    document.getElementById("registerDeviceBtn").addEventListener("click", () => {
+      // No backend endpoint exists yet for one-time-reveal device secret
+      // issuance (checked /api/presence-fire-safety/devices-register — not
+      // present). We deliberately do not invent a client-side token scheme
+      // for an authorised-device credential; this is a clear placeholder
+      // until that endpoint ships.
+      modal(`
+        <div class="modal-header"><h3>Register Device</h3></div>
+        <div class="modal-body">${emptyState({ icon: "server-off", title: "Coming soon", message: "Device registration requires the backend endpoint — coming soon." })}</div>
+        <div class="modal-footer"><button class="btn modal-close" type="button">Close</button></div>`);
+      refreshIcons();
+    });
+
+    document.querySelectorAll("[data-deactivate-device]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        confirmDialog("Deactivate this device?", "It will no longer be able to authenticate sign-in/out events. This cannot be undone from here.", async () => {
+          try {
+            await devices.deactivate(btn.dataset.deactivateDevice);
+            toast("success", "Device deactivated");
+            loadDevices();
+          } catch (e) {
+            toast("error", "Couldn't deactivate device", e.message || "Please try again.");
+          }
+        }, { confirmLabel: "Deactivate" });
+      });
+    });
+  }
+
+  // ── Access-blocked / offline ─────────────────────────────────────────────
+  function renderAccessBlocked(e) {
+    const msg = e?.message || "";
+    document.body.innerHTML = `
+      <div class="pfs-shell">
+        <div class="pfs-main" style="width:100%">
+          <div class="pfs-topbar">
+            <h1>Settings</h1>
+            <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+            <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+          </div>
+          <div class="pfs-content" id="content"></div>
+        </div>
+      </div>
+      <div id="toastwrap" aria-live="polite"></div>`;
+    initTheme();
+    initTopbar();
+
+    let html;
+    if (msg.includes("not enabled")) html = moduleDisabledState();
+    else if (msg.includes("permission") || msg.includes("No access")) html = permissionDeniedState(msg);
+    else if (msg.includes("profile") || msg.includes("session")) html = permissionDeniedState(msg || "Your account isn't set up for this module yet.");
+    else html = errorState({ title: "Couldn't load Settings", message: msg, retryId: "blockedRetry" });
+
+    setInner("content", html);
+    document.getElementById("blockedRetry")?.addEventListener("click", () => window.location.reload());
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+</script>
+</body>
+</html>

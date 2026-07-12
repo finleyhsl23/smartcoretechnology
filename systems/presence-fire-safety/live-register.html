@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Live Register — SmartCore Presence &amp; Fire Safety</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="pfs-shell">
+  <nav class="pfs-sidebar" id="pfsNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="pfs-main">
+    <div class="pfs-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Live Register</h1>
+      <label class="sr-only" for="siteSwitcher">Site</label>
+      <select id="siteSwitcher" aria-label="Select site"></select>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="pfs-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="registerBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<style>
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .pfs-page-head { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:18px; flex-wrap:wrap; }
+  .pfs-page-head h2 { margin: 0 0 4px; font-size: 20px; }
+  .pfs-page-head p { margin:0; color: var(--text2); font-size:13px; }
+  .register-toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; align-items:center; }
+  .register-toolbar .form-input, .register-toolbar select { max-width: 240px; }
+  .register-toolbar select { background: var(--card2); border:1px solid var(--line); color: var(--text); border-radius:10px; padding:9px 12px; font-size:13.5px; min-height:42px; }
+  .th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
+  .th-sort:hover { color: var(--text); }
+  .th-sort .sort-arrow { display:inline-block; width:12px; }
+  .stat-inline { display:flex; gap:16px; flex-wrap:wrap; margin-bottom: 14px; }
+  .stat-inline .stat-pill { background: var(--card); border:1px solid var(--line); border-radius:999px; padding:6px 14px; font-size:12.5px; font-weight:700; color: var(--text2); }
+</style>
+
+<script type="module">
+  import { requirePresenceModuleAccess, hasPermission, listSites, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
+  import { presence, employees } from "/systems/presence-fire-safety/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
+  import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import {
+    esc, fmtDateTime, timeAgo,
+    loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
+    offlineBanner, staleBadge, setInner,
+  } from "/systems/presence-fire-safety/shared/ui.js";
+
+  initTheme();
+
+  let _companyId = null;
+  let _siteId = null;
+  let _departments = [];
+  let _rows = [];              // raw rows from the last successful fetch
+  let _lastRefreshed = null;
+  let _pollTimer = null;
+  let _loadToken = 0;
+
+  // Filter/sort state
+  let _query = "";
+  let _typeFilter = "";
+  let _deptFilter = "";
+  let _sortKey = "last_seen_at";
+  let _sortDir = "desc";
+
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+
+    renderNav("live-register", profile);
+    initMobileNav();
+    initTopbar();
+    wireOfflineBanner();
+
+    _companyId = profile.company_id;
+
+    if (!hasPermission("presence.view_live_register")) {
+      setInner("registerBody", permissionDeniedState("You don't have permission to view the live register. Ask an owner or administrator to grant you presence.view_live_register."));
+    } else {
+      const siteList = await listSites(_companyId);
+      _siteId = await ensureSiteSelected(_companyId);
+      renderSiteSwitcher(document.getElementById("siteSwitcher"), siteList, _siteId, async (newSiteId) => {
+        setSelectedSiteId(newSiteId);
+        _siteId = newSiteId;
+        await loadRegister();
+      });
+
+      _departments = await employees.departments(_companyId).catch(() => []);
+
+      await loadRegister();
+      _pollTimer = setInterval(() => loadRegister({ silent: true }), 20000);
+    }
+  } catch (e) {
+    renderAccessBlocked(e);
+  }
+
+  async function loadRegister({ silent = false } = {}) {
+    const token = ++_loadToken;
+    if (!silent) setInner("registerBody", loadingState("Loading live register…"));
+
+    try {
+      const rows = _siteId ? await presence.liveRegister(_companyId, _siteId) : [];
+      if (token !== _loadToken) return;
+      _rows = rows;
+      _lastRefreshed = new Date();
+      renderTable();
+    } catch (e) {
+      if (token !== _loadToken) return;
+      setInner("registerBody", errorState({ title: "Couldn't load the live register", message: e.message || "Something went wrong.", retryId: "regRetry" }));
+      document.getElementById("regRetry")?.addEventListener("click", () => loadRegister());
+    }
+  }
+
+  function rowLabel(r) {
+    if (r.subject_type === "employee") return r.core_employees?.full_name || "—";
+    if (r.subject_type === "visitor") {
+      const v = r.presence_fire_safety_visitor_visits?.presence_fire_safety_visitors;
+      return v ? `${v.first_name} ${v.last_name}` : "—";
+    }
+    const c = r.presence_fire_safety_contractor_visits?.presence_fire_safety_contractors;
+    return c ? c.business_name : "—";
+  }
+
+  function rowOrg(r) {
+    if (r.subject_type === "employee") return r.core_employees?.core_departments?.name || "—";
+    if (r.subject_type === "visitor") return r.presence_fire_safety_visitor_visits?.presence_fire_safety_visitors?.organisation || "—";
+    return r.presence_fire_safety_contractor_visits?.presence_fire_safety_contractors?.contact_name || "—";
+  }
+
+  function rowMethod(r) {
+    // presence_fire_safety_events is embedded via the current_presence.last_event_id FK
+    // (see shared/api.js liveRegister) — this reflects the method of the most
+    // recent event, i.e. the sign-in method since current_status is 'in'.
+    return r.presence_fire_safety_events?.method || "—";
+  }
+
+  function filteredSortedRows() {
+    let rows = _rows.slice();
+
+    if (_typeFilter) rows = rows.filter(r => r.subject_type === _typeFilter);
+    if (_deptFilter) rows = rows.filter(r => r.subject_type === "employee" && r.core_employees?.department_id === _deptFilter);
+    if (_query) {
+      const q = _query.toLowerCase();
+      rows = rows.filter(r => rowLabel(r).toLowerCase().includes(q) || rowOrg(r).toLowerCase().includes(q));
+    }
+
+    rows.sort((a, b) => {
+      let av, bv;
+      if (_sortKey === "name") { av = rowLabel(a); bv = rowLabel(b); }
+      else if (_sortKey === "type") { av = a.subject_type; bv = b.subject_type; }
+      else if (_sortKey === "org") { av = rowOrg(a); bv = rowOrg(b); }
+      else if (_sortKey === "method") { av = rowMethod(a); bv = rowMethod(b); }
+      else { av = a.last_seen_at; bv = b.last_seen_at; }
+      if (av < bv) return _sortDir === "asc" ? -1 : 1;
+      if (av > bv) return _sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return rows;
+  }
+
+  function renderTable() {
+    const rows = filteredSortedRows();
+    const counts = { employee: 0, visitor: 0, contractor: 0 };
+    for (const r of _rows) counts[r.subject_type] = (counts[r.subject_type] || 0) + 1;
+
+    const sortArrow = (key) => _sortKey === key ? (_sortDir === "asc" ? "▲" : "▼") : "";
+
+    const html = `
+      <div class="pfs-page-head">
+        <div>
+          <h2>Who's Onsite</h2>
+          <p>${staleBadge(_lastRefreshed)} · auto-refreshes every 20s</p>
+        </div>
+        <button class="btn" id="manualRefresh"><i data-lucide="refresh-cw"></i> Refresh</button>
+      </div>
+
+      <div class="stat-inline">
+        <span class="stat-pill">${_rows.length} total onsite</span>
+        <span class="stat-pill">${counts.employee || 0} employees</span>
+        <span class="stat-pill">${counts.visitor || 0} visitors</span>
+        <span class="stat-pill">${counts.contractor || 0} contractors</span>
+      </div>
+
+      <div class="register-toolbar">
+        <label class="sr-only" for="regSearch">Search</label>
+        <input class="form-input" id="regSearch" type="text" placeholder="Search name or organisation…" value="${esc(_query)}"/>
+        <label class="sr-only" for="regTypeFilter">Filter by type</label>
+        <select id="regTypeFilter">
+          <option value="">All types</option>
+          <option value="employee" ${_typeFilter === "employee" ? "selected" : ""}>Employees</option>
+          <option value="visitor" ${_typeFilter === "visitor" ? "selected" : ""}>Visitors</option>
+          <option value="contractor" ${_typeFilter === "contractor" ? "selected" : ""}>Contractors</option>
+        </select>
+        <label class="sr-only" for="regDeptFilter">Filter by department</label>
+        <select id="regDeptFilter">
+          <option value="">All departments</option>
+          ${_departments.map(d => `<option value="${esc(d.id)}" ${_deptFilter === d.id ? "selected" : ""}>${esc(d.name)}</option>`).join("")}
+        </select>
+      </div>
+
+      ${rows.length === 0
+        ? emptyState({ icon: "users", title: _rows.length === 0 ? "Nobody is onsite" : "No matches", message: _rows.length === 0 ? "The live register will update as people sign in." : "Try a different search or filter." })
+        : `<div class="tbl-wrap"><table class="tbl">
+            <thead><tr>
+              <th class="th-sort" data-sort="type">Type <span class="sort-arrow">${sortArrow("type")}</span></th>
+              <th class="th-sort" data-sort="name">Name <span class="sort-arrow">${sortArrow("name")}</span></th>
+              <th class="th-sort" data-sort="org">Dept / Organisation <span class="sort-arrow">${sortArrow("org")}</span></th>
+              <th class="th-sort" data-sort="last_seen_at">Signed In <span class="sort-arrow">${sortArrow("last_seen_at")}</span></th>
+              <th class="th-sort" data-sort="method">Method <span class="sort-arrow">${sortArrow("method")}</span></th>
+              <th>Status</th>
+            </tr></thead>
+            <tbody>
+              ${rows.map(r => `
+                <tr>
+                  <td><span class="badge ${{employee:"badge-blue",visitor:"badge-yellow",contractor:"badge-grey"}[r.subject_type]}">${esc(r.subject_type)}</span></td>
+                  <td>${esc(rowLabel(r))}</td>
+                  <td>${esc(rowOrg(r))}</td>
+                  <td>${esc(fmtDateTime(r.last_seen_at))}<br/><span class="pfs-stale-badge">${esc(timeAgo(r.last_seen_at))}</span></td>
+                  <td>${esc(rowMethod(r))}</td>
+                  <td><span class="badge badge-green">In</span></td>
+                </tr>`).join("")}
+            </tbody>
+          </table></div>`}
+    `;
+
+    setInner("registerBody", html);
+
+    document.getElementById("manualRefresh").addEventListener("click", () => loadRegister());
+    document.getElementById("regSearch").addEventListener("input", (e) => { _query = e.target.value; renderTable(); });
+    document.getElementById("regTypeFilter").addEventListener("change", (e) => { _typeFilter = e.target.value; renderTable(); });
+    document.getElementById("regDeptFilter").addEventListener("change", (e) => { _deptFilter = e.target.value; renderTable(); });
+    document.querySelectorAll(".th-sort").forEach(th => {
+      th.addEventListener("click", () => {
+        const key = th.dataset.sort;
+        if (_sortKey === key) _sortDir = _sortDir === "asc" ? "desc" : "asc";
+        else { _sortKey = key; _sortDir = "asc"; }
+        renderTable();
+      });
+    });
+  }
+
+  // ── Access-blocked rendering (see index.html for rationale) ────────────
+  function renderAccessBlocked(e) {
+    const msg = e?.message || "";
+    document.body.innerHTML = `
+      <div class="pfs-shell">
+        <div class="pfs-main" style="width:100%">
+          <div class="pfs-topbar">
+            <h1>Presence &amp; Fire Safety</h1>
+            <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+            <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+          </div>
+          <div class="pfs-content" id="content"></div>
+        </div>
+      </div>
+      <div id="toastwrap" aria-live="polite"></div>`;
+    initTheme();
+    initTopbar();
+
+    let html;
+    if (msg.includes("not enabled")) html = moduleDisabledState();
+    else if (msg.includes("permission") || msg.includes("No access")) html = permissionDeniedState(msg);
+    else if (msg.includes("profile") || msg.includes("session")) html = permissionDeniedState(msg || "Your account isn't set up for this module yet.");
+    else html = errorState({ title: "Couldn't load Presence & Fire Safety", message: msg, retryId: "blockedRetry" });
+
+    setInner("content", html);
+    document.getElementById("blockedRetry")?.addEventListener("click", () => window.location.reload());
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+
+  window.addEventListener("beforeunload", () => { if (_pollTimer) clearInterval(_pollTimer); });
+  document.addEventListener("visibilitychange", () => {
+    // Pause polling while the tab is hidden, resume (with an immediate
+    // refresh) when it becomes visible again.
+    if (!_siteId) return;
+    if (document.visibilityState === "hidden" && _pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+    else if (document.visibilityState === "visible" && !_pollTimer) { loadRegister({ silent: true }); _pollTimer = setInterval(() => loadRegister({ silent: true }), 20000); }
+  });
+
+  // NOTE: this polls every 20s rather than subscribing to Supabase Realtime.
+  // The data contract (presence.liveRegister) doesn't need to change to add
+  // realtime later — swap the setInterval below for a
+  // sb().channel(...).on('postgres_changes', ...) subscription on
+  // presence_fire_safety_current_presence filtered by company_id/site_id.
+</script>
+</body>
+</html>

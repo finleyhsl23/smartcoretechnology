@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Contractors — SmartCore Presence &amp; Fire Safety</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="pfs-shell">
+  <nav class="pfs-sidebar" id="pfsNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="pfs-main">
+    <div class="pfs-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Contractors</h1>
+      <label class="sr-only" for="siteSwitcher">Site</label>
+      <select id="siteSwitcher" aria-label="Select site"></select>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="pfs-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="pageBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<style>
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .pfs-tabs2 { display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:20px; }
+  .pfs-tab2 { background:transparent; border:none; border-bottom:2px solid transparent; color: var(--text2); padding: 12px 6px; margin-right: 22px; font-weight:700; font-size:14px; min-height:44px; }
+  .pfs-tab2[aria-selected="true"] { color: var(--accent2); border-bottom-color: var(--accent); }
+  .form-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  @media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; } }
+  .combobox { position:relative; }
+  .combobox-results { position:absolute; z-index:10; top:100%; left:0; right:0; background: var(--card); border:1px solid var(--line); border-radius:10px; margin-top:4px; max-height:220px; overflow-y:auto; box-shadow:0 12px 32px rgba(0,0,0,.3); }
+  .combobox-result { display:block; width:100%; text-align:left; background:transparent; border:none; padding:9px 12px; color: var(--text); font-size:13.5px; }
+  .combobox-result:hover, .combobox-result:focus-visible { background: var(--card2); }
+  .checkbox-row { display:flex; align-items:flex-start; gap:10px; }
+  .checkbox-row input { width:18px; height:18px; margin-top:2px; flex-shrink:0; }
+  .checkbox-row label { font-size:13px; color: var(--text2); }
+  .form-actions { display:flex; gap:10px; margin-top:6px; }
+</style>
+
+<script type="module">
+  import { requirePresenceModuleAccess, hasPermission, listSites, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
+  import { contractors, employees } from "/systems/presence-fire-safety/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
+  import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import {
+    esc, toast, confirmDialog, fmtDateTime,
+    loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
+    offlineBanner, staleBadge, setInner,
+  } from "/systems/presence-fire-safety/shared/ui.js";
+
+  initTheme();
+
+  let _companyId = null;
+  let _siteId = null;
+  let _hasView = false;
+  let _hasManage = false;
+  let _activeTab = "onsite";
+  let _selectedHost = null; // { id, full_name }
+  let _hostSearchDebounce = null;
+  let _lastRefreshed = null;
+
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    renderNav("contractors", profile);
+    initMobileNav();
+    initTopbar();
+    wireOfflineBanner();
+
+    _companyId = profile.company_id;
+    _hasView = hasPermission("presence.view_live_register");
+    _hasManage = hasPermission("presence.manage_contractors");
+
+    if (!_hasView) {
+      setInner("pageBody", permissionDeniedState("You don't have permission to view contractors. Ask an owner or administrator to grant you presence.view_live_register."));
+    } else {
+      const siteList = await listSites(_companyId);
+      _siteId = await ensureSiteSelected(_companyId);
+      renderSiteSwitcher(document.getElementById("siteSwitcher"), siteList, _siteId, async (newSiteId) => {
+        setSelectedSiteId(newSiteId);
+        _siteId = newSiteId;
+        await renderActiveTab();
+      });
+
+      _activeTab = _hasManage ? "signin" : "onsite";
+      await renderActiveTab();
+    }
+  } catch (e) {
+    renderAccessBlocked(e);
+  }
+
+  function renderShell() {
+    const tabs = [
+      _hasManage ? { id: "signin", label: "Sign In Contractor" } : null,
+      { id: "onsite", label: "Currently Onsite" },
+      { id: "history", label: "History" },
+    ].filter(Boolean);
+
+    setInner("pageBody", `
+      <div class="pfs-tabs2" role="tablist" aria-label="Contractor views">
+        ${tabs.map(t => `<button class="pfs-tab2" role="tab" data-tab="${t.id}" aria-selected="${_activeTab === t.id}">${esc(t.label)}</button>`).join("")}
+      </div>
+      <div id="tabBody"></div>`);
+
+    document.querySelectorAll(".pfs-tab2").forEach(btn => {
+      btn.addEventListener("click", () => { _activeTab = btn.dataset.tab; renderActiveTab(); });
+    });
+  }
+
+  async function renderActiveTab() {
+    renderShell();
+    if (!_siteId) { setInner("tabBody", emptyState({ icon: "map-pin", title: "No site configured", message: "Ask an administrator to set up a site first." })); return; }
+    if (_activeTab === "signin" && _hasManage) renderSignInForm();
+    else if (_activeTab === "history") await loadHistory();
+    else await loadOnsite();
+  }
+
+  // ── Sign-in form ──────────────────────────────────────────────────────
+  function renderSignInForm() {
+    setInner("tabBody", `
+      <div class="card" style="max-width:720px">
+        <form id="visitForm" novalidate>
+          <div class="form-grid">
+            <div class="full">
+              <label class="form-label" for="cBusiness">Business name *</label>
+              <input class="form-input" id="cBusiness" required/>
+            </div>
+            <div>
+              <label class="form-label" for="cContact">Contact name</label>
+              <input class="form-input" id="cContact"/>
+            </div>
+            <div>
+              <label class="form-label" for="cPhone">Phone</label>
+              <input class="form-input" id="cPhone" type="tel"/>
+            </div>
+            <div>
+              <label class="form-label" for="cEmail">Email</label>
+              <input class="form-input" id="cEmail" type="email"/>
+            </div>
+            <div>
+              <label class="form-label" for="cVehicle">Vehicle registration</label>
+              <input class="form-input" id="cVehicle"/>
+            </div>
+            <div class="full combobox">
+              <label class="form-label" for="cHost">Host employee</label>
+              <input class="form-input" id="cHost" autocomplete="off" placeholder="Search employees…"/>
+              <div class="combobox-results" id="cHostResults" hidden></div>
+            </div>
+            <div>
+              <label class="form-label" for="cWorkPurpose">Work purpose</label>
+              <input class="form-input" id="cWorkPurpose"/>
+            </div>
+            <div>
+              <label class="form-label" for="cPermit">Permit reference</label>
+              <input class="form-input" id="cPermit"/>
+            </div>
+            <div class="full checkbox-row">
+              <input type="checkbox" id="cInduction" required/>
+              <label for="cInduction">Site safety induction has been completed and confirmed *</label>
+            </div>
+          </div>
+          <div id="cFormError"></div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="cSubmitBtn">Sign In Contractor</button>
+          </div>
+        </form>
+      </div>`);
+
+    _selectedHost = null;
+    const hostInput = document.getElementById("cHost");
+    const hostResults = document.getElementById("cHostResults");
+    hostInput.addEventListener("input", () => {
+      _selectedHost = null;
+      clearTimeout(_hostSearchDebounce);
+      const q = hostInput.value.trim();
+      if (!q) { hostResults.hidden = true; return; }
+      _hostSearchDebounce = setTimeout(async () => {
+        try {
+          const rows = await employees.search(_companyId, q, { limit: 8 });
+          hostResults.hidden = rows.length === 0;
+          hostResults.innerHTML = rows.map(r => `<button type="button" class="combobox-result" data-id="${esc(r.id)}" data-name="${esc(r.full_name)}">${esc(r.full_name)}${r.job_title ? " — " + esc(r.job_title) : ""}</button>`).join("");
+          hostResults.querySelectorAll(".combobox-result").forEach(btn => {
+            btn.addEventListener("click", () => {
+              _selectedHost = { id: btn.dataset.id, full_name: btn.dataset.name };
+              hostInput.value = btn.dataset.name;
+              hostResults.hidden = true;
+            });
+          });
+        } catch { /* non-fatal: host is optional */ }
+      }, 300);
+    });
+    document.addEventListener("click", (e) => { if (!e.target.closest(".combobox")) hostResults.hidden = true; }, { once: false });
+
+    document.getElementById("visitForm").addEventListener("submit", onSubmitVisit);
+  }
+
+  async function onSubmitVisit(e) {
+    e.preventDefault();
+    const businessName = document.getElementById("cBusiness").value.trim();
+    const inductionConfirmed = document.getElementById("cInduction").checked;
+    const errBox = document.getElementById("cFormError");
+    errBox.innerHTML = "";
+
+    if (!businessName) { errBox.innerHTML = `<p class="form-error">Business name is required.</p>`; return; }
+    if (!inductionConfirmed) { errBox.innerHTML = `<p class="form-error">Site safety induction must be confirmed before signing in.</p>`; return; }
+
+    const submitBtn = document.getElementById("cSubmitBtn");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Signing in…";
+
+    try {
+      await contractors.createVisit({
+        siteId: _siteId,
+        businessName,
+        contactName: document.getElementById("cContact").value.trim(),
+        phone: document.getElementById("cPhone").value.trim(),
+        email: document.getElementById("cEmail").value.trim(),
+        hostEmployeeId: _selectedHost?.id || null,
+        workPurpose: document.getElementById("cWorkPurpose").value.trim(),
+        permitReference: document.getElementById("cPermit").value.trim(),
+        vehicleRegistration: document.getElementById("cVehicle").value.trim(),
+        inductionConfirmed,
+        signInNow: true,
+      });
+
+      toast("success", "Contractor signed in", businessName);
+      _activeTab = "onsite";
+      await renderActiveTab();
+    } catch (err) {
+      errBox.innerHTML = `<p class="form-error">${esc(err.message || "Could not sign in contractor.")}</p>`;
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Sign In Contractor";
+    }
+  }
+
+  // ── Currently onsite ──────────────────────────────────────────────────
+  async function loadOnsite() {
+    setInner("tabBody", loadingState("Loading contractors onsite…"));
+    try {
+      const rows = await contractors.currentVisits(_companyId, _siteId);
+      _lastRefreshed = new Date();
+      if (rows.length === 0) {
+        setInner("tabBody", emptyState({ icon: "hard-hat", title: "No contractors onsite", message: "Contractors who sign in will appear here." }));
+        return;
+      }
+      setInner("tabBody", `
+        <p style="margin:0 0 10px">${staleBadge(_lastRefreshed)}</p>
+        <div class="tbl-wrap"><table class="tbl">
+          <thead><tr><th>Business</th><th>Contact</th><th>Host</th><th>Signed In</th><th>Phone</th>${_hasManage ? "<th></th>" : ""}</tr></thead>
+          <tbody>
+            ${rows.map(v => {
+              const c = v.presence_fire_safety_contractors || {};
+              return `<tr>
+                <td>${esc(c.business_name || "")}</td>
+                <td>${esc(c.contact_name || "—")}</td>
+                <td>${esc(v.core_employees?.full_name || "—")}</td>
+                <td>${esc(fmtDateTime(v.signed_in_at))}</td>
+                <td>${esc(c.phone || "—")}</td>
+                ${_hasManage ? `<td><button class="btn btn-danger" data-signout="${esc(v.id)}" data-name="${esc(c.business_name || "")}">Sign Out</button></td>` : ""}
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table></div>`);
+
+      document.querySelectorAll("[data-signout]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const visitId = btn.dataset.signout;
+          const name = btn.dataset.name;
+          confirmDialog("Sign out contractor?", `Sign ${name} out of the site now?`, async () => {
+            btn.disabled = true;
+            try {
+              await contractors.signOut(_companyId, visitId);
+              toast("success", "Contractor signed out", name);
+              await loadOnsite();
+            } catch (err) {
+              toast("error", "Could not sign out", err.message || "Please try again.");
+              btn.disabled = false;
+            }
+          }, { danger: true, confirmLabel: "Sign Out" });
+        });
+      });
+    } catch (e) {
+      setInner("tabBody", errorState({ title: "Couldn't load onsite contractors", message: e.message || "", retryId: "onsiteRetry" }));
+      document.getElementById("onsiteRetry")?.addEventListener("click", loadOnsite);
+    }
+  }
+
+  // ── History ───────────────────────────────────────────────────────────
+  async function loadHistory() {
+    setInner("tabBody", loadingState("Loading contractor history…"));
+    try {
+      const rows = await contractors.history(_companyId, { siteId: _siteId, limit: 200 });
+      if (rows.length === 0) {
+        setInner("tabBody", emptyState({ icon: "history", title: "No contractor history yet", message: "Past visits for this site will appear here." }));
+        return;
+      }
+      setInner("tabBody", `
+        <div class="tbl-wrap"><table class="tbl">
+          <thead><tr><th>Business</th><th>Contact</th><th>Status</th><th>Signed In</th><th>Signed Out</th></tr></thead>
+          <tbody>
+            ${rows.map(v => {
+              const c = v.presence_fire_safety_contractors || {};
+              const statusBadge = { signed_in: "badge-green", signed_out: "badge-grey", expected: "badge-yellow", cancelled: "badge-red" }[v.status] || "badge-grey";
+              return `<tr>
+                <td>${esc(c.business_name || "")}</td>
+                <td>${esc(c.contact_name || "—")}</td>
+                <td><span class="badge ${statusBadge}">${esc(v.status)}</span></td>
+                <td>${esc(fmtDateTime(v.signed_in_at))}</td>
+                <td>${esc(fmtDateTime(v.signed_out_at))}</td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table></div>`);
+    } catch (e) {
+      setInner("tabBody", errorState({ title: "Couldn't load contractor history", message: e.message || "", retryId: "histRetry" }));
+      document.getElementById("histRetry")?.addEventListener("click", loadHistory);
+    }
+  }
+
+  // ── Access-blocked rendering (see index.html for rationale) ────────────
+  function renderAccessBlocked(e) {
+    const msg = e?.message || "";
+    document.body.innerHTML = `
+      <div class="pfs-shell">
+        <div class="pfs-main" style="width:100%">
+          <div class="pfs-topbar">
+            <h1>Presence &amp; Fire Safety</h1>
+            <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+            <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+          </div>
+          <div class="pfs-content" id="content"></div>
+        </div>
+      </div>
+      <div id="toastwrap" aria-live="polite"></div>`;
+    initTheme();
+    initTopbar();
+
+    let html;
+    if (msg.includes("not enabled")) html = moduleDisabledState();
+    else if (msg.includes("permission") || msg.includes("No access")) html = permissionDeniedState(msg);
+    else if (msg.includes("profile") || msg.includes("session")) html = permissionDeniedState(msg || "Your account isn't set up for this module yet.");
+    else html = errorState({ title: "Couldn't load Presence & Fire Safety", message: msg, retryId: "blockedRetry" });
+
+    setInner("content", html);
+    document.getElementById("blockedRetry")?.addEventListener("click", () => window.location.reload());
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+</script>
+</body>
+</html>
