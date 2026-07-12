@@ -61,30 +61,6 @@
   let _filters = { siteId: "", from: "", to: "", subjectType: "", dept: "" };
   let _currentRows = [];
 
-  try {
-    const { profile } = await requirePresenceModuleAccess();
-    _profile = profile;
-    _companyId = profile.company_id;
-
-    renderNav("reports", profile);
-    initMobileNav();
-    initTopbar();
-    wireOfflineBanner();
-
-    if (!hasPermission("presence.export_reports")) {
-      setInner("reportsBody", permissionDeniedState("You don't have permission to view Presence & Fire Safety reports."));
-    } else {
-      _siteList = await sites.list(_companyId);
-      _companyName = await getCompanyName(_companyId);
-      const selectedSiteId = await ensureSiteSelected(_companyId);
-      _filters.siteId = selectedSiteId || "";
-      renderShell();
-      runReport();
-    }
-  } catch (e) {
-    renderAccessBlocked(e);
-  }
-
   async function getCompanyName(companyId) {
     try {
       const { data } = await sb().from("companies").select("name").eq("id", companyId).maybeSingle();
@@ -389,6 +365,31 @@
     render();
     window.addEventListener("online", render);
     window.addEventListener("offline", render);
+  }
+
+  // ── Bootstrap — runs last, after every const/function above is defined ──
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    renderNav("reports", profile);
+    initMobileNav();
+    initTopbar();
+    wireOfflineBanner();
+
+    if (!hasPermission("presence.export_reports")) {
+      setInner("reportsBody", permissionDeniedState("You don't have permission to view Presence & Fire Safety reports."));
+    } else {
+      _siteList = await sites.list(_companyId);
+      _companyName = await getCompanyName(_companyId);
+      const selectedSiteId = await ensureSiteSelected(_companyId);
+      _filters.siteId = selectedSiteId || "";
+      renderShell();
+      runReport();
+    }
+  } catch (e) {
+    renderAccessBlocked(e);
   }
 </script>
 </body>
