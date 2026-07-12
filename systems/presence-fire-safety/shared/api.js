@@ -71,14 +71,14 @@ export const badges = {
   },
   async byToken(companyId, token) {
     const { data, error } = await sb().from("presence_fire_safety_badges")
-      .select("*, core_employees(id, full_name, job_title, department_id)")
+      .select("*, core_employees!employee_id(id, full_name, job_title, department_id)")
       .eq("company_id", companyId).eq("badge_token", token).eq("status", "active").maybeSingle();
     if (error) throw error;
     return data;
   },
   async list(companyId) {
     const { data, error } = await sb().from("presence_fire_safety_badges")
-      .select("*, core_employees(full_name, employee_id)")
+      .select("*, core_employees!employee_id(full_name, employee_id)")
       .eq("company_id", companyId).order("issued_at", { ascending: false });
     if (error) throw error;
     return data || [];
@@ -166,7 +166,7 @@ export const presence = {
       .select(`
         id, subject_type, direction, method, occurred_at, site_id,
         sites(name),
-        core_employees(full_name, employee_id, core_departments(name)),
+        core_employees!employee_id(full_name, employee_id, core_departments(name)),
         presence_fire_safety_visitor_visits(presence_fire_safety_visitors(first_name, last_name, organisation)),
         presence_fire_safety_contractor_visits(presence_fire_safety_contractors(business_name))
       `)
@@ -188,7 +188,7 @@ export const presence = {
     let q = sb().from("presence_fire_safety_events")
       .select(`
         id, subject_type, direction, method, occurred_at, notes,
-        core_employees(full_name),
+        core_employees!employee_id(full_name),
         presence_fire_safety_visitor_visits(presence_fire_safety_visitors(first_name, last_name, organisation)),
         presence_fire_safety_contractor_visits(presence_fire_safety_contractors(business_name, contact_name))
       `)
@@ -245,7 +245,7 @@ export const visitors = {
 
   async currentVisits(companyId, siteId) {
     let q = sb().from("presence_fire_safety_visitor_visits")
-      .select("*, presence_fire_safety_visitors(first_name, last_name, organisation, phone, photo_path), core_employees(full_name)")
+      .select("*, presence_fire_safety_visitors(first_name, last_name, organisation, phone, photo_path), core_employees!host_employee_id(full_name)")
       .eq("company_id", companyId).eq("status", "signed_in").order("signed_in_at", { ascending: false });
     if (siteId) q = q.eq("site_id", siteId);
     const { data, error } = await q;
@@ -321,7 +321,7 @@ export const contractors = {
 
   async currentVisits(companyId, siteId) {
     let q = sb().from("presence_fire_safety_contractor_visits")
-      .select("*, presence_fire_safety_contractors(business_name, contact_name, phone), core_employees(full_name)")
+      .select("*, presence_fire_safety_contractors(business_name, contact_name, phone), core_employees!host_employee_id(full_name)")
       .eq("company_id", companyId).eq("status", "signed_in").order("signed_in_at", { ascending: false });
     if (siteId) q = q.eq("site_id", siteId);
     const { data, error } = await q;
