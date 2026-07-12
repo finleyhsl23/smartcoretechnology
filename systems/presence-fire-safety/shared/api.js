@@ -152,6 +152,54 @@ export const presence = {
     return data;
   },
 
+  /** Company-wide presence event history (reports.html "Presence History"
+   *  report), mirroring the shape of visitors.history / contractors.history.
+   *  Unlike myHistory this is not scoped to one employee — used by report
+   *  views that need every subject type in a single timeline. Note: the
+   *  underlying RLS policy (pfs_events_select) grants this to callers with
+   *  presence.view_live_register + site access, or their own events only —
+   *  a caller with presence.export_reports but not presence.view_live_register
+   *  will only see rows for their own employee_id. */
+  async history(companyId, { siteId, from, to, limit = 200 } = {}) {
+    let q = sb().from("presence_fire_safety_events")
+      .select(`
+        id, subject_type, direction, method, occurred_at, site_id,
+        sites(name),
+        core_employees(full_name, employee_id, core_departments(name)),
+        presence_fire_safety_visitor_visits(presence_fire_safety_visitors(first_name, last_name, organisation)),
+        presence_fire_safety_contractor_visits(presence_fire_safety_contractors(business_name))
+      `)
+      .eq("company_id", companyId)
+      .order("occurred_at", { ascending: false })
+      .limit(limit);
+    if (siteId) q = q.eq("site_id", siteId);
+    if (from) q = q.gte("occurred_at", from);
+    if (to) q = q.lte("occurred_at", to);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+  },
+
+  /** Most recent presence events for the dashboard activity feed. Reads the
+   *  append-only ledger directly (same RLS as liveRegister: view_live_register
+   *  + site access, or the caller's own employee events). */
+  async recentEvents(companyId, siteId, limit = 10) {
+    let q = sb().from("presence_fire_safety_events")
+      .select(`
+        id, subject_type, direction, method, occurred_at, notes,
+        core_employees(full_name),
+        presence_fire_safety_visitor_visits(presence_fire_safety_visitors(first_name, last_name, organisation)),
+        presence_fire_safety_contractor_visits(presence_fire_safety_contractors(business_name, contact_name))
+      `)
+      .eq("company_id", companyId)
+      .order("occurred_at", { ascending: false })
+      .limit(limit);
+    if (siteId) q = q.eq("site_id", siteId);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+  },
+
   /** Records an employee/visitor/contractor presence event through the
    *  transactional RPC. Always pass a stable requestId when retrying a
    *  network failure so the server can safely de-duplicate. */
@@ -245,6 +293,18 @@ export const visitors = {
     const { error } = await sb().storage.from("presence-fire-safety-photos").upload(path, file, { upsert: false });
     if (error) throw error;
     return path;
+  },
+
+  /** Patches photo_path after upload. The visitor row must exist before a
+   *  photo can be stored at `${companyId}/${visitorId}/...` (uploadPhoto needs
+   *  visitorId), but createVisit's p_photo_path is only accepted at creation
+   *  time — so the flow is createVisit -> uploadPhoto -> setPhoto. Plain table
+   *  update under the existing pfs_visitors_write RLS policy (manage_visitors). */
+  async setPhoto(visitorId, photoPath) {
+    const { data, error } = await sb().from("presence_fire_safety_visitors")
+      .update({ photo_path: photoPath }).eq("id", visitorId).select().single();
+    if (error) throw error;
+    return data;
   },
 };
 
