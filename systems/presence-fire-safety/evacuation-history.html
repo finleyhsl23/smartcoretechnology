@@ -40,6 +40,7 @@
   import { evacuation } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import {
     esc, toast, fmtDateTime, modal,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -52,12 +53,14 @@
 
   try {
     const { profile } = await requirePresenceModuleAccess();
+    if (enforceKioskGuard("reports")) throw new Error("__kiosk_redirect__");
     _profile = profile;
     _companyId = profile.company_id;
 
     renderNav("reports", profile);
     initMobileNav();
     initTopbar();
+    initKioskToggle({ companyId: _companyId, currentPage: "reports" });
     wireOfflineBanner();
 
     if (!hasPermission("presence.view_live_register")) {
@@ -66,7 +69,7 @@
       loadHistory();
     }
   } catch (e) {
-    renderAccessBlocked(e);
+    if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
   }
 
   async function loadHistory() {

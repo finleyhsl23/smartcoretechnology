@@ -64,6 +64,7 @@
   import { sites, settings, badges, devices, employees } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import {
     esc, toast, fmtDateTime, timeAgo, confirmDialog, modal,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -77,12 +78,14 @@
 
   try {
     const { profile } = await requirePresenceModuleAccess();
+    if (enforceKioskGuard("settings")) throw new Error("__kiosk_redirect__");
     _profile = profile;
     _companyId = profile.company_id;
 
     renderNav("settings", profile);
     initMobileNav();
     initTopbar();
+    initKioskToggle({ companyId: _companyId, currentPage: "settings" });
     wireOfflineBanner();
 
     if (!hasPermission("presence.manage_settings")) {
@@ -92,7 +95,7 @@
       renderShell();
     }
   } catch (e) {
-    renderAccessBlocked(e);
+    if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
   }
 
   // ── Shell / tabs ─────────────────────────────────────────────────────────
@@ -142,14 +145,14 @@
     setInner("panel-module", loadingState("Loading settings…"));
     try {
       const row = await settings.get(_companyId);
-      renderModuleSettings({ ...DEFAULT_SETTINGS, ...(row || {}) }, !!row?.evacuation_pin_hash);
+      renderModuleSettings({ ...DEFAULT_SETTINGS, ...(row || {}) }, !!row?.evacuation_pin_hash, !!row?.kiosk_exit_pin_hash);
     } catch (e) {
       setInner("panel-module", errorState({ title: "Couldn't load settings", message: e.message, retryId: "moduleRetry" }));
       document.getElementById("moduleRetry")?.addEventListener("click", loadModuleSettings);
     }
   }
 
-  function renderModuleSettings(s, pinConfigured) {
+  function renderModuleSettings(s, pinConfigured, kioskPinConfigured) {
     setInner("panel-module", `
       <div class="card" style="margin-bottom:20px">
         <div class="set-pin-row">
@@ -159,6 +162,15 @@
             <p class="set-section-desc" style="margin:2px 0 0">${pinConfigured ? "A PIN is configured for this company." : "No evacuation PIN has been set yet — evacuations can't be unlocked until one is set."}</p>
           </div>
           <button class="btn btn-primary" id="setPinBtn" type="button">${pinConfigured ? "Change PIN" : "Set PIN"}</button>
+        </div>
+
+        <div class="set-pin-row" style="margin-top:12px">
+          <i data-lucide="${kioskPinConfigured ? "monitor-check" : "monitor"}"></i>
+          <div>
+            <strong>Kiosk Exit PIN</strong>
+            <p class="set-section-desc" style="margin:2px 0 0">${kioskPinConfigured ? "A PIN is configured to exit Kiosk Mode back to admin mode." : "No kiosk exit PIN has been set yet — a wrong-PIN attempt will always fall back to a full SmartCore sign-in."}</p>
+          </div>
+          <button class="btn btn-primary" id="setKioskPinBtn" type="button">${kioskPinConfigured ? "Change PIN" : "Set PIN"}</button>
         </div>
 
         <h2 class="set-section-title">Sign-in &amp; visitor/contractor behaviour</h2>
@@ -219,6 +231,7 @@
       document.getElementById("f_auto_sign_out_time").disabled = !e.target.checked;
     });
     document.getElementById("setPinBtn").addEventListener("click", openSetPinModal);
+    document.getElementById("setKioskPinBtn").addEventListener("click", openSetKioskPinModal);
     document.getElementById("saveModuleSettingsBtn").addEventListener("click", saveModuleSettings);
   }
 
@@ -283,6 +296,45 @@
         await settings.setEvacuationPin(_companyId, pin);
         overlay.remove();
         toast("success", "Evacuation PIN updated");
+        loadModuleSettings();
+      } catch (e) {
+        errEl.textContent = e.message || "Couldn't set PIN.";
+        btn.disabled = false;
+        btn.textContent = "Save PIN";
+      }
+    });
+  }
+
+  function openSetKioskPinModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Set Kiosk Exit PIN</h3></div>
+      <div class="modal-body">
+        <p class="text-muted" style="margin-top:0">4–12 digits. This PIN is used to exit Kiosk Mode back to admin mode on a device — it is deliberately separate from the Evacuation PIN. If it's entered incorrectly, the device falls back to a full SmartCore sign-in instead.</p>
+        <label class="form-label" for="newKioskPin">New PIN</label>
+        <input type="password" id="newKioskPin" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="12" style="margin-bottom:14px"/>
+        <label class="form-label" for="confirmKioskPin">Confirm PIN</label>
+        <input type="password" id="confirmKioskPin" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="12"/>
+        <div class="form-error" id="kioskPinModalError" role="alert" style="margin-top:10px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close" type="button">Cancel</button>
+        <button class="btn btn-primary" id="saveKioskPinBtn" type="button">Save PIN</button>
+      </div>`);
+
+    overlay.querySelector("#saveKioskPinBtn").addEventListener("click", async () => {
+      const pin = overlay.querySelector("#newKioskPin").value;
+      const confirmPin = overlay.querySelector("#confirmKioskPin").value;
+      const errEl = overlay.querySelector("#kioskPinModalError");
+      errEl.textContent = "";
+      if (!/^[0-9]{4,12}$/.test(pin)) { errEl.textContent = "PIN must be 4–12 digits."; return; }
+      if (pin !== confirmPin) { errEl.textContent = "PINs don't match."; return; }
+      const btn = overlay.querySelector("#saveKioskPinBtn");
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+      try {
+        await settings.setKioskExitPin(_companyId, pin);
+        overlay.remove();
+        toast("success", "Kiosk exit PIN updated");
         loadModuleSettings();
       } catch (e) {
         errEl.textContent = e.message || "Couldn't set PIN.";

@@ -27,6 +27,7 @@
 
     <div class="pfs-content" id="content">
       <div id="offlineArea"></div>
+      <div id="kioskEvacBanner"></div>
       <div id="kioskBody"></div>
     </div>
   </div>
@@ -66,6 +67,7 @@
   import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { isBarcodeDetectorSupported, startQrScanner } from "/systems/presence-fire-safety/shared/qr.js";
+  import { enforceKioskGuard, initKioskToggle, renderKioskEvacuationBanner } from "/systems/presence-fire-safety/shared/kiosk.js";
   import {
     esc, toast, fmtDateTime, initials,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -89,6 +91,7 @@
 
   try {
     const { profile } = await requirePresenceModuleAccess();
+    if (enforceKioskGuard("employee-signin")) throw new Error("__kiosk_redirect__");
     _profile = profile;
     _companyId = profile.company_id;
     _canSignOthers = hasPermission("presence.sign_others_in_out");
@@ -96,6 +99,8 @@
     renderNav("employee-signin", profile);
     initMobileNav();
     initTopbar();
+    initKioskToggle({ companyId: _companyId, currentPage: "employee-signin" });
+    renderKioskEvacuationBanner("kioskEvacBanner");
     wireOfflineBanner();
 
     const siteList = await listSites(_companyId);
@@ -114,7 +119,7 @@
       renderTabs(_qrSupported ? "scan" : "manual");
     }
   } catch (e) {
-    renderAccessBlocked(e);
+    if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
   }
 
   // ── Tab shell ─────────────────────────────────────────────────────────

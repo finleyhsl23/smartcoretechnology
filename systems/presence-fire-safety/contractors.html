@@ -56,6 +56,7 @@
   import { contractors, employees } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import {
     esc, toast, confirmDialog, fmtDateTime,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -75,9 +76,11 @@
 
   try {
     const { profile } = await requirePresenceModuleAccess();
+    if (enforceKioskGuard("contractors")) throw new Error("__kiosk_redirect__");
     renderNav("contractors", profile);
     initMobileNav();
     initTopbar();
+    initKioskToggle({ companyId: _companyId, currentPage: "contractors" });
     wireOfflineBanner();
 
     _companyId = profile.company_id;
@@ -99,7 +102,7 @@
       await renderActiveTab();
     }
   } catch (e) {
-    renderAccessBlocked(e);
+    if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
   }
 
   function renderShell() {

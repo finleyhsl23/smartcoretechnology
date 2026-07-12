@@ -42,6 +42,7 @@
   import { auditLog } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import {
     esc, fmtDateTime,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -54,12 +55,14 @@
 
   try {
     const { profile } = await requirePresenceModuleAccess();
+    if (enforceKioskGuard("reports")) throw new Error("__kiosk_redirect__");
     _profile = profile;
     _companyId = profile.company_id;
 
     renderNav("reports", profile);
     initMobileNav();
     initTopbar();
+    initKioskToggle({ companyId: _companyId, currentPage: "reports" });
     wireOfflineBanner();
 
     // The RLS policy on presence_fire_safety_audit_logs is the real security
@@ -72,7 +75,7 @@
       loadAudit();
     }
   } catch (e) {
-    renderAccessBlocked(e);
+    if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
   }
 
   function renderShell() {

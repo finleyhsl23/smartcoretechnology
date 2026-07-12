@@ -384,6 +384,19 @@ export const settings = {
     const { error } = await sb().rpc("presence_fire_safety_set_evacuation_pin", { p_company_id: companyId, p_pin: pin });
     if (error) throw new Error(error.message || "Could not set PIN");
   },
+
+  /** Kiosk exit PIN — deliberately separate from the evacuation PIN (see
+   *  shared/kiosk.js). Admin-only to set; verify is callable by any
+   *  authenticated employee since the PIN itself is the security boundary. */
+  async setKioskExitPin(companyId, pin) {
+    const { error } = await sb().rpc("presence_fire_safety_set_kiosk_exit_pin", { p_company_id: companyId, p_pin: pin });
+    if (error) throw new Error(error.message || "Could not set PIN");
+  },
+  async verifyKioskExitPin(companyId, pin) {
+    const { error } = await sb().rpc("presence_fire_safety_verify_kiosk_exit_pin", { p_company_id: companyId, p_pin: pin });
+    if (error) throw new Error(error.message || "Incorrect PIN");
+    return true;
+  },
 };
 
 // ── Evacuation ───────────────────────────────────────────────────────────
