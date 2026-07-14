@@ -194,6 +194,10 @@ function render() {
             <datalist id="catList">${cats.map(c => `<option value="${esc(c)}"/>`).join("")}</datalist>
           </div>
           <div class="form-group">
+            <label class="form-label">Supplier</label>
+            <input class="form-control" id="pSupplier" placeholder="e.g. Acme Ltd" value="${esc(editing?.supplier || "")}"/>
+          </div>
+          <div class="form-group">
             <label class="form-label">Description</label>
             <textarea class="form-control" id="pDesc" rows="4" placeholder="What does this product do or include?">${esc(editing?.description || "")}</textarea>
           </div>
@@ -275,6 +279,7 @@ function productCard(p) {
       <div class="product-body">
         <div class="product-name">${esc(p.name)}</div>
         ${priceHtml}
+        ${p.supplier ? `<div class="product-desc" style="font-size:11px;color:var(--text-muted)">Supplier: ${esc(p.supplier)}</div>` : ""}
         ${p.description ? `<div class="product-desc">${esc(p.description)}</div>` : ""}
         <div class="product-meta">
           ${p.category ? `<span class="badge badge-blue" style="font-size:10px">${esc(p.category)}</span>` : ""}
@@ -339,6 +344,7 @@ async function saveProduct() {
     sku:         document.getElementById("pSku").value.trim() || null,
     category:    document.getElementById("pCategory").value.trim() || null,
     description: document.getElementById("pDesc").value.trim() || null,
+    supplier:    document.getElementById("pSupplier").value.trim() || null,
     image_url:   document.getElementById("pImageUrl").value || null,
     active:      document.getElementById("pActive").value === "true",
     updated_at:  new Date().toISOString(),
@@ -366,12 +372,13 @@ async function saveProduct() {
 
 function exportExcel() {
   const list = filteredProducts();
-  const headers = ["Name","Cost (£)","SKU","Category","Description","Status"];
+  const headers = ["Name","Cost (£)","SKU","Category","Supplier","Description","Status"];
   const rows = list.map(p => [
     p.name,
     p.price != null ? Number(p.price).toFixed(2) : "",
     p.sku || "",
     p.category || "",
+    p.supplier || "",
     (p.description || "").replace(/\r?\n/g, " "),
     p.active ? "Active" : "Inactive",
   ]);
