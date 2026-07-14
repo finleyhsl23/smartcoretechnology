@@ -371,18 +371,35 @@ function openModal(id) {
       const priceInput = row.querySelector(".li-price");
       priceInput.value = Number(match.price).toFixed(2);
       row.querySelector(".li-cost").value = Number(match.price).toFixed(2);
+      row.querySelector(".li-markup").value = "";
       row.querySelector(".li-cost-wrap").innerHTML = costBadgeHtml(match.price, match.price);
       recalc();
     }
   });
 
-  // Update uplift badge live as the price is changed
+  // Update uplift badge live as the price is changed manually
   overlay.querySelector("#lineItems").addEventListener("input", e => {
-    if (!e.target.classList.contains("li-price")) return;
     const row = e.target.closest(".line-row");
-    const costVal = row.querySelector(".li-cost").value;
-    if (costVal === "") return;
-    row.querySelector(".li-cost-wrap").innerHTML = costBadgeHtml(costVal, e.target.value);
+    if (!row) return;
+    const costVal = parseFloat(row.querySelector(".li-cost").value);
+    if (e.target.classList.contains("li-price")) {
+      if (!isNaN(costVal) && costVal > 0) {
+        const newPrice = parseFloat(e.target.value) || 0;
+        const newMarkup = ((newPrice - costVal) / costVal * 100);
+        row.querySelector(".li-markup").value = isFinite(newMarkup) ? newMarkup.toFixed(1) : "";
+        row.querySelector(".li-cost-wrap").innerHTML = costBadgeHtml(costVal, newPrice);
+      }
+    } else if (e.target.classList.contains("li-markup")) {
+      if (!isNaN(costVal) && costVal > 0) {
+        const pct = parseFloat(e.target.value);
+        if (!isNaN(pct)) {
+          const newPrice = costVal * (1 + pct / 100);
+          row.querySelector(".li-price").value = newPrice.toFixed(2);
+          row.querySelector(".li-cost-wrap").innerHTML = costBadgeHtml(costVal, newPrice);
+          recalc();
+        }
+      }
+    }
   });
 
   recalc();
@@ -400,12 +417,14 @@ function openModal(id) {
     try {
       const lineRows = [...overlay.querySelectorAll(".line-row")].map(row => {
         const costRaw = row.querySelector(".li-cost")?.value;
+        const markupRaw = row.querySelector(".li-markup")?.value;
         return {
         description: row.querySelector(".li-desc").value,
         qty: parseFloat(row.querySelector(".li-qty").value)||0,
         unit_price: parseFloat(row.querySelector(".li-price").value)||0,
         total: (parseFloat(row.querySelector(".li-qty").value)||0) * (parseFloat(row.querySelector(".li-price").value)||0),
         ...(costRaw ? { _cost: parseFloat(costRaw) } : {}),
+        ...(markupRaw !== "" && markupRaw != null ? { _markup: parseFloat(markupRaw) } : {}),
         };
       });
       const subtotal = lineRows.reduce((s,l) => s + l.total, 0);
@@ -436,8 +455,9 @@ function openModal(id) {
 
 function lineItemRow(li, i) {
   const cost = li.cost ?? li._cost ?? null;
+  const markup = li._markup != null ? Number(li._markup) : null;
   const badge = cost != null ? costBadgeHtml(cost, li.unit_price ?? 0) : "";
-  return `<div class="line-row" style="display:grid;grid-template-columns:1fr 80px 100px 32px;gap:8px;margin-bottom:6px;align-items:start">
+  return `<div class="line-row" style="display:grid;grid-template-columns:1fr 80px 110px 70px 32px;gap:8px;margin-bottom:6px;align-items:start">
     <div>
       <input class="form-control li-desc" list="prodList" placeholder="Description or pick a product…" value="${esc(li.description||"")}"/>
       <input type="hidden" class="li-cost" value="${cost ?? ""}"/>
@@ -445,6 +465,10 @@ function lineItemRow(li, i) {
     </div>
     <input class="form-control li-qty" type="number" min="0" placeholder="Qty" value="${li.qty||1}" style="text-align:center;margin-top:0"/>
     <input class="form-control li-price" type="number" min="0" step="0.01" placeholder="Price (£)" value="${li.unit_price||0}"/>
+    <div style="position:relative;margin-top:0">
+      <input class="form-control li-markup" type="number" min="0" step="0.1" placeholder="%" value="${markup ?? ""}" title="Markup %" style="padding-right:22px"/>
+      <span style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text3);pointer-events:none">%</span>
+    </div>
     <button class="btn btn-icon btn-danger li-remove" title="Remove" style="margin-top:0">✕</button>
   </div>`;
 }
