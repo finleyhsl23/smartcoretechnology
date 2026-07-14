@@ -137,6 +137,24 @@ export async function onRequestPost({ request, env }) {
       return json({ error: `Failed to save acceptance: ${t}` }, 500);
     }
 
+    // ── Fire CRM commands (quote_accepted trigger) ───────────
+    // Run async — don't let a command failure block the acceptance response
+    const cmdCtx = {
+      quote_id:      q.id,
+      quote_title:   q.title || '',
+      quote_number:  q.quote_number || '',
+      quote_amount:  q.total ? `£${Number(q.total).toFixed(2)}` : '',
+      contact_name:  signer_name || '',
+      contact_email: q.contact_email || '',
+      company_id:    q.crm_company_id || '',
+      lead_id:       q.crm_lead_id || '',
+    };
+    fetch('https://smartcoretechnology.co.uk/api/crm/commands-run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+      body: JSON.stringify({ tenant_id: tenantId, trigger_type: 'quote_accepted', ctx: cmdCtx }),
+    }).catch(() => {});
+
     // ── Collect the 3 assignees ──────────────────────────────
     // We need: (1) quote.assigned_to, (2) lead.assigned_to, (3) company.assigned_to
     // All are employee UUIDs in core_employees.id
