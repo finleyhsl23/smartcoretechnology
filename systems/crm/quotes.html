@@ -5,6 +5,17 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Quotes — SmartCore CRM</title>
   <link rel="stylesheet" href="/systems/crm/crm.css?v=3"/>
+  <style>
+    .li-cost-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 600; color: var(--text3);
+      background: var(--card3); border: 1px solid var(--line2);
+      border-radius: 6px; padding: 3px 8px; white-space: nowrap;
+      margin-top: 3px;
+    }
+    .li-cost-badge .uplift-pos { color: #10b981; }
+    .li-cost-badge .uplift-neg { color: #ef4444; }
+  </style>
 </head>
 <body>
 <div class="crm-shell">
@@ -333,15 +344,27 @@ function openModal(id) {
   }
   overlay.addEventListener("input", recalc);
 
-  // Auto-fill cost when a product name is selected from the datalist
+  // Auto-fill price + show cost/uplift badge when a product is selected from the datalist
   overlay.querySelector("#lineItems").addEventListener("change", e => {
     if (!e.target.classList.contains("li-desc")) return;
     const match = productsList.find(p => p.name.toLowerCase() === e.target.value.toLowerCase());
     if (match && match.price != null) {
       const row = e.target.closest(".line-row");
-      row.querySelector(".li-price").value = Number(match.price).toFixed(2);
+      const priceInput = row.querySelector(".li-price");
+      priceInput.value = Number(match.price).toFixed(2);
+      row.querySelector(".li-cost").value = Number(match.price).toFixed(2);
+      row.querySelector(".li-cost-wrap").innerHTML = costBadgeHtml(match.price, match.price);
       recalc();
     }
+  });
+
+  // Update uplift badge live as the price is changed
+  overlay.querySelector("#lineItems").addEventListener("input", e => {
+    if (!e.target.classList.contains("li-price")) return;
+    const row = e.target.closest(".line-row");
+    const costVal = row.querySelector(".li-cost").value;
+    if (costVal === "") return;
+    row.querySelector(".li-cost-wrap").innerHTML = costBadgeHtml(costVal, e.target.value);
   });
 
   recalc();
@@ -357,12 +380,16 @@ function openModal(id) {
     const btn = overlay.querySelector("#saveBtn");
     btn.disabled = true;
     try {
-      const lineRows = [...overlay.querySelectorAll(".line-row")].map(row => ({
+      const lineRows = [...overlay.querySelectorAll(".line-row")].map(row => {
+        const costRaw = row.querySelector(".li-cost")?.value;
+        return {
         description: row.querySelector(".li-desc").value,
         qty: parseFloat(row.querySelector(".li-qty").value)||0,
         unit_price: parseFloat(row.querySelector(".li-price").value)||0,
         total: (parseFloat(row.querySelector(".li-qty").value)||0) * (parseFloat(row.querySelector(".li-price").value)||0),
-      }));
+        ...(costRaw ? { _cost: parseFloat(costRaw) } : {}),
+        };
+      });
       const subtotal = lineRows.reduce((s,l) => s + l.total, 0);
       const discount = parseFloat(overlay.querySelector("#mDiscount").value)||0;
       const total = Math.max(0, subtotal - discount);
@@ -389,12 +416,28 @@ function openModal(id) {
 }
 
 function lineItemRow(li, i) {
-  return `<div class="line-row" style="display:grid;grid-template-columns:1fr 80px 100px 32px;gap:8px;margin-bottom:6px;align-items:center">
-    <input class="form-control li-desc" list="prodList" placeholder="Description or pick a product…" value="${esc(li.description||"")}"/>
-    <input class="form-control li-qty" type="number" min="0" placeholder="Qty" value="${li.qty||1}" style="text-align:center"/>
-    <input class="form-control li-price" type="number" min="0" step="0.01" placeholder="Cost (£)" value="${li.unit_price||0}"/>
-    <button class="btn btn-icon btn-danger li-remove" title="Remove">✕</button>
+  const cost = li.cost ?? li._cost ?? null;
+  const badge = cost != null ? costBadgeHtml(cost, li.unit_price ?? 0) : "";
+  return `<div class="line-row" style="display:grid;grid-template-columns:1fr 80px 100px 32px;gap:8px;margin-bottom:6px;align-items:start">
+    <div>
+      <input class="form-control li-desc" list="prodList" placeholder="Description or pick a product…" value="${esc(li.description||"")}"/>
+      <input type="hidden" class="li-cost" value="${cost ?? ""}"/>
+      <div class="li-cost-wrap">${badge}</div>
+    </div>
+    <input class="form-control li-qty" type="number" min="0" placeholder="Qty" value="${li.qty||1}" style="text-align:center;margin-top:0"/>
+    <input class="form-control li-price" type="number" min="0" step="0.01" placeholder="Price (£)" value="${li.unit_price||0}"/>
+    <button class="btn btn-icon btn-danger li-remove" title="Remove" style="margin-top:0">✕</button>
   </div>`;
+}
+
+function costBadgeHtml(cost, salePrice) {
+  const c = Number(cost);
+  const s = Number(salePrice);
+  const uplift = c > 0 ? ((s - c) / c * 100) : null;
+  const upliftStr = uplift != null
+    ? `<span class="${uplift >= 0 ? "uplift-pos" : "uplift-neg"}">${uplift >= 0 ? "+" : ""}${uplift.toFixed(1)}% uplift</span>`
+    : "";
+  return `<span class="li-cost-badge">Cost: £${c.toFixed(2)}${upliftStr ? " · " + upliftStr : ""}</span>`;
 }
 
 async function updateStatus(id, status) {
