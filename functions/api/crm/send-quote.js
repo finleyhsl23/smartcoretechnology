@@ -97,14 +97,19 @@ export async function onRequestPost({ request, env }) {
       : null;
 
     // Build table-based email HTML (safe for all email clients)
-    const lineRows = (q.line_items || []).map(li =>
-      `<tr>
+    const pd = q.pricing_display || 'itemised';
+    const lineRows = pd === 'total_only' ? '' : (q.line_items || []).map(li => {
+      const lineTotal = Number(li.total || ((li.qty || 1) * (li.unit_price || 0)));
+      if (pd === 'desc_only') {
+        return `<tr><td colspan="4" style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#374151">${esc(li.description || '')}</td></tr>`;
+      }
+      return `<tr>
         <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#374151">${esc(li.description || '')}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:center;color:#374151">${li.qty || 1}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;color:#374151">&#163;${Number(li.unit_price || 0).toFixed(2)}</td>
-        <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;font-weight:600;color:#1a1a2e">&#163;${Number(li.total || ((li.qty || 1) * (li.unit_price || 0))).toFixed(2)}</td>
-      </tr>`
-    ).join('');
+        <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;font-weight:600;color:#1a1a2e">&#163;${lineTotal.toFixed(2)}</td>
+      </tr>`;
+    }).join('');
 
     const emailSubject = `Quote ${q.quote_number || ''} from ${issuerName}${q.title ? ' — ' + q.title : ''}`;
 
@@ -184,23 +189,23 @@ export async function onRequestPost({ request, env }) {
       `</td></tr>`,
       // Line items
       `<tr><td style="padding:20px 28px">`,
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">`,
-      `<tr style="background:${primaryColor}">`,
-      `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:left">Description</th>`,
-      `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:center;width:48px">Qty</th>`,
-      `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:right;width:88px">Unit</th>`,
-      `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:right;width:88px">Total</th>`,
-      `</tr>`,
-      lineRows || `<tr><td colspan="4" style="padding:14px;text-align:center;color:#9ca3af;font-size:13px">No line items</td></tr>`,
-      `</table>`,
+      pd !== 'total_only' ? [
+        `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">`,
+        `<tr style="background:${primaryColor}">`,
+        `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:left">Description</th>`,
+        pd === 'itemised' ? `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:center;width:48px">Qty</th>` : '',
+        pd === 'itemised' ? `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:right;width:88px">Unit</th>` : '',
+        pd === 'itemised' ? `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:right;width:88px">Total</th>` : '',
+        `</tr>`,
+        lineRows || `<tr><td colspan="${pd === 'itemised' ? 4 : 1}" style="padding:14px;text-align:center;color:#9ca3af;font-size:13px">No line items</td></tr>`,
+        `</table>`,
+      ].join('') : '',
       // Totals
       `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px">`,
       `<tr><td align="right">`,
       `<table cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;min-width:230px">`,
-      `<tr><td style="padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151">`,
-      `<span>Subtotal</span><span style="float:right">&#163;${(sub || total).toFixed(2)}</span>`,
-      `</td></tr>`,
-      disc > 0 ? `<tr><td style="padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151"><span>Discount</span><span style="float:right">-&#163;${disc.toFixed(2)}</span></td></tr>` : '',
+      pd === 'itemised' ? `<tr><td style="padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151"><span>Subtotal</span><span style="float:right">&#163;${(sub || total).toFixed(2)}</span></td></tr>` : '',
+      pd === 'itemised' && disc > 0 ? `<tr><td style="padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151"><span>Discount</span><span style="float:right">-&#163;${disc.toFixed(2)}</span></td></tr>` : '',
       `<tr><td style="padding:11px 16px;background:${primaryColor};color:#ffffff;font-weight:800;font-size:15px">`,
       `<span>TOTAL</span><span style="float:right">&#163;${total.toFixed(2)}</span>`,
       `</td></tr>`,
