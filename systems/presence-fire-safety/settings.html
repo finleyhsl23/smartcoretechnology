@@ -65,6 +65,7 @@
   import { renderNav, initMobileNav, initTopbar } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
+  import { initSoundFromSettings, setSoundEnabled } from "/systems/presence-fire-safety/shared/sound.js";
   import {
     esc, toast, fmtDateTime, timeAgo, confirmDialog, modal,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -75,6 +76,9 @@
 
   let _profile = null, _companyId = null, _siteList = [];
   let _activeTab = "module";
+  // Unsaved-changes tracking — Module Settings tab only (Site/Badge/Device
+  // panels each save immediately per-action via their own modals).
+  let _settingsDirty = false;
 
   // ── Shell / tabs ─────────────────────────────────────────────────────────
   function renderShell() {
@@ -90,7 +94,14 @@
       <div class="set-tabpanel" id="panel-badges" role="tabpanel"></div>
       <div class="set-tabpanel" id="panel-devices" role="tabpanel"></div>
     `);
-    document.querySelectorAll(".set-tab").forEach(btn => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
+    document.querySelectorAll(".set-tab").forEach(btn => btn.addEventListener("click", () => {
+      const target = btn.dataset.tab;
+      if (_activeTab === "module" && _settingsDirty && target !== "module") {
+        confirmUnsavedChanges(() => switchTab(target));
+      } else {
+        switchTab(target);
+      }
+    }));
     switchTab("module");
   }
 
@@ -117,6 +128,7 @@
     failed_pin_limit: 5,
     failed_pin_lockout_minutes: 10,
     data_retention_days: 730,
+    sound_effects_enabled: true,
   };
 
   async function loadModuleSettings() {
@@ -171,6 +183,7 @@
         <label class="set-checkbox-field"><input type="checkbox" id="f_allow_employee_code_lookup" ${s.allow_employee_code_lookup ? "checked" : ""}/> Allow employee code lookup at sign-in</label>
         <label class="set-checkbox-field"><input type="checkbox" id="f_visitor_photo_enabled" ${s.visitor_photo_enabled ? "checked" : ""}/> Capture a photo when signing in visitors</label>
         <label class="set-checkbox-field"><input type="checkbox" id="f_contractor_management_enabled" ${s.contractor_management_enabled ? "checked" : ""}/> Enable contractor management</label>
+        <label class="set-checkbox-field"><input type="checkbox" id="f_sound_effects_enabled" ${s.sound_effects_enabled !== false ? "checked" : ""}/> Enable sound effects (confirmations, errors, kiosk taps — everywhere in this module)</label>
         <label class="set-checkbox-field">
           <input type="checkbox" id="f_auto_sign_out_enabled" ${s.auto_sign_out_enabled ? "checked" : ""}/> Automatically sign everyone out at a fixed time
         </label>
@@ -211,6 +224,14 @@
     document.getElementById("setPinBtn").addEventListener("click", openSetPinModal);
     document.getElementById("setKioskPinBtn").addEventListener("click", openSetKioskPinModal);
     document.getElementById("saveModuleSettingsBtn").addEventListener("click", saveModuleSettings);
+
+    // Unsaved-changes tracking: any edit to a module-settings field marks the
+    // form dirty; loading/saving resets it back to clean.
+    _settingsDirty = false;
+    document.querySelectorAll("#panel-module input, #panel-module select").forEach(el => {
+      el.addEventListener("input", () => { _settingsDirty = true; });
+      el.addEventListener("change", () => { _settingsDirty = true; });
+    });
   }
 
   async function saveModuleSettings() {
@@ -224,6 +245,7 @@
       allow_employee_code_lookup: document.getElementById("f_allow_employee_code_lookup").checked,
       visitor_photo_enabled: document.getElementById("f_visitor_photo_enabled").checked,
       contractor_management_enabled: document.getElementById("f_contractor_management_enabled").checked,
+      sound_effects_enabled: document.getElementById("f_sound_effects_enabled").checked,
       auto_sign_out_enabled: autoSignOutEnabled,
       auto_sign_out_time: autoSignOutEnabled ? (document.getElementById("f_auto_sign_out_time").value || null) : null,
       evacuation_unlock_duration_minutes: parseInt(document.getElementById("f_evacuation_unlock_duration_minutes").value, 10),
@@ -235,9 +257,13 @@
     btn.textContent = "Saving…";
     try {
       await settings.upsert(_companyId, fields);
+      setSoundEnabled(fields.sound_effects_enabled);
+      _settingsDirty = false;
       toast("success", "Settings saved");
+      return true;
     } catch (e) {
       toast("error", "Couldn't save settings", e.message || "Please try again.");
+      return false;
     } finally {
       btn.disabled = false;
       btn.textContent = "Save Settings";
@@ -663,6 +689,56 @@
     window.addEventListener("offline", render);
   }
 
+  // ── Unsaved-changes guard ────────────────────────────────────────────────
+  // Shows a Save / Discard / Stay dialog before any in-app navigation away
+  // from a dirty Module Settings form. Browser-level navigation we can't
+  // intercept (back button, typing a URL, closing the tab) still falls back
+  // to the native beforeunload confirmation below.
+  function confirmUnsavedChanges(onProceed) {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Unsaved changes</h3></div>
+      <div class="modal-body"><p class="text-muted" style="margin:0">You have unsaved changes in Module Settings. Save them before leaving, or discard them?</p></div>
+      <div class="modal-footer">
+        <button class="btn" id="unsavedStayBtn" type="button">Stay on this page</button>
+        <button class="btn" id="unsavedDiscardBtn" type="button">Discard</button>
+        <button class="btn btn-primary" id="unsavedSaveBtn" type="button">Save &amp; Continue</button>
+      </div>`);
+    overlay.querySelector("#unsavedStayBtn").addEventListener("click", () => overlay.remove());
+    overlay.querySelector("#unsavedDiscardBtn").addEventListener("click", () => {
+      _settingsDirty = false;
+      overlay.remove();
+      onProceed();
+    });
+    overlay.querySelector("#unsavedSaveBtn").addEventListener("click", async () => {
+      const btn = overlay.querySelector("#unsavedSaveBtn");
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+      const ok = await saveModuleSettings();
+      if (ok) {
+        overlay.remove();
+        onProceed();
+      } else {
+        btn.disabled = false;
+        btn.textContent = "Save & Continue";
+      }
+    });
+  }
+
+  function wireUnsavedChangesGuard() {
+    document.querySelectorAll('#pfsNav a[href], .pfs-emergency-btn[href]').forEach(a => {
+      a.addEventListener("click", (e) => {
+        if (!_settingsDirty) return;
+        e.preventDefault();
+        confirmUnsavedChanges(() => { window.location.href = a.href; });
+      });
+    });
+    window.addEventListener("beforeunload", (e) => {
+      if (!_settingsDirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    });
+  }
+
   // ── Bootstrap — runs last, after every const/function above is defined ──
   try {
     const { profile } = await requirePresenceModuleAccess();
@@ -675,6 +751,8 @@
     initTopbar();
     initKioskToggle({ companyId: _companyId, currentPage: "settings" });
     wireOfflineBanner();
+    initSoundFromSettings(_companyId);
+    wireUnsavedChangesGuard();
 
     if (!hasPermission("presence.manage_settings")) {
       setInner("settingsBody", permissionDeniedState("You don't have permission to manage Presence & Fire Safety settings."));

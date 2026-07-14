@@ -19,8 +19,11 @@
     <div class="pfs-topbar">
       <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
       <h1>Employee Sign In/Out</h1>
-      <label class="sr-only" for="siteSwitcher">Site</label>
-      <select id="siteSwitcher" aria-label="Select site"></select>
+      <label class="sr-only" for="siteSwitcher">Search sites by name or location</label>
+      <div class="pfs-site-search-wrap">
+        <input type="text" id="siteSwitcher" class="form-input" placeholder="Search sites…" aria-label="Search sites by name or location" autocomplete="off"/>
+        <div class="pfs-site-search-dropdown" style="display:none"></div>
+      </div>
       <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
       <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
     </div>
@@ -63,11 +66,13 @@
 
 <script type="module">
   import { requirePresenceModuleAccess, hasPermission, listSites, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
-  import { employees, badges, presence, settings } from "/systems/presence-fire-safety/shared/api.js";
+  import { employees, badges, presence, settings, visitors, contractors } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { isBarcodeDetectorSupported, startQrScanner } from "/systems/presence-fire-safety/shared/qr.js";
-  import { enforceKioskGuard, initKioskToggle, renderKioskEvacuationBanner } from "/systems/presence-fire-safety/shared/kiosk.js";
+  import { renderPhotoCaptureStep } from "/systems/presence-fire-safety/shared/camera.js";
+  import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
+  import { enforceKioskGuard, initKioskToggle, renderKioskEvacuationBanner, isKioskModeActive } from "/systems/presence-fire-safety/shared/kiosk.js";
   import {
     esc, toast, fmtDateTime, initials,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -80,6 +85,8 @@
   let _companyId = null;
   let _siteId = null;
   let _canSignOthers = false;
+  let _canManageVisitors = false;
+  let _canManageContractors = false;
   let _companySettings = null;
   let _qrSupported = isBarcodeDetectorSupported();
   let _scanner = null;          // { stop, switchCamera } while the scan tab is active
@@ -88,6 +95,7 @@
   let _submitting = false;
   let _requestId = null;        // held across retries of the SAME attempt (idempotency)
   let _searchDebounce = null;
+  let _camera = null;           // active camera controller for the visitor/contractor photo step
 
   try {
     const { profile } = await requirePresenceModuleAccess();
@@ -95,6 +103,8 @@
     _profile = profile;
     _companyId = profile.company_id;
     _canSignOthers = hasPermission("presence.sign_others_in_out");
+    _canManageVisitors = hasPermission("presence.manage_visitors");
+    _canManageContractors = hasPermission("presence.manage_contractors");
 
     renderNav("employee-signin", profile);
     initMobileNav();
@@ -102,6 +112,7 @@
     initKioskToggle({ companyId: _companyId, currentPage: "employee-signin" });
     renderKioskEvacuationBanner("kioskEvacBanner");
     wireOfflineBanner();
+    initSoundFromSettings(_companyId);
 
     const siteList = await listSites(_companyId);
     _siteId = await ensureSiteSelected(_companyId);
@@ -115,11 +126,47 @@
 
     if (!_siteId) {
       setInner("kioskBody", emptyState({ icon: "map-pin", title: "No site configured", message: "Ask an administrator to set up a site before signing in." }));
+    } else if (isKioskModeActive()) {
+      renderKioskHome();
     } else {
       renderTabs(_qrSupported ? "scan" : "manual");
     }
   } catch (e) {
     if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
+  }
+
+  // ── Kiosk home: Employee / Visitor / Contractor tiles ──────────────────
+  // Only shown in Kiosk Mode — a normal admin signing themself in goes
+  // straight to renderTabs() below, no extra tap needed.
+  function renderKioskHome() {
+    stopScanner();
+    stopCamera();
+    setInner("kioskBody", `
+      <div class="pfs-kiosk">
+        <div class="pfs-kiosk-tiles">
+          <button type="button" class="pfs-kiosk-tile pfs-kiosk-tile-employee" id="tileEmployee">
+            <i data-lucide="id-card"></i><span>Employee</span>
+          </button>
+          ${_canManageVisitors ? `
+          <button type="button" class="pfs-kiosk-tile pfs-kiosk-tile-visitor" id="tileVisitor">
+            <i data-lucide="user-round"></i><span>Visitor</span>
+          </button>` : ""}
+          ${_canManageContractors && _companySettings?.contractor_management_enabled !== false ? `
+          <button type="button" class="pfs-kiosk-tile pfs-kiosk-tile-contractor" id="tileContractor">
+            <i data-lucide="hard-hat"></i><span>Contractor</span>
+          </button>` : ""}
+        </div>
+      </div>`);
+    document.getElementById("tileEmployee").addEventListener("click", () => renderTabs(_qrSupported ? "scan" : "manual"));
+    document.getElementById("tileVisitor")?.addEventListener("click", () => renderVisitorKioskFlow());
+    document.getElementById("tileContractor")?.addEventListener("click", () => renderContractorKioskFlow());
+  }
+
+  function kioskBackButton(label = "← Back to menu") {
+    return isKioskModeActive() ? `<button type="button" class="btn pfs-kiosk-back-btn" id="kioskBackBtn">${esc(label)}</button>` : "";
+  }
+  function wireKioskBackButton(onBack) {
+    document.getElementById("kioskBackBtn")?.addEventListener("click", onBack);
   }
 
   // ── Tab shell ─────────────────────────────────────────────────────────
@@ -130,6 +177,7 @@
 
     setInner("kioskBody", `
       <div class="pfs-kiosk">
+        ${kioskBackButton()}
         <div class="pfs-tabs kiosk-card" role="tablist" aria-label="Sign-in method">
           <button class="pfs-tab" id="tabScan" role="tab" aria-selected="${active === "scan"}" ${!_qrSupported ? "disabled" : ""}>Scan QR</button>
           <button class="pfs-tab" id="tabManual" role="tab" aria-selected="${active === "manual"}">Manual Lookup</button>
@@ -137,6 +185,7 @@
         <div id="tabPanel" class="kiosk-card"></div>
       </div>`);
 
+    wireKioskBackButton(() => renderKioskHome());
     document.getElementById("tabScan").addEventListener("click", () => { if (_qrSupported) renderTabs("scan"); });
     document.getElementById("tabManual").addEventListener("click", () => renderTabs("manual"));
 
@@ -317,7 +366,8 @@
     });
     document.getElementById("cancelBtn").addEventListener("click", () => {
       _selected = null; _currentStatus = null; _requestId = null;
-      renderTabs(_qrSupported ? "scan" : "manual");
+      if (isKioskModeActive()) renderKioskHome();
+      else renderTabs(_qrSupported ? "scan" : "manual");
     });
   }
 
@@ -376,11 +426,208 @@
 
   function resetToStart() {
     _selected = null; _currentStatus = null; _requestId = null;
-    renderTabs(_qrSupported ? "scan" : "manual");
+    if (isKioskModeActive()) renderKioskHome();
+    else renderTabs(_qrSupported ? "scan" : "manual");
   }
 
   function stopScanner() {
     if (_scanner) { _scanner.stop(); _scanner = null; }
+  }
+
+  function stopCamera() {
+    if (_camera) { _camera.stop(); _camera = null; }
+  }
+
+  // ── Shared: optional host-employee search combo (visitor/contractor forms) ─
+  function wireHostSearch(inputId, resultsId, onSelect) {
+    const input = document.getElementById(inputId);
+    const results = document.getElementById(resultsId);
+    let debounce;
+    input.addEventListener("input", () => {
+      clearTimeout(debounce);
+      const q = input.value.trim();
+      if (!q) { results.innerHTML = ""; return; }
+      debounce = setTimeout(async () => {
+        try {
+          const rows = await employees.search(_companyId, q, { limit: 6 });
+          results.innerHTML = rows.length ? rows.map(r => `
+            <button type="button" class="kiosk-result-btn" data-id="${esc(r.id)}" data-name="${esc(r.full_name)}">
+              <div class="avatar avatar-sm">${esc(initials(r.full_name))}</div>
+              <div><div class="kiosk-result-name">${esc(r.full_name)}</div><div class="kiosk-result-meta">${esc(r.job_title || "")}</div></div>
+            </button>`).join("") : `<p class="text-muted">No matches.</p>`;
+          results.querySelectorAll(".kiosk-result-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+              input.value = btn.dataset.name;
+              results.innerHTML = "";
+              onSelect(btn.dataset.id);
+            });
+          });
+        } catch { /* host search is optional — fail quietly */ }
+      }, 300);
+    });
+  }
+
+  // ── Visitor kiosk flow ──────────────────────────────────────────────────
+  function renderVisitorKioskFlow() {
+    stopScanner();
+    let hostId = null;
+    setInner("kioskBody", `
+      <div class="pfs-kiosk">
+        ${kioskBackButton()}
+        <div class="card kiosk-card">
+          <h2 style="margin-top:0">Visitor Sign In</h2>
+          <label class="form-label" for="kvFirst">First name *</label>
+          <input class="form-input" id="kvFirst" autocomplete="off"/>
+          <label class="form-label" for="kvLast" style="margin-top:10px">Last name *</label>
+          <input class="form-input" id="kvLast" autocomplete="off"/>
+          <label class="form-label" for="kvOrg" style="margin-top:10px">Organisation</label>
+          <input class="form-input" id="kvOrg" autocomplete="off"/>
+          <label class="form-label" for="kvHost" style="margin-top:10px">Who are you here to see? (optional)</label>
+          <input class="form-input" id="kvHost" autocomplete="off" placeholder="Search employees…"/>
+          <div class="kiosk-results" id="kvHostResults"></div>
+          <label class="set-checkbox-field" style="margin-top:14px"><input type="checkbox" id="kvTerms"/> I accept the site visitor terms</label>
+          <div id="kvError" class="form-error" role="alert"></div>
+          <div class="kiosk-actions" style="margin-top:16px">
+            <button class="btn btn-primary" id="kvNextBtn" type="button">Continue</button>
+          </div>
+        </div>
+      </div>`);
+    wireKioskBackButton(() => renderKioskHome());
+    wireHostSearch("kvHost", "kvHostResults", (id) => { hostId = id; });
+
+    document.getElementById("kvNextBtn").addEventListener("click", () => {
+      const firstName = document.getElementById("kvFirst").value.trim();
+      const lastName = document.getElementById("kvLast").value.trim();
+      const organisation = document.getElementById("kvOrg").value.trim();
+      const acceptTerms = document.getElementById("kvTerms").checked;
+      const errBox = document.getElementById("kvError");
+      if (!firstName || !lastName) { errBox.textContent = "First and last name are required."; return; }
+      if (!acceptTerms) { errBox.textContent = "Please accept the site visitor terms to continue."; return; }
+      errBox.textContent = "";
+      const form = { firstName, lastName, organisation, hostEmployeeId: hostId, acceptTerms };
+      if (_companySettings?.visitor_photo_enabled) {
+        renderKioskPhotoStep("visitor", form);
+      } else {
+        submitKioskVisitor(form, null);
+      }
+    });
+  }
+
+  async function submitKioskVisitor(form, photoBlob) {
+    setInner("kioskBody", `<div class="pfs-kiosk">${kioskBackButton()}${loadingState("Signing in…")}</div>`);
+    try {
+      const visit = await visitors.createVisit({
+        siteId: _siteId, firstName: form.firstName, lastName: form.lastName,
+        organisation: form.organisation || null, hostEmployeeId: form.hostEmployeeId || null,
+        acceptTerms: form.acceptTerms, signInNow: true,
+      });
+      if (photoBlob && visit?.visitor_id) {
+        try {
+          const path = await visitors.uploadPhoto(_companyId, visit.visitor_id, photoBlob);
+          await visitors.setPhoto(visit.visitor_id, path);
+        } catch {
+          toast("error", "Photo not saved", "The visitor was signed in, but the photo couldn't be uploaded.");
+        }
+      }
+      renderKioskSuccess(`${form.firstName} ${form.lastName}`, "Visitor signed in");
+    } catch (e) {
+      setInner("kioskBody", `<div class="pfs-kiosk">${kioskBackButton()}${errorState({ title: "Couldn't sign in visitor", message: e.message, retryId: "kvRetry" })}</div>`);
+      wireKioskBackButton(() => renderKioskHome());
+      document.getElementById("kvRetry")?.addEventListener("click", () => submitKioskVisitor(form, photoBlob));
+    }
+  }
+
+  // ── Contractor kiosk flow ─────────────────────────────────────────────
+  function renderContractorKioskFlow() {
+    stopScanner();
+    let hostId = null;
+    setInner("kioskBody", `
+      <div class="pfs-kiosk">
+        ${kioskBackButton()}
+        <div class="card kiosk-card">
+          <h2 style="margin-top:0">Contractor Sign In</h2>
+          <label class="form-label" for="kcBusiness">Business name *</label>
+          <input class="form-input" id="kcBusiness" autocomplete="off"/>
+          <label class="form-label" for="kcContact" style="margin-top:10px">Contact name</label>
+          <input class="form-input" id="kcContact" autocomplete="off"/>
+          <label class="form-label" for="kcHost" style="margin-top:10px">Host / who are you working with? (optional)</label>
+          <input class="form-input" id="kcHost" autocomplete="off" placeholder="Search employees…"/>
+          <div class="kiosk-results" id="kcHostResults"></div>
+          <label class="set-checkbox-field" style="margin-top:14px"><input type="checkbox" id="kcInduction"/> Site induction confirmed</label>
+          <div id="kcError" class="form-error" role="alert"></div>
+          <div class="kiosk-actions" style="margin-top:16px">
+            <button class="btn btn-primary" id="kcNextBtn" type="button">Continue</button>
+          </div>
+        </div>
+      </div>`);
+    wireKioskBackButton(() => renderKioskHome());
+    wireHostSearch("kcHost", "kcHostResults", (id) => { hostId = id; });
+
+    document.getElementById("kcNextBtn").addEventListener("click", () => {
+      const businessName = document.getElementById("kcBusiness").value.trim();
+      const contactName = document.getElementById("kcContact").value.trim();
+      const inductionConfirmed = document.getElementById("kcInduction").checked;
+      const errBox = document.getElementById("kcError");
+      if (!businessName) { errBox.textContent = "Business name is required."; return; }
+      errBox.textContent = "";
+      const form = { businessName, contactName, hostEmployeeId: hostId, inductionConfirmed };
+      if (_companySettings?.visitor_photo_enabled) {
+        renderKioskPhotoStep("contractor", form);
+      } else {
+        submitKioskContractor(form, null);
+      }
+    });
+  }
+
+  async function submitKioskContractor(form, photoBlob) {
+    setInner("kioskBody", `<div class="pfs-kiosk">${kioskBackButton()}${loadingState("Signing in…")}</div>`);
+    try {
+      const visit = await contractors.createVisit({
+        siteId: _siteId, businessName: form.businessName, contactName: form.contactName || null,
+        hostEmployeeId: form.hostEmployeeId || null, inductionConfirmed: form.inductionConfirmed, signInNow: true,
+      });
+      if (photoBlob && visit?.contractor_id) {
+        try {
+          const path = await contractors.uploadPhoto(_companyId, visit.contractor_id, photoBlob);
+          await contractors.setPhoto(visit.contractor_id, path);
+        } catch {
+          toast("error", "Photo not saved", "The contractor was signed in, but the photo couldn't be uploaded.");
+        }
+      }
+      renderKioskSuccess(form.businessName, "Contractor signed in");
+    } catch (e) {
+      setInner("kioskBody", `<div class="pfs-kiosk">${kioskBackButton()}${errorState({ title: "Couldn't sign in contractor", message: e.message, retryId: "kcRetry" })}</div>`);
+      wireKioskBackButton(() => renderKioskHome());
+      document.getElementById("kcRetry")?.addEventListener("click", () => submitKioskContractor(form, photoBlob));
+    }
+  }
+
+  // ── Shared photo step + success screen for visitor/contractor kiosk flows ─
+  function renderKioskPhotoStep(kind, form) {
+    setInner("kioskBody", `<div class="pfs-kiosk">${kioskBackButton()}<div class="card kiosk-card" id="camContainer"></div></div>`);
+    wireKioskBackButton(() => kind === "visitor" ? renderVisitorKioskFlow() : renderContractorKioskFlow());
+    _camera = renderPhotoCaptureStep(document.getElementById("camContainer"), {
+      title: "Take a photo for the visitor badge",
+      onCaptured: (blob) => { stopCamera(); kind === "visitor" ? submitKioskVisitor(form, blob) : submitKioskContractor(form, blob); },
+      onSkip: () => { stopCamera(); kind === "visitor" ? submitKioskVisitor(form, null) : submitKioskContractor(form, null); },
+    });
+  }
+
+  function renderKioskSuccess(name, label) {
+    setInner("kioskBody", `
+      <div class="pfs-kiosk">
+        <div class="kiosk-identity">
+          <div class="success-icon"><i data-lucide="check-circle-2"></i></div>
+          <h2>${esc(label)}</h2>
+          <p>${esc(name)} — ${fmtDateTime(new Date())}</p>
+        </div>
+        <div class="kiosk-actions">
+          <button class="btn btn-primary" id="kioskDoneBtn">Done</button>
+        </div>
+      </div>`);
+    document.getElementById("kioskDoneBtn").addEventListener("click", () => renderKioskHome());
+    toast("success", label, name);
+    setTimeout(() => renderKioskHome(), 4000);
   }
 
   // ── Access-blocked rendering (see index.html for rationale) ────────────
@@ -418,7 +665,7 @@
     window.addEventListener("offline", render);
   }
 
-  window.addEventListener("beforeunload", stopScanner);
+  window.addEventListener("beforeunload", () => { stopScanner(); stopCamera(); });
 </script>
 </body>
 </html>

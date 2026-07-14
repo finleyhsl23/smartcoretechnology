@@ -1,10 +1,13 @@
 // UI helpers for SmartCore Presence & Fire Safety
 
+import { playSound } from "./sound.js";
+
 export function esc(s) {
   return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
 export function toast(type, title, msg = "") {
+  playSound(type === "error" ? "error" : type === "success" ? "success" : "info");
   let wrap = document.getElementById("toastwrap");
   if (!wrap) { wrap = document.createElement("div"); wrap.id = "toastwrap"; document.body.appendChild(wrap); }
   const el = document.createElement("div");

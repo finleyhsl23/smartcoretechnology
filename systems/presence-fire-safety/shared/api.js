@@ -290,8 +290,12 @@ export const visitors = {
   },
 
   async uploadPhoto(companyId, visitorId, file) {
-    const path = `${companyId}/${visitorId}/${Date.now()}-${file.name}`;
-    const { error } = await sb().storage.from("presence-fire-safety-photos").upload(path, file, { upsert: false });
+    // `file` may be a plain Blob (camera capture) rather than a File, which
+    // has no `.name` — fall back to an extension inferred from its MIME type.
+    const ext = (file.type || "image/jpeg").split("/")[1] || "jpg";
+    const name = file.name || `capture.${ext}`;
+    const path = `${companyId}/${visitorId}/${Date.now()}-${name}`;
+    const { error } = await sb().storage.from("presence-fire-safety-photos").upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
     if (error) throw error;
     return path;
   },
@@ -341,13 +345,14 @@ export const contractors = {
     return data || [];
   },
 
-  async createVisit({ siteId, businessName, contactName, phone, email, hostEmployeeId, workPurpose, permitReference, vehicleRegistration, inductionConfirmed, signInNow = true }) {
+  async createVisit({ siteId, businessName, contactName, phone, email, hostEmployeeId, workPurpose, permitReference, vehicleRegistration, inductionConfirmed, photoPath, signInNow = true }) {
     const { companyId } = await ctx();
     const { data, error } = await sb().rpc("presence_fire_safety_create_contractor_visit", {
       p_company_id: companyId, p_site_id: siteId,
       p_business_name: businessName, p_contact_name: contactName || null, p_phone: phone || null, p_email: email || null,
       p_host_employee_id: hostEmployeeId || null, p_work_purpose: workPurpose || null, p_permit_reference: permitReference || null,
       p_vehicle_registration: vehicleRegistration || null, p_induction_confirmed: !!inductionConfirmed, p_sign_in_now: signInNow,
+      p_photo_path: photoPath || null,
     });
     if (error) throw new Error(error.message || "Could not sign in contractor");
     return data;
@@ -356,6 +361,24 @@ export const contractors = {
   async signOut(companyId, contractorVisitId) {
     const { data, error } = await sb().rpc("presence_fire_safety_sign_out_contractor", { p_company_id: companyId, p_contractor_visit_id: contractorVisitId });
     if (error) throw new Error(error.message || "Could not sign out contractor");
+    return data;
+  },
+
+  async uploadPhoto(companyId, contractorId, file) {
+    const ext = (file.type || "image/jpeg").split("/")[1] || "jpg";
+    const name = file.name || `capture.${ext}`;
+    const path = `${companyId}/${contractorId}/${Date.now()}-${name}`;
+    const { error } = await sb().storage.from("presence-fire-safety-photos").upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
+    if (error) throw error;
+    return path;
+  },
+
+  /** Patches photo_path after upload — same ordering constraint as
+   *  visitors.setPhoto (the contractor row must exist first to know its id). */
+  async setPhoto(contractorId, photoPath) {
+    const { data, error } = await sb().from("presence_fire_safety_contractors")
+      .update({ photo_path: photoPath }).eq("id", contractorId).select().single();
+    if (error) throw error;
     return data;
   },
 };

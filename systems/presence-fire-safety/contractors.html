@@ -19,8 +19,11 @@
     <div class="pfs-topbar">
       <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
       <h1>Contractors</h1>
-      <label class="sr-only" for="siteSwitcher">Site</label>
-      <select id="siteSwitcher" aria-label="Select site"></select>
+      <label class="sr-only" for="siteSwitcher">Search sites by name or location</label>
+      <div class="pfs-site-search-wrap">
+        <input type="text" id="siteSwitcher" class="form-input" placeholder="Search sites…" aria-label="Search sites by name or location" autocomplete="off"/>
+        <div class="pfs-site-search-dropdown" style="display:none"></div>
+      </div>
       <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
       <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
     </div>
@@ -53,10 +56,12 @@
 
 <script type="module">
   import { requirePresenceModuleAccess, hasPermission, listSites, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
-  import { contractors, employees } from "/systems/presence-fire-safety/shared/api.js";
+  import { contractors, employees, settings } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
+  import { renderPhotoCaptureStep } from "/systems/presence-fire-safety/shared/camera.js";
+  import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
   import {
     esc, toast, confirmDialog, fmtDateTime,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -69,21 +74,25 @@
   let _siteId = null;
   let _hasView = false;
   let _hasManage = false;
+  let _photoEnabled = false;
   let _activeTab = "onsite";
   let _selectedHost = null; // { id, full_name }
   let _hostSearchDebounce = null;
   let _lastRefreshed = null;
+  let _photoCamera = null;
+  let _photoBlob = null;
 
   try {
     const { profile } = await requirePresenceModuleAccess();
     if (enforceKioskGuard("contractors")) throw new Error("__kiosk_redirect__");
+    _companyId = profile.company_id;
     renderNav("contractors", profile);
     initMobileNav();
     initTopbar();
+    initSoundFromSettings(_companyId);
     initKioskToggle({ companyId: _companyId, currentPage: "contractors" });
     wireOfflineBanner();
 
-    _companyId = profile.company_id;
     _hasView = hasPermission("presence.view_live_register");
     _hasManage = hasPermission("presence.manage_contractors");
 
@@ -97,6 +106,9 @@
         _siteId = newSiteId;
         await renderActiveTab();
       });
+
+      const s = await settings.get(_companyId).catch(() => null);
+      _photoEnabled = !!s?.visitor_photo_enabled;
 
       _activeTab = _hasManage ? "signin" : "onsite";
       await renderActiveTab();
@@ -119,9 +131,11 @@
       <div id="tabBody"></div>`);
 
     document.querySelectorAll(".pfs-tab2").forEach(btn => {
-      btn.addEventListener("click", () => { _activeTab = btn.dataset.tab; renderActiveTab(); });
+      btn.addEventListener("click", () => { stopPhotoCamera(); _activeTab = btn.dataset.tab; renderActiveTab(); });
     });
   }
+
+  window.addEventListener("beforeunload", stopPhotoCamera);
 
   async function renderActiveTab() {
     renderShell();
@@ -170,6 +184,12 @@
               <label class="form-label" for="cPermit">Permit reference</label>
               <input class="form-input" id="cPermit"/>
             </div>
+            ${_photoEnabled ? `
+            <div class="full">
+              <label class="form-label">Contractor photo (optional)</label>
+              <div id="cPhotoStatus"><button type="button" class="btn" id="cPhotoStartBtn">Take Photo</button></div>
+              <div id="cPhotoCapture"></div>
+            </div>` : ""}
             <div class="full checkbox-row">
               <input type="checkbox" id="cInduction" required/>
               <label for="cInduction">Site safety induction has been completed and confirmed *</label>
@@ -183,6 +203,10 @@
       </div>`);
 
     _selectedHost = null;
+    _photoBlob = null;
+    stopPhotoCamera();
+    document.getElementById("cPhotoStartBtn")?.addEventListener("click", startContractorPhotoCapture);
+
     const hostInput = document.getElementById("cHost");
     const hostResults = document.getElementById("cHostResults");
     hostInput.addEventListener("input", () => {
@@ -210,6 +234,33 @@
     document.getElementById("visitForm").addEventListener("submit", onSubmitVisit);
   }
 
+  function stopPhotoCamera() {
+    if (_photoCamera) { _photoCamera.stop(); _photoCamera = null; }
+  }
+
+  function startContractorPhotoCapture() {
+    const captureEl = document.getElementById("cPhotoCapture");
+    const statusEl = document.getElementById("cPhotoStatus");
+    statusEl.innerHTML = "";
+    _photoCamera = renderPhotoCaptureStep(captureEl, {
+      title: "Take the contractor's photo",
+      onCaptured: (blob) => {
+        _photoBlob = blob;
+        stopPhotoCamera();
+        captureEl.innerHTML = "";
+        statusEl.innerHTML = `<span class="badge badge-green">Photo captured</span> <button type="button" class="btn" id="cPhotoRetakeBtn">Retake</button>`;
+        document.getElementById("cPhotoRetakeBtn").addEventListener("click", startContractorPhotoCapture);
+      },
+      onSkip: () => {
+        _photoBlob = null;
+        stopPhotoCamera();
+        captureEl.innerHTML = "";
+        statusEl.innerHTML = `<button type="button" class="btn" id="cPhotoStartBtn">Take Photo</button>`;
+        document.getElementById("cPhotoStartBtn").addEventListener("click", startContractorPhotoCapture);
+      },
+    });
+  }
+
   async function onSubmitVisit(e) {
     e.preventDefault();
     const businessName = document.getElementById("cBusiness").value.trim();
@@ -224,8 +275,10 @@
     submitBtn.disabled = true;
     submitBtn.textContent = "Signing in…";
 
+    const photoBlob = _photoBlob;
+
     try {
-      await contractors.createVisit({
+      const visit = await contractors.createVisit({
         siteId: _siteId,
         businessName,
         contactName: document.getElementById("cContact").value.trim(),
@@ -238,6 +291,17 @@
         inductionConfirmed,
         signInNow: true,
       });
+
+      // Same ordering constraint as visitors.setPhoto — the contractor row
+      // must exist before a photo can be uploaded to its storage path.
+      if (photoBlob && visit?.contractor_id) {
+        try {
+          const path = await contractors.uploadPhoto(_companyId, visit.contractor_id, photoBlob);
+          await contractors.setPhoto(visit.contractor_id, path);
+        } catch (photoErr) {
+          toast("error", "Contractor signed in, but photo failed to upload", photoErr.message || "You can try again later.");
+        }
+      }
 
       toast("success", "Contractor signed in", businessName);
       _activeTab = "onsite";

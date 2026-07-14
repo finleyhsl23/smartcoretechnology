@@ -141,7 +141,7 @@ export async function listSites(companyId) {
   if (_sites) return _sites;
   const { data, error } = await sb()
     .from("sites")
-    .select("id, name, is_default, is_active, assembly_point")
+    .select("id, name, is_default, is_active, assembly_point, address_line_1, city, postcode")
     .eq("company_id", companyId)
     .eq("is_active", true)
     .order("is_default", { ascending: false })

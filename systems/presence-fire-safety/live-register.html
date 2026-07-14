@@ -19,8 +19,11 @@
     <div class="pfs-topbar">
       <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
       <h1>Live Register</h1>
-      <label class="sr-only" for="siteSwitcher">Site</label>
-      <select id="siteSwitcher" aria-label="Select site"></select>
+      <label class="sr-only" for="siteSwitcher">Search sites by name or location</label>
+      <div class="pfs-site-search-wrap">
+        <input type="text" id="siteSwitcher" class="form-input" placeholder="Search sites…" aria-label="Search sites by name or location" autocomplete="off"/>
+        <div class="pfs-site-search-dropdown" style="display:none"></div>
+      </div>
       <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
       <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
     </div>
@@ -54,6 +57,7 @@
   import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
+  import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
   import {
     esc, fmtDateTime, timeAgo,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -81,13 +85,13 @@
     const { profile } = await requirePresenceModuleAccess();
     if (enforceKioskGuard("live-register")) throw new Error("__kiosk_redirect__");
 
+    _companyId = profile.company_id;
     renderNav("live-register", profile);
     initMobileNav();
     initTopbar();
     initKioskToggle({ companyId: _companyId, currentPage: "live-register" });
     wireOfflineBanner();
-
-    _companyId = profile.company_id;
+    initSoundFromSettings(_companyId);
 
     if (!hasPermission("presence.view_live_register")) {
       setInner("registerBody", permissionDeniedState("You don't have permission to view the live register. Ask an owner or administrator to grant you presence.view_live_register."));

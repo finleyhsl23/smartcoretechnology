@@ -85,9 +85,80 @@ export function initTopbar() {
   });
 }
 
-/** Populates a <select> with the company's sites and wires change -> reload. */
-export async function renderSiteSwitcher(selectEl, sitesList, selectedId, onChange) {
-  if (!selectEl) return;
-  selectEl.innerHTML = sitesList.map(s => `<option value="${s.id}" ${s.id === selectedId ? "selected" : ""}>${esc(s.name)}</option>`).join("");
-  selectEl.addEventListener("change", () => onChange(selectEl.value));
+/**
+ * Turns `inputEl` into a searchable site combobox — type to filter by name
+ * OR location (city/postcode/address), matches appear as you type. Expects
+ * `inputEl` to be wrapped in an element carrying `.pfs-site-search-wrap`
+ * (for dropdown positioning) with a sibling `.pfs-site-search-dropdown`
+ * container immediately after it in the markup.
+ */
+export function renderSiteSwitcher(inputEl, sitesList, selectedId, onChange) {
+  if (!inputEl) return;
+  const wrap = inputEl.closest(".pfs-site-search-wrap") || inputEl.parentElement;
+  let dropdown = wrap.querySelector(".pfs-site-search-dropdown");
+  if (!dropdown) {
+    dropdown = document.createElement("div");
+    dropdown.className = "pfs-site-search-dropdown";
+    wrap.appendChild(dropdown);
+  }
+
+  const locationOf = (s) => [s.city, s.postcode, s.address_line_1].filter(Boolean).join(", ");
+  const setInputToSelected = () => {
+    const site = sitesList.find(s => s.id === selectedId);
+    inputEl.value = site ? site.name : "";
+  };
+  setInputToSelected();
+
+  function closeDropdown() { dropdown.innerHTML = ""; dropdown.style.display = "none"; }
+
+  function openDropdown(query) {
+    const q = query.trim().toLowerCase();
+    const matches = q
+      ? sitesList.filter(s => s.name.toLowerCase().includes(q) || locationOf(s).toLowerCase().includes(q))
+      : sitesList;
+    if (!matches.length) {
+      dropdown.innerHTML = `<div class="pfs-site-search-option text-muted">No sites match "${esc(query)}"</div>`;
+      dropdown.style.display = "block";
+      return;
+    }
+    dropdown.innerHTML = matches.map(s => `
+      <div class="pfs-site-search-option" data-id="${esc(s.id)}" role="option">
+        <strong>${esc(s.name)}</strong>
+        ${locationOf(s) ? `<small>${esc(locationOf(s))}</small>` : ""}
+      </div>`).join("");
+    dropdown.style.display = "block";
+    dropdown.querySelectorAll(".pfs-site-search-option[data-id]").forEach(opt => {
+      opt.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        const site = sitesList.find(s => s.id === opt.dataset.id);
+        if (site) {
+          selectedId = site.id;
+          inputEl.value = site.name;
+          closeDropdown();
+          onChange(site.id);
+        }
+      });
+    });
+  }
+
+  inputEl.addEventListener("focus", () => { inputEl.select(); openDropdown(""); });
+  inputEl.addEventListener("input", () => openDropdown(inputEl.value));
+  inputEl.addEventListener("blur", () => {
+    // Delay so a mousedown on an option can register before we discard it.
+    setTimeout(() => { closeDropdown(); if (!dropdown.contains(document.activeElement)) setInputToSelected(); }, 150);
+  });
+  inputEl.addEventListener("keydown", (e) => {
+    const opts = [...dropdown.querySelectorAll(".pfs-site-search-option[data-id]")];
+    if (!opts.length) return;
+    const active = dropdown.querySelector(".pfs-site-search-option.active");
+    let idx = opts.indexOf(active);
+    if (e.key === "ArrowDown") { e.preventDefault(); idx = Math.min(idx + 1, opts.length - 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); idx = Math.max(idx - 1, 0); }
+    else if (e.key === "Enter") { e.preventDefault(); (active || opts[0])?.dispatchEvent(new MouseEvent("mousedown")); return; }
+    else if (e.key === "Escape") { closeDropdown(); setInputToSelected(); return; }
+    else return;
+    opts.forEach(o => o.classList.remove("active"));
+    opts[idx]?.classList.add("active");
+    opts[idx]?.scrollIntoView({ block: "nearest" });
+  });
 }

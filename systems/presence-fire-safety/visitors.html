@@ -19,8 +19,11 @@
     <div class="pfs-topbar">
       <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
       <h1>Visitors</h1>
-      <label class="sr-only" for="siteSwitcher">Site</label>
-      <select id="siteSwitcher" aria-label="Select site"></select>
+      <label class="sr-only" for="siteSwitcher">Search sites by name or location</label>
+      <div class="pfs-site-search-wrap">
+        <input type="text" id="siteSwitcher" class="form-input" placeholder="Search sites…" aria-label="Search sites by name or location" autocomplete="off"/>
+        <div class="pfs-site-search-dropdown" style="display:none"></div>
+      </div>
       <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
       <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
     </div>
@@ -58,6 +61,8 @@
   import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
+  import { renderPhotoCaptureStep } from "/systems/presence-fire-safety/shared/camera.js";
+  import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
   import {
     esc, toast, confirmDialog, fmtDateTime,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -72,6 +77,8 @@
   let _hasManage = false;
   let _photoEnabled = false;
   let _activeTab = "onsite";
+  let _photoCamera = null;
+  let _photoBlob = null;
   let _selectedHost = null; // { id, full_name }
   let _hostSearchDebounce = null;
   let _lastRefreshed = null;
@@ -79,13 +86,14 @@
   try {
     const { profile } = await requirePresenceModuleAccess();
     if (enforceKioskGuard("visitors")) throw new Error("__kiosk_redirect__");
+    _companyId = profile.company_id;
     renderNav("visitors", profile);
     initMobileNav();
     initTopbar();
     initKioskToggle({ companyId: _companyId, currentPage: "visitors" });
     wireOfflineBanner();
+    initSoundFromSettings(_companyId);
 
-    _companyId = profile.company_id;
     _hasView = hasPermission("presence.view_live_register");
     _hasManage = hasPermission("presence.manage_visitors");
 
@@ -124,9 +132,11 @@
       <div id="tabBody"></div>`);
 
     document.querySelectorAll(".pfs-tab2").forEach(btn => {
-      btn.addEventListener("click", () => { _activeTab = btn.dataset.tab; renderActiveTab(); });
+      btn.addEventListener("click", () => { stopPhotoCamera(); _activeTab = btn.dataset.tab; renderActiveTab(); });
     });
   }
+
+  window.addEventListener("beforeunload", stopPhotoCamera);
 
   async function renderActiveTab() {
     renderShell();
@@ -177,8 +187,9 @@
             </div>
             ${_photoEnabled ? `
             <div class="full">
-              <label class="form-label" for="vPhoto">Visitor photo (optional)</label>
-              <input type="file" id="vPhoto" accept="image/*" capture="environment"/>
+              <label class="form-label">Visitor photo (optional)</label>
+              <div id="vPhotoStatus"><button type="button" class="btn" id="vPhotoStartBtn">Take Photo</button></div>
+              <div id="vPhotoCapture"></div>
             </div>` : ""}
             <div class="full checkbox-row">
               <input type="checkbox" id="vTerms" required/>
@@ -193,6 +204,10 @@
       </div>`);
 
     _selectedHost = null;
+    _photoBlob = null;
+    stopPhotoCamera();
+    document.getElementById("vPhotoStartBtn")?.addEventListener("click", startVisitorPhotoCapture);
+
     const hostInput = document.getElementById("vHost");
     const hostResults = document.getElementById("vHostResults");
     hostInput.addEventListener("input", () => {
@@ -220,6 +235,33 @@
     document.getElementById("visitForm").addEventListener("submit", onSubmitVisit);
   }
 
+  function stopPhotoCamera() {
+    if (_photoCamera) { _photoCamera.stop(); _photoCamera = null; }
+  }
+
+  function startVisitorPhotoCapture() {
+    const captureEl = document.getElementById("vPhotoCapture");
+    const statusEl = document.getElementById("vPhotoStatus");
+    statusEl.innerHTML = "";
+    _photoCamera = renderPhotoCaptureStep(captureEl, {
+      title: "Take the visitor's photo",
+      onCaptured: (blob) => {
+        _photoBlob = blob;
+        stopPhotoCamera();
+        captureEl.innerHTML = "";
+        statusEl.innerHTML = `<span class="badge badge-green">Photo captured</span> <button type="button" class="btn" id="vPhotoRetakeBtn">Retake</button>`;
+        document.getElementById("vPhotoRetakeBtn").addEventListener("click", startVisitorPhotoCapture);
+      },
+      onSkip: () => {
+        _photoBlob = null;
+        stopPhotoCamera();
+        captureEl.innerHTML = "";
+        statusEl.innerHTML = `<button type="button" class="btn" id="vPhotoStartBtn">Take Photo</button>`;
+        document.getElementById("vPhotoStartBtn").addEventListener("click", startVisitorPhotoCapture);
+      },
+    });
+  }
+
   async function onSubmitVisit(e) {
     e.preventDefault();
     const firstName = document.getElementById("vFirst").value.trim();
@@ -235,7 +277,7 @@
     submitBtn.disabled = true;
     submitBtn.textContent = "Signing in…";
 
-    const photoFile = document.getElementById("vPhoto")?.files?.[0] || null;
+    const photoFile = _photoBlob;
 
     try {
       const visit = await visitors.createVisit({
