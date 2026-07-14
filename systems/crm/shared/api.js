@@ -152,10 +152,10 @@ export const leads = {
   },
 
   async updateStage(id, stage) {
-    const statusMap = { new: "new", contacted: "contacted", qualified: "qualified", proposal_sent: "proposal_sent", negotiation: "negotiation", won: "won", lost: "lost" };
+    const status = await stageToStatus(stage);
     const before = await sb().from("crm_leads").select("*").eq("id", id).single();
     const { data, error } = await sb().from("crm_leads")
-      .update({ pipeline_stage: stage, status: statusMap[stage] || stage, updated_at: new Date().toISOString() })
+      .update({ pipeline_stage: stage, status, updated_at: new Date().toISOString() })
       .eq("id", id).select().single();
     if (error) throw error;
     auditLog({ action: "edit", entityType: "lead", entityId: id, entityName: data.title, oldData: { pipeline_stage: before.data?.pipeline_stage }, newData: { pipeline_stage: stage } });
@@ -460,6 +460,50 @@ export async function getStaff() {
 }
 
 // ── Audit log helper ────────────────────────────────────────
+// ── Pipeline stages ────────────────────────────────────────
+// Cached per page-load; stages rarely change mid-session
+let _stagesCache = null;
+
+export const DEFAULT_STAGES = [
+  { key: "new",           name: "New",           color: "#6366f1", order: 0 },
+  { key: "contacted",     name: "Contacted",      color: "#f59e0b", order: 1 },
+  { key: "qualified",     name: "Qualified",      color: "#3b82f6", order: 2 },
+  { key: "proposal_sent", name: "Proposal Sent",  color: "#8b5cf6", order: 3 },
+  { key: "negotiation",   name: "Negotiation",    color: "#ec4899", order: 4 },
+  { key: "won",           name: "Won",            color: "#10b981", order: 5 },
+  { key: "lost",          name: "Lost",           color: "#ef4444", order: 6 },
+];
+
+export async function getStages() {
+  if (_stagesCache) return _stagesCache;
+  const tenantId = await tid();
+  const { data } = await sb().from("crm_settings").select("pipeline_stages").eq("tenant_id", tenantId).maybeSingle();
+  const raw = data?.pipeline_stages;
+  if (Array.isArray(raw) && raw.length) {
+    // Ensure every stage has a key (legacy stages stored without one)
+    _stagesCache = raw.map((s, i) => ({
+      key:    s.key  || s.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+      name:   s.name,
+      color:  s.color || "#6366f1",
+      order:  s.order ?? i,
+      parent: s.parent || null,
+    }));
+  } else {
+    _stagesCache = DEFAULT_STAGES;
+  }
+  return _stagesCache;
+}
+
+// Derive canonical status from a stage key — sub-stages inherit parent's status
+export async function stageToStatus(stageKey, stagesOverride) {
+  const stages = stagesOverride || await getStages();
+  const stage  = stages.find(s => s.key === stageKey);
+  if (!stage) return stageKey;
+  // If it has a parent, that parent's key is the canonical status
+  if (stage.parent) return stage.parent;
+  return stage.key;
+}
+
 export async function auditLog({ action, entityType, entityId, entityName, oldData, newData }) {
   try {
     const tenantId = await tid();

@@ -192,22 +192,14 @@
 
 <script type="module">
 import { requireCRMAccess } from "/systems/crm/shared/auth.js?v=3";
-import { leads, getStaff } from "/systems/crm/shared/api.js";
+import { leads, getStaff, getStages } from "/systems/crm/shared/api.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, toast } from "/systems/crm/shared/ui.js";
 
 initTheme();
 
-const STAGES = [
-  { id: "new",          label: "New",           color: "#6366f1" },
-  { id: "contacted",    label: "Contacted",      color: "#f59e0b" },
-  { id: "qualified",    label: "Qualified",      color: "#3b82f6" },
-  { id: "proposal",     label: "Proposal Sent",  color: "#8b5cf6" },
-  { id: "negotiation",  label: "Negotiation",    color: "#ec4899" },
-  { id: "won",          label: "Won",            color: "#10b981" },
-  { id: "lost",         label: "Lost",           color: "#ef4444" },
-];
+let STAGES = []; // loaded from crm_settings
 
 function fmt(n) {
   if (!n) return "—";
@@ -232,9 +224,14 @@ try {
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
 async function load() {
-  const [res, staff] = await Promise.all([leads.list({ limit: 500 }), getStaff()]);
-  allLeads = res.data;
+  const [res, staff, rawStages] = await Promise.all([leads.list({ limit: 500 }), getStaff(), getStages()]);
+  allLeads  = res.data;
   staffList = staff;
+  // Build column list: top-level stages only; sub-stages collapse into their parent column
+  STAGES = rawStages
+    .filter(s => !s.parent)
+    .sort((a,b) => a.order - b.order)
+    .map(s => ({ id: s.key, label: s.name, color: s.color, subKeys: rawStages.filter(x => x.parent === s.key).map(x => x.key) }));
   renderBoard();
 }
 
@@ -242,9 +239,9 @@ function renderBoard() {
   const visibleLeads = filterAssignee
     ? allLeads.filter(l => l.assigned_to === filterAssignee)
     : allLeads;
-  const active = visibleLeads.filter(l => !["won","lost"].includes(l.status));
+  const active = visibleLeads.filter(l => !["won","lost"].includes(l.status) && !["won","lost"].includes(l.pipeline_stage));
   const totalValue = active.reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
-  const wonValue = visibleLeads.filter(l=>l.status==="won").reduce((s,l)=>s+(Number(l.estimated_value)||0),0);
+  const wonValue = visibleLeads.filter(l => l.status==="won" || (STAGES.find(s=>s.id==="won")?.subKeys||[]).includes(l.pipeline_stage)).reduce((s,l)=>s+(Number(l.estimated_value)||0),0);
   const openCount = active.length;
 
   const content = document.getElementById("content");
@@ -288,10 +285,11 @@ function renderBoard() {
   });
 
   for (const stage of STAGES) {
+    const allKeys = [stage.id, ...(stage.subKeys || [])];
     const stageLeads = visibleLeads.filter(l => {
       const ps = (l.pipeline_stage || "").toLowerCase();
       const st = (l.status || "").toLowerCase();
-      return ps === stage.id || st === stage.id;
+      return allKeys.includes(ps) || allKeys.includes(st);
     });
     const stageValue = stageLeads.reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
 

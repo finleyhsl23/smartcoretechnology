@@ -36,13 +36,6 @@
   <div style="width:1px;height:20px;background:var(--line)"></div>
   <select id="bulkStatusSel" class="filter-select" style="font-size:12px;padding:6px 10px">
     <option value="">Change status…</option>
-    <option value="new">New</option>
-    <option value="contacted">Contacted</option>
-    <option value="qualified">Qualified</option>
-    <option value="proposal_sent">Proposal Sent</option>
-    <option value="negotiation">Negotiation</option>
-    <option value="won">Won</option>
-    <option value="lost">Lost</option>
   </select>
   <button class="btn btn-sm" id="bulkStatusBtn">Apply</button>
   <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">Delete</button>
@@ -51,7 +44,7 @@
 
 <script type="module">
 import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
-import { leads, companies, contacts, getStaff } from "/systems/crm/shared/api.js";
+import { leads, companies, contacts, getStaff, getStages } from "/systems/crm/shared/api.js";
 import { triggerCommand } from "/systems/crm/shared/commands.js";
 import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
@@ -59,7 +52,7 @@ import { esc, fmt, fmtDate, toast, confirm, leadBadge, loading, setInner, makeCo
 
 initTheme();
 
-let profile, tier, allLeads = [], companiesList = [], contactsList = [], staffList = [];
+let profile, tier, allLeads = [], companiesList = [], contactsList = [], staffList = [], allStages = [];
 const selectedIds = new Set();
 const hasBulk = () => ["business","enterprise"].includes(tier);
 
@@ -68,11 +61,15 @@ try {
   renderNav("leads", profile, tier);
   initMobileNav();
   initTopbar(profile);
-  [companiesList, contactsList, staffList] = await Promise.all([
+  [companiesList, contactsList, staffList, allStages] = await Promise.all([
     companies.list({ limit: 500 }).then(r => r.data),
     contacts.list({ limit: 500 }).then(r => r.data),
-    getStaff()
+    getStaff(),
+    getStages(),
   ]);
+  // Populate bulk status dropdown now that stages are loaded
+  const bulkSel = document.getElementById("bulkStatusSel");
+  if (bulkSel) bulkSel.innerHTML = `<option value="">Change status…</option>${buildStageOptions()}`;
   await loadAndRender();
 } catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
 
@@ -124,6 +121,21 @@ document.getElementById("bulkDeleteBtn")?.addEventListener("click", () => {
   });
 });
 
+// Build <option> list from loaded stages, grouping sub-stages under parents
+function buildStageOptions(selectedKey = "") {
+  const tops = allStages.filter(s => !s.parent).sort((a,b) => a.order - b.order);
+  return tops.map(top => {
+    const subs = allStages.filter(s => s.parent === top.key).sort((a,b) => a.order - b.order);
+    if (!subs.length) {
+      return `<option value="${esc(top.key)}" ${selectedKey===top.key?"selected":""}>${esc(top.name)}</option>`;
+    }
+    // Has sub-stages: show parent as optgroup header + sub-stages
+    return `<optgroup label="${esc(top.name)}">
+      ${subs.map(s => `<option value="${esc(s.key)}" ${selectedKey===s.key?"selected":""}>${esc(s.name)}</option>`).join("")}
+    </optgroup>`;
+  }).join("");
+}
+
 // ── Load & render ─────────────────────────────────────────────
 async function loadAndRender(search="", status="") {
   setInner("content", loading());
@@ -162,13 +174,7 @@ function renderTable(rows) {
       </div>
       <select class="filter-select" id="statusFilter">
         <option value="">All Statuses</option>
-        <option value="new">New</option>
-        <option value="contacted">Contacted</option>
-        <option value="qualified">Qualified</option>
-        <option value="proposal_sent">Proposal Sent</option>
-        <option value="negotiation">Negotiation</option>
-        <option value="won">Won</option>
-        <option value="lost">Lost</option>
+        ${buildStageOptions()}
       </select>
     </div>
 
@@ -290,13 +296,7 @@ function openModal(id) {
           <div class="form-group">
             <label class="form-label">Status</label>
             <select class="form-control" id="mStatus">
-              <option value="new" ${l?.status==="new"||!l?"selected":""}>New</option>
-              <option value="contacted" ${l?.status==="contacted"?"selected":""}>Contacted</option>
-              <option value="qualified" ${l?.status==="qualified"?"selected":""}>Qualified</option>
-              <option value="proposal_sent" ${l?.status==="proposal_sent"?"selected":""}>Proposal Sent</option>
-              <option value="negotiation" ${l?.status==="negotiation"?"selected":""}>Negotiation</option>
-              <option value="won" ${l?.status==="won"?"selected":""}>Won</option>
-              <option value="lost" ${l?.status==="lost"?"selected":""}>Lost</option>
+              ${buildStageOptions(l?.pipeline_stage || l?.status || "new")}
             </select>
           </div>
           <div class="form-group">
@@ -367,13 +367,16 @@ function openModal(id) {
     const btn = overlay.querySelector("#saveBtn");
     btn.disabled = true;
     try {
-      const status = document.getElementById("mStatus").value;
+      const pipelineStage = document.getElementById("mStatus").value;
+      // Derive canonical status: sub-stages inherit their parent's key
+      const stageObj = allStages.find(s => s.key === pipelineStage);
+      const status = stageObj?.parent || pipelineStage;
       const fields = {
         title,
         crm_company_id: compCombo.getValue() || null,
         crm_contact_id: contCombo.getValue() || null,
         status,
-        pipeline_stage: status,
+        pipeline_stage: pipelineStage,
         source: document.getElementById("mSource").value || null,
         estimated_value: parseFloat(document.getElementById("mValue").value) || null,
         probability: Math.min(100, Math.max(0, parseInt(document.getElementById("mProb").value) || 0)),
