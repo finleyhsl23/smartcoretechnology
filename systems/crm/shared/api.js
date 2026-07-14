@@ -436,13 +436,18 @@ export async function dashboardStats() {
   const wonLeads        = leadsData.filter(l => l.status === "won").length;
   const lostLeads       = leadsData.filter(l => l.status === "lost").length;
   const pipelineValue   = (pipeline.data || []).reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
+  const pipelineByStage = {};
+  (pipeline.data || []).forEach(l => {
+    const key = l.pipeline_stage || l.status || "unknown";
+    pipelineByStage[key] = (pipelineByStage[key] || 0) + (Number(l.estimated_value) || 0);
+  });
   const forecast        = leadsData.filter(l => !["won","lost"].includes(l.status)).reduce((s,l) => s + (Number(l.estimated_value)||0) * ((l.probability||0)/100), 0);
   const todayTasks      = tasksData.filter(t => t.due_date && t.due_date.slice(0,10) === today && t.status !== "completed").length;
   const overdueTasks    = tasksData.filter(t => t.due_date && t.due_date < new Date().toISOString() && t.status !== "completed").length;
 
   return {
     totalCompanies, activeCompanies, activeLeads, wonLeads, lostLeads,
-    pipelineValue, forecast, todayTasks, overdueTasks,
+    pipelineValue, pipelineByStage, forecast, todayTasks, overdueTasks,
     upcomingEvents: events_.data || [],
     recentActivity: activities_.data || [],
   };

@@ -39,7 +39,7 @@
 
 <script type="module">
 import { requireCRMAccess, getCRMSettings } from "/systems/crm/shared/auth.js?v=3";
-import { dashboardStats } from "/systems/crm/shared/api.js?v=2";
+import { dashboardStats, getStages } from "/systems/crm/shared/api.js?v=2";
 import { renderNav, initMobileNav, initTopbar, initSupport } from "/systems/crm/shared/nav.js?v=11";
 import { initTheme } from "/systems/crm/shared/theme.js";
 import { fmt, fmtDate, fmtDateTime, timeAgo, esc, toast } from "/systems/crm/shared/ui.js?v=2";
@@ -59,9 +59,9 @@ try {
   initSupport(tier);
   initTopbar(profile);
 
-  const stats = await dashboardStats();
+  const [stats, stages] = await Promise.all([dashboardStats(), getStages()]);
   _stats = stats;
-  render(stats, tier, profile);
+  render(stats, tier, profile, stages);
   subscribeActivityFeed(profile.company_id);
 } catch(e) {
   if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) {
@@ -69,7 +69,7 @@ try {
   }
 }
 
-function render(s, tier, profile) {
+function render(s, tier, profile, stages) {
   const content = document.getElementById("content");
   content.innerHTML = `
     <div class="page-header">
@@ -161,7 +161,7 @@ function render(s, tier, profile) {
       </div>
     </div>`;
 
-  initCharts(s);
+  initCharts(s, stages);
 }
 
 function activityItem(a) {
@@ -181,20 +181,29 @@ function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-function initCharts(s) {
+function initCharts(s, stages) {
   _chartInstances.forEach(c => c.destroy());
   _chartInstances = [];
 
-  // Pipeline bar chart
+  // Pipeline bar chart — real per-stage values, excluding won/lost
   const pCtx = document.getElementById("pipelineChart")?.getContext("2d");
   if (pCtx) {
-    const stages = ["New","Contacted","Qualified","Proposal Sent","Negotiation"];
-    const values = stages.map((_, i) => Math.max(0, s.pipelineValue * [.3,.25,.2,.15,.1][i]));
+    const activeStages = (stages || []).filter(st => !["won","lost"].includes(st.key) && !st.parent);
+    const labels  = activeStages.map(st => st.name);
+    const colors  = activeStages.map(st => st.color || "#6366f1");
+    const byStage = s.pipelineByStage || {};
+    // Each stage value = sum of leads whose pipeline_stage matches this stage OR any of its sub-stage keys
+    const allStages = stages || [];
+    const values = activeStages.map(st => {
+      const childKeys = allStages.filter(c => c.parent === st.key).map(c => c.key);
+      const keys = [st.key, ...childKeys];
+      return keys.reduce((sum, k) => sum + (byStage[k] || 0), 0);
+    });
     _chartInstances.push(new Chart(pCtx, {
       type: "bar",
       data: {
-        labels: stages,
-        datasets: [{ label: "Value (£)", data: values, backgroundColor: ["#6366f1","#f59e0b","#3b82f6","#8b5cf6","#ec4899"], borderRadius: 6, borderSkipped: false }]
+        labels,
+        datasets: [{ label: "Value (£)", data: values, backgroundColor: colors, borderRadius: 6, borderSkipped: false }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
