@@ -96,6 +96,8 @@
   let _requestId = null;        // held across retries of the SAME attempt (idempotency)
   let _searchDebounce = null;
   let _camera = null;           // active camera controller for the visitor/contractor photo step
+  let _kioskTab = "employee";   // which top-level Kiosk Mode section is active
+  let _empPanelId = "kioskBody"; // container the employee scan/manual sub-tabs render into
 
   try {
     const { profile } = await requirePresenceModuleAccess();
@@ -127,7 +129,7 @@
     if (!_siteId) {
       setInner("kioskBody", emptyState({ icon: "map-pin", title: "No site configured", message: "Ask an administrator to set up a site before signing in." }));
     } else if (isKioskModeActive()) {
-      renderKioskHome();
+      renderKioskShell();
     } else {
       renderTabs(_qrSupported ? "scan" : "manual");
     }
@@ -135,57 +137,67 @@
     if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
   }
 
-  // ── Kiosk home: Employee / Visitor / Contractor tiles ──────────────────
-  // Only shown in Kiosk Mode — a normal admin signing themself in goes
-  // straight to renderTabs() below, no extra tap needed.
-  function renderKioskHome() {
+  // ── Kiosk shell: one screen, Employee / Visitor / Contractor tabs at the
+  // top (Employee/Visitor/Contractor sections stay in the same view — no
+  // separate "home"/menu screen to navigate back to). Outside Kiosk Mode,
+  // employee-signin.html skips straight to renderTabs() below.
+  function renderKioskShell() {
     stopScanner();
     stopCamera();
+    const sections = [
+      { id: "employee", label: "Employee" },
+      _canManageVisitors ? { id: "visitor", label: "Visitor" } : null,
+      (_canManageContractors && _companySettings?.contractor_management_enabled !== false) ? { id: "contractor", label: "Contractor" } : null,
+    ].filter(Boolean);
+    if (!sections.some(s => s.id === _kioskTab)) _kioskTab = sections[0]?.id || "employee";
+
     setInner("kioskBody", `
       <div class="pfs-kiosk">
-        <div class="pfs-kiosk-tiles">
-          <button type="button" class="pfs-kiosk-tile pfs-kiosk-tile-employee" id="tileEmployee">
-            <i data-lucide="id-card"></i><span>Employee</span>
-          </button>
-          ${_canManageVisitors ? `
-          <button type="button" class="pfs-kiosk-tile pfs-kiosk-tile-visitor" id="tileVisitor">
-            <i data-lucide="user-round"></i><span>Visitor</span>
-          </button>` : ""}
-          ${_canManageContractors && _companySettings?.contractor_management_enabled !== false ? `
-          <button type="button" class="pfs-kiosk-tile pfs-kiosk-tile-contractor" id="tileContractor">
-            <i data-lucide="hard-hat"></i><span>Contractor</span>
-          </button>` : ""}
+        <div class="pfs-tabs kiosk-card" role="tablist" aria-label="Kiosk section">
+          ${sections.map(s => `<button type="button" class="pfs-tab" data-ktab="${s.id}" role="tab" aria-selected="${_kioskTab === s.id}">${esc(s.label)}</button>`).join("")}
         </div>
+        <div id="kioskPanel" class="kiosk-card"></div>
       </div>`);
-    document.getElementById("tileEmployee").addEventListener("click", () => renderTabs(_qrSupported ? "scan" : "manual"));
-    document.getElementById("tileVisitor")?.addEventListener("click", () => renderVisitorKioskFlow());
-    document.getElementById("tileContractor")?.addEventListener("click", () => renderContractorKioskFlow());
+
+    document.querySelectorAll("[data-ktab]").forEach(btn => {
+      btn.addEventListener("click", () => { _kioskTab = btn.dataset.ktab; renderKioskShell(); });
+    });
+
+    _empPanelId = "kioskPanel";
+    if (_kioskTab === "employee") renderTabs(_qrSupported ? "scan" : "manual");
+    else if (_kioskTab === "visitor") renderVisitorKioskFlow();
+    else if (_kioskTab === "contractor") renderContractorKioskFlow();
   }
 
-  function kioskBackButton(label = "← Back to menu") {
-    return isKioskModeActive() ? `<button type="button" class="btn pfs-kiosk-back-btn" id="kioskBackBtn">${esc(label)}</button>` : "";
-  }
-  function wireKioskBackButton(onBack) {
-    document.getElementById("kioskBackBtn")?.addEventListener("click", onBack);
+  /** Returns to the kiosk's persistent tab shell (kiosk mode) or the plain
+   *  Scan/Manual tabs (normal admin sign-in) after cancel/success/error. */
+  function returnToStart() {
+    if (isKioskModeActive()) renderKioskShell();
+    else renderTabs(_qrSupported ? "scan" : "manual");
   }
 
-  // ── Tab shell ─────────────────────────────────────────────────────────
+  // ── Tab shell (Scan QR / Manual Lookup) ─────────────────────────────────
+  // Renders into _empPanelId — "kioskBody" directly for the plain admin
+  // sign-in page, or the kiosk shell's "kioskPanel" when Kiosk Mode's
+  // Employee tab is active.
   function renderTabs(active) {
     stopScanner();
     const allowManual = _companySettings?.allow_manual_employee_lookup !== false;
     const allowCode = !!_companySettings?.allow_employee_code_lookup;
-
-    setInner("kioskBody", `
-      <div class="pfs-kiosk">
-        ${kioskBackButton()}
+    // _empPanelId === "kioskBody" means we're the top-level page content (plain
+    // admin sign-in), so we need the full-page ".pfs-kiosk" wrapper ourselves.
+    // Otherwise we're nested inside the kiosk shell's "kioskPanel", which is
+    // already inside that wrapper — adding a second one would nest two
+    // min-height:100vh flex boxes and break the layout.
+    const nested = _empPanelId !== "kioskBody";
+    const tabsMarkup = `
         <div class="pfs-tabs kiosk-card" role="tablist" aria-label="Sign-in method">
           <button class="pfs-tab" id="tabScan" role="tab" aria-selected="${active === "scan"}" ${!_qrSupported ? "disabled" : ""}>Scan QR</button>
           <button class="pfs-tab" id="tabManual" role="tab" aria-selected="${active === "manual"}">Manual Lookup</button>
         </div>
-        <div id="tabPanel" class="kiosk-card"></div>
-      </div>`);
+        <div id="tabPanel" class="kiosk-card"></div>`;
+    setInner(_empPanelId, nested ? tabsMarkup : `<div class="pfs-kiosk">${tabsMarkup}</div>`);
 
-    wireKioskBackButton(() => renderKioskHome());
     document.getElementById("tabScan").addEventListener("click", () => { if (_qrSupported) renderTabs("scan"); });
     document.getElementById("tabManual").addEventListener("click", () => renderTabs("manual"));
 
@@ -366,8 +378,7 @@
     });
     document.getElementById("cancelBtn").addEventListener("click", () => {
       _selected = null; _currentStatus = null; _requestId = null;
-      if (isKioskModeActive()) renderKioskHome();
-      else renderTabs(_qrSupported ? "scan" : "manual");
+      returnToStart();
     });
   }
 
@@ -426,8 +437,7 @@
 
   function resetToStart() {
     _selected = null; _currentStatus = null; _requestId = null;
-    if (isKioskModeActive()) renderKioskHome();
-    else renderTabs(_qrSupported ? "scan" : "manual");
+    returnToStart();
   }
 
   function stopScanner() {
@@ -471,9 +481,7 @@
   function renderVisitorKioskFlow() {
     stopScanner();
     let hostId = null;
-    setInner("kioskBody", `
-      <div class="pfs-kiosk">
-        ${kioskBackButton()}
+    setInner("kioskPanel", `
         <div class="card kiosk-card">
           <h2 style="margin-top:0">Visitor Sign In</h2>
           <label class="form-label" for="kvFirst">First name *</label>
@@ -490,9 +498,7 @@
           <div class="kiosk-actions" style="margin-top:16px">
             <button class="btn btn-primary" id="kvNextBtn" type="button">Continue</button>
           </div>
-        </div>
-      </div>`);
-    wireKioskBackButton(() => renderKioskHome());
+        </div>`);
     wireHostSearch("kvHost", "kvHostResults", (id) => { hostId = id; });
 
     document.getElementById("kvNextBtn").addEventListener("click", () => {
@@ -514,7 +520,7 @@
   }
 
   async function submitKioskVisitor(form, photoBlob) {
-    setInner("kioskBody", `<div class="pfs-kiosk">${kioskBackButton()}${loadingState("Signing in…")}</div>`);
+    setInner("kioskPanel", loadingState("Signing in…"));
     try {
       const visit = await visitors.createVisit({
         siteId: _siteId, firstName: form.firstName, lastName: form.lastName,
@@ -531,8 +537,7 @@
       }
       renderKioskSuccess(`${form.firstName} ${form.lastName}`, "Visitor signed in");
     } catch (e) {
-      setInner("kioskBody", `<div class="pfs-kiosk">${kioskBackButton()}${errorState({ title: "Couldn't sign in visitor", message: e.message, retryId: "kvRetry" })}</div>`);
-      wireKioskBackButton(() => renderKioskHome());
+      setInner("kioskPanel", errorState({ title: "Couldn't sign in visitor", message: e.message, retryId: "kvRetry" }));
       document.getElementById("kvRetry")?.addEventListener("click", () => submitKioskVisitor(form, photoBlob));
     }
   }
@@ -541,9 +546,7 @@
   function renderContractorKioskFlow() {
     stopScanner();
     let hostId = null;
-    setInner("kioskBody", `
-      <div class="pfs-kiosk">
-        ${kioskBackButton()}
+    setInner("kioskPanel", `
         <div class="card kiosk-card">
           <h2 style="margin-top:0">Contractor Sign In</h2>
           <label class="form-label" for="kcBusiness">Business name *</label>
@@ -558,9 +561,7 @@
           <div class="kiosk-actions" style="margin-top:16px">
             <button class="btn btn-primary" id="kcNextBtn" type="button">Continue</button>
           </div>
-        </div>
-      </div>`);
-    wireKioskBackButton(() => renderKioskHome());
+        </div>`);
     wireHostSearch("kcHost", "kcHostResults", (id) => { hostId = id; });
 
     document.getElementById("kcNextBtn").addEventListener("click", () => {
@@ -580,7 +581,7 @@
   }
 
   async function submitKioskContractor(form, photoBlob) {
-    setInner("kioskBody", `<div class="pfs-kiosk">${kioskBackButton()}${loadingState("Signing in…")}</div>`);
+    setInner("kioskPanel", loadingState("Signing in…"));
     try {
       const visit = await contractors.createVisit({
         siteId: _siteId, businessName: form.businessName, contactName: form.contactName || null,
@@ -596,16 +597,14 @@
       }
       renderKioskSuccess(form.businessName, "Contractor signed in");
     } catch (e) {
-      setInner("kioskBody", `<div class="pfs-kiosk">${kioskBackButton()}${errorState({ title: "Couldn't sign in contractor", message: e.message, retryId: "kcRetry" })}</div>`);
-      wireKioskBackButton(() => renderKioskHome());
+      setInner("kioskPanel", errorState({ title: "Couldn't sign in contractor", message: e.message, retryId: "kcRetry" }));
       document.getElementById("kcRetry")?.addEventListener("click", () => submitKioskContractor(form, photoBlob));
     }
   }
 
   // ── Shared photo step + success screen for visitor/contractor kiosk flows ─
   function renderKioskPhotoStep(kind, form) {
-    setInner("kioskBody", `<div class="pfs-kiosk">${kioskBackButton()}<div class="card kiosk-card" id="camContainer"></div></div>`);
-    wireKioskBackButton(() => kind === "visitor" ? renderVisitorKioskFlow() : renderContractorKioskFlow());
+    setInner("kioskPanel", `<div class="card kiosk-card" id="camContainer"></div>`);
     _camera = renderPhotoCaptureStep(document.getElementById("camContainer"), {
       title: "Take a photo for the visitor badge",
       onCaptured: (blob) => { stopCamera(); kind === "visitor" ? submitKioskVisitor(form, blob) : submitKioskContractor(form, blob); },
@@ -614,8 +613,7 @@
   }
 
   function renderKioskSuccess(name, label) {
-    setInner("kioskBody", `
-      <div class="pfs-kiosk">
+    setInner("kioskPanel", `
         <div class="kiosk-identity">
           <div class="success-icon"><i data-lucide="check-circle-2"></i></div>
           <h2>${esc(label)}</h2>
@@ -623,11 +621,10 @@
         </div>
         <div class="kiosk-actions">
           <button class="btn btn-primary" id="kioskDoneBtn">Done</button>
-        </div>
-      </div>`);
-    document.getElementById("kioskDoneBtn").addEventListener("click", () => renderKioskHome());
+        </div>`);
+    document.getElementById("kioskDoneBtn").addEventListener("click", () => renderKioskShell());
     toast("success", label, name);
-    setTimeout(() => renderKioskHome(), 4000);
+    setTimeout(() => renderKioskShell(), 4000);
   }
 
   // ── Access-blocked rendering (see index.html for rationale) ────────────
