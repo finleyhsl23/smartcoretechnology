@@ -13,10 +13,14 @@
     .tier-table tbody tr:nth-child(even) { background:var(--card2); }
     .tier-table .current-tier { background:color-mix(in srgb,var(--accent) 8%,transparent)!important; }
     .tier-table .section-row td { font-weight:700; background:var(--card3)!important; color:var(--text2); font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
-    .stage-item { display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--card2); border-radius:var(--r2); border:1px solid var(--line); margin-bottom:6px; }
+    .stage-item { display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--card2); border-radius:var(--r2); border:1px solid var(--line); margin-bottom:4px; }
+    .stage-item.child { margin-left:28px; border-left:2px solid var(--accent); background:var(--card3); }
+    .stage-item.child .stage-name-input { font-size:13px; font-weight:500; }
     .stage-dot { width:14px; height:14px; border-radius:50%; flex-shrink:0; cursor:pointer; border:2px solid rgba(255,255,255,.2); }
     .stage-name-input { flex:1; background:transparent; border:none; outline:none; color:var(--text1); font-size:14px; font-weight:600; }
     .stage-drag { cursor:grab; color:var(--text3); font-size:16px; padding:0 4px; }
+    .add-child-btn { background:transparent; border:1px dashed var(--line); color:var(--text3); border-radius:6px; padding:3px 10px; font-size:11px; font-weight:600; cursor:pointer; white-space:nowrap; transition:border-color .15s,color .15s; }
+    .add-child-btn:hover { border-color:var(--accent); color:var(--accent); }
     .color-picker-wrap { position:relative; display:inline-block; }
     .color-swatch { width:28px; height:28px; border-radius:6px; cursor:pointer; border:2px solid var(--line2); display:inline-block; }
     .template-row { padding:12px 14px; background:var(--card2); border-radius:var(--r2); border:1px solid var(--line); margin-bottom:8px; }
@@ -162,7 +166,7 @@ function renderSettings() {
               : "Your current pipeline stages. Custom stages require the Enterprise plan."}
           </p>
           <div id="stagesList">
-            ${(settings?.pipeline_stages || defaultStages()).map((s,i) => stageItem(s,i)).join("")}
+            ${buildStagesList(settings?.pipeline_stages || defaultStages())}
           </div>
           ${tierHasFeature(tier,"custom_pipelines") ? `
           <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
@@ -243,44 +247,32 @@ function defaultStages() {
   ];
 }
 
-function getTopLevelStages() {
-  return [...document.querySelectorAll("#stagesList .stage-item")]
-    .map(el => ({ key: el.dataset.key, name: el.querySelector(".stage-name-input").value.trim() }))
-    .filter(s => s.name && !el_parentVal(el_byKey(s.key)));
-}
-
-function el_byKey(key) { return document.querySelector(`#stagesList .stage-item[data-key="${key}"]`); }
-function el_parentVal(el) { return el?.querySelector(".stage-parent-select")?.value || ""; }
-
-function stageParentOptions(currentKey, currentParent) {
-  const items = [...document.querySelectorAll("#stagesList .stage-item")];
-  const tops = items
-    .filter(el => {
-      const k = el.dataset.key;
-      const p = el.querySelector(".stage-parent-select")?.value || el.dataset.parent || "";
-      return k && k !== currentKey && !p;
-    })
-    .map(el => ({ key: el.dataset.key, name: el.querySelector(".stage-name-input").value.trim() }));
-  return `<option value="">— Top level —</option>` +
-    tops.map(t => `<option value="${esc(t.key)}" ${currentParent===t.key?"selected":""}>${esc(t.name)}</option>`).join("");
-}
-
-function stageItem(s, i) {
+function stageItem(s, i, isChild) {
   const key = s.key || s.name.toLowerCase().replace(/[^a-z0-9]+/g,"_") || `stage_${i}`;
   const parent = s.parent || "";
   const canEdit = tierHasFeature(tier,"custom_pipelines");
-  return `<div class="stage-item" draggable="${canEdit}" data-index="${i}" data-key="${esc(key)}" data-parent="${esc(parent)}">
-    <span class="stage-drag">${canEdit?"⠿":"·"}</span>
+  const childClass = isChild || parent ? " child" : "";
+  return `<div class="stage-item${childClass}" draggable="${canEdit && !childClass}" data-index="${i}" data-key="${esc(key)}" data-parent="${esc(parent)}">
+    <span class="stage-drag">${canEdit && !childClass ? "⠿" : "·"}</span>
     <div class="color-picker-wrap">
       <div class="stage-dot" style="background:${s.color}" title="Click to change colour" data-color="${s.color}"></div>
       <input type="color" value="${s.color}" style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer" class="stage-color-input"/>
     </div>
     <input class="stage-name-input" value="${esc(s.name)}" ${canEdit?"":"readonly"} style="flex:1"/>
-    ${canEdit ? `<select class="stage-parent-select" title="Sub-stage of…" style="background:var(--card2);border:1px solid var(--line);border-radius:6px;padding:4px 8px;color:var(--text1);font-size:12px;min-width:120px">
-      ${stageParentOptions(key, parent)}
-    </select>` : ""}
+    ${canEdit && !parent ? `<button class="add-child-btn" title="Add a child stage">+ Add child stage</button>` : ""}
     ${canEdit ? `<button class="btn btn-icon btn-danger stage-del-btn" title="Remove">✕</button>` : ""}
   </div>`;
+}
+
+function buildStagesList(stages) {
+  const top = stages.filter(s => !s.parent);
+  const children = stages.filter(s => s.parent);
+  const rows = [];
+  top.forEach((s, i) => {
+    rows.push(stageItem(s, i, false));
+    children.filter(c => c.parent === s.key).forEach((c, ci) => rows.push(stageItem(c, ci, true)));
+  });
+  return rows.join("");
 }
 
 function buildTemplatesList() {
@@ -628,7 +620,7 @@ function bindEvents() {
     document.getElementById("addStageBtn")?.addEventListener("click", () => {
       const list = document.getElementById("stagesList");
       const idx = list.querySelectorAll(".stage-item").length;
-      list.insertAdjacentHTML("beforeend", stageItem({ key:`stage_${Date.now()}`, name:"New Stage", color:"#6366f1", order:idx }, idx));
+      list.insertAdjacentHTML("beforeend", stageItem({ key:`stage_${Date.now()}`, name:"New Stage", color:"#6366f1", order:idx, parent:"" }, idx, false));
       bindStageEvents();
       // Refresh all parent dropdowns so new stage appears as an option
       document.querySelectorAll(".stage-parent-select").forEach(sel => {
@@ -647,7 +639,7 @@ function bindEvents() {
           name,
           color:  el.querySelector(".stage-color-input").value,
           order:  i,
-          parent: el.querySelector(".stage-parent-select")?.value || null,
+          parent: el.dataset.parent || null,
         };
       }).filter(s => s.name);
       if (!stages.length) return toast("warn","Validation","At least one stage required.");
@@ -675,7 +667,26 @@ function bindStageEvents() {
     });
   });
   document.querySelectorAll("#stagesList .stage-del-btn").forEach(b => {
-    b.addEventListener("click", e => e.target.closest(".stage-item").remove());
+    b.addEventListener("click", e => {
+      const item = e.target.closest(".stage-item");
+      const key = item.dataset.key;
+      // Remove any children of this stage too
+      document.querySelectorAll(`#stagesList .stage-item[data-parent="${key}"]`).forEach(c => c.remove());
+      item.remove();
+    });
+  });
+  document.querySelectorAll("#stagesList .add-child-btn").forEach(b => {
+    b.addEventListener("click", e => {
+      const parentEl = e.target.closest(".stage-item");
+      const parentKey = parentEl.dataset.key;
+      const childKey = `stage_${Date.now()}`;
+      const childHtml = stageItem({ key: childKey, name: "New Sub-Stage", color: "#6366f1", order: 0, parent: parentKey }, 0, true);
+      // Insert after any existing children of this parent, otherwise after the parent itself
+      const existingChildren = [...document.querySelectorAll(`#stagesList .stage-item[data-parent="${parentKey}"]`)];
+      const insertAfter = existingChildren.length ? existingChildren[existingChildren.length - 1] : parentEl;
+      insertAfter.insertAdjacentHTML("afterend", childHtml);
+      bindStageEvents();
+    });
   });
 }
 
