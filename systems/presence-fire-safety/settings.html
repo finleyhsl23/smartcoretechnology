@@ -76,28 +76,6 @@
   let _profile = null, _companyId = null, _siteList = [];
   let _activeTab = "module";
 
-  try {
-    const { profile } = await requirePresenceModuleAccess();
-    if (enforceKioskGuard("settings")) throw new Error("__kiosk_redirect__");
-    _profile = profile;
-    _companyId = profile.company_id;
-
-    renderNav("settings", profile);
-    initMobileNav();
-    initTopbar();
-    initKioskToggle({ companyId: _companyId, currentPage: "settings" });
-    wireOfflineBanner();
-
-    if (!hasPermission("presence.manage_settings")) {
-      setInner("settingsBody", permissionDeniedState("You don't have permission to manage Presence & Fire Safety settings."));
-    } else {
-      _siteList = await sites.list(_companyId);
-      renderShell();
-    }
-  } catch (e) {
-    if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
-  }
-
   // ── Shell / tabs ─────────────────────────────────────────────────────────
   function renderShell() {
     setInner("settingsBody", `
@@ -683,6 +661,29 @@
     render();
     window.addEventListener("online", render);
     window.addEventListener("offline", render);
+  }
+
+  // ── Bootstrap — runs last, after every const/function above is defined ──
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    if (enforceKioskGuard("settings")) throw new Error("__kiosk_redirect__");
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    renderNav("settings", profile);
+    initMobileNav();
+    initTopbar();
+    initKioskToggle({ companyId: _companyId, currentPage: "settings" });
+    wireOfflineBanner();
+
+    if (!hasPermission("presence.manage_settings")) {
+      setInner("settingsBody", permissionDeniedState("You don't have permission to manage Presence & Fire Safety settings."));
+    } else {
+      _siteList = await sites.list(_companyId);
+      renderShell();
+    }
+  } catch (e) {
+    if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
   }
 </script>
 </body>

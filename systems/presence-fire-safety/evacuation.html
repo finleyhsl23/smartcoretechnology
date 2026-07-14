@@ -120,46 +120,6 @@
 
   const CAN = {};
 
-  try {
-    const { profile } = await requirePresenceModuleAccess();
-    if (enforceKioskGuard("evacuation")) throw new Error("__kiosk_redirect__");
-    _profile = profile;
-    _companyId = profile.company_id;
-
-    CAN.unlock = hasPermission("evacuation.unlock");
-    CAN.start = hasPermission("evacuation.start");
-    CAN.manageRollCall = hasPermission("evacuation.manage_roll_call");
-    CAN.complete = hasPermission("evacuation.complete");
-    CAN.viewLive = hasPermission("presence.view_live_register");
-
-    renderNav("evacuation", profile);
-    initMobileNav();
-    initTopbar();
-    initKioskToggle({ companyId: _companyId, currentPage: "evacuation" });
-    wireOfflineBanner();
-
-    _siteList = await sites.list(_companyId);
-    const selectedSiteId = await ensureSiteSelected(_companyId);
-    renderSiteSwitcher(document.getElementById("siteSwitcher"), _siteList, selectedSiteId, async (newSiteId) => {
-      setSelectedSiteId(newSiteId);
-      await loadState(newSiteId);
-    });
-
-    await loadState(selectedSiteId);
-
-    // Reload whenever the tab regains focus/visibility — covers a tablet
-    // that was refreshed or backgrounded mid-emergency; we never trust
-    // client-held state to still be accurate, always re-derive from the
-    // server via evacuation.activeSession().
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && _currentSite && !_pollTimer) {
-        loadState(_currentSite.id);
-      }
-    });
-  } catch (e) {
-    if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
-  }
-
   async function loadState(siteId) {
     const token = ++_loadToken;
     stopPolling();
@@ -630,6 +590,47 @@
     render();
     window.addEventListener("online", render);
     window.addEventListener("offline", render);
+  }
+
+  // ── Bootstrap — runs last, after every const/function above is defined ──
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    if (enforceKioskGuard("evacuation")) throw new Error("__kiosk_redirect__");
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    CAN.unlock = hasPermission("evacuation.unlock");
+    CAN.start = hasPermission("evacuation.start");
+    CAN.manageRollCall = hasPermission("evacuation.manage_roll_call");
+    CAN.complete = hasPermission("evacuation.complete");
+    CAN.viewLive = hasPermission("presence.view_live_register");
+
+    renderNav("evacuation", profile);
+    initMobileNav();
+    initTopbar();
+    initKioskToggle({ companyId: _companyId, currentPage: "evacuation" });
+    wireOfflineBanner();
+
+    _siteList = await sites.list(_companyId);
+    const selectedSiteId = await ensureSiteSelected(_companyId);
+    renderSiteSwitcher(document.getElementById("siteSwitcher"), _siteList, selectedSiteId, async (newSiteId) => {
+      setSelectedSiteId(newSiteId);
+      await loadState(newSiteId);
+    });
+
+    await loadState(selectedSiteId);
+
+    // Reload whenever the tab regains focus/visibility — covers a tablet
+    // that was refreshed or backgrounded mid-emergency; we never trust
+    // client-held state to still be accurate, always re-derive from the
+    // server via evacuation.activeSession().
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && _currentSite && !_pollTimer) {
+        loadState(_currentSite.id);
+      }
+    });
+  } catch (e) {
+    if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
   }
 </script>
 </body>
