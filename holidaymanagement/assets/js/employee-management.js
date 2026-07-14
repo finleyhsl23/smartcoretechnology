@@ -1207,9 +1207,9 @@ async function exportAllEmployeesToCsv() {
       'job_title','employment_type','notice_period','start_date',
       'personal_email','work_email','personal_phone',
       'ni_number','passport_number','passport_expiry_date','driving_licence_number',
-      'address_line1','address_line2','city','county','postcode','country',
-      'emergency_contact_name','emergency_contact_relationship','emergency_contact_email','emergency_contact_phone',
-      'emergency_contact_name_2','emergency_contact_relationship_2','emergency_contact_email_2','emergency_contact_phone_2',
+      'address_line1','address_line2','address_city','address_county','address_postcode','address_country',
+      'emergency_contact_name1','emergency_contact_relationship1','emergency_contact_email1','emergency_contact_phone1',
+      'emergency_contact_name2','emergency_contact_relationship2','emergency_contact_email2','emergency_contact_phone2',
     ];
 
     const header = cols.join(',');
