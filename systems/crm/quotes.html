@@ -508,18 +508,19 @@ function exportPDF(id) {
 
   const lineItems = q.line_items || [];
   const pd = q.pricing_display || "itemised";
-  const linesHtml = pd === "total_only" ? "" : lineItems.map(li => {
+  const linesHtml = lineItems.map(li => {
     const lineTotal = Number(li.total || ((li.qty||1)*(li.unit_price||0)));
-    if (pd === "desc_only") {
+    if (pd === "itemised") {
       return `<tr>
         <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${li.description||""}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center">${li.qty||1}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${Number(li.unit_price||0).toFixed(2)}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${lineTotal.toFixed(2)}</td>
       </tr>`;
     }
     return `<tr>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${li.description||""}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center">${li.qty||1}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${Number(li.unit_price||0).toFixed(2)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${lineTotal.toFixed(2)}</td>
     </tr>`;
   }).join("");
 
@@ -590,17 +591,18 @@ function exportPDF(id) {
     </div>
   </div>
 
-  ${pd === "total_only" ? "" : `<table class="items">
+  <table class="items">
     <thead>
       <tr>
         <th style="text-align:left">Description</th>
-        ${pd === "itemised" ? `<th style="text-align:center">Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Total</th>` : ""}
+        <th style="text-align:center">Qty</th>
+        ${pd === "itemised" ? `<th style="text-align:right">Price</th><th style="text-align:right">Total</th>` : ""}
       </tr>
     </thead>
     <tbody>
-      ${linesHtml || `<tr><td colspan="${pd==="itemised"?4:1}" style="padding:16px;text-align:center;color:#9ca3af">No line items</td></tr>`}
+      ${linesHtml || `<tr><td colspan="${pd==="itemised"?4:2}" style="padding:16px;text-align:center;color:#9ca3af">No line items</td></tr>`}
     </tbody>
-  </table>`}
+  </table>
 
   <div class="totals">
     <div class="totals-box">
