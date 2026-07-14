@@ -249,13 +249,13 @@ export async function onRequestPost({ request, env }) {
     const staffHtml = [
       '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>',
       `<title>Quote ${esc(q.quote_number || '')} Accepted</title></head>`,
-      `<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif">`,
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:24px 0">`,
+      `<body style="margin:0;padding:0;background:${secondaryColor};font-family:Arial,Helvetica,sans-serif">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${secondaryColor};padding:24px 0">`,
       `<tr><td align="center"><table width="580" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;width:100%">`,
 
       // Logo
       `<tr><td align="center" style="padding:0 16px 20px">`,
-      logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:block;max-height:44px"/>` : `<div style="font-size:20px;font-weight:800;color:#1a1a2e">${esc(issuerName)}</div>`,
+      logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:block;max-height:44px"/>` : `<div style="font-size:20px;font-weight:800;color:#ffffff">${esc(issuerName)}</div>`,
       `</td></tr>`,
 
       // Green accepted banner
@@ -299,13 +299,13 @@ export async function onRequestPost({ request, env }) {
     const customerHtml = [
       '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>',
       `<title>Quote Confirmation</title></head>`,
-      `<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif">`,
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:24px 0">`,
+      `<body style="margin:0;padding:0;background:${secondaryColor};font-family:Arial,Helvetica,sans-serif">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${secondaryColor};padding:24px 0">`,
       `<tr><td align="center"><table width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%">`,
 
       // Logo
       `<tr><td align="center" style="padding:0 16px 20px">`,
-      logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:block;max-height:44px"/>` : `<div style="font-size:20px;font-weight:800;color:#1a1a2e">${esc(issuerName)}</div>`,
+      logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:block;max-height:44px"/>` : `<div style="font-size:20px;font-weight:800;color:#ffffff">${esc(issuerName)}</div>`,
       `</td></tr>`,
 
       // Card

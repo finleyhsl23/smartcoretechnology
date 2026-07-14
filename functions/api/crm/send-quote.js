@@ -120,8 +120,8 @@ export async function onRequestPost({ request, env }) {
       '<meta name="viewport" content="width=device-width,initial-scale=1"/>',
       `<title>${esc(emailSubject)}</title>`,
       '</head>',
-      `<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif">`,
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:24px 0">`,
+      `<body style="margin:0;padding:0;background:${secondaryColor};font-family:Arial,Helvetica,sans-serif">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${secondaryColor};padding:24px 0">`,
       `<tr><td align="center">`,
       `<table width="620" cellpadding="0" cellspacing="0" border="0" style="max-width:620px;width:100%">`,
 
@@ -129,7 +129,7 @@ export async function onRequestPost({ request, env }) {
       `<tr><td align="center" style="padding:0 16px 20px">`,
       logoUrl
         ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:block;max-height:44px"/>`
-        : `<div style="font-size:20px;font-weight:800;color:#1a1a2e">${esc(issuerName)}</div>`,
+        : `<div style="font-size:20px;font-weight:800;color:#ffffff">${esc(issuerName)}</div>`,
       `</td></tr>`,
 
       // Intro card
