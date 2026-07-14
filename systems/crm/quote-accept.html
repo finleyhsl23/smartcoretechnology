@@ -147,13 +147,19 @@
 
   // Line items table
   const lines = quote.line_items || [];
-  const linesHtml = lines.map(li => `
-    <tr>
+  const pd = quote.pricing_display || 'itemised';
+  const linesHtml = pd === 'total_only' ? '' : lines.map(li => {
+    const lineTotal = Number(li.total || ((li.qty||1)*(li.unit_price||0)));
+    if (pd === 'desc_only') {
+      return `<tr><td colspan="4">${esc(li.description||'')}</td></tr>`;
+    }
+    return `<tr>
       <td>${esc(li.description||'')}</td>
       <td>${li.qty||1}</td>
       <td>£${Number(li.unit_price||0).toFixed(2)}</td>
-      <td><strong>£${Number(li.total||((li.qty||1)*(li.unit_price||0))).toFixed(2)}</strong></td>
-    </tr>`).join('');
+      <td><strong>£${lineTotal.toFixed(2)}</strong></td>
+    </tr>`;
+  }).join('');
 
   const sub   = Number(quote.subtotal || 0);
   const disc  = Number(quote.discount_amount || 0);
@@ -239,24 +245,22 @@
           </div>
         </div>
 
-        <table class="items">
+        ${pd !== 'total_only' ? `<table class="items">
           <thead>
             <tr style="background:${primary}">
               <th>Description</th>
-              <th style="text-align:center">Qty</th>
-              <th style="text-align:right">Unit Price</th>
-              <th style="text-align:right">Total</th>
+              ${pd === 'itemised' ? `<th style="text-align:center">Qty</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total</th>` : ''}
             </tr>
           </thead>
           <tbody>
-            ${linesHtml || `<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:16px">No line items</td></tr>`}
+            ${linesHtml || `<tr><td colspan="${pd==='itemised'?4:1}" style="text-align:center;color:#9ca3af;padding:16px">No line items</td></tr>`}
           </tbody>
-        </table>
+        </table>` : ''}
 
         <div class="totals-wrap">
           <div class="totals-box">
-            <div class="totals-row"><span>Subtotal</span><span>£${(sub||total).toFixed(2)}</span></div>
-            ${disc > 0 ? `<div class="totals-row"><span>Discount</span><span>-£${disc.toFixed(2)}</span></div>` : ''}
+            ${pd === 'itemised' ? `<div class="totals-row"><span>Subtotal</span><span>£${(sub||total).toFixed(2)}</span></div>` : ''}
+            ${pd === 'itemised' && disc > 0 ? `<div class="totals-row"><span>Discount</span><span>-£${disc.toFixed(2)}</span></div>` : ''}
             <div class="totals-row grand" style="background:${primary}"><span>TOTAL</span><span>£${total.toFixed(2)}</span></div>
           </div>
         </div>

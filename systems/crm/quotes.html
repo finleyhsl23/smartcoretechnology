@@ -310,6 +310,24 @@ function openModal(id) {
           <label class="form-label">Terms</label>
           <textarea class="form-control" id="mTerms" rows="2">${esc(q?.terms || crmSettings?.default_quote_terms || "Payment due within 30 days.")}</textarea>
         </div>
+
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label" style="margin-bottom:8px">Pricing Display (customer-facing)</label>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+              <input type="radio" name="pricingDisplay" id="pdItemised" value="itemised" ${(!q?.pricing_display||q?.pricing_display==="itemised")?"checked":""}/>
+              <span><strong>Itemised</strong> — show each line with description, quantity and price</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+              <input type="radio" name="pricingDisplay" id="pdDescOnly" value="desc_only" ${q?.pricing_display==="desc_only"?"checked":""}/>
+              <span><strong>Descriptions only</strong> — show line items but hide individual prices</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+              <input type="radio" name="pricingDisplay" id="pdTotalOnly" value="total_only" ${q?.pricing_display==="total_only"?"checked":""}/>
+              <span><strong>Total only</strong> — show just the grand total, no line breakdown</span>
+            </label>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn modal-close">Cancel</button>
@@ -405,6 +423,7 @@ function openModal(id) {
         subtotal, discount_amount: discount, total,
         notes: overlay.querySelector("#mNotes").value.trim() || null,
         terms: overlay.querySelector("#mTerms").value.trim() || null,
+        pricing_display: overlay.querySelector("input[name='pricingDisplay']:checked")?.value || "itemised",
       };
       if (q) await quotes.update(q.id, fields);
       else await quotes.create(fields);
@@ -488,13 +507,21 @@ function exportPDF(id) {
   const issuerName = br.company_name || "SmartCore Technology";
 
   const lineItems = q.line_items || [];
-  const linesHtml = lineItems.map(li => `
-    <tr>
+  const pd = q.pricing_display || "itemised";
+  const linesHtml = pd === "total_only" ? "" : lineItems.map(li => {
+    const lineTotal = Number(li.total || ((li.qty||1)*(li.unit_price||0)));
+    if (pd === "desc_only") {
+      return `<tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${li.description||""}</td>
+      </tr>`;
+    }
+    return `<tr>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${li.description||""}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center">${li.qty||1}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${Number(li.cost||li.unit_price||0).toFixed(2)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${Number(li.total||((li.qty||1)*(li.unit_price||0))).toFixed(2)}</td>
-    </tr>`).join("");
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${Number(li.unit_price||0).toFixed(2)}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">£${lineTotal.toFixed(2)}</td>
+    </tr>`;
+  }).join("");
 
   const html = `<!DOCTYPE html>
 <html>
@@ -563,19 +590,17 @@ function exportPDF(id) {
     </div>
   </div>
 
-  <table class="items">
+  ${pd === "total_only" ? "" : `<table class="items">
     <thead>
       <tr>
         <th style="text-align:left">Description</th>
-        <th style="text-align:center">Qty</th>
-        <th style="text-align:right">Cost</th>
-        <th style="text-align:right">Total</th>
+        ${pd === "itemised" ? `<th style="text-align:center">Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Total</th>` : ""}
       </tr>
     </thead>
     <tbody>
-      ${linesHtml || `<tr><td colspan="4" style="padding:16px;text-align:center;color:#9ca3af">No line items</td></tr>`}
+      ${linesHtml || `<tr><td colspan="${pd==="itemised"?4:1}" style="padding:16px;text-align:center;color:#9ca3af">No line items</td></tr>`}
     </tbody>
-  </table>
+  </table>`}
 
   <div class="totals">
     <div class="totals-box">

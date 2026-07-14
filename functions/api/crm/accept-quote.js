@@ -68,6 +68,7 @@ export async function onRequestGet({ request, env }) {
         terms: q.terms,
         accepted_at: q.accepted_at,
         accepted_by_name: q.accepted_by_name,
+        pricing_display: q.pricing_display || 'itemised',
         company_name: companyName,
       },
       branding,
