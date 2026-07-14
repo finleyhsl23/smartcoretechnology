@@ -251,13 +251,14 @@ async function sendWelcomeWithInvoice(env, o, modules, today) {
     status:               'sent',
   };
 
-  await dbPost(env, '/marketplace_invoices', inv, false);
+  // Save invoice record best-effort — don't let a DB failure block the email
+  try { await dbPost(env, '/marketplace_invoices', inv, false); } catch (e) { console.error('invoice insert error:', e); }
 
   const pdfBase64 = buildInvoicePdf(inv, o, modules);
   const html      = welcomeHtml(o, modules, inv);
 
   const recipients = [...new Set([o.email, o.accounts_email].filter(Boolean))];
-  await fetch('https://api.resend.com/emails', {
+  const emailRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization:  `Bearer ${env.RESEND_API_KEY}`,
@@ -275,6 +276,11 @@ async function sendWelcomeWithInvoice(env, o, modules, today) {
       }],
     }),
   });
+  if (!emailRes.ok) {
+    const errText = await emailRes.text();
+    console.error('sendWelcomeWithInvoice Resend error:', errText);
+    throw new Error('Failed to send welcome email: ' + errText);
+  }
 }
 
 // ---------------------------------------------------------------------------
