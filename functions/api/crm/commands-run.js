@@ -217,7 +217,7 @@ export async function onRequestPost(context) {
               await fetch(`${SUPABASE_URL}/rest/v1/crm_leads?id=eq.${leadId}`, {
                 method: 'PATCH',
                 headers: { ...svcHdr, Prefer: 'return=minimal' },
-                body: JSON.stringify({ status: cfg.lead_status }),
+                body: JSON.stringify({ status: cfg.lead_status, pipeline_stage: cfg.lead_status }),
               });
             }
           }
