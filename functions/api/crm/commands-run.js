@@ -209,7 +209,7 @@ export async function onRequestPost(context) {
 
           const recipients = [...toAddresses].filter(Boolean);
           if (recipients.length) {
-            await sendEmail(resendKey, recipients, cfg.email_subject || 'SmartCore Notification', buildEmailHtml(cfg, ctx), cfg.email_reply_to);
+            await sendEmail(resendKey, recipients, fill(cfg.email_subject || 'SmartCore Notification'), buildEmailHtml(cfg, ctx), cfg.email_reply_to);
           }
         } else if (cmd.action_type === 'webhook') {
           if (cfg.webhook_url) {
