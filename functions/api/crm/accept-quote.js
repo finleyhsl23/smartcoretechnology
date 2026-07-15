@@ -210,7 +210,6 @@ export async function onRequestPost({ request, env }) {
     // Resolve assignee emails from core_employees
     const staffEmails = [];
     if (assigneeIds.size > 0) {
-      const idList = [...assigneeIds].map(id => `id=eq.${id}`).join('&or=');
       const empRes = await fetch(
         `${SUPABASE_URL}/rest/v1/core_employees?or=(${[...assigneeIds].map(id => `id.eq.${id}`).join(',')})&select=id,full_name,work_email&limit=20`,
         { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }

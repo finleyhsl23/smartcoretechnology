@@ -216,6 +216,27 @@ export async function onRequestPost({ request, env }) {
       return json({ error: `Email delivery failed: ${errMsg}` }, 500);
     }
 
+    // Fire quote_sent commands (non-blocking)
+    fetch(`${new URL(request.url).origin}/api/crm/commands-run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+      body: JSON.stringify({
+        tenant_id: tenantId,
+        trigger_type: 'quote_sent',
+        ctx: {
+          quote_id,
+          quote_number: q.quote_number || '',
+          quote_title: q.title || '',
+          quote_amount: `£${total.toFixed(2)}`,
+          company_id: q.crm_company_id || '',
+          company_name: coName,
+          contact_email,
+          contact_name: recipient_name || '',
+          lead_id: q.crm_lead_id || '',
+        },
+      }),
+    }).catch(() => {});
+
     // Persist token + status on quote
     await fetch(
       `${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${quote_id}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
