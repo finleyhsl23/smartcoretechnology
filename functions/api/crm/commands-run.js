@@ -73,11 +73,15 @@ h1{font-size:28px;font-weight:800;color:#f5f5f7;letter-spacing:-.04em;line-heigh
     <div class="tag">⚡ Automation</div>
     <h1>${esc(subject)}</h1>
     ${bodyText ? `<p class="content">${bodyText}</p>` : ''}
-    ${ctx.company_name || ctx.contact_name ? `
+    ${(ctx.company_name || ctx.contact_name || ctx.quote_number || ctx.quote_title || ctx.quote_amount || ctx.trigger_value) ? `
     <div class="section">
       <div class="section-label">Details</div>
+      ${ctx.quote_number ? `<div class="row"><span class="row-label">Quote Number</span><span class="row-val">${esc(ctx.quote_number)}</span></div>` : ''}
+      ${ctx.quote_title ? `<div class="row"><span class="row-label">Quote Title</span><span class="row-val">${esc(ctx.quote_title)}</span></div>` : ''}
+      ${ctx.quote_amount ? `<div class="row"><span class="row-label">Amount</span><span class="row-val">${esc(ctx.quote_amount)}</span></div>` : ''}
       ${ctx.company_name ? `<div class="row"><span class="row-label">Company</span><span class="row-val">${esc(ctx.company_name)}</span></div>` : ''}
-      ${ctx.contact_name ? `<div class="row"><span class="row-label">Contact</span><span class="row-val">${esc(ctx.contact_name)}</span></div>` : ''}
+      ${ctx.contact_name ? `<div class="row"><span class="row-label">Accepted By</span><span class="row-val">${esc(ctx.contact_name)}</span></div>` : ''}
+      ${ctx.contact_email ? `<div class="row"><span class="row-label">Contact Email</span><span class="row-val">${esc(ctx.contact_email)}</span></div>` : ''}
       ${ctx.trigger_value ? `<div class="row"><span class="row-label">Status / Value</span><span class="row-val">${esc(ctx.trigger_value)}</span></div>` : ''}
     </div>` : ''}
     <a href="${SITE}/systems/crm/" class="cta-btn">Open SmartCore CRM →</a>
