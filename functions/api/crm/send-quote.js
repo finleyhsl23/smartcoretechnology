@@ -128,16 +128,15 @@ export async function onRequestPost({ request, env }) {
       `<div style="background-color:${secondaryColor};padding:24px 16px">`,
       `<div style="max-width:600px;margin:0 auto">`,
 
-      // Logo row
-      `<div style="text-align:center;padding-bottom:20px">`,
+      // Intro card — logo sits inside the dark background at top
+      `<div style="margin-bottom:20px">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background:#ffffff;border-radius:12px;overflow:hidden">`,
+      // Logo header on dark background
+      `<tr><td bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:20px 28px;text-align:center">`,
       logoUrl
         ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:inline-block;max-height:44px"/>`
         : `<div style="font-size:20px;font-weight:800;color:#ffffff">${esc(issuerName)}</div>`,
-      `</div>`,
-
-      // Intro card
-      `<div style="margin-bottom:20px">`,
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background:#ffffff;border-radius:12px">`,
+      `</td></tr>`,
       `<tr><td style="padding:28px 32px">`,
       `<h1 style="margin:0 0 6px;font-size:20px;font-weight:800;color:#1a1a2e">You have a new quote</h1>`,
       `<p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.7">`,
@@ -177,8 +176,7 @@ export async function onRequestPost({ request, env }) {
       `Or paste this link in your browser:<br/>`,
       `<a href="${acceptUrl}" style="color:${primaryColor};word-break:break-all;font-size:11px">${acceptUrl}</a>`,
       `</td></tr>`,
-      `</table>`,
-      `</table>`,
+      `</td></tr></table>`,
       `</div>`,
 
       // Quote summary card
