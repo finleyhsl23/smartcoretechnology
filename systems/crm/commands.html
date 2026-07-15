@@ -138,7 +138,7 @@ import { getStages } from "/systems/crm/shared/api.js?v=2";
 
 initTheme();
 
-let profile, tier, commands = [], _editingId = null;
+let profile, tier, commands = [], _editingId = null, _stages = [];
 
 // ── Option definitions ──────────────────────────────────────────────────────
 const TRIGGERS = [
@@ -247,6 +247,7 @@ try {
   initSupport(tier);
   initTopbar(profile);
   await loadStatusLabels(profile.company_id);
+  _stages = await getStages();
   await loadCommands();
 } catch(e) { if (!e.message?.includes("CRM not enabled")) toast("bad","Error",e.message); }
 
@@ -445,6 +446,9 @@ function render() {
             const trig = TRIGGERS.find(t => t.value === c.trigger_type) || {};
             const act  = ACTIONS.find(a => a.value === c.action_type)   || {};
             const cfg  = c.action_config || {};
+            const trigValueLabel = c.trigger_value
+              ? (_stages.find(s => s.key === c.trigger_value)?.name || getLeadStatuses().find(s => s.value === c.trigger_value)?.label || getCompanyStatuses().find(s => s.value === c.trigger_value)?.label || c.trigger_value)
+              : null;
             return `<div class="cmd-card${c.is_active?"":" inactive"}">
               <div class="cmd-top">
                 <div class="cmd-icon">${trig.icon||"⚡"}</div>
@@ -452,7 +456,7 @@ function render() {
                   <div class="cmd-name">${esc(c.name)}</div>
                   <div class="cmd-desc">
                     <span class="pill pill-blue">${trig.label||c.trigger_type}</span>
-                    ${c.trigger_value ? `<span class="pill pill-amber" style="margin-left:4px">= ${esc(c.trigger_value)}</span>` : ""}
+                    ${trigValueLabel ? `<span class="pill pill-amber" style="margin-left:4px">= ${esc(trigValueLabel)}</span>` : ""}
                     <span style="color:var(--text-dim);margin:0 6px">→</span>
                     <span class="pill pill-green">${act.icon||""} ${act.label||c.action_type}</span>
                     ${cfg.email_subject ? `<div style="margin-top:5px;font-size:11px;color:var(--text-dim)">Subject: ${esc(cfg.email_subject)}</div>` : ""}

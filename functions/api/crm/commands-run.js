@@ -82,7 +82,7 @@ h1{font-size:28px;font-weight:800;color:#f5f5f7;letter-spacing:-.04em;line-heigh
       ${ctx.company_name ? `<div class="row"><span class="row-label">Company</span><span class="row-val">${esc(ctx.company_name)}</span></div>` : ''}
       ${ctx.contact_name ? `<div class="row"><span class="row-label">Accepted By</span><span class="row-val">${esc(ctx.contact_name)}</span></div>` : ''}
       ${ctx.contact_email ? `<div class="row"><span class="row-label">Contact Email</span><span class="row-val">${esc(ctx.contact_email)}</span></div>` : ''}
-      ${ctx.trigger_value ? `<div class="row"><span class="row-label">Status / Value</span><span class="row-val">${esc(ctx.trigger_value)}</span></div>` : ''}
+      ${(ctx.trigger_label || ctx.trigger_value) ? `<div class="row"><span class="row-label">Status / Value</span><span class="row-val">${esc(ctx.trigger_label || ctx.trigger_value)}</span></div>` : ''}
     </div>` : ''}
     <a href="${SITE}/systems/crm/" class="cta-btn">Open SmartCore CRM →</a>
     <div class="divider"></div>
@@ -132,6 +132,41 @@ export async function onRequestPost(context) {
 
     const resendKey = env.RESEND_SMARTCORE_SHOP || env.RESEND_API_KEY;
     let ran = 0;
+
+    // ── Enrich trigger context ──────────────────────────────────
+    // Resolve stage key → human name
+    let stages = [];
+    try {
+      const stgRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_settings?tenant_id=eq.${tenant_id}&select=pipeline_stages&limit=1`, { headers: svcHdr });
+      const stgData = await stgRes.json().catch(() => []);
+      stages = Array.isArray(stgData) && stgData[0]?.pipeline_stages ? stgData[0].pipeline_stages : [];
+    } catch(_) {}
+    function resolveStage(key) {
+      if (!key) return key;
+      const s = stages.find(s => s.key === key);
+      return s?.name || key;
+    }
+    // Add readable label for the trigger value
+    if (trigger_value) triggerCtx.trigger_label = resolveStage(trigger_value);
+
+    // If a lead is linked but no quote details yet, look up the most recent linked quote
+    if (triggerCtx.lead_id && !triggerCtx.quote_number) {
+      try {
+        const qRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/crm_quotes?crm_lead_id=eq.${triggerCtx.lead_id}&select=id,quote_number,title,total&order=created_at.desc&limit=1`,
+          { headers: svcHdr }
+        );
+        const qData = await qRes.json().catch(() => []);
+        if (Array.isArray(qData) && qData[0]) {
+          const q = qData[0];
+          triggerCtx.quote_id     = triggerCtx.quote_id     || q.id        || '';
+          triggerCtx.quote_number = triggerCtx.quote_number || q.quote_number || '';
+          triggerCtx.quote_title  = triggerCtx.quote_title  || q.title      || '';
+          triggerCtx.quote_amount = triggerCtx.quote_amount || (q.total ? `£${Number(q.total).toFixed(2)}` : '');
+        }
+      } catch(_) {}
+    }
+    // ── End enrichment ──────────────────────────────────────────
 
     for (const cmd of commands) {
       // Check trigger value matches (if set)
