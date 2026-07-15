@@ -195,7 +195,7 @@ export async function onRequestPost({ request, env }) {
       company_name:  coName,
       lead_id:       q.crm_lead_id || '',
     };
-    fetch('https://smartcoretechnology.co.uk/api/crm/commands-run', {
+    await fetch('https://smartcoretechnology.co.uk/api/crm/commands-run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
       body: JSON.stringify({ tenant_id: tenantId, trigger_type: 'quote_accepted', ctx: cmdCtx }),
