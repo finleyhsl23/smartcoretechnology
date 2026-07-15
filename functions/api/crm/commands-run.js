@@ -35,11 +35,11 @@ function buildEmailHtml(config, ctx) {
   const bodyText = fill(config.email_body || '');
   const preheader = fill(config.email_preheader || subject);
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!DOCTYPE html><html lang="en" bgcolor="#06060e"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(subject)}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#06060e;font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;color:#e0e0ea;-webkit-font-smoothing:antialiased}
+body{background:#06060e;font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;color:#e0e0ea;-webkit-font-smoothing:antialiased;margin:0;padding:0}
 .wrap{max-width:600px;margin:32px auto;border-radius:24px;overflow:hidden;border:1px solid rgba(255,255,255,.08);box-shadow:0 32px 80px rgba(0,0,0,.7)}
 .hdr{background:linear-gradient(135deg,#0b0b18 0%,#0f1529 60%,#0c1220 100%);padding:32px 40px;border-bottom:1px solid rgba(255,255,255,.07)}
 .logo{display:inline-flex;align-items:center;gap:12px}
@@ -60,7 +60,7 @@ h1{font-size:28px;font-weight:800;color:#f5f5f7;letter-spacing:-.04em;line-heigh
 .small{font-size:12px;color:#52526e;line-height:1.7}
 .ftr{padding:28px 40px;background:#09090f;border-top:1px solid rgba(255,255,255,.06);font-size:12px;color:#52526e;text-align:center;line-height:2}
 .ftr a{color:#5b8fff;text-decoration:none}
-</style></head><body>
+</style></head><body bgcolor="#06060e" style="background:#06060e;margin:0;padding:0">
 <div style="display:none;max-height:0;overflow:hidden;font-size:0">${esc(preheader)}</div>
 <div class="wrap">
   <div class="hdr">
