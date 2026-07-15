@@ -102,15 +102,15 @@ export async function onRequestPost({ request, env }) {
       const lineTotal = Number(li.total || ((li.qty || 1) * (li.unit_price || 0)));
       if (pd === 'itemised') {
         return `<tr>
-          <td style="padding:9px 12px;border-bottom:1px solid rgba(255,255,255,0.07);font-size:13px;color:rgba(255,255,255,0.8)">${esc(li.description || '')}</td>
-          <td style="padding:9px 12px;border-bottom:1px solid rgba(255,255,255,0.07);font-size:13px;text-align:center;color:rgba(255,255,255,0.8)">${li.qty || 1}</td>
-          <td style="padding:9px 12px;border-bottom:1px solid rgba(255,255,255,0.07);font-size:13px;text-align:right;color:rgba(255,255,255,0.8)">&#163;${Number(li.unit_price || 0).toFixed(2)}</td>
-          <td style="padding:9px 12px;border-bottom:1px solid rgba(255,255,255,0.07);font-size:13px;text-align:right;font-weight:600;color:#ffffff">&#163;${lineTotal.toFixed(2)}</td>
+          <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#374151">${esc(li.description || '')}</td>
+          <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:center;color:#374151">${li.qty || 1}</td>
+          <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;color:#374151">&#163;${Number(li.unit_price || 0).toFixed(2)}</td>
+          <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;font-weight:600;color:#1a1a2e">&#163;${lineTotal.toFixed(2)}</td>
         </tr>`;
       }
       return `<tr>
-        <td style="padding:9px 12px;border-bottom:1px solid rgba(255,255,255,0.07);font-size:13px;color:rgba(255,255,255,0.8)">${esc(li.description || '')}</td>
-        <td style="padding:9px 12px;border-bottom:1px solid rgba(255,255,255,0.07);font-size:13px;text-align:center;color:rgba(255,255,255,0.8)">${li.qty || 1}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#374151">${esc(li.description || '')}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:center;color:#374151">${li.qty || 1}</td>
       </tr>`;
     }).join('');
 
@@ -138,10 +138,10 @@ export async function onRequestPost({ request, env }) {
 
       // Intro card
       `<tr><td bgcolor="${secondaryColor}" style="padding:0 16px 20px;background:${secondaryColor}">`,
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${secondaryColor}" style="background:${secondaryColor};border-radius:12px;border:1px solid rgba(255,255,255,0.08)">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background:#ffffff;border-radius:12px">`,
       `<tr><td style="padding:28px 32px">`,
-      `<h1 style="margin:0 0 6px;font-size:20px;font-weight:800;color:#ffffff">You have a new quote</h1>`,
-      `<p style="margin:0 0 24px;font-size:14px;color:rgba(255,255,255,0.65);line-height:1.7">`,
+      `<h1 style="margin:0 0 6px;font-size:20px;font-weight:800;color:#1a1a2e">You have a new quote</h1>`,
+      `<p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.7">`,
       `Hi ${esc(recipient_name || coName || 'there')},<br/><br/>`,
       `${esc(issuerName)} has prepared a quote for you. Click the button below to review the full details and sign it online.`,
       `</p>`,
@@ -149,14 +149,14 @@ export async function onRequestPost({ request, env }) {
       // Stats table
       `<table width="100%" cellpadding="0" cellspacing="0" border="0">`,
       `<tr>`,
-      `<td width="48%" style="background:rgba(255,255,255,0.07);border-radius:8px;padding:14px 16px">`,
-      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,0.5);font-weight:700;margin-bottom:4px">Quote Reference</div>`,
-      `<div style="font-size:18px;font-weight:800;color:#ffffff">${esc(q.quote_number || '')}</div>`,
+      `<td width="48%" bgcolor="#f8f9fc" style="background:#f8f9fc;border-radius:8px;padding:14px 16px">`,
+      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:4px">Quote Reference</div>`,
+      `<div style="font-size:18px;font-weight:800;color:#1a1a2e">${esc(q.quote_number || '')}</div>`,
       `</td>`,
       `<td width="4%"></td>`,
-      `<td width="48%" style="background:rgba(255,255,255,0.07);border-radius:8px;padding:14px 16px">`,
-      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,0.5);font-weight:700;margin-bottom:4px">Total Value</div>`,
-      `<div style="font-size:18px;font-weight:800;color:#ffffff">&#163;${total.toFixed(2)}</div>`,
+      `<td width="48%" bgcolor="#f8f9fc" style="background:#f8f9fc;border-radius:8px;padding:14px 16px">`,
+      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:4px">Total Value</div>`,
+      `<div style="font-size:18px;font-weight:800;color:#1a1a2e">&#163;${total.toFixed(2)}</div>`,
       `</td>`,
       `</tr>`,
       expiryStr ? [
@@ -174,7 +174,7 @@ export async function onRequestPost({ request, env }) {
       `Review &amp; Sign Quote &#8594;`,
       `</a>`,
       `</td></tr>`,
-      `<tr><td align="center" style="padding-top:10px;font-size:11px;color:#9ca3af">`,
+      `<tr><td align="center" style="padding-top:10px;font-size:11px;color:#6b7280">`,
       `Or paste this link in your browser:<br/>`,
       `<a href="${acceptUrl}" style="color:${primaryColor};word-break:break-all;font-size:11px">${acceptUrl}</a>`,
       `</td></tr>`,
@@ -184,15 +184,15 @@ export async function onRequestPost({ request, env }) {
 
       // Quote summary card
       `<tr><td bgcolor="${secondaryColor}" style="padding:0 16px 20px;background:${secondaryColor}">`,
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${secondaryColor}" style="background:${secondaryColor};border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.08)">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background:#ffffff;border-radius:12px;overflow:hidden">`,
       // Dark header
-      `<tr><td style="background:${secondaryColor};padding:22px 28px">`,
-      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:rgba(255,255,255,.55);margin-bottom:4px">Quote Summary</div>`,
+      `<tr><td bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:22px 28px">`,
+      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#9ca3af;margin-bottom:4px">Quote Summary</div>`,
       `<div style="font-size:22px;font-weight:900;color:#ffffff">${esc(q.quote_number || '')}</div>`,
-      q.title ? `<div style="font-size:13px;color:rgba(255,255,255,.7);margin-top:2px">${esc(q.title)}</div>` : '',
+      q.title ? `<div style="font-size:13px;color:#d1d5db;margin-top:2px">${esc(q.title)}</div>` : '',
       `</td></tr>`,
       // Line items (hidden for total_only)
-      `<tr><td bgcolor="${secondaryColor}" style="padding:20px 28px;background:${secondaryColor}">`,
+      `<tr><td bgcolor="#ffffff" style="padding:20px 28px;background:#ffffff">`,
       pd !== 'total_only' ? [
         `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">`,
         `<tr style="background:${primaryColor}">`,
@@ -201,25 +201,25 @@ export async function onRequestPost({ request, env }) {
         pd === 'itemised' ? `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:right;width:88px">Unit</th>` : '',
         pd === 'itemised' ? `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:right;width:88px">Total</th>` : '',
         `</tr>`,
-        lineRows || `<tr><td colspan="${pd === 'itemised' ? 4 : 2}" style="padding:14px;text-align:center;color:rgba(255,255,255,0.4);font-size:13px">No line items</td></tr>`,
+        lineRows || `<tr><td colspan="${pd === 'itemised' ? 4 : 2}" style="padding:14px;text-align:center;color:#9ca3af;font-size:13px">No line items</td></tr>`,
         `</table>`,
       ].join('') : '',
       // Totals
       `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px">`,
       `<tr><td align="right">`,
-      `<table cellpadding="0" cellspacing="0" border="0" style="border:1px solid rgba(255,255,255,0.12);border-radius:8px;overflow:hidden;min-width:230px">`,
-      pd === 'itemised' ? `<tr><td style="padding:9px 16px;border-bottom:1px solid rgba(255,255,255,0.1);font-size:13px;color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.05)"><span>Subtotal</span><span style="float:right">&#163;${(sub || total).toFixed(2)}</span></td></tr>` : '',
-      pd === 'itemised' && disc > 0 ? `<tr><td style="padding:9px 16px;border-bottom:1px solid rgba(255,255,255,0.1);font-size:13px;color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.05)"><span>Discount</span><span style="float:right">-&#163;${disc.toFixed(2)}</span></td></tr>` : '',
+      `<table cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;min-width:230px">`,
+      pd === 'itemised' ? `<tr><td style="padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151"><span>Subtotal</span><span style="float:right">&#163;${(sub || total).toFixed(2)}</span></td></tr>` : '',
+      pd === 'itemised' && disc > 0 ? `<tr><td style="padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151"><span>Discount</span><span style="float:right">-&#163;${disc.toFixed(2)}</span></td></tr>` : '',
       pd !== 'desc_only' ? `<tr><td style="padding:11px 16px;background:${primaryColor};color:#ffffff;font-weight:800;font-size:15px"><span>TOTAL</span><span style="float:right">&#163;${total.toFixed(2)}</span></td></tr>` : '',
       `</table></td></tr></table>`,
       // Notes + Terms
-      q.notes ? `<div style="margin-top:16px;background:rgba(255,255,255,0.06);border-radius:8px;padding:14px;border:1px solid rgba(255,255,255,0.08)"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,0.45);font-weight:700;margin-bottom:5px">Notes</div><div style="font-size:13px;color:rgba(255,255,255,0.75);line-height:1.6;white-space:pre-wrap">${esc(q.notes)}</div></div>` : '',
-      `<div style="margin-top:12px;background:rgba(255,255,255,0.06);border-radius:8px;padding:14px;border:1px solid rgba(255,255,255,0.08)"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,0.45);font-weight:700;margin-bottom:5px">Terms &amp; Conditions</div><div style="font-size:13px;color:rgba(255,255,255,0.75);line-height:1.6;white-space:pre-wrap">${esc(q.terms || 'Payment due within 30 days.')}</div></div>`,
+      q.notes ? `<div style="margin-top:16px;background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Notes</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">${esc(q.notes)}</div></div>` : '',
+      `<div style="margin-top:12px;background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Terms &amp; Conditions</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">${esc(q.terms || 'Payment due within 30 days.')}</div></div>`,
       `</td></tr>`,
       `</table></td></tr>`,
 
       // Footer
-      `<tr><td align="center" bgcolor="${secondaryColor}" style="padding:0 16px 32px;font-size:11px;color:rgba(255,255,255,0.4);background:${secondaryColor}">`,
+      `<tr><td align="center" bgcolor="${secondaryColor}" style="padding:0 16px 32px;font-size:11px;color:#9ca3af;background:${secondaryColor}">`,
       `This email was sent by ${esc(issuerName)}. Quote ${esc(q.quote_number || '')}.`,
       `</td></tr>`,
 
