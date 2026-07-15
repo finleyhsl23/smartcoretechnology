@@ -122,10 +122,11 @@ export async function onRequestPost({ request, env }) {
       '<meta charset="utf-8"/>',
       '<meta name="viewport" content="width=device-width,initial-scale=1"/>',
       `<title>${esc(emailSubject)}</title>`,
+      `<style>body,html,u+.body,.gmail-fix{background:${secondaryColor}!important}div[style*="margin: 16px 0"]{margin:0!important}</style>`,
       '</head>',
-      `<body bgcolor="${secondaryColor}" style="margin:0;padding:0;background:${secondaryColor};font-family:Arial,Helvetica,sans-serif">`,
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${secondaryColor};padding:24px 0">`,
-      `<tr><td align="center">`,
+      `<body class="gmail-fix" bgcolor="${secondaryColor}" style="margin:0;padding:0;background:${secondaryColor}!important;font-family:Arial,Helvetica,sans-serif">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:24px 0">`,
+      `<tr><td align="center" bgcolor="${secondaryColor}" style="background:${secondaryColor}">`,
       `<table width="620" cellpadding="0" cellspacing="0" border="0" style="max-width:620px;width:100%">`,
 
       // Logo row
