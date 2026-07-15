@@ -163,10 +163,11 @@ const TRIGGERS = [
 ];
 
 const ACTIONS = [
-  { value:"send_email",   icon:"📧", label:"Send an email",      desc:"Send a branded email to a customer, contact, or your team" },
-  { value:"notify_team",  icon:"🔔", label:"Notify your team",   desc:"Send an internal email notification to all staff members" },
-  { value:"create_task",  icon:"✅", label:"Create a task",      desc:"Automatically create a follow-up task linked to the record" },
-  { value:"add_note",     icon:"📝", label:"Add a note",         desc:"Add an internal note to the company or lead record" },
+  { value:"send_email",      icon:"📧", label:"Send an email",       desc:"Send a branded email to a customer, contact, or your team" },
+  { value:"notify_team",     icon:"🔔", label:"Notify your team",    desc:"Send an internal email notification to all staff members" },
+  { value:"create_task",     icon:"✅", label:"Create a task",       desc:"Automatically create a follow-up task linked to the record" },
+  { value:"add_note",        icon:"📝", label:"Add a note",          desc:"Add an internal note to the company or lead record" },
+  { value:"set_lead_status", icon:"🎯", label:"Set lead status",     desc:"Move the lead to a specific pipeline stage automatically" },
 ];
 
 
@@ -230,9 +231,11 @@ document.addEventListener("click", e => {
 });
 
 function updateActionFields(action) {
-  document.getElementById("emailFields").style.display   = (action === "send_email" || action === "notify_team") ? "" : "none";
-  document.getElementById("taskFields").style.display    = action === "create_task" ? "" : "none";
-  document.getElementById("noteFields").style.display    = action === "add_note"    ? "" : "none";
+  document.getElementById("emailFields").style.display        = (action === "send_email" || action === "notify_team") ? "" : "none";
+  document.getElementById("taskFields").style.display         = action === "create_task"     ? "" : "none";
+  document.getElementById("noteFields").style.display         = action === "add_note"        ? "" : "none";
+  document.getElementById("setLeadStatusFields").style.display = action === "set_lead_status" ? "" : "none";
+  if (action === "set_lead_status") populateLeadStatusPicker();
 }
 
 // ── Main load/render ─────────────────────────────────────────────────────────
@@ -407,6 +410,19 @@ function render() {
                   <span class="insert-pill" onclick="insertInto('noteContent','{{contact_name}}')">+ Contact Name</span>
                   <span class="insert-pill" onclick="insertInto('noteContent','{{status}}')">+ Status</span>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Set lead status fields -->
+          <div id="setLeadStatusFields" style="display:none">
+            <div class="action-section">
+              <div class="field">
+                <label>Set lead to this stage</label>
+                <select id="leadStatusTarget" style="width:100%;background:var(--bg);border:1px solid var(--line2);border-radius:10px;padding:10px 13px;color:var(--text);font-size:14px;font-family:inherit;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none">
+                  <option value="">Loading stages…</option>
+                </select>
+                <div class="hint">The lead linked to the trigger will be moved to this stage.</div>
               </div>
             </div>
           </div>
@@ -610,6 +626,14 @@ window.setCsel = (id, value, label, icon) => {
 
 window.updateTriggerValueField = updateTriggerValueField;
 
+async function populateLeadStatusPicker(selectedValue = "") {
+  const sel = document.getElementById("leadStatusTarget");
+  if (!sel) return;
+  const stages = await getStages();
+  sel.innerHTML = `<option value="">— Choose a stage —</option>`
+    + stages.map(s => `<option value="${esc(s.key)}"${selectedValue === s.key ? " selected" : ""}>${s.parent ? "↳ " : ""}${esc(s.name)}</option>`).join("");
+}
+
 window.editCommand = async (id) => {
   const cmd = commands.find(c => c.id === id);
   if (!cmd) return;
@@ -677,6 +701,11 @@ window.editCommand = async (id) => {
   if (cmd.action_type === "add_note") {
     document.getElementById("noteContent").value = cfg.note_content || "";
   }
+
+  // Set lead status fields
+  if (cmd.action_type === "set_lead_status") {
+    await populateLeadStatusPicker(cfg.lead_status || "");
+  }
 };
 
 window.cancelEdit = () => {
@@ -697,6 +726,7 @@ window.cancelEdit = () => {
   document.getElementById("emailFields").style.display = "none";
   document.getElementById("taskFields").style.display  = "none";
   document.getElementById("noteFields").style.display  = "none";
+  document.getElementById("setLeadStatusFields").style.display = "none";
   document.getElementById("companyScope").value = "all";
   document.getElementById("companyFilterWrap").style.display = "none";
   document.getElementById("companyFilterBadge").style.display = "none";
@@ -743,6 +773,12 @@ window.saveCommand = async () => {
     const noteContent = document.getElementById("noteContent")?.value.trim();
     if (!noteContent) { toast("bad","Missing","Please enter the note content."); return; }
     actionConfig.note_content = noteContent;
+  }
+
+  if (actionType === "set_lead_status") {
+    const leadStatusTarget = document.getElementById("leadStatusTarget")?.value;
+    if (!leadStatusTarget) { toast("bad","Missing","Please choose a lead stage to set."); return; }
+    actionConfig.lead_status = leadStatusTarget;
   }
 
   const btn = document.getElementById("saveCmd");

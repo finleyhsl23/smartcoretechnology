@@ -204,6 +204,14 @@ export async function onRequestPost(context) {
               priority: 'medium',
             }),
           });
+        } else if (cmd.action_type === 'set_lead_status') {
+          if (cfg.lead_status && triggerCtx.lead_id) {
+            await fetch(`${SUPABASE_URL}/rest/v1/crm_leads?id=eq.${triggerCtx.lead_id}`, {
+              method: 'PATCH',
+              headers: { ...svcHdr, Prefer: 'return=minimal' },
+              body: JSON.stringify({ status: cfg.lead_status }),
+            });
+          }
         } else if (cmd.action_type === 'add_note') {
           const ctx = { ...triggerCtx, trigger_value };
           function fill(s) { return (s||'').replace(/\{\{(\w+)\}\}/g, (_, k) => String(ctx[k] ?? '')); }
