@@ -137,7 +137,7 @@ export async function onRequestPost({ request, env }) {
       `<tr><td bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:16px 16px 16px">`,
       `<table width="100%" cellpadding="0" cellspacing="0" border="0">`,
       `<tr><td bgcolor="#ffffff" style="background:#ffffff;border-radius:12px;padding:28px 28px 24px">`,
-      logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="max-height:44px;margin:0 0 20px 0"/>` : `<div style="font-size:18px;font-weight:800;color:#1a1a2e;margin-bottom:20px">${esc(issuerName)}</div>`,
+      logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:block;border:0;outline:none;max-height:44px;margin:0 0 20px 0"/>` : `<div style="font-size:18px;font-weight:800;color:#1a1a2e;margin-bottom:20px">${esc(issuerName)}</div>`,
       `<h1 style="margin:0 0 6px;font-size:20px;font-weight:800;color:#1a1a2e">You have a new quote</h1>`,
       `<p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.7">Hi ${esc(recipient_name || coName || 'there')},<br/><br/>${esc(issuerName)} has prepared a quote for you. Click the button below to review the full details and sign it online.</p>`,
       `<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>`,
