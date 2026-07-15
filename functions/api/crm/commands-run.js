@@ -26,11 +26,15 @@ async function sendEmail(key, to, subject, html, replyTo) {
   return r.ok;
 }
 
+// Single shared fill factory — avoids duplicate function declarations
+function makeFill(ctx, escFn) {
+  return function fill(str) {
+    return (str || '').replace(/\{\{(\w+)\}\}/g, (_, k) => escFn ? esc(ctx[k] ?? '') : String(ctx[k] ?? ''));
+  };
+}
+
 function buildEmailHtml(config, ctx) {
-  // Replace {{field}} tokens from context
-  function fill(str) {
-    return (str || '').replace(/\{\{(\w+)\}\}/g, (_, k) => esc(ctx[k] ?? `{{${k}}}`));
-  }
+  const fill = makeFill(ctx, true);
   const subject = fill(config.email_subject || 'SmartCore Notification');
   const bodyText = fill(config.email_body || '');
   const preheader = fill(config.email_preheader || subject);
@@ -169,13 +173,13 @@ export async function onRequestPost(context) {
     // ── End enrichment ──────────────────────────────────────────
 
     for (const cmd of commands) {
-      // Check trigger value matches (if set)
-      if (cmd.trigger_value && trigger_value && cmd.trigger_value !== trigger_value) continue;
-      if (cmd.trigger_field && trigger_field && cmd.trigger_field !== trigger_field) continue;
+      // Check trigger value matches (if set on the command, it must equal the incoming value)
+      if (cmd.trigger_value && cmd.trigger_value !== (trigger_value ?? '')) continue;
+      if (cmd.trigger_field && cmd.trigger_field !== (trigger_field ?? '')) continue;
 
-      // Check company filter (if set)
-      if (cmd.company_ids?.length && triggerCtx.company_id) {
-        if (!cmd.company_ids.includes(triggerCtx.company_id)) continue;
+      // Check company filter (if set, skip when company_id is missing or not in the list)
+      if (cmd.company_ids?.length) {
+        if (!triggerCtx.company_id || !cmd.company_ids.includes(triggerCtx.company_id)) continue;
       }
 
       const cfg = cmd.action_config || {};
@@ -184,7 +188,7 @@ export async function onRequestPost(context) {
       try {
         if (cmd.action_type === 'send_email' || cmd.action_type === 'notify_team') {
           const ctx = { ...triggerCtx, trigger_value };
-          function fill(s) { return (s||'').replace(/\{\{(\w+)\}\}/g, (_, k) => esc(ctx[k] ?? '')); }
+          const fill = makeFill(ctx, true);
 
           // Collect all recipient addresses
           const toAddresses = new Set();
@@ -194,10 +198,14 @@ export async function onRequestPost(context) {
             cfg.email_to_custom.split(',').map(s => s.trim()).filter(Boolean).forEach(a => toAddresses.add(a));
           }
 
-          // Customer email from context
+          // Customer email from context — try all likely fields
           if (cfg.send_to_customer) {
-            const customerEmail = triggerCtx.company_email || triggerCtx.contact_email;
-            if (customerEmail) toAddresses.add(customerEmail);
+            const customerEmail = triggerCtx.contact_email || triggerCtx.company_email || triggerCtx.email;
+            if (customerEmail) {
+              toAddresses.add(customerEmail);
+            } else {
+              console.warn('send_to_customer: no email found in context for command', cmd.id);
+            }
           }
 
           // Team emails — fetch from DB
@@ -210,6 +218,8 @@ export async function onRequestPost(context) {
           const recipients = [...toAddresses].filter(Boolean);
           if (recipients.length) {
             await sendEmail(resendKey, recipients, fill(cfg.email_subject || 'SmartCore Notification'), buildEmailHtml(cfg, ctx), cfg.email_reply_to);
+          } else {
+            console.warn('send_email: no recipients resolved for command', cmd.id);
           }
         } else if (cmd.action_type === 'webhook') {
           if (cfg.webhook_url) {
@@ -221,7 +231,7 @@ export async function onRequestPost(context) {
           }
         } else if (cmd.action_type === 'create_task') {
           const ctx = { ...triggerCtx, trigger_value };
-          function fill(s) { return (s||'').replace(/\{\{(\w+)\}\}/g, (_, k) => String(ctx[k] ?? '')); }
+          const fill = makeFill(ctx, false);
           const dueDate = cfg.task_due_days
             ? new Date(Date.now() + cfg.task_due_days * 86400000).toISOString().split('T')[0]
             : null;
@@ -254,11 +264,13 @@ export async function onRequestPost(context) {
                 headers: { ...svcHdr, Prefer: 'return=minimal' },
                 body: JSON.stringify({ status: cfg.lead_status, pipeline_stage: cfg.lead_status }),
               });
+            } else {
+              console.warn('set_lead_status: no lead_id found for command', cmd.id, '— ctx:', JSON.stringify({ lead_id: triggerCtx.lead_id, quote_id: triggerCtx.quote_id }));
             }
           }
         } else if (cmd.action_type === 'add_note') {
           const ctx = { ...triggerCtx, trigger_value };
-          function fill(s) { return (s||'').replace(/\{\{(\w+)\}\}/g, (_, k) => String(ctx[k] ?? '')); }
+          const fill = makeFill(ctx, false);
           await fetch(`${SUPABASE_URL}/rest/v1/crm_activities`, {
             method: 'POST',
             headers: { ...svcHdr, Prefer: 'return=minimal' },
