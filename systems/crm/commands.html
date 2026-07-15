@@ -137,7 +137,7 @@ import { getStages } from "/systems/crm/shared/api.js?v=2";
 
 initTheme();
 
-let profile, tier, commands = [];
+let profile, tier, commands = [], _editingId = null;
 
 // ── Option definitions ──────────────────────────────────────────────────────
 const TRIGGERS = [
@@ -260,7 +260,7 @@ function render() {
     <div class="cmd-grid">
       <div>
         <div class="cmd-form-card">
-          <h2>⚡ New Command</h2>
+          <h2 id="formTitle">⚡ New Command</h2>
 
           <div class="field">
             <label>Command name</label>
@@ -411,7 +411,10 @@ function render() {
             </div>
           </div>
 
-          <button class="btn-primary" id="saveCmd" onclick="saveCommand()">Create Command</button>
+          <div style="display:flex;gap:10px;align-items:center">
+            <button class="btn-primary" id="saveCmd" onclick="saveCommand()">Create Command</button>
+            <button id="cancelEditBtn" onclick="cancelEdit()" style="display:none;background:none;border:1px solid var(--line2);border-radius:10px;padding:10px 16px;font-size:13px;font-weight:600;color:var(--text-dim);cursor:pointer">Cancel</button>
+          </div>
         </div>
       </div>
 
@@ -441,6 +444,7 @@ function render() {
                 <div class="cmd-actions">
                   <button class="toggle-btn" onclick="runNow('${c.id}')" title="Run this command now manually" style="background:rgba(30,92,255,.1);border-color:rgba(30,92,255,.3);color:var(--blue)">▶ Run</button>
                   <button class="toggle-btn${c.is_active?" on":""}" onclick="toggleCommand('${c.id}',${!c.is_active})">${c.is_active?"On":"Off"}</button>
+                  <button class="toggle-btn" onclick="editCommand('${c.id}')" style="background:rgba(255,193,7,.1);border-color:rgba(255,193,7,.3);color:#ffc107">Edit</button>
                   <button class="del-btn" onclick="deleteCommand('${c.id}')">Delete</button>
                 </div>
               </div>
@@ -606,6 +610,99 @@ window.setCsel = (id, value, label, icon) => {
 
 window.updateTriggerValueField = updateTriggerValueField;
 
+window.editCommand = async (id) => {
+  const cmd = commands.find(c => c.id === id);
+  if (!cmd) return;
+  _editingId = id;
+
+  // Scroll form into view
+  document.querySelector(".cmd-form-card").scrollIntoView({ behavior: "smooth", block: "start" });
+
+  document.getElementById("formTitle").textContent = "✏️ Edit Command";
+  document.getElementById("saveCmd").textContent = "Save Changes";
+  document.getElementById("cancelEditBtn").style.display = "";
+
+  // Name
+  document.getElementById("cmdName").value = cmd.name || "";
+
+  // Trigger
+  const trig = TRIGGERS.find(t => t.value === cmd.trigger_type);
+  if (trig) setCsel("trigger", trig.value, trig.label, trig.icon || "");
+
+  // Trigger value — populate after stages load
+  await updateTriggerValueField(cmd.trigger_type, cmd.trigger_value || "");
+
+  // Company filter
+  const cfg = cmd.action_config || {};
+  const scope = cmd.company_ids?.length ? "specific" : "all";
+  document.getElementById("companyScope").value = scope;
+  if (scope === "specific") {
+    document.getElementById("companyFilterWrap").style.display = "";
+    document.getElementById("companyFilterBadge").style.display = "";
+    document.getElementById("companyFilterBadge").textContent = "Specific companies";
+    document.getElementById("companyFilterBtn").textContent = "Change Filter";
+    await loadCompanyCheckboxes();
+    if (cmd.company_ids) {
+      document.querySelectorAll('#companyCheckboxes input[type="checkbox"]').forEach(cb => {
+        cb.checked = cmd.company_ids.includes(cb.value);
+      });
+    }
+  }
+
+  // Action
+  const act = ACTIONS.find(a => a.value === cmd.action_type);
+  if (act) setCsel("action", act.value, act.label, act.icon || "");
+  updateActionFields(cmd.action_type);
+
+  // Email fields
+  if (cmd.action_type === "send_email" || cmd.action_type === "notify_team") {
+    document.getElementById("sendToCustom").checked    = !!cfg.send_to_custom;
+    document.getElementById("sendToTeam").checked      = !!cfg.send_to_team;
+    document.getElementById("sendToCustomer").checked  = !!cfg.send_to_customer;
+    document.getElementById("customEmailWrap").style.display = cfg.send_to_custom ? "" : "none";
+    document.getElementById("emailToCustom").value     = cfg.email_to_custom || "";
+    document.getElementById("emailReplyTo").value      = cfg.email_reply_to  || "";
+    document.getElementById("emailSubject").value      = cfg.email_subject   || "";
+    document.getElementById("emailBody").value         = cfg.email_body      || "";
+  }
+
+  // Task fields
+  if (cmd.action_type === "create_task") {
+    document.getElementById("taskTitle").value    = cfg.task_title    || "";
+    document.getElementById("taskDueDays").value  = cfg.task_due_days || "";
+    document.getElementById("taskNotes").value    = cfg.task_notes    || "";
+  }
+
+  // Note fields
+  if (cmd.action_type === "add_note") {
+    document.getElementById("noteContent").value = cfg.note_content || "";
+  }
+};
+
+window.cancelEdit = () => {
+  _editingId = null;
+  document.getElementById("formTitle").textContent = "⚡ New Command";
+  document.getElementById("saveCmd").textContent = "Create Command";
+  document.getElementById("cancelEditBtn").style.display = "none";
+  document.getElementById("cmdName").value = "";
+  // Reset selects
+  ["trigger","action"].forEach(id => {
+    const el = document.getElementById(`csel-${id}`);
+    el.dataset.value = "";
+    document.getElementById(`csel-label-${id}`).textContent = id === "trigger" ? "Choose a trigger…" : "Choose an action…";
+    document.getElementById(`csel-label-${id}`).style.color = "var(--text-dim)";
+    document.getElementById(`csel-icon-${id}`).style.display = "none";
+  });
+  document.getElementById("triggerValueWrap").style.display = "none";
+  document.getElementById("emailFields").style.display = "none";
+  document.getElementById("taskFields").style.display  = "none";
+  document.getElementById("noteFields").style.display  = "none";
+  document.getElementById("companyScope").value = "all";
+  document.getElementById("companyFilterWrap").style.display = "none";
+  document.getElementById("companyFilterBadge").style.display = "none";
+  document.getElementById("companyFilterBtn").textContent = "Use Company Filter?";
+};
+
 window.saveCommand = async () => {
   const name         = document.getElementById("cmdName")?.value.trim();
   const triggerType  = document.getElementById("csel-trigger")?.dataset.value;
@@ -658,22 +755,29 @@ window.saveCommand = async () => {
     if (!companyIds.length) { toast("bad","Missing","Select at least one company or choose 'All companies'."); return; }
   }
 
-  const { data: { user } } = await sb().auth.getUser();
-  const { error } = await sb().from("crm_commands").insert({
-    tenant_id:     profile.company_id,
-    created_by:    user.id,
+  const payload = {
     name,
     trigger_type:  triggerType,
     trigger_value: triggerValue || null,
     action_type:   actionType,
     action_config: actionConfig,
     company_ids:   companyIds,
-    is_active:     true,
-  });
+  };
 
-  btn.disabled = false; btn.textContent = "Create Command";
-  if (error) { toast("bad","Error", error.message); return; }
-  toast("ok","Command created","Your automation is now active.");
+  let error;
+  if (_editingId) {
+    ({ error } = await sb().from("crm_commands").update(payload).eq("id", _editingId));
+    btn.disabled = false; btn.textContent = "Save Changes";
+    if (error) { toast("bad","Error", error.message); return; }
+    toast("ok","Command updated","Your changes have been saved.");
+    cancelEdit();
+  } else {
+    const { data: { user } } = await sb().auth.getUser();
+    ({ error } = await sb().from("crm_commands").insert({ ...payload, tenant_id: profile.company_id, created_by: user.id, is_active: true }));
+    btn.disabled = false; btn.textContent = "Create Command";
+    if (error) { toast("bad","Error", error.message); return; }
+    toast("ok","Command created","Your automation is now active.");
+  }
   await loadCommands();
 };
 
