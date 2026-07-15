@@ -133,17 +133,11 @@ export async function onRequestPost({ request, env }) {
       // Inner centered 600px table
       `<table width="600" align="center" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%">`,
 
-      // ── Intro card (logo in dark header, content in white body) ──
+      // ── Intro card ──
       `<tr><td bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:16px 16px 16px">`,
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-radius:12px;overflow:hidden">`,
-      // Dark logo header — nested td so Gmail renders bgcolor correctly
-      `<tr><td bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:20px 28px;text-align:center">`,
-      logoUrl
-        ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="48" style="max-height:48px;margin:0 auto"/>`
-        : `<div style="font-size:20px;font-weight:800;color:#ffffff">${esc(issuerName)}</div>`,
-      `</td></tr>`,
-      // White content body
-      `<tr><td bgcolor="#ffffff" style="background:#ffffff;padding:28px 28px 24px">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0">`,
+      `<tr><td bgcolor="#ffffff" style="background:#ffffff;border-radius:12px;padding:28px 28px 24px">`,
+      logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="max-height:44px;margin:0 0 20px 0"/>` : `<div style="font-size:18px;font-weight:800;color:#1a1a2e;margin-bottom:20px">${esc(issuerName)}</div>`,
       `<h1 style="margin:0 0 6px;font-size:20px;font-weight:800;color:#1a1a2e">You have a new quote</h1>`,
       `<p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.7">Hi ${esc(recipient_name || coName || 'there')},<br/><br/>${esc(issuerName)} has prepared a quote for you. Click the button below to review the full details and sign it online.</p>`,
       `<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>`,
@@ -157,8 +151,7 @@ export async function onRequestPost({ request, env }) {
       `<tr><td align="center"><a href="${acceptUrl}" style="display:inline-block;background:${primaryColor};color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:15px 40px;border-radius:8px">Review &amp; Sign Quote &#8594;</a></td></tr>`,
       `<tr><td align="center" style="padding-top:10px;font-size:11px;color:#6b7280">Or paste this link in your browser:<br/><a href="${acceptUrl}" style="color:${primaryColor};word-break:break-all;font-size:11px">${acceptUrl}</a></td></tr>`,
       `</table>`,
-      `</td></tr>`,
-      `</table>`,
+      `</td></tr></table>`,
       `</td></tr>`,
 
       // ── Quote summary card ──
