@@ -205,12 +205,21 @@ export async function onRequestPost(context) {
             }),
           });
         } else if (cmd.action_type === 'set_lead_status') {
-          if (cfg.lead_status && triggerCtx.lead_id) {
-            await fetch(`${SUPABASE_URL}/rest/v1/crm_leads?id=eq.${triggerCtx.lead_id}`, {
-              method: 'PATCH',
-              headers: { ...svcHdr, Prefer: 'return=minimal' },
-              body: JSON.stringify({ status: cfg.lead_status }),
-            });
+          if (cfg.lead_status) {
+            let leadId = triggerCtx.lead_id;
+            // Fall back: look up lead_id from the linked quote if not in ctx
+            if (!leadId && triggerCtx.quote_id) {
+              const qr = await fetch(`${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${triggerCtx.quote_id}&select=crm_lead_id&limit=1`, { headers: svcHdr });
+              const qd = await qr.json().catch(() => []);
+              leadId = Array.isArray(qd) ? qd[0]?.crm_lead_id : null;
+            }
+            if (leadId) {
+              await fetch(`${SUPABASE_URL}/rest/v1/crm_leads?id=eq.${leadId}`, {
+                method: 'PATCH',
+                headers: { ...svcHdr, Prefer: 'return=minimal' },
+                body: JSON.stringify({ status: cfg.lead_status }),
+              });
+            }
           }
         } else if (cmd.action_type === 'add_note') {
           const ctx = { ...triggerCtx, trigger_value };
