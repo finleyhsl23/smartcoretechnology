@@ -133,6 +133,7 @@ import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, toast } from "/systems/crm/shared/ui.js?v=2";
 import { sb } from "/systems/crm/shared/supabase.js";
 import { loadStatusLabels, getCompanyStatuses, getLeadStatuses } from "/systems/crm/shared/statusLabels.js?v=2";
+import { getStages } from "/systems/crm/shared/api.js?v=2";
 
 initTheme();
 
@@ -568,7 +569,7 @@ const PROJECT_STATUSES = [
   { value: "cancelled", label: "Cancelled" },
 ];
 
-function updateTriggerValueField(trigger) {
+async function updateTriggerValueField(trigger, selectedValue) {
   const wrap  = document.getElementById("triggerValueWrap");
   const field = document.getElementById("triggerValueField");
   const hint  = document.getElementById("triggerValueHint");
@@ -579,15 +580,21 @@ function updateTriggerValueField(trigger) {
   if (!show) return;
 
   let statuses = null;
-  if (trigger === "company_status_changed") statuses = getCompanyStatuses();
-  else if (trigger === "lead_status_changed" || trigger === "deal_stage_changed") statuses = getLeadStatuses();
-  else if (trigger === "contact_status_changed") statuses = CONTACT_STATUSES;
-  else if (trigger === "project_status_changed") statuses = PROJECT_STATUSES;
+  if (trigger === "company_status_changed") {
+    statuses = getCompanyStatuses().map(s => ({ value: s.value, label: s.label }));
+  } else if (trigger === "lead_status_changed" || trigger === "deal_stage_changed") {
+    const stages = await getStages();
+    statuses = stages.map(s => ({ value: s.key, label: s.parent ? `↳ ${s.name}` : s.name }));
+  } else if (trigger === "contact_status_changed") {
+    statuses = CONTACT_STATUSES;
+  } else if (trigger === "project_status_changed") {
+    statuses = PROJECT_STATUSES;
+  }
 
   hint.textContent = "Leave blank to fire on any status change.";
   field.innerHTML = `<select id="triggerValue" style="width:100%;background:var(--bg);border:1px solid var(--line2);border-radius:10px;padding:10px 13px;color:var(--text);font-size:14px;font-family:inherit;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none">
     <option value="">— Any value (fire on all) —</option>
-    ${(statuses||[]).map(s => `<option value="${esc(s.value)}">${esc(s.label)}</option>`).join("")}
+    ${(statuses||[]).map(s => `<option value="${esc(s.value)}"${selectedValue === s.value ? " selected" : ""}>${esc(s.label)}</option>`).join("")}
   </select>`;
 }
 
@@ -596,6 +603,8 @@ window.setCsel = (id, value, label, icon) => {
   _origSetCsel(id, value, label, icon);
   if (id === "trigger") updateTriggerValueField(value);
 };
+
+window.updateTriggerValueField = updateTriggerValueField;
 
 window.saveCommand = async () => {
   const name         = document.getElementById("cmdName")?.value.trim();
