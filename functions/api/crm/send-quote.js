@@ -118,26 +118,25 @@ export async function onRequestPost({ request, env }) {
 
     const emailHtml = [
       '<!DOCTYPE html>',
-      `<html lang="en" bgcolor="${secondaryColor}" style="height:100%;background:${secondaryColor}"><head>`,
+      `<html lang="en"><head>`,
       '<meta charset="utf-8"/>',
       '<meta name="viewport" content="width=device-width,initial-scale=1"/>',
       `<title>${esc(emailSubject)}</title>`,
-      `<style>html,body,u+#body,u+.body{background:${secondaryColor}!important;height:100%!important}div[style*="margin: 16px 0"]{margin:0!important}</style>`,
+      `<style>*{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}body{margin:0!important;padding:0!important;background-color:${secondaryColor}!important}table{border-collapse:collapse}img{border:0;line-height:100%;outline:none;text-decoration:none}</style>`,
       '</head>',
-      `<body id="body" bgcolor="${secondaryColor}" style="margin:0;padding:0;height:100%;background:${secondaryColor}!important;font-family:Arial,Helvetica,sans-serif">`,
-      `<table width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${secondaryColor}" style="background:${secondaryColor};min-height:100%">`,
-      `<tr><td align="center" valign="top" bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:24px 0">`,
-      `<table width="620" cellpadding="0" cellspacing="0" border="0" bgcolor="${secondaryColor}" style="max-width:620px;width:100%;background:${secondaryColor}">`,
+      `<body style="margin:0;padding:0;background-color:${secondaryColor};font-family:Arial,Helvetica,sans-serif">`,
+      `<div style="background-color:${secondaryColor};padding:24px 16px">`,
+      `<div style="max-width:600px;margin:0 auto">`,
 
       // Logo row
-      `<tr><td align="center" bgcolor="${secondaryColor}" style="padding:0 16px 20px;background:${secondaryColor}">`,
+      `<div style="text-align:center;padding-bottom:20px">`,
       logoUrl
-        ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:block;max-height:44px"/>`
+        ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:inline-block;max-height:44px"/>`
         : `<div style="font-size:20px;font-weight:800;color:#ffffff">${esc(issuerName)}</div>`,
-      `</td></tr>`,
+      `</div>`,
 
       // Intro card
-      `<tr><td bgcolor="${secondaryColor}" style="padding:0 16px 20px;background:${secondaryColor}">`,
+      `<div style="margin-bottom:20px">`,
       `<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background:#ffffff;border-radius:12px">`,
       `<tr><td style="padding:28px 32px">`,
       `<h1 style="margin:0 0 6px;font-size:20px;font-weight:800;color:#1a1a2e">You have a new quote</h1>`,
@@ -179,11 +178,11 @@ export async function onRequestPost({ request, env }) {
       `<a href="${acceptUrl}" style="color:${primaryColor};word-break:break-all;font-size:11px">${acceptUrl}</a>`,
       `</td></tr>`,
       `</table>`,
-      `</td></tr></table>`,
-      `</td></tr>`,
+      `</table>`,
+      `</div>`,
 
       // Quote summary card
-      `<tr><td bgcolor="${secondaryColor}" style="padding:0 16px 20px;background:${secondaryColor}">`,
+      `<div style="margin-bottom:20px">`,
       `<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background:#ffffff;border-radius:12px;overflow:hidden">`,
       // Dark header
       `<tr><td bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:22px 28px">`,
@@ -216,14 +215,15 @@ export async function onRequestPost({ request, env }) {
       q.notes ? `<div style="margin-top:16px;background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Notes</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">${esc(q.notes)}</div></div>` : '',
       `<div style="margin-top:12px;background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Terms &amp; Conditions</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">${esc(q.terms || 'Payment due within 30 days.')}</div></div>`,
       `</td></tr>`,
-      `</table></td></tr>`,
+      `</table>`,
+      `</div>`,
 
       // Footer
-      `<tr><td align="center" bgcolor="${secondaryColor}" style="padding:0 16px 32px;font-size:11px;color:#9ca3af;background:${secondaryColor}">`,
+      `<div style="text-align:center;padding:8px 0 4px;font-size:11px;color:#9ca3af">`,
       `This email was sent by ${esc(issuerName)}. Quote ${esc(q.quote_number || '')}.`,
-      `</td></tr>`,
+      `</div>`,
 
-      `</table></td></tr></table>`,
+      `</div></div>`,
       `</body></html>`,
     ].join('\n');
 
