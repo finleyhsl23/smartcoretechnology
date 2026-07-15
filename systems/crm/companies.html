@@ -41,8 +41,10 @@ import { loadStatusLabels, getCompanyLabel, getCompanyStatuses } from "/systems/
 
 initTheme();
 
+const PAGE_SIZE = 1000;
 let profile, tier, allCompanies = [], staffList = [], currentCompany = null;
 let _statusFilter = "", _search = "", _dropOutsideHandler = null;
+let _offset = 0, _total = 0;
 
 try {
   ({ profile, tier } = await requireCRMAccess());
@@ -56,12 +58,44 @@ try {
 
 async function loadAndRender(search=_search, status=_statusFilter) {
   _search = search; _statusFilter = status;
+  _offset = 0; allCompanies = [];
   setInner("content", loading());
   try {
-    const res = await companies.list({ search, status, limit: 1000000000000 });
+    const res = await companies.list({ search, status, limit: PAGE_SIZE, offset: 0 });
+    _total = res.count;
     allCompanies = res.data;
     renderTable(allCompanies);
   } catch(e) { toast("bad","Load error", e.message); }
+}
+
+async function loadMore() {
+  _offset += PAGE_SIZE;
+  const btn = document.getElementById("loadMoreBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
+  try {
+    const res = await companies.list({ search: _search, status: _statusFilter, limit: PAGE_SIZE, offset: _offset });
+    allCompanies = allCompanies.concat(res.data);
+    const tbody = document.getElementById("tblBody");
+    if (tbody) tbody.insertAdjacentHTML("beforeend", res.data.map(c => companyRow(c)).join(""));
+    document.querySelectorAll(".view-btn").forEach(b => b.addEventListener("click", () => viewCompany(b.dataset.id)));
+    document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
+    document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteCompany(b.dataset.id, b.dataset.name)));
+    if (["business","enterprise"].includes(tier)) {
+      document.querySelectorAll(".row-cb").forEach(cb => cb.addEventListener("change", updateBulkBar));
+    }
+    updateLoadMore();
+  } catch(e) { toast("bad","Load error", e.message); }
+}
+
+function updateLoadMore() {
+  const wrap = document.getElementById("loadMoreWrap");
+  if (!wrap) return;
+  const loaded = allCompanies.length;
+  const countEl = document.querySelector(".page-header-left p");
+  if (countEl) countEl.textContent = loaded < _total ? `${loaded}+ company records` : `${loaded} company record${loaded !== 1 ? "s" : ""}`;
+  if (loaded >= _total) { wrap.innerHTML = ""; return; }
+  wrap.innerHTML = `<button class="btn btn-ghost" id="loadMoreBtn">Load More (${_total - loaded} remaining)</button>`;
+  document.getElementById("loadMoreBtn").addEventListener("click", loadMore);
 }
 
 function renderTable(rows) {
@@ -70,7 +104,7 @@ function renderTable(rows) {
     <div class="page-header">
       <div class="page-header-left">
         <h1>Companies</h1>
-        <p>${rows.length} company record${rows.length !== 1 ? "s" : ""}</p>
+        <p>${rows.length < _total ? `${rows.length}+ company records` : `${rows.length} company record${rows.length !== 1 ? "s" : ""}`}</p>
       </div>
       <div class="page-header-actions">
         <button class="btn btn-primary" id="addBtn">+ Add Company</button>
@@ -118,6 +152,7 @@ function renderTable(rows) {
         </table>
       </div>
     </div>
+    <div id="loadMoreWrap" style="text-align:center;padding:16px 0"></div>
     ${["business","enterprise"].includes(tier) ? `
     <div id="bulkBar" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--card,#1a1a2e);border:1px solid var(--line,rgba(255,255,255,.15));border-radius:14px;padding:12px 20px;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);z-index:1000;min-width:420px">
       <span id="bulkCount" style="font-size:13px;font-weight:600;color:var(--text-dim)">0 selected</span>
@@ -140,6 +175,7 @@ function renderTable(rows) {
   document.querySelectorAll(".edit-btn").forEach(btn => btn.addEventListener("click", () => openModal(btn.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(btn => btn.addEventListener("click", () => deleteCompany(btn.dataset.id, btn.dataset.name)));
   if (["business","enterprise"].includes(tier)) initBulkActions();
+  updateLoadMore();
 }
 
 function initStatusDropdown() {

@@ -9,7 +9,7 @@ async function tid() {
 
 // ── Companies ──────────────────────────────────────────────
 export const companies = {
-  async list({ search = "", status = "", limit = 1000000000000, offset = 0 } = {}) {
+  async list({ search = "", status = "", limit = 1000, offset = 0 } = {}) {
     const tenantId = await tid();
     let q = sb().from("crm_companies")
       .select("*", { count: "exact" })
