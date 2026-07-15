@@ -98,7 +98,7 @@ export async function onRequestPost({ request, env }) {
 
     // Build table-based email HTML (safe for all email clients)
     const pd = q.pricing_display || 'itemised';
-    const lineRows = (q.line_items || []).map(li => {
+    const lineRows = pd === 'total_only' ? '' : (q.line_items || []).map(li => {
       const lineTotal = Number(li.total || ((li.qty || 1) * (li.unit_price || 0)));
       if (pd === 'itemised') {
         return `<tr>
@@ -190,9 +190,9 @@ export async function onRequestPost({ request, env }) {
       `<div style="font-size:22px;font-weight:900;color:#ffffff">${esc(q.quote_number || '')}</div>`,
       q.title ? `<div style="font-size:13px;color:rgba(255,255,255,.7);margin-top:2px">${esc(q.title)}</div>` : '',
       `</td></tr>`,
-      // Line items
+      // Line items (hidden for total_only)
       `<tr><td style="padding:20px 28px">`,
-      [
+      pd !== 'total_only' ? [
         `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">`,
         `<tr style="background:${primaryColor}">`,
         `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:left">Description</th>`,
@@ -202,7 +202,7 @@ export async function onRequestPost({ request, env }) {
         `</tr>`,
         lineRows || `<tr><td colspan="${pd === 'itemised' ? 4 : 2}" style="padding:14px;text-align:center;color:#9ca3af;font-size:13px">No line items</td></tr>`,
         `</table>`,
-      ].join(''),
+      ].join('') : '',
       // Totals
       `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px">`,
       `<tr><td align="right">`,
