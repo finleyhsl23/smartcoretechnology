@@ -187,6 +187,7 @@ function renderTable(rows) {
               <th>Lead</th>
               <th>Company</th>
               <th>Status</th>
+              <th>Quote</th>
               <th>Value</th>
               <th>Probability</th>
               <th>Source</th>
@@ -197,7 +198,7 @@ function renderTable(rows) {
           </thead>
           <tbody>
             ${rows.length === 0
-              ? `<tr><td colspan="${hasBulk()?10:9}"><div class="empty-state"><div class="empty-icon">🎯</div><h3>No leads yet</h3><p>Create your first lead to start tracking opportunities.</p></div></td></tr>`
+              ? `<tr><td colspan="${hasBulk()?11:10}"><div class="empty-state"><div class="empty-icon">🎯</div><h3>No leads yet</h3><p>Create your first lead to start tracking opportunities.</p></div></td></tr>`
               : rows.map(l => leadRow(l)).join("")}
           </tbody>
         </table>
@@ -245,6 +246,14 @@ function leadRow(l) {
     </td>
     <td>${co ? esc(co) : '<span class="text-dim">—</span>'}</td>
     <td>${leadBadge(l.status, allStages)}</td>
+    <td>${(() => {
+      const qs = l.crm_quotes || [];
+      if (!qs.length) return '<span class="text-dim">—</span>';
+      return qs.slice(0,2).map(q => {
+        const qStatus = q.status === 'accepted' ? 'badge-green' : q.status === 'sent' ? 'badge-blue' : 'badge-grey';
+        return `<span class="badge ${qStatus}" style="font-size:11px;cursor:default" title="${esc(q.title||'')}${q.total ? ' · £'+Number(q.total).toFixed(2) : ''}">${esc(q.quote_number||'Quote')}</span>`;
+      }).join(' ') + (qs.length > 2 ? ` <span class="text-dim" style="font-size:11px">+${qs.length-2}</span>` : '');
+    })()}</td>
     <td>${l.estimated_value ? `<strong>${fmt(l.estimated_value)}</strong>` : '<span class="text-dim">—</span>'}</td>
     <td>
       <div style="display:flex;align-items:center;gap:8px">

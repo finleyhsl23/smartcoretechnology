@@ -114,14 +114,27 @@ export const leads = {
   async list({ search = "", status = "", assignedTo = "", stage = "", limit = 200, offset = 0 } = {}) {
     const tenantId = await tid();
     let q = sb().from("crm_leads")
-      .select("*, crm_companies(name), crm_contacts(first_name, last_name)", { count: "exact" })
+      .select("*, crm_companies(name), crm_contacts(first_name, last_name), crm_quotes(id,quote_number,title,total,status)", { count: "exact" })
       .eq("tenant_id", tenantId)
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
-    if (search) q = q.ilike("title", `%${search}%`);
     if (status) q = q.eq("status", status);
     if (assignedTo) q = q.eq("assigned_to", assignedTo);
     if (stage) q = q.eq("pipeline_stage", stage);
+    if (search) {
+      // Also search by quote number — find lead IDs of matching quotes
+      const { data: qMatches } = await sb().from("crm_quotes")
+        .select("crm_lead_id")
+        .eq("tenant_id", tenantId)
+        .ilike("quote_number", `%${search}%`)
+        .not("crm_lead_id", "is", null);
+      const extraIds = (qMatches || []).map(r => r.crm_lead_id).filter(Boolean);
+      if (extraIds.length) {
+        q = q.or(`title.ilike.%${search}%,id.in.(${extraIds.join(",")})`);
+      } else {
+        q = q.ilike("title", `%${search}%`);
+      }
+    }
     const { data, count, error } = await q;
     if (error) throw error;
     return { data: data || [], count: count || 0 };
