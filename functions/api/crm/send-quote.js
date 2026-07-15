@@ -118,12 +118,12 @@ export async function onRequestPost({ request, env }) {
 
     const emailHtml = [
       '<!DOCTYPE html>',
-      '<html lang="en"><head>',
+      `<html lang="en" bgcolor="${secondaryColor}"><head>`,
       '<meta charset="utf-8"/>',
       '<meta name="viewport" content="width=device-width,initial-scale=1"/>',
       `<title>${esc(emailSubject)}</title>`,
       '</head>',
-      `<body style="margin:0;padding:0;background:${secondaryColor};font-family:Arial,Helvetica,sans-serif">`,
+      `<body bgcolor="${secondaryColor}" style="margin:0;padding:0;background:${secondaryColor};font-family:Arial,Helvetica,sans-serif">`,
       `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${secondaryColor};padding:24px 0">`,
       `<tr><td align="center">`,
       `<table width="620" cellpadding="0" cellspacing="0" border="0" style="max-width:620px;width:100%">`,
