@@ -31,7 +31,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
-  import { listSmartfitsEmployees, listAllActiveAssignments, assignEngineer, unassignEngineer, getAuditSettings } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { listSmartfitsEmployees, listAllActiveAssignments, setEngineerManagers, unassignEngineer, getAuditSettings } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
   import { esc, initials, setInner, loadingState, errorState, toast, confirmDialog, permissionDeniedState } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
@@ -71,17 +71,19 @@
     }
   }
 
-  function managerNameFor(employeeId) {
-    const a = _assignments.find(x => x.engineer_employee_id === employeeId);
-    if (!a) return null;
-    return _employees.find(e => e.id === a.manager_employee_id)?.full_name || "Unknown";
+  function managerIdsFor(employeeId) {
+    return _assignments.filter(x => x.engineer_employee_id === employeeId).map(x => x.manager_employee_id);
+  }
+
+  function managerNamesFor(employeeId) {
+    return managerIdsFor(employeeId).map(id => _employees.find(e => e.id === id)?.full_name || "Unknown");
   }
 
   function draw() {
     const html = `
       <div class="page-head">
         <h2>Manager → Engineer Assignments</h2>
-        <p>Assign each engineer to the Engineering Manager who reviews their installs. An engineer belongs to one active manager at a time. Senior Regional Engineering Managers (set on the <a href="${"/custom/smartfitsinstallationsltd/engineer-audit/settings.html"}" style="color:var(--accent2)">Settings page</a>) don't appear below — they're the ones being assigned to.</p>
+        <p>Assign each engineer to one or more Engineering Managers who review their installs. Senior Regional Engineering Managers (set on the <a href="${"/custom/smartfitsinstallationsltd/engineer-audit/settings.html"}" style="color:var(--accent2)">Settings page</a>) don't appear below — they're the ones being assigned to.</p>
       </div>
       <div class="search-wrap">
         <i data-lucide="search" class="search-icon"></i>
@@ -111,7 +113,7 @@
     );
     const tbody = document.getElementById("rows");
     tbody.innerHTML = filtered.map(e => {
-      const mgr = managerNameFor(e.id);
+      const mgrNames = managerNamesFor(e.id);
       return `
         <tr>
           <td style="display:flex;align-items:center;gap:10px">
@@ -119,13 +121,13 @@
             ${esc(e.full_name)}
           </td>
           <td>${esc(e.job_title || "—")}</td>
-          <td>${mgr ? esc(mgr) : `<span class="text-muted">— unassigned —</span>`}</td>
+          <td>${mgrNames.length ? esc(mgrNames.join(", ")) : `<span class="text-muted">— unassigned —</span>`}</td>
           <td style="display:flex;gap:8px;justify-content:flex-end">
             <div class="assign-dd" data-engineer="${esc(e.id)}">
-              <button class="btn" data-role="assign-trigger">${mgr ? "Reassign" : "Assign"}</button>
+              <button class="btn" data-role="assign-trigger">${mgrNames.length ? "Edit" : "Assign"}</button>
               <div class="assign-dd-panel" data-role="assign-panel"></div>
             </div>
-            ${mgr ? `<button class="btn" data-unassign="${esc(e.id)}">Unassign</button>` : ""}
+            ${mgrNames.length ? `<button class="btn" data-unassign="${esc(e.id)}">Unassign</button>` : ""}
           </td>
         </tr>`;
     }).join("");
@@ -136,7 +138,7 @@
         const emp = _employees.find(x => x.id === btn.dataset.unassign);
         confirmDialog(
           "Unassign engineer?",
-          `Remove ${emp?.full_name || "this employee"}'s current Engineering Manager assignment?`,
+          `Remove all of ${emp?.full_name || "this employee"}'s current Engineering Manager assignments?`,
           async () => {
             try {
               await unassignEngineer(btn.dataset.unassign);
@@ -153,13 +155,14 @@
     window.lucide?.createIcons?.();
   }
 
-  // Row-anchored dropdown: click the trigger, pick a name, it saves
-  // immediately — no confirm step, no full-screen modal.
+  // Row-anchored dropdown: check one or more names, hit Done to save them
+  // all at once — no full-screen modal.
   function wireAssignDropdown(dd) {
     const engineerId = dd.dataset.engineer;
     const engineer = _employees.find(e => e.id === engineerId);
     const trigger = dd.querySelector('[data-role="assign-trigger"]');
     const panel = dd.querySelector('[data-role="assign-panel"]');
+    const currentIds = new Set(managerIdsFor(engineerId));
 
     // Restrict to the Senior Regional Engineering Manager roster (Settings
     // page). Falls back to every employee if no roster has been set up yet,
@@ -168,13 +171,21 @@
       ? _employees.filter(e => _managerRosterIds.has(e.id))
       : _employees.filter(e => e.id !== engineerId);
 
-    panel.innerHTML = rosterPool.length
-      ? rosterPool.map(c => `
-          <div class="assign-dd-option" data-manager="${esc(c.id)}">
-            ${esc(c.full_name)}
-            ${c.job_title ? `<small>${esc(c.job_title)}</small>` : ""}
-          </div>`).join("")
-      : `<div class="assign-dd-empty">No Senior Regional Engineering Managers are set up yet. Add some on the <a href="${"/custom/smartfitsinstallationsltd/engineer-audit/settings.html"}">Settings page</a> first.</div>`;
+    if (rosterPool.length) {
+      panel.innerHTML = `
+        ${rosterPool.map(c => `
+          <label class="assign-dd-option ${currentIds.has(c.id) ? "selected" : ""}" data-manager="${esc(c.id)}">
+            <input type="checkbox" value="${esc(c.id)}" ${currentIds.has(c.id) ? "checked" : ""}/>
+            <span class="assign-dd-option-text">
+              ${esc(c.full_name)}
+              ${c.job_title ? `<small>${esc(c.job_title)}</small>` : ""}
+            </span>
+          </label>`).join("")}
+        <div class="assign-dd-footer"><button class="btn btn-primary" data-role="assign-done">Done</button></div>
+      `;
+    } else {
+      panel.innerHTML = `<div class="assign-dd-empty">No Senior Regional Engineering Managers are set up yet. Add some on the <a href="${"/custom/smartfitsinstallationsltd/engineer-audit/settings.html"}">Settings page</a> first.</div>`;
+    }
 
     trigger.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -182,18 +193,23 @@
       dd.classList.toggle("open");
     });
 
-    panel.querySelectorAll("[data-manager]").forEach(opt => {
-      opt.addEventListener("click", async () => {
-        const managerId = opt.dataset.manager;
-        dd.classList.remove("open");
-        try {
-          await assignEngineer(engineerId, managerId, _profile.id);
-          toast("success", `${engineer.full_name} assigned`);
-          await render();
-        } catch (e2) {
-          toast("error", "Couldn't save assignment", e2.message);
-        }
-      });
+    // Labels already toggle their checkbox natively on click — just mirror
+    // the resulting checked state onto the `.selected` highlight class.
+    panel.querySelectorAll(".assign-dd-option").forEach(opt => {
+      const checkbox = opt.querySelector("input");
+      checkbox.addEventListener("change", () => opt.classList.toggle("selected", checkbox.checked));
+    });
+
+    panel.querySelector('[data-role="assign-done"]')?.addEventListener("click", async () => {
+      const selectedIds = [...panel.querySelectorAll(".assign-dd-option input:checked")].map(cb => cb.value);
+      dd.classList.remove("open");
+      try {
+        await setEngineerManagers(engineerId, selectedIds, _profile.id);
+        toast("success", `${engineer.full_name} updated`);
+        await render();
+      } catch (e2) {
+        toast("error", "Couldn't save assignment", e2.message);
+      }
     });
   }
 

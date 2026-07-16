@@ -97,37 +97,43 @@ export async function listAllActiveAssignments() {
   return data || [];
 }
 
-export async function getAssignedManagerId(engineerEmployeeId) {
-  const { data, error } = await auditDb()
+// Reconciles an engineer's active managers to exactly `desiredManagerIds` —
+// deactivates whichever active assignments were unchecked and inserts
+// whichever new ones were checked. Supports assigning more than one manager
+// to the same engineer at once (shared oversight), since the schema was
+// deliberately left without a one-manager-per-engineer constraint.
+export async function setEngineerManagers(engineerEmployeeId, desiredManagerIds, assignedByEmployeeId) {
+  const { data: current, error: fetchErr } = await auditDb()
     .from("audit_manager_assignments")
     .select("manager_employee_id")
     .eq("engineer_employee_id", engineerEmployeeId)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  return data?.manager_employee_id || null;
-}
-
-// Deactivates any existing active assignment for this engineer, then creates
-// a new one. Kept as two ops (not a hard DB constraint) so this stays
-// configurable rather than a rigid one-manager-per-engineer rule.
-export async function assignEngineer(engineerEmployeeId, managerEmployeeId, assignedByEmployeeId) {
-  const { error: deactErr } = await auditDb()
-    .from("audit_manager_assignments")
-    .update({ is_active: false })
-    .eq("engineer_employee_id", engineerEmployeeId)
     .eq("is_active", true);
-  if (deactErr) throw deactErr;
+  if (fetchErr) throw fetchErr;
 
-  const { error } = await auditDb()
-    .from("audit_manager_assignments")
-    .insert({
-      engineer_employee_id: engineerEmployeeId,
-      manager_employee_id: managerEmployeeId,
-      assigned_by: assignedByEmployeeId,
-    });
-  if (error) throw error;
+  const currentIds = (current || []).map(r => r.manager_employee_id);
+  const toAdd = desiredManagerIds.filter(id => !currentIds.includes(id));
+  const toRemove = currentIds.filter(id => !desiredManagerIds.includes(id));
+
+  if (toRemove.length) {
+    const { error } = await auditDb()
+      .from("audit_manager_assignments")
+      .update({ is_active: false })
+      .eq("engineer_employee_id", engineerEmployeeId)
+      .in("manager_employee_id", toRemove)
+      .eq("is_active", true);
+    if (error) throw error;
+  }
+
+  if (toAdd.length) {
+    const { error } = await auditDb()
+      .from("audit_manager_assignments")
+      .insert(toAdd.map(managerId => ({
+        engineer_employee_id: engineerEmployeeId,
+        manager_employee_id: managerId,
+        assigned_by: assignedByEmployeeId,
+      })));
+    if (error) throw error;
+  }
 }
 
 export async function unassignEngineer(engineerEmployeeId) {
