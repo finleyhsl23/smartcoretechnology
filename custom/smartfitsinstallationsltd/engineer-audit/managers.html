@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Manage Assignments — SmartCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/engineer-audit/shared/audit.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="eia-shell">
+  <nav class="eia-sidebar" id="eiaNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="eia-main">
+    <div class="eia-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Manage Assignments</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="eia-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
+  import { listSmartfitsEmployees, listAllActiveAssignments, assignEngineer, unassignEngineer } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
+  import { esc, initials, setInner, loadingState, errorState, toast, modal, confirmDialog, permissionDeniedState } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+
+  initTheme();
+  let _profile, _employees = [], _assignments = [];
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    _profile = profile;
+    renderNav("managers", profile, tier);
+    initMobileNav();
+    initTopbar();
+
+    if (tier !== "owner_admin") {
+      setInner("body", permissionDeniedState("Only Owners and Admins can manage manager-engineer assignments."));
+    } else {
+      await render();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+  }
+
+  async function render() {
+    setInner("body", loadingState("Loading employees…"));
+    try {
+      [_employees, _assignments] = await Promise.all([listSmartfitsEmployees(), listAllActiveAssignments()]);
+      draw();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load employees", message: e.message }));
+    }
+  }
+
+  function managerNameFor(employeeId) {
+    const a = _assignments.find(x => x.engineer_employee_id === employeeId);
+    if (!a) return null;
+    return _employees.find(e => e.id === a.manager_employee_id)?.full_name || "Unknown";
+  }
+
+  function draw() {
+    const html = `
+      <div class="page-head">
+        <h2>Manager → Engineer Assignments</h2>
+        <p>Assign each engineer to the Engineering Manager who reviews their installs. An engineer belongs to one active manager at a time.</p>
+      </div>
+      <div class="search-wrap">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="text" id="empSearch" class="form-input" placeholder="Search by name or job title…" autocomplete="off"/>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Employee</th><th>Job title</th><th>Assigned manager</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    `;
+    setInner("body", html);
+    drawRows("");
+    document.getElementById("empSearch").addEventListener("input", e => drawRows(e.target.value));
+  }
+
+  function drawRows(query) {
+    const q = query.trim().toLowerCase();
+    const pool = _employees.filter(e => e.id !== _profile.id);
+    const filtered = !q ? pool : pool.filter(e =>
+      (e.full_name || "").toLowerCase().includes(q) || (e.job_title || "").toLowerCase().includes(q)
+    );
+    const tbody = document.getElementById("rows");
+    tbody.innerHTML = filtered.map(e => {
+      const mgr = managerNameFor(e.id);
+      return `
+        <tr>
+          <td style="display:flex;align-items:center;gap:10px">
+            <div class="avatar avatar-sm">${esc(initials(e.full_name))}</div>
+            ${esc(e.full_name)}
+          </td>
+          <td>${esc(e.job_title || "—")}</td>
+          <td>${mgr ? esc(mgr) : `<span class="text-muted">— unassigned —</span>`}</td>
+          <td style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn" data-assign="${esc(e.id)}">${mgr ? "Reassign" : "Assign"}</button>
+            ${mgr ? `<button class="btn" data-unassign="${esc(e.id)}">Unassign</button>` : ""}
+          </td>
+        </tr>`;
+    }).join("");
+
+    tbody.querySelectorAll("[data-assign]").forEach(btn => {
+      btn.addEventListener("click", () => openAssignModal(btn.dataset.assign));
+    });
+    tbody.querySelectorAll("[data-unassign]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const emp = _employees.find(x => x.id === btn.dataset.unassign);
+        confirmDialog(
+          "Unassign engineer?",
+          `Remove ${emp?.full_name || "this employee"}'s current Engineering Manager assignment?`,
+          async () => {
+            try {
+              await unassignEngineer(btn.dataset.unassign);
+              toast("success", "Assignment removed");
+              await render();
+            } catch (e2) {
+              toast("error", "Couldn't unassign", e2.message);
+            }
+          },
+          { confirmLabel: "Unassign" }
+        );
+      });
+    });
+    window.lucide?.createIcons?.();
+  }
+
+  function openAssignModal(engineerId) {
+    const engineer = _employees.find(e => e.id === engineerId);
+    const candidates = _employees.filter(e => e.id !== engineerId);
+    const overlay = modal(`
+      <div class="modal-header"><h3>Assign manager for ${esc(engineer.full_name)}</h3><button class="btn modal-close">✕</button></div>
+      <div class="modal-body">
+        <label class="form-label" for="managerSelect">Engineering Manager</label>
+        <select id="managerSelect" class="form-input">
+          <option value="">Select an employee…</option>
+          ${candidates.map(c => `<option value="${esc(c.id)}">${esc(c.full_name)} — ${esc(c.job_title || "")}</option>`).join("")}
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="confirmAssign">Assign</button>
+      </div>
+    `);
+    overlay.querySelector("#confirmAssign").addEventListener("click", async () => {
+      const managerId = overlay.querySelector("#managerSelect").value;
+      if (!managerId) { toast("error", "Select an employee first"); return; }
+      try {
+        await assignEngineer(engineerId, managerId, _profile.id);
+        overlay.remove();
+        toast("success", "Assignment saved");
+        await render();
+      } catch (e) {
+        toast("error", "Couldn't save assignment", e.message);
+      }
+    });
+  }
+</script>
+</body>
+</html>

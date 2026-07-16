@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Audit — SmartCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/engineer-audit/shared/audit.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="eia-shell">
+  <nav class="eia-sidebar" id="eiaNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="eia-main">
+    <div class="eia-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1 id="pageTitle">Install Audit</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="eia-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
+  import {
+    listCriteria, getEmployee, listSubmissionsForEngineer, createDraftSubmission,
+    updateDraftSubmission, submitSubmission, listScores, upsertScore,
+    listPhotos, uploadPhoto, getPhotoUrl, deletePhoto,
+  } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
+  import { esc, initials, setInner, loadingState, errorState, toast, confirmDialog, fmtDateTime } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+
+  initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/engineer-audit";
+  const params = new URLSearchParams(window.location.search);
+
+  let _profile, _tier, _criteria, _submission, _engineer, _scores = {}, _photos = [];
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    _profile = profile; _tier = tier;
+    renderNav("home", profile, tier);
+    initMobileNav();
+    initTopbar();
+
+    if (tier === "engineer") throw new Error("Engineers cannot start or edit audits.");
+
+    await loadOrCreateSubmission();
+    _criteria = await listCriteria();
+    _scores = Object.fromEntries((await listScores(_submission.id)).map(s => [s.criterion_id, s]));
+    _photos = await listPhotos(_submission.id);
+
+    render();
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't open this audit", message: e.message }));
+  }
+
+  async function loadOrCreateSubmission() {
+    const submissionId = params.get("submission");
+    const engineerId = params.get("engineer");
+
+    if (submissionId) {
+      const { getSubmission } = await import("/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js");
+      _submission = await getSubmission(submissionId);
+      if (!_submission) throw new Error("Audit not found.");
+      _engineer = await getEmployee(_submission.engineer_employee_id);
+      return;
+    }
+
+    if (!engineerId) throw new Error("No engineer specified.");
+    _engineer = await getEmployee(engineerId);
+    if (!_engineer) throw new Error("Engineer not found.");
+
+    const existing = (await listSubmissionsForEngineer(engineerId))
+      .find(s => s.status === "draft" && s.manager_employee_id === _profile.id);
+
+    _submission = existing || await createDraftSubmission({
+      engineer_employee_id: engineerId,
+      manager_employee_id: _profile.id,
+    });
+  }
+
+  function isEditable() {
+    return _submission.status === "draft" && (_profile.id === _submission.manager_employee_id || _tier === "owner_admin");
+  }
+
+  function render() {
+    document.getElementById("pageTitle").textContent = `Audit — ${_engineer.full_name}`;
+    const editable = isEditable();
+    const photoCriteria = _criteria.filter(c => c.category === "photo");
+    const jobSheetCriteria = _criteria.filter(c => c.category === "job_sheet");
+
+    const html = `
+      <a class="back-link" href="${BASE}/employee.html?id=${esc(_engineer.id)}"><i data-lucide="arrow-left"></i> Back to profile</a>
+
+      <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+        <div>
+          <h2>${esc(_engineer.full_name)} <span class="badge ${_submission.status === "submitted" ? "badge-blue" : "badge-grey"}" style="margin-left:8px">${esc(_submission.status)}</span></h2>
+          <p>${_submission.status === "submitted" ? `Submitted ${esc(fmtDateTime(_submission.submitted_at))}` : "Draft — not yet submitted"}</p>
+        </div>
+        ${editable ? `
+          <div style="display:flex;gap:8px">
+            <button class="btn" id="saveDraftBtn"><i data-lucide="save"></i> Save Draft</button>
+            <button class="btn btn-primary" id="submitBtn"><i data-lucide="check-circle"></i> Submit Audit</button>
+          </div>` : ""}
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <div class="form-row">
+          <label class="form-label" for="jobSheetText">Job sheet write-up</label>
+          <textarea id="jobSheetText" class="form-input" ${editable ? "" : "disabled"} placeholder="Paste or type the engineer's job sheet write-up here…">${esc(_submission.job_sheet_text || "")}</textarea>
+        </div>
+      </div>
+
+      <h3 style="margin:20px 0 10px">Photo Evidence</h3>
+      ${photoCriteria.map((c, i) => criterionCard(c, i + 1, editable)).join("")}
+
+      <h3 style="margin:24px 0 10px">Job Sheet Evidence</h3>
+      ${jobSheetCriteria.map((c, i) => criterionCard(c, photoCriteria.length + i + 1, editable)).join("")}
+
+      <div class="card" style="margin-top:18px">
+        <div class="form-row" style="margin-bottom:0">
+          <label class="form-label" for="overallNotes">Overall notes (optional)</label>
+          <textarea id="overallNotes" class="form-input" ${editable ? "" : "disabled"} placeholder="Any overall context for this audit…">${esc(_submission.overall_notes || "")}</textarea>
+        </div>
+      </div>
+
+      ${editable ? `
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+          <button class="btn" id="saveDraftBtn2"><i data-lucide="save"></i> Save Draft</button>
+          <button class="btn btn-primary" id="submitBtn2"><i data-lucide="check-circle"></i> Submit Audit</button>
+        </div>` : ""}
+    `;
+    setInner("body", html);
+    wireForm(editable);
+  }
+
+  function criterionCard(criterion, index, editable) {
+    const s = _scores[criterion.id];
+    const photos = _photos.filter(p => p.criterion_id === criterion.id);
+    return `
+      <div class="criterion-card" data-criterion="${esc(criterion.id)}">
+        <div class="criterion-head">
+          <div>
+            <div class="criterion-index">Criterion ${index} of ${_criteria.length}</div>
+            <div class="criterion-label">${esc(criterion.label)}</div>
+          </div>
+        </div>
+        <div class="score-picker" data-role="score-picker">
+          ${[1, 2, 3].map(n => `
+            <button type="button" class="score-btn ${s?.score === n ? "active" : ""}" data-score="${n}" ${editable ? "" : "disabled"}>
+              ${n === 1 ? "1 · Good" : n === 2 ? "2 · Adequate" : "3 · Needs action"}
+            </button>`).join("")}
+        </div>
+        <div class="form-row" style="margin-top:10px;margin-bottom:0">
+          <input type="text" class="form-input" data-role="comment" placeholder="Optional comment…" value="${esc(s?.comment || "")}" ${editable ? "" : "disabled"}/>
+        </div>
+        ${criterion.category === "photo" ? `
+          <div class="criterion-photos" data-role="photo-list">
+            ${photos.map(photoThumb).join("")}
+            ${editable ? `
+              <label class="photo-add-btn">
+                <input type="file" accept="image/*" style="display:none" data-role="photo-input"/>
+                <i data-lucide="camera"></i>
+              </label>` : ""}
+          </div>` : ""}
+      </div>`;
+  }
+
+  function photoThumb(photo) {
+    return `<div class="photo-thumb" data-photo-id="${esc(photo.id)}" data-storage-path="${esc(photo.storage_path)}">
+      <img data-role="photo-img" alt="Install photo"/>
+      ${isEditable() ? `<div class="photo-remove" data-role="photo-remove"><i data-lucide="x"></i></div>` : ""}
+    </div>`;
+  }
+
+  async function refreshPhotoThumbs() {
+    for (const el of document.querySelectorAll('[data-role="photo-img"]')) {
+      const wrap = el.closest("[data-storage-path]");
+      const path = wrap?.dataset.storagePath;
+      if (!path) continue;
+      try { el.src = await getPhotoUrl(path); } catch { /* ignore */ }
+    }
+  }
+
+  function collectFormState() {
+    const scores = [];
+    document.querySelectorAll(".criterion-card").forEach(card => {
+      const criterionId = card.dataset.criterion;
+      const activeBtn = card.querySelector(".score-btn.active");
+      const comment = card.querySelector('[data-role="comment"]')?.value || "";
+      if (activeBtn) scores.push({ criterionId, score: Number(activeBtn.dataset.score), comment });
+    });
+    return {
+      job_sheet_text: document.getElementById("jobSheetText")?.value || "",
+      overall_notes: document.getElementById("overallNotes")?.value || "",
+      scores,
+    };
+  }
+
+  async function saveDraft({ silent = false } = {}) {
+    const state = collectFormState();
+    await updateDraftSubmission(_submission.id, {
+      job_sheet_text: state.job_sheet_text,
+      overall_notes: state.overall_notes,
+    });
+    for (const s of state.scores) {
+      await upsertScore(_submission.id, s.criterionId, s.score, s.comment);
+    }
+    if (!silent) toast("success", "Draft saved");
+    return state;
+  }
+
+  function wireForm(editable) {
+    refreshPhotoThumbs();
+    if (!editable) return;
+
+    document.querySelectorAll(".score-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        btn.closest(".score-picker").querySelectorAll(".score-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+      });
+    });
+
+    document.querySelectorAll('[data-role="photo-input"]').forEach(input => {
+      input.addEventListener("change", async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        const card = input.closest(".criterion-card");
+        const criterionId = card.dataset.criterion;
+        try {
+          await saveDraft({ silent: true }); // ensure text fields aren't lost
+          await uploadPhoto(_submission.id, criterionId, file, _profile.id);
+          _photos = await listPhotos(_submission.id);
+          render();
+          toast("success", "Photo uploaded");
+        } catch (e) {
+          toast("error", "Upload failed", e.message);
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-role="photo-remove"]').forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const wrap = btn.closest("[data-photo-id]");
+        try {
+          await deletePhoto(wrap.dataset.photoId, wrap.dataset.storagePath);
+          _photos = _photos.filter(p => p.id !== wrap.dataset.photoId);
+          render();
+        } catch (e) {
+          toast("error", "Couldn't remove photo", e.message);
+        }
+      });
+    });
+
+    ["saveDraftBtn", "saveDraftBtn2"].forEach(id => {
+      document.getElementById(id)?.addEventListener("click", async () => {
+        try {
+          await saveDraft();
+          _submission = { ..._submission };
+          _scores = Object.fromEntries((await listScores(_submission.id)).map(s => [s.criterion_id, s]));
+        } catch (e) {
+          toast("error", "Couldn't save draft", e.message);
+        }
+      });
+    });
+
+    ["submitBtn", "submitBtn2"].forEach(id => {
+      document.getElementById(id)?.addEventListener("click", async () => {
+        const state = collectFormState();
+        const missing = _criteria.length - state.scores.length;
+        if (missing > 0) {
+          toast("error", "Audit incomplete", `Score all ${_criteria.length} criteria before submitting (${missing} remaining).`);
+          return;
+        }
+        confirmDialog(
+          "Submit this audit?",
+          "Once submitted, this audit is locked and cannot be edited. Any later corrections must be made as a new audit.",
+          async () => {
+            try {
+              await saveDraft({ silent: true });
+              _submission = await submitSubmission(_submission.id);
+              toast("success", "Audit submitted");
+              render();
+            } catch (e) {
+              toast("error", "Couldn't submit audit", e.message);
+            }
+          },
+          { danger: false, confirmLabel: "Submit" }
+        );
+      });
+    });
+  }
+</script>
+</body>
+</html>

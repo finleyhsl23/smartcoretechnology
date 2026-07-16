@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Engineer Profile — SmartCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/engineer-audit/shared/audit.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="eia-shell">
+  <nav class="eia-sidebar" id="eiaNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="eia-main">
+    <div class="eia-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Engineer Profile</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="eia-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
+  import { getEmployee, listSubmissionsForEngineer, getEmployeesByIds, listScores } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
+  import { esc, initials, setInner, loadingState, emptyState, errorState, fmtDate } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+
+  initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/engineer-audit";
+  const params = new URLSearchParams(window.location.search);
+  const employeeId = params.get("id");
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    renderNav("home", profile, tier);
+    initMobileNav();
+    initTopbar();
+
+    if (!employeeId) throw new Error("No engineer specified.");
+    if (tier === "engineer" && employeeId !== profile.id) {
+      throw new Error("You can only view your own profile.");
+    }
+
+    await render(profile, tier);
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load this profile", message: e.message }));
+  }
+
+  async function render(profile, tier) {
+    setInner("body", loadingState("Loading profile…"));
+    const emp = await getEmployee(employeeId);
+    if (!emp) { setInner("body", errorState({ title: "Not found", message: "This employee could not be found." })); return; }
+
+    const submissions = await listSubmissionsForEngineer(employeeId);
+    const managerIds = submissions.map(s => s.manager_employee_id);
+    const managers = await getEmployeesByIds(managerIds);
+    const managerName = id => managers.find(m => m.id === id)?.full_name || "—";
+
+    const canAudit = tier !== "engineer";
+
+    const html = `
+      <a class="back-link" href="${BASE}/index.html"><i data-lucide="arrow-left"></i> Back</a>
+      <div class="card" style="display:flex;align-items:center;gap:16px;margin-bottom:20px;flex-wrap:wrap">
+        <div class="avatar avatar-md" style="width:56px;height:56px;font-size:18px">${esc(initials(emp.full_name))}</div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:18px;font-weight:800">${esc(emp.full_name)}</div>
+          <div class="text-muted" style="font-size:13px">${esc(emp.job_title || "—")}</div>
+        </div>
+        ${canAudit ? `<a class="btn btn-primary" href="${BASE}/audit.html?engineer=${esc(emp.id)}"><i data-lucide="clipboard-check"></i> Start New Audit</a>` : ""}
+      </div>
+
+      <div class="page-head"><h2>Audit History</h2></div>
+      ${submissions.length === 0
+        ? emptyState({ icon: "clipboard-list", title: "No audits yet", message: "No install audits have been recorded for this engineer yet." })
+        : `<div class="tbl-wrap"><table class="tbl">
+            <thead><tr><th>Date</th><th>Manager</th><th>Status</th><th>Avg score</th><th>Flag</th><th></th></tr></thead>
+            <tbody id="histBody">
+              ${submissions.map(s => `
+                <tr class="tbl-row-link" data-id="${esc(s.id)}">
+                  <td>${esc(fmtDate(s.created_at))}</td>
+                  <td>${esc(managerName(s.manager_employee_id))}</td>
+                  <td><span class="badge ${s.status === "submitted" ? "badge-blue" : "badge-grey"}">${esc(s.status)}</span></td>
+                  <td data-avg="${esc(s.id)}">…</td>
+                  <td data-flag="${esc(s.id)}"></td>
+                  <td><i data-lucide="chevron-right"></i></td>
+                </tr>`).join("")}
+            </tbody>
+          </table></div>`}
+    `;
+    setInner("body", html);
+
+    document.querySelectorAll("#histBody tr[data-id]").forEach(row => {
+      row.addEventListener("click", () => {
+        window.location.href = `${BASE}/audit.html?submission=${row.dataset.id}&view=1`;
+      });
+    });
+
+    for (const s of submissions) {
+      try {
+        const scores = await listScores(s.id);
+        const avgCell = document.querySelector(`[data-avg="${s.id}"]`);
+        const flagCell = document.querySelector(`[data-flag="${s.id}"]`);
+        if (!scores.length) { if (avgCell) avgCell.textContent = "—"; continue; }
+        const avg = (scores.reduce((a, c) => a + c.score, 0) / scores.length).toFixed(1);
+        if (avgCell) avgCell.textContent = avg;
+        if (flagCell && scores.some(c => c.score === 3)) flagCell.innerHTML = `<span class="badge badge-red">Needs action</span>`;
+      } catch { /* non-fatal */ }
+    }
+  }
+</script>
+</body>
+</html>
