@@ -35,13 +35,13 @@ export async function getAuditSettings() {
     .eq("id", SETTINGS_ID)
     .maybeSingle();
   if (error) throw error;
-  return data || { id: SETTINGS_ID, visible_department_ids: [] };
+  return data || { id: SETTINGS_ID, visible_department_ids: [], manager_employee_ids: [] };
 }
 
-export async function updateVisibleDepartments(departmentIds, updatedByEmployeeId) {
+export async function updateAuditSettings(patch, updatedByEmployeeId) {
   const { error } = await auditDb()
     .from("audit_settings")
-    .update({ visible_department_ids: departmentIds, updated_by: updatedByEmployeeId })
+    .update({ ...patch, updated_by: updatedByEmployeeId })
     .eq("id", SETTINGS_ID);
   if (error) throw error;
 }

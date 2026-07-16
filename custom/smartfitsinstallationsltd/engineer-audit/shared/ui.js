@@ -128,3 +128,91 @@ export function scoreBadge(score) {
   const label = score === 1 ? "Good" : score === 2 ? "Adequate" : "Needs action";
   return `<span class="badge badge-${score === 1 ? "green" : score === 2 ? "yellow" : "red"}"><span class="score-dot score-dot-${score}"></span>${esc(label)}</span>`;
 }
+
+/**
+ * Renders a searchable "type to add" multi-select into `container` — chips
+ * for each selected item, a text input, and a filtered suggestion dropdown.
+ * `options` is the full candidate list; each item needs an `id` and a label
+ * field (default `full_name`, override via `labelKey`/`subLabelKey`).
+ * Calls `onChange(selectedIdsArray)` after every add/remove.
+ */
+export function initTagInput(container, { options, selected = [], labelKey = "full_name", subLabelKey = "job_title", placeholder = "Search to add…", onChange }) {
+  let selectedIds = [...selected];
+
+  container.innerHTML = `
+    <div class="tag-chips" data-role="chips"></div>
+    <div class="tag-input" data-role="wrap">
+      <input type="text" class="form-input" data-role="search" placeholder="${esc(placeholder)}" autocomplete="off"/>
+      <div class="tag-suggestions" data-role="suggestions"></div>
+    </div>
+  `;
+
+  const chipsEl = container.querySelector('[data-role="chips"]');
+  const wrapEl = container.querySelector('[data-role="wrap"]');
+  const inputEl = container.querySelector('[data-role="search"]');
+  const suggEl = container.querySelector('[data-role="suggestions"]');
+
+  function drawChips() {
+    if (!selectedIds.length) {
+      chipsEl.innerHTML = `<span class="tag-empty-hint">No one added yet</span>`;
+      return;
+    }
+    chipsEl.innerHTML = selectedIds.map(id => {
+      const opt = options.find(o => o.id === id);
+      return `<span class="tag-chip" data-id="${esc(id)}">${esc(opt?.[labelKey] || "Unknown")}<button type="button" data-role="remove"><i data-lucide="x"></i></button></span>`;
+    }).join("");
+    chipsEl.querySelectorAll('[data-role="remove"]').forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.closest("[data-id]").dataset.id;
+        selectedIds = selectedIds.filter(x => x !== id);
+        drawChips();
+        onChange?.(selectedIds);
+        window.lucide?.createIcons?.();
+      });
+    });
+    window.lucide?.createIcons?.();
+  }
+
+  function closeSuggestions() {
+    wrapEl.classList.remove("open");
+    suggEl.innerHTML = "";
+  }
+
+  function openSuggestions(query) {
+    const q = query.trim().toLowerCase();
+    const matches = options.filter(o =>
+      !selectedIds.includes(o.id)
+      && (!q || (o[labelKey] || "").toLowerCase().includes(q) || (o[subLabelKey] || "").toLowerCase().includes(q))
+    ).slice(0, 20);
+
+    if (!matches.length) {
+      suggEl.innerHTML = `<div class="tag-suggestion-empty">No matches</div>`;
+    } else {
+      suggEl.innerHTML = matches.map(o => `
+        <div class="tag-suggestion-option" data-id="${esc(o.id)}">
+          <strong>${esc(o[labelKey])}</strong>
+          ${o[subLabelKey] ? `<small>${esc(o[subLabelKey])}</small>` : ""}
+        </div>`).join("");
+      suggEl.querySelectorAll("[data-id]").forEach(opt => {
+        opt.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          selectedIds.push(opt.dataset.id);
+          inputEl.value = "";
+          drawChips();
+          closeSuggestions();
+          onChange?.(selectedIds);
+        });
+      });
+    }
+    wrapEl.classList.add("open");
+  }
+
+  inputEl.addEventListener("focus", () => openSuggestions(inputEl.value));
+  inputEl.addEventListener("input", () => openSuggestions(inputEl.value));
+  inputEl.addEventListener("blur", () => setTimeout(closeSuggestions, 150));
+  inputEl.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSuggestions(); });
+
+  drawChips();
+
+  return { getSelected: () => selectedIds };
+}

@@ -103,18 +103,20 @@
 
       // Owner/Admin-configured department visibility (Settings page). An
       // empty list means unrestricted — every Smartfits employee shows up.
-      const settings = await getAuditSettings().catch(() => ({ visible_department_ids: [] }));
+      const settings = await getAuditSettings().catch(() => ({ visible_department_ids: [], manager_employee_ids: [] }));
       const deptFilter = settings.visible_department_ids?.length ? new Set(settings.visible_department_ids) : null;
+      const managerRosterIds = new Set(settings.manager_employee_ids || []);
 
-      renderPickerBody(firstName, visibleIds, deptFilter);
+      renderPickerBody(firstName, visibleIds, deptFilter, managerRosterIds);
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load engineers", message: e.message }));
     }
   }
 
-  function renderPickerBody(firstName, visibleIds, deptFilter) {
+  function renderPickerBody(firstName, visibleIds, deptFilter, managerRosterIds) {
     const pool = _allEmployees.filter(emp =>
       emp.id !== _profile.id
+      && !managerRosterIds.has(emp.id)
       && (!visibleIds || visibleIds.has(emp.id))
       && (!deptFilter || deptFilter.has(emp.department_id))
     );

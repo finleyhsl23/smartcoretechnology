@@ -31,13 +31,13 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
-  import { listSmartfitsEmployees, listAllActiveAssignments, assignEngineer, unassignEngineer } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { listSmartfitsEmployees, listAllActiveAssignments, assignEngineer, unassignEngineer, getAuditSettings } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
   import { esc, initials, setInner, loadingState, errorState, toast, modal, confirmDialog, permissionDeniedState } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
-  let _profile, _employees = [], _assignments = [];
+  let _profile, _employees = [], _assignments = [], _managerRosterIds = new Set();
 
   try {
     const { profile, tier } = await requireModuleAccess();
@@ -58,7 +58,10 @@
   async function render() {
     setInner("body", loadingState("Loading employees…"));
     try {
-      [_employees, _assignments] = await Promise.all([listSmartfitsEmployees(), listAllActiveAssignments()]);
+      const [employees, assignments, settings] = await Promise.all([listSmartfitsEmployees(), listAllActiveAssignments(), getAuditSettings()]);
+      _employees = employees;
+      _assignments = assignments;
+      _managerRosterIds = new Set(settings.manager_employee_ids || []);
       draw();
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load employees", message: e.message }));
@@ -75,7 +78,7 @@
     const html = `
       <div class="page-head">
         <h2>Manager → Engineer Assignments</h2>
-        <p>Assign each engineer to the Engineering Manager who reviews their installs. An engineer belongs to one active manager at a time.</p>
+        <p>Assign each engineer to the Engineering Manager who reviews their installs. An engineer belongs to one active manager at a time. Senior Regional Engineering Managers (set on the <a href="${"/custom/smartfitsinstallationsltd/engineer-audit/settings.html"}" style="color:var(--accent2)">Settings page</a>) don't appear below — they're the ones being assigned to.</p>
       </div>
       <div class="search-wrap">
         <i data-lucide="search" class="search-icon"></i>
@@ -95,7 +98,7 @@
 
   function drawRows(query) {
     const q = query.trim().toLowerCase();
-    const pool = _employees.filter(e => e.id !== _profile.id);
+    const pool = _employees.filter(e => e.id !== _profile.id && !_managerRosterIds.has(e.id));
     const filtered = !q ? pool : pool.filter(e =>
       (e.full_name || "").toLowerCase().includes(q) || (e.job_title || "").toLowerCase().includes(q)
     );
@@ -144,22 +147,30 @@
 
   function openAssignModal(engineerId) {
     const engineer = _employees.find(e => e.id === engineerId);
-    const candidates = _employees.filter(e => e.id !== engineerId);
+    // Restrict to the Senior Regional Engineering Manager roster (Settings
+    // page). Falls back to every employee if no roster has been set up yet,
+    // so assignment still works before Settings is configured.
+    const rosterPool = _managerRosterIds.size
+      ? _employees.filter(e => _managerRosterIds.has(e.id))
+      : _employees.filter(e => e.id !== engineerId);
+
     const overlay = modal(`
       <div class="modal-header"><h3>Assign manager for ${esc(engineer.full_name)}</h3><button class="btn modal-close">✕</button></div>
       <div class="modal-body">
         <label class="form-label" for="managerSelect">Engineering Manager</label>
-        <select id="managerSelect" class="form-input">
-          <option value="">Select an employee…</option>
-          ${candidates.map(c => `<option value="${esc(c.id)}">${esc(c.full_name)} — ${esc(c.job_title || "")}</option>`).join("")}
-        </select>
+        ${rosterPool.length ? `
+          <select id="managerSelect" class="form-input">
+            <option value="">Select an employee…</option>
+            ${rosterPool.map(c => `<option value="${esc(c.id)}">${esc(c.full_name)} — ${esc(c.job_title || "")}</option>`).join("")}
+          </select>` : `
+          <p class="text-muted" style="font-size:13px">No Senior Regional Engineering Managers are set up yet. Add some on the <a href="${"/custom/smartfitsinstallationsltd/engineer-audit/settings.html"}" style="color:var(--accent2)">Settings page</a> first.</p>`}
       </div>
       <div class="modal-footer">
         <button class="btn modal-close">Cancel</button>
-        <button class="btn btn-primary" id="confirmAssign">Assign</button>
+        ${rosterPool.length ? `<button class="btn btn-primary" id="confirmAssign">Assign</button>` : ""}
       </div>
     `);
-    overlay.querySelector("#confirmAssign").addEventListener("click", async () => {
+    overlay.querySelector("#confirmAssign")?.addEventListener("click", async () => {
       const managerId = overlay.querySelector("#managerSelect").value;
       if (!managerId) { toast("error", "Select an employee first"); return; }
       try {

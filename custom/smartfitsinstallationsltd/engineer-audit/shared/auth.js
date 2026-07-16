@@ -108,8 +108,20 @@ export async function requireModuleAccess() {
   return { profile, tier };
 }
 
+const SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
+
 async function resolveTier(profile) {
   if (profile.role === "owner" || profile.role === "admin") return "owner_admin";
+
+  // Membership in the curated Senior Regional Engineering Manager roster
+  // (set on the Settings page) counts as "manager" tier immediately, even
+  // before any engineer has actually been assigned to them yet.
+  const { data: settings } = await auditDb()
+    .from("audit_settings")
+    .select("manager_employee_ids")
+    .eq("id", SETTINGS_ID)
+    .maybeSingle();
+  if (settings?.manager_employee_ids?.includes(profile.id)) return "manager";
 
   const { count } = await auditDb()
     .from("audit_manager_assignments")
