@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Settings — SmartCore Engineer Install Audit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/engineer-audit/shared/audit.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="eia-shell">
+  <nav class="eia-sidebar" id="eiaNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="eia-main">
+    <div class="eia-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Settings</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="eia-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
+  import { listDepartments, getAuditSettings, updateVisibleDepartments } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
+  import { esc, setInner, loadingState, errorState, toast, permissionDeniedState } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+
+  initTheme();
+  let _profile, _departments = [], _selected = new Set();
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    _profile = profile;
+    renderNav("settings", profile, tier);
+    initMobileNav();
+    initTopbar();
+
+    if (tier !== "owner_admin") {
+      setInner("body", permissionDeniedState("Only Owners and Admins can change module settings."));
+    } else {
+      await render();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load settings", message: e.message }));
+  }
+
+  async function render() {
+    setInner("body", loadingState("Loading settings…"));
+    try {
+      const [departments, settings] = await Promise.all([listDepartments(), getAuditSettings()]);
+      _departments = departments;
+      _selected = new Set(settings.visible_department_ids || []);
+      draw();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load settings", message: e.message }));
+    }
+  }
+
+  function draw() {
+    const html = `
+      <div class="page-head">
+        <h2>Module Settings</h2>
+        <p>Control which parts of Smartfits show up when auditing.</p>
+      </div>
+
+      <div class="card" style="max-width:520px">
+        <div class="form-row" style="margin-bottom:10px">
+          <label class="form-label">Departments visible in the engineer picker</label>
+          <p class="text-muted" style="font-size:12.5px;margin:0 0 10px">Leave nothing selected to show every Smartfits employee. Otherwise, only employees in the selected departments appear in "Which engineer would you like to audit today?".</p>
+          <div class="cbdd" id="deptDropdown">
+            <button type="button" class="cbdd-trigger" id="cbddTrigger">
+              <span id="cbddLabel">All departments</span>
+              <i data-lucide="chevron-down"></i>
+            </button>
+            <div class="cbdd-panel" id="cbddPanel">
+              <div class="cbdd-actions">
+                <button type="button" id="selectAll">Select all</button>
+                <button type="button" id="clearAll">Clear</button>
+              </div>
+              ${_departments.map(d => `
+                <label class="cbdd-option">
+                  <input type="checkbox" value="${esc(d.id)}" ${_selected.has(d.id) ? "checked" : ""}/>
+                  <span>${esc(d.name)}</span>
+                </label>`).join("")}
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="saveBtn"><i data-lucide="save"></i> Save Settings</button>
+      </div>
+    `;
+    setInner("body", html);
+    wireDropdown();
+    updateTriggerLabel();
+
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      try {
+        await updateVisibleDepartments([..._selected], _profile.id);
+        toast("success", "Settings saved");
+      } catch (e) {
+        toast("error", "Couldn't save settings", e.message);
+      }
+    });
+  }
+
+  function updateTriggerLabel() {
+    const label = document.getElementById("cbddLabel");
+    if (!label) return;
+    if (_selected.size === 0) label.textContent = "All departments";
+    else if (_selected.size === 1) label.textContent = _departments.find(d => _selected.has(d.id))?.name || "1 selected";
+    else label.textContent = `${_selected.size} departments selected`;
+  }
+
+  function wireDropdown() {
+    const dd = document.getElementById("deptDropdown");
+    const trigger = document.getElementById("cbddTrigger");
+
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      dd.classList.toggle("open");
+    });
+    document.addEventListener("click", (e) => {
+      if (!dd.contains(e.target)) dd.classList.remove("open");
+    });
+    dd.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") dd.classList.remove("open");
+    });
+
+    dd.querySelectorAll('.cbdd-option input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener("change", () => {
+        if (cb.checked) _selected.add(cb.value); else _selected.delete(cb.value);
+        updateTriggerLabel();
+      });
+    });
+
+    document.getElementById("selectAll").addEventListener("click", () => {
+      _departments.forEach(d => _selected.add(d.id));
+      dd.querySelectorAll('.cbdd-option input[type="checkbox"]').forEach(cb => cb.checked = true);
+      updateTriggerLabel();
+    });
+    document.getElementById("clearAll").addEventListener("click", () => {
+      _selected.clear();
+      dd.querySelectorAll('.cbdd-option input[type="checkbox"]').forEach(cb => cb.checked = false);
+      updateTriggerLabel();
+    });
+  }
+</script>
+</body>
+</html>

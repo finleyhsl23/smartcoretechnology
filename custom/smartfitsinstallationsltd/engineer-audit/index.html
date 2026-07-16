@@ -31,7 +31,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
-  import { listSmartfitsEmployees, listMyAssignedEngineerIds, listSubmissionsForEngineer, getEmployeesByIds } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { listSmartfitsEmployees, listMyAssignedEngineerIds, listSubmissionsForEngineer, getEmployeesByIds, getAuditSettings } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
   import { esc, initials, setInner, loadingState, emptyState, errorState, fmtDate } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
@@ -101,14 +101,23 @@
         visibleIds = new Set(await listMyAssignedEngineerIds(_profile.id));
       }
 
-      renderPickerBody(firstName, visibleIds);
+      // Owner/Admin-configured department visibility (Settings page). An
+      // empty list means unrestricted — every Smartfits employee shows up.
+      const settings = await getAuditSettings().catch(() => ({ visible_department_ids: [] }));
+      const deptFilter = settings.visible_department_ids?.length ? new Set(settings.visible_department_ids) : null;
+
+      renderPickerBody(firstName, visibleIds, deptFilter);
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load engineers", message: e.message }));
     }
   }
 
-  function renderPickerBody(firstName, visibleIds) {
-    const pool = _allEmployees.filter(emp => emp.id !== _profile.id && (!visibleIds || visibleIds.has(emp.id)));
+  function renderPickerBody(firstName, visibleIds, deptFilter) {
+    const pool = _allEmployees.filter(emp =>
+      emp.id !== _profile.id
+      && (!visibleIds || visibleIds.has(emp.id))
+      && (!deptFilter || deptFilter.has(emp.department_id))
+    );
 
     const scopeToggle = _tier === "owner_admin" ? `
       <div class="pill-row">

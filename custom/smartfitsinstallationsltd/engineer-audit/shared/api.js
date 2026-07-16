@@ -14,6 +14,38 @@ export async function listCriteria() {
   return data || [];
 }
 
+// ── Departments (public.core_departments, scoped to Smartfits) ─────────
+export async function listDepartments() {
+  const { data, error } = await sb()
+    .from("core_departments")
+    .select("id, name")
+    .eq("company_id", SMARTFITS_COMPANY_ID)
+    .order("name");
+  if (error) throw error;
+  return data || [];
+}
+
+// ── Module settings (singleton row) ─────────────────────────────────────
+const SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
+
+export async function getAuditSettings() {
+  const { data, error } = await auditDb()
+    .from("audit_settings")
+    .select("*")
+    .eq("id", SETTINGS_ID)
+    .maybeSingle();
+  if (error) throw error;
+  return data || { id: SETTINGS_ID, visible_department_ids: [] };
+}
+
+export async function updateVisibleDepartments(departmentIds, updatedByEmployeeId) {
+  const { error } = await auditDb()
+    .from("audit_settings")
+    .update({ visible_department_ids: departmentIds, updated_by: updatedByEmployeeId })
+    .eq("id", SETTINGS_ID);
+  if (error) throw error;
+}
+
 // ── Employees (identity lives in public.core_employees) ────────────────
 export async function listSmartfitsEmployees() {
   const { data, error } = await sb()

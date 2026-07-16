@@ -15,6 +15,7 @@ function navLinksFor(tier) {
   ];
   if (tier === "owner_admin") {
     links.push({ id: "managers", icon: "users-round", label: "Manage Assignments", href: `${BASE}/managers.html` });
+    links.push({ id: "settings", icon: "settings", label: "Settings", href: `${BASE}/settings.html` });
   }
   return links;
 }

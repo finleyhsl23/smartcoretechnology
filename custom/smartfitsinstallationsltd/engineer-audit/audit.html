@@ -94,6 +94,37 @@
     return _submission.status === "draft" && (_profile.id === _submission.manager_employee_id || _tier === "owner_admin");
   }
 
+  function scoredCount() {
+    return document.querySelectorAll(".criterion-card .score-btn.active").length;
+  }
+
+  function hasFlaggedScore() {
+    return !!document.querySelector('.score-btn.active[data-score="3"]');
+  }
+
+  function progressBar({ idSuffix = "" } = {}) {
+    const total = _criteria.length;
+    return `
+      <div class="audit-progress-wrap">
+        <div class="audit-progress-track"><div class="audit-progress-fill" id="progressFill${idSuffix}" style="width:0%"></div></div>
+        <span class="audit-progress-label" id="progressLabel${idSuffix}">0 of ${total} scored</span>
+      </div>`;
+  }
+
+  function updateProgressUI() {
+    const total = _criteria.length;
+    const done = scoredCount();
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    ["", "Bar"].forEach(suffix => {
+      const fill = document.getElementById(`progressFill${suffix}`);
+      const label = document.getElementById(`progressLabel${suffix}`);
+      if (fill) fill.style.width = `${pct}%`;
+      if (label) label.textContent = `${done} of ${total} scored`;
+    });
+    const flagNote = document.getElementById("flagNote");
+    if (flagNote) flagNote.style.display = hasFlaggedScore() ? "flex" : "none";
+  }
+
   function render() {
     document.getElementById("pageTitle").textContent = `Audit — ${_engineer.full_name}`;
     const editable = isEditable();
@@ -103,32 +134,35 @@
     const html = `
       <a class="back-link" href="${BASE}/employee.html?id=${esc(_engineer.id)}"><i data-lucide="arrow-left"></i> Back to profile</a>
 
-      <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
-        <div>
-          <h2>${esc(_engineer.full_name)} <span class="badge ${_submission.status === "submitted" ? "badge-blue" : "badge-grey"}" style="margin-left:8px">${esc(_submission.status)}</span></h2>
-          <p>${_submission.status === "submitted" ? `Submitted ${esc(fmtDateTime(_submission.submitted_at))}` : "Draft — not yet submitted"}</p>
+      <div class="page-head">
+        <h2>${esc(_engineer.full_name)} <span class="badge ${_submission.status === "submitted" ? "badge-blue" : "badge-grey"}" style="margin-left:8px">${esc(_submission.status)}</span></h2>
+        <p>${_submission.status === "submitted" ? `Submitted ${esc(fmtDateTime(_submission.submitted_at))}` : "Draft — not yet submitted"}</p>
+        ${progressBar()}
+        <div class="audit-flag-note" id="flagNote" style="display:none">
+          <i data-lucide="alert-triangle"></i> At least one criterion needs action — check the comments before submitting.
         </div>
-        ${editable ? `
-          <div style="display:flex;gap:8px">
-            <button class="btn" id="saveDraftBtn"><i data-lucide="save"></i> Save Draft</button>
-            <button class="btn btn-primary" id="submitBtn"><i data-lucide="check-circle"></i> Submit Audit</button>
-          </div>` : ""}
       </div>
 
-      <div class="card" style="margin-bottom:18px">
-        <div class="form-row">
+      <div class="card" style="margin-bottom:6px">
+        <div class="form-row" style="margin-bottom:0">
           <label class="form-label" for="jobSheetText">Job sheet write-up</label>
           <textarea id="jobSheetText" class="form-input" ${editable ? "" : "disabled"} placeholder="Paste or type the engineer's job sheet write-up here…">${esc(_submission.job_sheet_text || "")}</textarea>
         </div>
       </div>
 
-      <h3 style="margin:20px 0 10px">Photo Evidence</h3>
+      <div class="section-header">
+        <div class="section-header-icon"><i data-lucide="camera"></i></div>
+        <div><h3>Photo Evidence</h3><span>${photoCriteria.length} criteria checked against install photos</span></div>
+      </div>
       ${photoCriteria.map((c, i) => criterionCard(c, i + 1, editable)).join("")}
 
-      <h3 style="margin:24px 0 10px">Job Sheet Evidence</h3>
+      <div class="section-header">
+        <div class="section-header-icon"><i data-lucide="clipboard-list"></i></div>
+        <div><h3>Job Sheet Evidence</h3><span>${jobSheetCriteria.length} criteria checked against the written job sheet</span></div>
+      </div>
       ${jobSheetCriteria.map((c, i) => criterionCard(c, photoCriteria.length + i + 1, editable)).join("")}
 
-      <div class="card" style="margin-top:18px">
+      <div class="card" style="margin-top:6px">
         <div class="form-row" style="margin-bottom:0">
           <label class="form-label" for="overallNotes">Overall notes (optional)</label>
           <textarea id="overallNotes" class="form-input" ${editable ? "" : "disabled"} placeholder="Any overall context for this audit…">${esc(_submission.overall_notes || "")}</textarea>
@@ -136,20 +170,24 @@
       </div>
 
       ${editable ? `
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
-          <button class="btn" id="saveDraftBtn2"><i data-lucide="save"></i> Save Draft</button>
-          <button class="btn btn-primary" id="submitBtn2"><i data-lucide="check-circle"></i> Submit Audit</button>
+        <div class="audit-action-bar">
+          ${progressBar({ idSuffix: "Bar" })}
+          <div class="audit-buttons">
+            <button class="btn" id="saveDraftBtn"><i data-lucide="save"></i> Save Draft</button>
+            <button class="btn btn-primary" id="submitBtn"><i data-lucide="check-circle"></i> Submit Audit</button>
+          </div>
         </div>` : ""}
     `;
     setInner("body", html);
     wireForm(editable);
+    updateProgressUI();
   }
 
   function criterionCard(criterion, index, editable) {
     const s = _scores[criterion.id];
     const photos = _photos.filter(p => p.criterion_id === criterion.id);
     return `
-      <div class="criterion-card" data-criterion="${esc(criterion.id)}">
+      <div class="criterion-card ${s?.score ? `scored-${s.score}` : ""}" data-criterion="${esc(criterion.id)}">
         <div class="criterion-head">
           <div>
             <div class="criterion-index">Criterion ${index} of ${_criteria.length}</div>
@@ -227,8 +265,12 @@
 
     document.querySelectorAll(".score-btn").forEach(btn => {
       btn.addEventListener("click", () => {
-        btn.closest(".score-picker").querySelectorAll(".score-btn").forEach(b => b.classList.remove("active"));
+        const card = btn.closest(".criterion-card");
+        card.querySelectorAll(".score-btn").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
+        card.classList.remove("scored-1", "scored-2", "scored-3");
+        card.classList.add(`scored-${btn.dataset.score}`);
+        updateProgressUI();
       });
     });
 
@@ -263,42 +305,38 @@
       });
     });
 
-    ["saveDraftBtn", "saveDraftBtn2"].forEach(id => {
-      document.getElementById(id)?.addEventListener("click", async () => {
-        try {
-          await saveDraft();
-          _submission = { ..._submission };
-          _scores = Object.fromEntries((await listScores(_submission.id)).map(s => [s.criterion_id, s]));
-        } catch (e) {
-          toast("error", "Couldn't save draft", e.message);
-        }
-      });
+    document.getElementById("saveDraftBtn")?.addEventListener("click", async () => {
+      try {
+        await saveDraft();
+        _submission = { ..._submission };
+        _scores = Object.fromEntries((await listScores(_submission.id)).map(s => [s.criterion_id, s]));
+      } catch (e) {
+        toast("error", "Couldn't save draft", e.message);
+      }
     });
 
-    ["submitBtn", "submitBtn2"].forEach(id => {
-      document.getElementById(id)?.addEventListener("click", async () => {
-        const state = collectFormState();
-        const missing = _criteria.length - state.scores.length;
-        if (missing > 0) {
-          toast("error", "Audit incomplete", `Score all ${_criteria.length} criteria before submitting (${missing} remaining).`);
-          return;
-        }
-        confirmDialog(
-          "Submit this audit?",
-          "Once submitted, this audit is locked and cannot be edited. Any later corrections must be made as a new audit.",
-          async () => {
-            try {
-              await saveDraft({ silent: true });
-              _submission = await submitSubmission(_submission.id);
-              toast("success", "Audit submitted");
-              render();
-            } catch (e) {
-              toast("error", "Couldn't submit audit", e.message);
-            }
-          },
-          { danger: false, confirmLabel: "Submit" }
-        );
-      });
+    document.getElementById("submitBtn")?.addEventListener("click", async () => {
+      const state = collectFormState();
+      const missing = _criteria.length - state.scores.length;
+      if (missing > 0) {
+        toast("error", "Audit incomplete", `Score all ${_criteria.length} criteria before submitting (${missing} remaining).`);
+        return;
+      }
+      confirmDialog(
+        "Submit this audit?",
+        "Once submitted, this audit is locked and cannot be edited. Any later corrections must be made as a new audit.",
+        async () => {
+          try {
+            await saveDraft({ silent: true });
+            _submission = await submitSubmission(_submission.id);
+            toast("success", "Audit submitted");
+            render();
+          } catch (e) {
+            toast("error", "Couldn't submit audit", e.message);
+          }
+        },
+        { danger: false, confirmLabel: "Submit" }
+      );
     });
   }
 </script>
