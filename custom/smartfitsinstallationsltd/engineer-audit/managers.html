@@ -34,10 +34,10 @@
   import { listSmartfitsEmployees, listAllActiveAssignments, assignEngineer, unassignEngineer, getAuditSettings } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
-  import { esc, initials, setInner, loadingState, errorState, toast, modal, confirmDialog, permissionDeniedState } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+  import { esc, initials, setInner, loadingState, errorState, toast, confirmDialog, permissionDeniedState } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
-  let _profile, _employees = [], _assignments = [], _managerRosterIds = new Set();
+  let _profile, _employees = [], _assignments = [], _managerRosterIds = new Set(), _deptFilter = null;
 
   try {
     const { profile, tier } = await requireModuleAccess();
@@ -62,6 +62,9 @@
       _employees = employees;
       _assignments = assignments;
       _managerRosterIds = new Set(settings.manager_employee_ids || []);
+      // Same department visibility configured on the Settings page for the
+      // engineer picker — an empty list means unrestricted.
+      _deptFilter = settings.visible_department_ids?.length ? new Set(settings.visible_department_ids) : null;
       draw();
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load employees", message: e.message }));
@@ -98,7 +101,11 @@
 
   function drawRows(query) {
     const q = query.trim().toLowerCase();
-    const pool = _employees.filter(e => e.id !== _profile.id && !_managerRosterIds.has(e.id));
+    const pool = _employees.filter(e =>
+      e.id !== _profile.id
+      && !_managerRosterIds.has(e.id)
+      && (!_deptFilter || _deptFilter.has(e.department_id))
+    );
     const filtered = !q ? pool : pool.filter(e =>
       (e.full_name || "").toLowerCase().includes(q) || (e.job_title || "").toLowerCase().includes(q)
     );
@@ -114,15 +121,16 @@
           <td>${esc(e.job_title || "—")}</td>
           <td>${mgr ? esc(mgr) : `<span class="text-muted">— unassigned —</span>`}</td>
           <td style="display:flex;gap:8px;justify-content:flex-end">
-            <button class="btn" data-assign="${esc(e.id)}">${mgr ? "Reassign" : "Assign"}</button>
+            <div class="assign-dd" data-engineer="${esc(e.id)}">
+              <button class="btn" data-role="assign-trigger">${mgr ? "Reassign" : "Assign"}</button>
+              <div class="assign-dd-panel" data-role="assign-panel"></div>
+            </div>
             ${mgr ? `<button class="btn" data-unassign="${esc(e.id)}">Unassign</button>` : ""}
           </td>
         </tr>`;
     }).join("");
 
-    tbody.querySelectorAll("[data-assign]").forEach(btn => {
-      btn.addEventListener("click", () => openAssignModal(btn.dataset.assign));
-    });
+    tbody.querySelectorAll(".assign-dd").forEach(wireAssignDropdown);
     tbody.querySelectorAll("[data-unassign]").forEach(btn => {
       btn.addEventListener("click", () => {
         const emp = _employees.find(x => x.id === btn.dataset.unassign);
@@ -145,8 +153,14 @@
     window.lucide?.createIcons?.();
   }
 
-  function openAssignModal(engineerId) {
+  // Row-anchored dropdown: click the trigger, pick a name, it saves
+  // immediately — no confirm step, no full-screen modal.
+  function wireAssignDropdown(dd) {
+    const engineerId = dd.dataset.engineer;
     const engineer = _employees.find(e => e.id === engineerId);
+    const trigger = dd.querySelector('[data-role="assign-trigger"]');
+    const panel = dd.querySelector('[data-role="assign-panel"]');
+
     // Restrict to the Senior Regional Engineering Manager roster (Settings
     // page). Falls back to every employee if no roster has been set up yet,
     // so assignment still works before Settings is configured.
@@ -154,35 +168,40 @@
       ? _employees.filter(e => _managerRosterIds.has(e.id))
       : _employees.filter(e => e.id !== engineerId);
 
-    const overlay = modal(`
-      <div class="modal-header"><h3>Assign manager for ${esc(engineer.full_name)}</h3><button class="btn modal-close">✕</button></div>
-      <div class="modal-body">
-        <label class="form-label" for="managerSelect">Engineering Manager</label>
-        ${rosterPool.length ? `
-          <select id="managerSelect" class="form-input">
-            <option value="">Select an employee…</option>
-            ${rosterPool.map(c => `<option value="${esc(c.id)}">${esc(c.full_name)} — ${esc(c.job_title || "")}</option>`).join("")}
-          </select>` : `
-          <p class="text-muted" style="font-size:13px">No Senior Regional Engineering Managers are set up yet. Add some on the <a href="${"/custom/smartfitsinstallationsltd/engineer-audit/settings.html"}" style="color:var(--accent2)">Settings page</a> first.</p>`}
-      </div>
-      <div class="modal-footer">
-        <button class="btn modal-close">Cancel</button>
-        ${rosterPool.length ? `<button class="btn btn-primary" id="confirmAssign">Assign</button>` : ""}
-      </div>
-    `);
-    overlay.querySelector("#confirmAssign")?.addEventListener("click", async () => {
-      const managerId = overlay.querySelector("#managerSelect").value;
-      if (!managerId) { toast("error", "Select an employee first"); return; }
-      try {
-        await assignEngineer(engineerId, managerId, _profile.id);
-        overlay.remove();
-        toast("success", "Assignment saved");
-        await render();
-      } catch (e) {
-        toast("error", "Couldn't save assignment", e.message);
-      }
+    panel.innerHTML = rosterPool.length
+      ? rosterPool.map(c => `
+          <div class="assign-dd-option" data-manager="${esc(c.id)}">
+            ${esc(c.full_name)}
+            ${c.job_title ? `<small>${esc(c.job_title)}</small>` : ""}
+          </div>`).join("")
+      : `<div class="assign-dd-empty">No Senior Regional Engineering Managers are set up yet. Add some on the <a href="${"/custom/smartfitsinstallationsltd/engineer-audit/settings.html"}">Settings page</a> first.</div>`;
+
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      document.querySelectorAll(".assign-dd.open").forEach(other => { if (other !== dd) other.classList.remove("open"); });
+      dd.classList.toggle("open");
+    });
+
+    panel.querySelectorAll("[data-manager]").forEach(opt => {
+      opt.addEventListener("click", async () => {
+        const managerId = opt.dataset.manager;
+        dd.classList.remove("open");
+        try {
+          await assignEngineer(engineerId, managerId, _profile.id);
+          toast("success", `${engineer.full_name} assigned`);
+          await render();
+        } catch (e2) {
+          toast("error", "Couldn't save assignment", e2.message);
+        }
+      });
     });
   }
+
+  document.addEventListener("click", (e) => {
+    document.querySelectorAll(".assign-dd.open").forEach(dd => {
+      if (!dd.contains(e.target)) dd.classList.remove("open");
+    });
+  });
 </script>
 </body>
 </html>
