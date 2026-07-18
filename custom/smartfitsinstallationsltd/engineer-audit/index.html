@@ -31,10 +31,10 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
-  import { listSmartfitsEmployees, listMyAssignedEngineerIds, listSubmissionsForEngineer, getEmployeesByIds, getAuditSettings } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { listSmartfitsEmployees, listMyAssignedEngineerIds, listSubmissionsForEngineer, getEmployeesByIds, getAuditSettings, listCriteria } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
-  import { esc, initials, setInner, loadingState, emptyState, errorState, fmtDate, scoreToPercentage, percentageBadge } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+  import { esc, initials, setInner, loadingState, emptyState, errorState, fmtDate, scoreToPercentage, percentageBadge, flagBadge } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
 
@@ -68,9 +68,10 @@
   async function renderMyHistory(firstName) {
     setInner("body", loadingState("Loading your audit history…"));
     try {
-      const [submissions, settings] = await Promise.all([
+      const [submissions, settings, criteria] = await Promise.all([
         listSubmissionsForEngineer(_profile.id),
         getAuditSettings().catch(() => ({ fail_threshold_percent: 60 })),
+        listCriteria().catch(() => []),
       ]);
       const managerIds = submissions.map(s => s.manager_employee_id);
       const managers = await getEmployeesByIds(managerIds);
@@ -86,7 +87,7 @@
           : historyTable(submissions, managerName)}
       `;
       setInner("body", html);
-      wireHistoryRows(submissions, settings.fail_threshold_percent ?? 60);
+      wireHistoryRows(submissions, settings.fail_threshold_percent ?? 60, criteria);
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load your history", message: e.message }));
     }
@@ -207,7 +208,8 @@
       </div>`;
   }
 
-  function wireHistoryRows(submissions, failThresholdPercent) {
+  function wireHistoryRows(submissions, failThresholdPercent, criteria) {
+    const criteriaById = Object.fromEntries((criteria || []).map(c => [c.id, c]));
     document.querySelectorAll("#histBody tr[data-id]").forEach(row => {
       row.addEventListener("click", () => {
         window.location.href = `${BASE}/audit.html?submission=${row.dataset.id}&view=1`;
@@ -226,9 +228,7 @@
           const avg = scores.reduce((a, c) => a + c.score, 0) / scores.length;
           const pct = scoreToPercentage(avg);
           if (avgCell) avgCell.innerHTML = percentageBadge(pct, failThresholdPercent);
-          if (flagCell && scores.some(c => c.score === 3)) {
-            flagCell.innerHTML = `<span class="badge badge-red">Needs action</span>`;
-          }
+          if (flagCell) flagCell.innerHTML = flagBadge(scores, criteriaById);
         } catch { /* non-fatal */ }
       }
     });

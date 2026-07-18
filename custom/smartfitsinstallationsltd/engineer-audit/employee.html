@@ -31,10 +31,10 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
-  import { getEmployee, listSubmissionsForEngineer, getEmployeesByIds, listScores, getAuditSettings } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { getEmployee, listSubmissionsForEngineer, getEmployeesByIds, listScores, getAuditSettings, listCriteria } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
-  import { esc, initials, setInner, loadingState, emptyState, errorState, fmtDate, scoreToPercentage, percentageBadge } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+  import { esc, initials, setInner, loadingState, emptyState, errorState, fmtDate, scoreToPercentage, percentageBadge, flagBadge, modal } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
   const BASE = "/custom/smartfitsinstallationsltd/engineer-audit";
@@ -62,11 +62,13 @@
     const emp = await getEmployee(employeeId);
     if (!emp) { setInner("body", errorState({ title: "Not found", message: "This employee could not be found." })); return; }
 
-    const [submissions, settings] = await Promise.all([
+    const [submissions, settings, criteria] = await Promise.all([
       listSubmissionsForEngineer(employeeId),
       getAuditSettings().catch(() => ({ fail_threshold_percent: 60 })),
+      listCriteria().catch(() => []),
     ]);
     const failThresholdPercent = settings.fail_threshold_percent ?? 60;
+    const criteriaById = Object.fromEntries(criteria.map(c => [c.id, c]));
     const managerIds = submissions.map(s => s.manager_employee_id);
     const managers = await getEmployeesByIds(managerIds);
     const managerName = id => managers.find(m => m.id === id)?.full_name || "—";
@@ -84,7 +86,10 @@
         ${canAudit ? `<a class="btn btn-primary" href="${BASE}/audit.html?engineer=${esc(emp.id)}"><i data-lucide="clipboard-check"></i> Start New Audit</a>` : ""}
       </div>
 
-      <div class="page-head"><h2>Audit History</h2></div>
+      <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+        <h2 style="margin:0">Audit History</h2>
+        <button class="btn" id="patternsBtn" style="display:none"><i data-lucide="repeat"></i> View Recurring Patterns</button>
+      </div>
       ${submissions.length === 0
         ? emptyState({ icon: "clipboard-list", title: "No audits yet", message: "No install audits have been recorded for this engineer yet." })
         : `<div class="tbl-wrap"><table class="tbl">
@@ -110,6 +115,9 @@
       });
     });
 
+    // recurring[criterion_id] = [{ date, submissionId }, ...] — only counts
+    // submitted audits, since drafts aren't a finished review outcome yet.
+    const recurring = {};
     for (const s of submissions) {
       try {
         const scores = await listScores(s.id);
@@ -119,9 +127,43 @@
         const avg = scores.reduce((a, c) => a + c.score, 0) / scores.length;
         const pct = scoreToPercentage(avg);
         if (avgCell) avgCell.innerHTML = percentageBadge(pct, failThresholdPercent);
-        if (flagCell && scores.some(c => c.score === 3)) flagCell.innerHTML = `<span class="badge badge-red">Needs action</span>`;
+        if (flagCell) flagCell.innerHTML = flagBadge(scores, criteriaById);
+
+        if (s.status === "submitted") {
+          for (const sc of scores) {
+            if (sc.score !== 3) continue;
+            (recurring[sc.criterion_id] ||= []).push(s.created_at);
+          }
+        }
       } catch { /* non-fatal */ }
     }
+
+    const patternEntries = Object.entries(recurring).filter(([, dates]) => dates.length >= 2);
+    if (patternEntries.length) {
+      const btn = document.getElementById("patternsBtn");
+      btn.style.display = "";
+      btn.addEventListener("click", () => openPatternsModal(patternEntries, criteriaById, emp.full_name));
+      window.lucide?.createIcons?.();
+    }
+  }
+
+  function openPatternsModal(patternEntries, criteriaById, employeeName) {
+    const sorted = patternEntries.sort((a, b) => b[1].length - a[1].length);
+    modal(`
+      <div class="modal-header"><h3>Recurring issues — ${esc(employeeName)}</h3><button class="btn modal-close">✕</button></div>
+      <div class="modal-body">
+        <p class="text-muted" style="font-size:13px;margin:0 0 10px">Criteria that scored "Needs action" more than once across submitted audits.</p>
+        ${sorted.map(([criterionId, dates]) => `
+          <div class="pattern-row">
+            <div>
+              <div class="pattern-label">${esc(criteriaById[criterionId]?.label || "Unknown criterion")}</div>
+              <div class="pattern-dates">${dates.map(d => esc(fmtDate(d))).join(", ")}</div>
+            </div>
+            <span class="badge badge-red pattern-count">${dates.length}×</span>
+          </div>`).join("")}
+      </div>
+      <div class="modal-footer"><button class="btn modal-close">Close</button></div>
+    `);
   }
 </script>
 </body>

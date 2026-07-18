@@ -229,3 +229,21 @@ export function percentageBadge(pct, failThresholdPercent) {
   const failing = pct < failThresholdPercent;
   return `<span class="badge ${failing ? "badge-red" : "badge-green"}">${pct}%</span>`;
 }
+
+/**
+ * "Needs action" badge for a submission, with a hover tooltip listing which
+ * criteria scored 3 and the manager's comment for each. Returns "" if
+ * nothing scored 3. `criteriaById` maps criterion_id -> criterion row
+ * (needs a `label` field).
+ */
+export function flagBadge(scores, criteriaById) {
+  const failed = scores.filter(s => s.score === 3);
+  if (!failed.length) return "";
+  const reason = failed
+    .map(s => {
+      const label = criteriaById[s.criterion_id]?.label || "Unknown criterion";
+      return s.comment ? `${label}: ${s.comment}` : label;
+    })
+    .join("\n");
+  return `<span class="tooltip-wrap" data-tooltip="${esc(reason)}" tabindex="0"><span class="badge badge-red">Needs action</span></span>`;
+}
