@@ -34,7 +34,7 @@
   import { listSmartfitsEmployees, listMyAssignedEngineerIds, listSubmissionsForEngineer, getEmployeesByIds, getAuditSettings } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
-  import { esc, initials, setInner, loadingState, emptyState, errorState, fmtDate } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+  import { esc, initials, setInner, loadingState, emptyState, errorState, fmtDate, scoreToPercentage, percentageBadge } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
 
@@ -68,7 +68,10 @@
   async function renderMyHistory(firstName) {
     setInner("body", loadingState("Loading your audit history…"));
     try {
-      const submissions = await listSubmissionsForEngineer(_profile.id);
+      const [submissions, settings] = await Promise.all([
+        listSubmissionsForEngineer(_profile.id),
+        getAuditSettings().catch(() => ({ fail_threshold_percent: 60 })),
+      ]);
       const managerIds = submissions.map(s => s.manager_employee_id);
       const managers = await getEmployeesByIds(managerIds);
       const managerName = id => managers.find(m => m.id === id)?.full_name || "—";
@@ -80,10 +83,10 @@
         </div>
         ${submissions.length === 0
           ? emptyState({ icon: "clipboard-list", title: "No audits yet", message: "Once an Engineering Manager reviews one of your installs, it will show up here." })
-          : historyTable(submissions, managerName, true)}
+          : historyTable(submissions, managerName)}
       `;
       setInner("body", html);
-      wireHistoryRows(submissions);
+      wireHistoryRows(submissions, settings.fail_threshold_percent ?? 60);
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load your history", message: e.message }));
     }
@@ -184,11 +187,11 @@
       </div>`;
   }
 
-  function historyTable(submissions, managerName, ownRowsOnly) {
+  function historyTable(submissions, managerName) {
     return `
       <div class="tbl-wrap">
         <table class="tbl">
-          <thead><tr><th>Date</th><th>Manager</th><th>Status</th><th>Avg score</th><th>Flag</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>Manager</th><th>Status</th><th>Score</th><th>Flag</th><th></th></tr></thead>
           <tbody id="histBody">
             ${submissions.map(s => `
               <tr class="tbl-row-link" data-id="${esc(s.id)}">
@@ -204,7 +207,7 @@
       </div>`;
   }
 
-  function wireHistoryRows(submissions) {
+  function wireHistoryRows(submissions, failThresholdPercent) {
     document.querySelectorAll("#histBody tr[data-id]").forEach(row => {
       row.addEventListener("click", () => {
         window.location.href = `${BASE}/audit.html?submission=${row.dataset.id}&view=1`;
@@ -220,8 +223,9 @@
             if (avgCell) avgCell.textContent = "—";
             continue;
           }
-          const avg = (scores.reduce((a, c) => a + c.score, 0) / scores.length).toFixed(1);
-          if (avgCell) avgCell.textContent = avg;
+          const avg = scores.reduce((a, c) => a + c.score, 0) / scores.length;
+          const pct = scoreToPercentage(avg);
+          if (avgCell) avgCell.innerHTML = percentageBadge(pct, failThresholdPercent);
           if (flagCell && scores.some(c => c.score === 3)) {
             flagCell.innerHTML = `<span class="badge badge-red">Needs action</span>`;
           }

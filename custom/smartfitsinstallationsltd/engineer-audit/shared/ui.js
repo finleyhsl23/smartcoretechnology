@@ -216,3 +216,16 @@ export function initTagInput(container, { options, selected = [], labelKey = "fu
 
   return { getSelected: () => selectedIds };
 }
+
+/**
+ * Converts a raw average score (1 = good .. 3 = needs action) to a quality
+ * percentage where higher is better: 1 -> 100%, 2 -> 50%, 3 -> 0%.
+ */
+export function scoreToPercentage(avgScore) {
+  return Math.round(((3 - avgScore) / 2) * 100);
+}
+
+export function percentageBadge(pct, failThresholdPercent) {
+  const failing = pct < failThresholdPercent;
+  return `<span class="badge ${failing ? "badge-red" : "badge-green"}">${pct}%</span>`;
+}

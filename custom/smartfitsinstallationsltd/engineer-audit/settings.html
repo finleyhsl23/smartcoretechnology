@@ -37,7 +37,7 @@
   import { esc, setInner, loadingState, errorState, toast, permissionDeniedState, initTagInput } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
-  let _profile, _departments = [], _employees = [], _selected = new Set(), _managerTag, _managerIds = [];
+  let _profile, _departments = [], _employees = [], _selected = new Set(), _managerTag, _managerIds = [], _failThreshold = 60;
 
   try {
     const { profile, tier } = await requireModuleAccess();
@@ -63,6 +63,7 @@
       _employees = employees;
       _selected = new Set(settings.visible_department_ids || []);
       _managerIds = settings.manager_employee_ids || [];
+      _failThreshold = settings.fail_threshold_percent ?? 60;
       draw();
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load settings", message: e.message }));
@@ -108,6 +109,17 @@
         </div>
       </div>
 
+      <div class="card" style="max-width:520px;margin-top:18px">
+        <div class="form-row" style="margin-bottom:0">
+          <label class="form-label" for="failThreshold">Fail threshold</label>
+          <p class="text-muted" style="font-size:12.5px;margin:0 0 10px">Audits scoring below this percentage are highlighted red on the engineer's profile.</p>
+          <div style="display:flex;align-items:center;gap:10px;max-width:160px">
+            <input type="number" id="failThreshold" class="form-input" min="0" max="100" step="1" value="${esc(_failThreshold)}"/>
+            <span class="text-muted" style="font-weight:700">%</span>
+          </div>
+        </div>
+      </div>
+
       <button class="btn btn-primary" id="saveBtn" style="margin-top:18px"><i data-lucide="save"></i> Save Settings</button>
     `;
     setInner("body", html);
@@ -121,10 +133,16 @@
     });
 
     document.getElementById("saveBtn").addEventListener("click", async () => {
+      const thresholdValue = Number(document.getElementById("failThreshold").value);
+      if (!Number.isInteger(thresholdValue) || thresholdValue < 0 || thresholdValue > 100) {
+        toast("error", "Invalid fail threshold", "Enter a whole number between 0 and 100.");
+        return;
+      }
       try {
         await updateAuditSettings({
           visible_department_ids: [..._selected],
           manager_employee_ids: _managerTag.getSelected(),
+          fail_threshold_percent: thresholdValue,
         }, _profile.id);
         toast("success", "Settings saved");
       } catch (e) {

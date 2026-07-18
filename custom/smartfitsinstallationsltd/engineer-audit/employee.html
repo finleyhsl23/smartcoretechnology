@@ -31,10 +31,10 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
-  import { getEmployee, listSubmissionsForEngineer, getEmployeesByIds, listScores } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { getEmployee, listSubmissionsForEngineer, getEmployeesByIds, listScores, getAuditSettings } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
-  import { esc, initials, setInner, loadingState, emptyState, errorState, fmtDate } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+  import { esc, initials, setInner, loadingState, emptyState, errorState, fmtDate, scoreToPercentage, percentageBadge } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
   const BASE = "/custom/smartfitsinstallationsltd/engineer-audit";
@@ -62,7 +62,11 @@
     const emp = await getEmployee(employeeId);
     if (!emp) { setInner("body", errorState({ title: "Not found", message: "This employee could not be found." })); return; }
 
-    const submissions = await listSubmissionsForEngineer(employeeId);
+    const [submissions, settings] = await Promise.all([
+      listSubmissionsForEngineer(employeeId),
+      getAuditSettings().catch(() => ({ fail_threshold_percent: 60 })),
+    ]);
+    const failThresholdPercent = settings.fail_threshold_percent ?? 60;
     const managerIds = submissions.map(s => s.manager_employee_id);
     const managers = await getEmployeesByIds(managerIds);
     const managerName = id => managers.find(m => m.id === id)?.full_name || "—";
@@ -84,7 +88,7 @@
       ${submissions.length === 0
         ? emptyState({ icon: "clipboard-list", title: "No audits yet", message: "No install audits have been recorded for this engineer yet." })
         : `<div class="tbl-wrap"><table class="tbl">
-            <thead><tr><th>Date</th><th>Manager</th><th>Status</th><th>Avg score</th><th>Flag</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Manager</th><th>Status</th><th>Score</th><th>Flag</th><th></th></tr></thead>
             <tbody id="histBody">
               ${submissions.map(s => `
                 <tr class="tbl-row-link" data-id="${esc(s.id)}">
@@ -112,8 +116,9 @@
         const avgCell = document.querySelector(`[data-avg="${s.id}"]`);
         const flagCell = document.querySelector(`[data-flag="${s.id}"]`);
         if (!scores.length) { if (avgCell) avgCell.textContent = "—"; continue; }
-        const avg = (scores.reduce((a, c) => a + c.score, 0) / scores.length).toFixed(1);
-        if (avgCell) avgCell.textContent = avg;
+        const avg = scores.reduce((a, c) => a + c.score, 0) / scores.length;
+        const pct = scoreToPercentage(avg);
+        if (avgCell) avgCell.innerHTML = percentageBadge(pct, failThresholdPercent);
         if (flagCell && scores.some(c => c.score === 3)) flagCell.innerHTML = `<span class="badge badge-red">Needs action</span>`;
       } catch { /* non-fatal */ }
     }
