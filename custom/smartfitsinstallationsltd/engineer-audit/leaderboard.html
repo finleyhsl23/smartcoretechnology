@@ -32,7 +32,7 @@
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
   import {
-    listSmartfitsEmployees, listMyAssignedEngineerIds, getAuditSettings,
+    listSmartfitsEmployees, listMyAssignedEngineerIds,
     listSubmissionsForEngineer, listScores,
   } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
@@ -42,7 +42,7 @@
   initTheme();
   const BASE = "/custom/smartfitsinstallationsltd/engineer-audit";
 
-  let _profile, _tier;
+  let _profile, _tier, _settings;
   let _allEmployees = [];
   let _failThresholdPercent = 60;
   let _managerRosterIds = new Set();
@@ -50,14 +50,16 @@
   let _scope = "mine"; // 'mine' | 'all'
 
   try {
-    const { profile, tier } = await requireModuleAccess();
-    _profile = profile; _tier = tier;
-    renderNav("leaderboard", profile, tier);
+    const { profile, tier, settings } = await requireModuleAccess();
+    _profile = profile; _tier = tier; _settings = settings;
+    renderNav("leaderboard", profile, tier, settings);
     initMobileNav();
     initTopbar();
 
     if (tier === "engineer") {
       setInner("body", errorState({ title: "Not available", message: "The leaderboard is only visible to Engineering Managers, Owners, and Admins." }));
+    } else if (settings.leaderboard_enabled === false) {
+      setInner("body", errorState({ title: "Leaderboard disabled", message: "An Owner or Admin has turned this feature off. Ask them to re-enable it in Settings if you need it." }));
     } else {
       await render();
     }
@@ -70,14 +72,10 @@
   async function render() {
     setInner("body", loadingState("Loading leaderboard…"));
     try {
-      const [employees, settings] = await Promise.all([
-        listSmartfitsEmployees(),
-        getAuditSettings().catch(() => ({ visible_department_ids: [], manager_employee_ids: [], fail_threshold_percent: 60 })),
-      ]);
-      _allEmployees = employees;
-      _failThresholdPercent = settings.fail_threshold_percent ?? 60;
-      _managerRosterIds = new Set(settings.manager_employee_ids || []);
-      _deptFilter = settings.visible_department_ids?.length ? new Set(settings.visible_department_ids) : null;
+      _allEmployees = await listSmartfitsEmployees();
+      _failThresholdPercent = _settings.fail_threshold_percent ?? 60;
+      _managerRosterIds = new Set(_settings.manager_employee_ids || []);
+      _deptFilter = _settings.visible_department_ids?.length ? new Set(_settings.visible_department_ids) : null;
 
       drawShell();
       await drawLeaderboard();

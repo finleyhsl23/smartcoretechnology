@@ -31,7 +31,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
-  import { listSmartfitsEmployees, listMyAssignedEngineerIds, listSubmissionsForEngineer, getEmployeesByIds, getAuditSettings, listCriteria } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { listSmartfitsEmployees, listMyAssignedEngineerIds, listSubmissionsForEngineer, getEmployeesByIds, listCriteria } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
   import { esc, initials, setInner, loadingState, emptyState, errorState, fmtDate, scoreToPercentage, percentageBadge, flagBadge } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
@@ -42,11 +42,12 @@
   let _profile, _tier;
   let _allEmployees = [];
   let _scope = "mine"; // 'mine' | 'all' — only relevant for owner_admin
+  let _settings;
 
   try {
-    const { profile, tier } = await requireModuleAccess();
-    _profile = profile; _tier = tier;
-    renderNav("home", profile, tier);
+    const { profile, tier, settings } = await requireModuleAccess();
+    _profile = profile; _tier = tier; _settings = settings;
+    renderNav("home", profile, tier, settings);
     initMobileNav();
     initTopbar();
 
@@ -68,9 +69,8 @@
   async function renderMyHistory(firstName) {
     setInner("body", loadingState("Loading your audit history…"));
     try {
-      const [submissions, settings, criteria] = await Promise.all([
+      const [submissions, criteria] = await Promise.all([
         listSubmissionsForEngineer(_profile.id),
-        getAuditSettings().catch(() => ({ fail_threshold_percent: 60 })),
         listCriteria().catch(() => []),
       ]);
       const managerIds = submissions.map(s => s.manager_employee_id);
@@ -87,7 +87,7 @@
           : historyTable(submissions, managerName)}
       `;
       setInner("body", html);
-      wireHistoryRows(submissions, settings.fail_threshold_percent ?? 60, criteria);
+      wireHistoryRows(submissions, _settings.fail_threshold_percent ?? 60, criteria);
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load your history", message: e.message }));
     }
@@ -107,9 +107,8 @@
 
       // Owner/Admin-configured department visibility (Settings page). An
       // empty list means unrestricted — every Smartfits employee shows up.
-      const settings = await getAuditSettings().catch(() => ({ visible_department_ids: [], manager_employee_ids: [] }));
-      const deptFilter = settings.visible_department_ids?.length ? new Set(settings.visible_department_ids) : null;
-      const managerRosterIds = new Set(settings.manager_employee_ids || []);
+      const deptFilter = _settings.visible_department_ids?.length ? new Set(_settings.visible_department_ids) : null;
+      const managerRosterIds = new Set(_settings.manager_employee_ids || []);
 
       renderPickerBody(firstName, visibleIds, deptFilter, managerRosterIds);
     } catch (e) {

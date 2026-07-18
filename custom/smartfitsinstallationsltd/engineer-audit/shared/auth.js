@@ -55,15 +55,21 @@ function renderBlockScreen({ icon, title, message }) {
   });
 }
 
+const SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
+const SETTINGS_DEFAULTS = { visible_department_ids: [], manager_employee_ids: [], fail_threshold_percent: 60, leaderboard_enabled: true };
+
 /**
  * Full module access flow:
  *  1. Valid session      -> requireAuth()
  *  2. Employee profile exists in core_employees
  *  3. Employee belongs to Smartfits (this module is Smartfits-only)
  *  4. Company entitlement -> company_modules.enabled for this module_key
- * Returns { profile, tier } where tier is 'owner_admin' | 'manager' | 'engineer'.
- * 'manager' (Engineering Manager) is not a stored role — it's derived from
- * having at least one active audit_manager_assignments row as manager.
+ * Returns { profile, tier, settings } where tier is 'owner_admin' | 'manager'
+ * | 'engineer'. 'manager' (Engineering Manager) is not a stored role — it's
+ * derived from having at least one active audit_manager_assignments row as
+ * manager, or being on the roster in Settings. `settings` is the module's
+ * singleton audit_settings row, fetched once here so every page can reuse it
+ * (nav gating, department/threshold filters) without a repeat query.
  */
 export async function requireModuleAccess() {
   let profile;
@@ -103,25 +109,25 @@ export async function requireModuleAccess() {
     throw new Error("Module not enabled");
   }
 
-  const tier = await resolveTier(profile);
+  const { data: settingsRow } = await auditDb()
+    .from("audit_settings")
+    .select("*")
+    .eq("id", SETTINGS_ID)
+    .maybeSingle();
+  const settings = { ...SETTINGS_DEFAULTS, ...(settingsRow || {}) };
+
+  const tier = await resolveTier(profile, settings);
   _tier = tier;
-  return { profile, tier };
+  return { profile, tier, settings };
 }
 
-const SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
-
-async function resolveTier(profile) {
+async function resolveTier(profile, settings) {
   if (profile.role === "owner" || profile.role === "admin") return "owner_admin";
 
   // Membership in the curated Senior Regional Engineering Manager roster
   // (set on the Settings page) counts as "manager" tier immediately, even
   // before any engineer has actually been assigned to them yet.
-  const { data: settings } = await auditDb()
-    .from("audit_settings")
-    .select("manager_employee_ids")
-    .eq("id", SETTINGS_ID)
-    .maybeSingle();
-  if (settings?.manager_employee_ids?.includes(profile.id)) return "manager";
+  if (settings.manager_employee_ids?.includes(profile.id)) return "manager";
 
   const { count } = await auditDb()
     .from("audit_manager_assignments")

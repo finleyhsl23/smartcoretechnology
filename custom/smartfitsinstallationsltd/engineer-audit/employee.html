@@ -32,7 +32,7 @@
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
   import {
-    getEmployee, listSubmissionsForEngineer, getEmployeesByIds, listScores, getAuditSettings, listCriteria,
+    getEmployee, listSubmissionsForEngineer, getEmployeesByIds, listScores, listCriteria,
     listPerformanceNotes, addPerformanceNote, deletePerformanceNote,
     listDisciplinaryActions, addDisciplinaryAction,
     listTrainingRecords, addTrainingRecord, updateTrainingRecord, deleteTrainingRecord,
@@ -46,7 +46,7 @@
   const params = new URLSearchParams(window.location.search);
   const employeeId = params.get("id");
 
-  let _profile, _tier, _emp;
+  let _profile, _tier, _emp, _settings;
   let _canManage = false; // Owner/Admin or a manager (write ops still gated server-side by RLS)
   let _canSeeDisciplinary = false;
   let _activeTab = "audits";
@@ -57,9 +57,9 @@
   let _notes = null, _training = null, _disciplinary = null;
 
   try {
-    const { profile, tier } = await requireModuleAccess();
-    _profile = profile; _tier = tier;
-    renderNav("home", profile, tier);
+    const { profile, tier, settings } = await requireModuleAccess();
+    _profile = profile; _tier = tier; _settings = settings;
+    renderNav("home", profile, tier, settings);
     initMobileNav();
     initTopbar();
 
@@ -80,13 +80,12 @@
     _emp = await getEmployee(employeeId);
     if (!_emp) { setInner("body", errorState({ title: "Not found", message: "This employee could not be found." })); return; }
 
-    const [submissions, settings, criteria] = await Promise.all([
+    const [submissions, criteria] = await Promise.all([
       listSubmissionsForEngineer(employeeId),
-      getAuditSettings().catch(() => ({ fail_threshold_percent: 60 })),
       listCriteria().catch(() => []),
     ]);
     _submissions = submissions;
-    _failThresholdPercent = settings.fail_threshold_percent ?? 60;
+    _failThresholdPercent = _settings.fail_threshold_percent ?? 60;
     _criteriaById = Object.fromEntries(criteria.map(c => [c.id, c]));
     const managers = await getEmployeesByIds(submissions.map(s => s.manager_employee_id));
     _managerNames = Object.fromEntries(managers.map(m => [m.id, m.full_name]));

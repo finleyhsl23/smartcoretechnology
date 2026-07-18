@@ -37,12 +37,12 @@
   import { esc, setInner, loadingState, errorState, toast, permissionDeniedState, initTagInput } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
-  let _profile, _departments = [], _employees = [], _selected = new Set(), _managerTag, _managerIds = [], _failThreshold = 60;
+  let _profile, _departments = [], _employees = [], _selected = new Set(), _managerTag, _managerIds = [], _failThreshold = 60, _leaderboardEnabled = true;
 
   try {
-    const { profile, tier } = await requireModuleAccess();
+    const { profile, tier, settings: navSettings } = await requireModuleAccess();
     _profile = profile;
-    renderNav("settings", profile, tier);
+    renderNav("settings", profile, tier, navSettings);
     initMobileNav();
     initTopbar();
 
@@ -64,6 +64,7 @@
       _selected = new Set(settings.visible_department_ids || []);
       _managerIds = settings.manager_employee_ids || [];
       _failThreshold = settings.fail_threshold_percent ?? 60;
+      _leaderboardEnabled = settings.leaderboard_enabled ?? true;
       draw();
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load settings", message: e.message }));
@@ -120,6 +121,16 @@
         </div>
       </div>
 
+      <div class="card" style="max-width:520px;margin-top:18px">
+        <label class="form-row" style="margin-bottom:0;display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="leaderboardEnabled" style="width:16px;height:16px;accent-color:var(--accent)" ${_leaderboardEnabled ? "checked" : ""}/>
+          <span>
+            <span class="form-label" style="margin-bottom:2px;display:block">Enable Leaderboard</span>
+            <span class="text-muted" style="font-size:12.5px">When off, the Leaderboard disappears from the sidebar and the page itself shows as disabled.</span>
+          </span>
+        </label>
+      </div>
+
       <button class="btn btn-primary" id="saveBtn" style="margin-top:18px"><i data-lucide="save"></i> Save Settings</button>
     `;
     setInner("body", html);
@@ -143,6 +154,7 @@
           visible_department_ids: [..._selected],
           manager_employee_ids: _managerTag.getSelected(),
           fail_threshold_percent: thresholdValue,
+          leaderboard_enabled: document.getElementById("leaderboardEnabled").checked,
         }, _profile.id);
         toast("success", "Settings saved");
       } catch (e) {

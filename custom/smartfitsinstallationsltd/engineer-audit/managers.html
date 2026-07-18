@@ -31,18 +31,18 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
-  import { listSmartfitsEmployees, listAllActiveAssignments, setEngineerManagers, unassignEngineer, getAuditSettings } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { listSmartfitsEmployees, listAllActiveAssignments, setEngineerManagers, unassignEngineer } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
   import { esc, initials, setInner, loadingState, errorState, toast, confirmDialog, permissionDeniedState } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
-  let _profile, _employees = [], _assignments = [], _managerRosterIds = new Set(), _deptFilter = null;
+  let _profile, _settings, _employees = [], _assignments = [], _managerRosterIds = new Set(), _deptFilter = null;
 
   try {
-    const { profile, tier } = await requireModuleAccess();
-    _profile = profile;
-    renderNav("managers", profile, tier);
+    const { profile, tier, settings } = await requireModuleAccess();
+    _profile = profile; _settings = settings;
+    renderNav("managers", profile, tier, settings);
     initMobileNav();
     initTopbar();
 
@@ -58,13 +58,13 @@
   async function render() {
     setInner("body", loadingState("Loading employees…"));
     try {
-      const [employees, assignments, settings] = await Promise.all([listSmartfitsEmployees(), listAllActiveAssignments(), getAuditSettings()]);
+      const [employees, assignments] = await Promise.all([listSmartfitsEmployees(), listAllActiveAssignments()]);
       _employees = employees;
       _assignments = assignments;
-      _managerRosterIds = new Set(settings.manager_employee_ids || []);
+      _managerRosterIds = new Set(_settings.manager_employee_ids || []);
       // Same department visibility configured on the Settings page for the
       // engineer picker — an empty list means unrestricted.
-      _deptFilter = settings.visible_department_ids?.length ? new Set(settings.visible_department_ids) : null;
+      _deptFilter = _settings.visible_department_ids?.length ? new Set(_settings.visible_department_ids) : null;
       draw();
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load employees", message: e.message }));

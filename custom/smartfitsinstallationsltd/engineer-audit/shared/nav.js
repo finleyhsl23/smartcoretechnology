@@ -4,24 +4,27 @@ import { sb } from "./supabase.js";
 
 const BASE = "/custom/smartfitsinstallationsltd/engineer-audit";
 
-function navLinksFor(tier) {
+function navLinksFor(tier, settings) {
   if (tier === "engineer") {
     return [
       { id: "my-history", icon: "clipboard-list", label: "My Audit History", href: `${BASE}/index.html` },
     ];
   }
+  const isOwnerAdmin = tier === "owner_admin";
   const links = [
     { id: "home", icon: "layout-dashboard", label: "Audit an Engineer", href: `${BASE}/index.html` },
-    { id: "leaderboard", icon: "trophy", label: "Leaderboard", href: `${BASE}/leaderboard.html` },
   ];
-  if (tier === "owner_admin") {
-    links.push({ id: "managers", icon: "users-round", label: "Manage Assignments", href: `${BASE}/managers.html` });
-    links.push({ id: "settings", icon: "settings", label: "Settings", href: `${BASE}/settings.html` });
+  if (settings?.leaderboard_enabled !== false) {
+    links.push({ id: "leaderboard", icon: "trophy", label: "Leaderboard", href: `${BASE}/leaderboard.html` });
   }
+  // Always shown so their existence is visible — greyed out (and inert) for
+  // anyone who isn't Owner/Admin rather than hidden entirely.
+  links.push({ id: "managers", icon: "users-round", label: "Manage Assignments", href: `${BASE}/managers.html`, disabled: !isOwnerAdmin });
+  links.push({ id: "settings", icon: "settings", label: "Settings", href: `${BASE}/settings.html`, disabled: !isOwnerAdmin });
   return links;
 }
 
-export function renderNav(currentPage, profile, tier) {
+export function renderNav(currentPage, profile, tier, settings) {
   const nav = document.getElementById("eiaNav");
   if (!nav) return;
 
@@ -29,7 +32,7 @@ export function renderNav(currentPage, profile, tier) {
   const roleLabel = tier === "owner_admin" ? (profile.role === "owner" ? "Owner" : "Admin")
     : tier === "manager" ? "Engineering Manager" : "Engineer";
 
-  const links = navLinksFor(tier);
+  const links = navLinksFor(tier, settings);
 
   nav.innerHTML = `
     <div class="sidebar-logo">
@@ -49,6 +52,7 @@ export function renderNav(currentPage, profile, tier) {
           <div class="user-name">${esc(userName)}</div>
           <div class="user-role">${esc(roleLabel)}</div>
         </div>
+        <a href="/systems/core/" class="sidebar-manage-link" title="Manage your profile in Core"><i data-lucide="arrow-up-right"></i></a>
       </div>
     </div>`;
 
@@ -57,7 +61,8 @@ export function renderNav(currentPage, profile, tier) {
 
 function navItem(link, currentPage) {
   const active = link.id === currentPage;
-  return `<a href="${link.href}" class="nav-link ${active ? "active" : ""}">
+  const classes = ["nav-link", active ? "active" : "", link.disabled ? "disabled" : ""].filter(Boolean).join(" ");
+  return `<a href="${link.href}" class="${classes}" ${link.disabled ? 'title="Owners/Admins only" tabindex="-1"' : ""}>
     <i data-lucide="${link.icon}" class="nav-icon"></i>
     <span>${link.label}</span>
   </a>`;
@@ -80,6 +85,17 @@ export function initMobileNav() {
 }
 
 export function initTopbar() {
+  const topbar = document.querySelector(".eia-topbar");
+  if (topbar && !topbar.querySelector(".back-to-modules")) {
+    const link = document.createElement("a");
+    link.href = "/modules/";
+    link.className = "back-to-modules";
+    link.title = "Back to Modules";
+    link.innerHTML = `<i data-lucide="arrow-left"></i><span>Modules</span>`;
+    topbar.insertBefore(link, topbar.firstChild);
+    window.lucide?.createIcons?.();
+  }
+
   document.getElementById("themeToggle")?.addEventListener("click", toggleTheme);
   const logoutBtn = document.getElementById("logoutBtn");
   if (logoutBtn) logoutBtn.addEventListener("click", async () => {
