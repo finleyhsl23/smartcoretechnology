@@ -32,7 +32,7 @@
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
   import {
-    getEmployee, listSubmissionsForEngineer, getEmployeesByIds, listScores, listCriteria, listMyAssignedEngineerIds,
+    getEmployee, listSubmissionsForEngineer, getEmployeesByIds, listScores, listCriteria,
     listPerformanceNotes, addPerformanceNote, deletePerformanceNote,
     listDisciplinaryActions, addDisciplinaryAction,
     listTrainingRecords, addTrainingRecord, updateTrainingRecord, deleteTrainingRecord,
@@ -67,11 +67,9 @@
     if (tier === "engineer" && employeeId !== profile.id) {
       throw new Error("You can only view your own profile.");
     }
-    // Managers can view any engineer's profile, but can only audit / add
-    // notes / assign training for their own assigned engineers — matches
-    // the audit_manager_assignments boundary enforced by RLS.
-    _canManage = tier === "owner_admin"
-      || (tier === "manager" && (await listMyAssignedEngineerIds(profile.id)).includes(employeeId));
+    // Any Engineering Manager can audit / add notes / assign training for
+    // any engineer, not just their own assigned ones.
+    _canManage = tier !== "engineer";
     _canSeeDisciplinary = tier === "owner_admin" || employeeId === profile.id;
 
     await init();

@@ -98,24 +98,22 @@
     try {
       _allEmployees = await listSmartfitsEmployees();
 
-      // Managers can now browse every engineer, not just their own assigned
-      // ones — but only their assigned engineers are actually auditable by
-      // them (audit_manager_assignments/RLS still enforce that boundary).
-      const assignedIds = new Set(await listMyAssignedEngineerIds(_profile.id));
-      const visibleIds = _scope === "mine" ? assignedIds : null; // null = show all
+      // Any Engineering Manager (or Owner/Admin) can audit any engineer —
+      // "My Engineers" is just a convenience filter, not a hard boundary.
+      const visibleIds = _scope === "mine" ? new Set(await listMyAssignedEngineerIds(_profile.id)) : null;
 
       // Owner/Admin-configured department visibility (Settings page). An
       // empty list means unrestricted — every Smartfits employee shows up.
       const deptFilter = _settings.visible_department_ids?.length ? new Set(_settings.visible_department_ids) : null;
       const managerRosterIds = new Set(_settings.manager_employee_ids || []);
 
-      renderPickerBody(firstName, visibleIds, deptFilter, managerRosterIds, assignedIds);
+      renderPickerBody(firstName, visibleIds, deptFilter, managerRosterIds);
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load engineers", message: e.message }));
     }
   }
 
-  function renderPickerBody(firstName, visibleIds, deptFilter, managerRosterIds, assignedIds) {
+  function renderPickerBody(firstName, visibleIds, deptFilter, managerRosterIds) {
     const pool = _allEmployees.filter(emp =>
       emp.id !== _profile.id
       && !managerRosterIds.has(emp.id)
@@ -163,8 +161,7 @@
           message: pool.length ? "Try a different search." : (_scope === "mine" ? "No engineers are currently assigned to you." : "No employees found for Smartfits."),
         });
       } else {
-        const canAuditAll = _tier === "owner_admin";
-        grid.innerHTML = `<div class="emp-grid">${filtered.map(e => empCard(e, canAuditAll || assignedIds.has(e.id))).join("")}</div>`;
+        grid.innerHTML = `<div class="emp-grid">${filtered.map(empCard).join("")}</div>`;
       }
       window.lucide?.createIcons?.();
     }
@@ -172,7 +169,7 @@
     document.getElementById("empSearch").addEventListener("input", (e) => draw(e.target.value));
   }
 
-  function empCard(emp, canAudit) {
+  function empCard(emp) {
     return `
       <div class="emp-card">
         <div class="avatar avatar-md">${esc(initials(emp.full_name))}</div>
@@ -181,9 +178,7 @@
           <div class="emp-meta">${esc(emp.job_title || "—")}</div>
           <div class="emp-actions">
             <a class="btn" href="${BASE}/employee.html?id=${esc(emp.id)}"><i data-lucide="user"></i> View</a>
-            ${canAudit
-              ? `<a class="btn btn-primary" href="${BASE}/audit.html?engineer=${esc(emp.id)}"><i data-lucide="clipboard-check"></i> Audit</a>`
-              : ""}
+            <a class="btn btn-primary" href="${BASE}/audit.html?engineer=${esc(emp.id)}"><i data-lucide="clipboard-check"></i> Audit</a>
           </div>
         </div>
       </div>`;
