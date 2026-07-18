@@ -32,7 +32,7 @@
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
   import {
-    getEmployee, listSubmissionsForEngineer, getEmployeesByIds, listScores, listCriteria,
+    getEmployee, listSubmissionsForEngineer, getEmployeesByIds, listScores, listCriteria, listMyAssignedEngineerIds,
     listPerformanceNotes, addPerformanceNote, deletePerformanceNote,
     listDisciplinaryActions, addDisciplinaryAction,
     listTrainingRecords, addTrainingRecord, updateTrainingRecord, deleteTrainingRecord,
@@ -67,7 +67,11 @@
     if (tier === "engineer" && employeeId !== profile.id) {
       throw new Error("You can only view your own profile.");
     }
-    _canManage = tier !== "engineer";
+    // Managers can view any engineer's profile, but can only audit / add
+    // notes / assign training for their own assigned engineers — matches
+    // the audit_manager_assignments boundary enforced by RLS.
+    _canManage = tier === "owner_admin"
+      || (tier === "manager" && (await listMyAssignedEngineerIds(profile.id)).includes(employeeId));
     _canSeeDisciplinary = tier === "owner_admin" || employeeId === profile.id;
 
     await init();
@@ -94,7 +98,6 @@
   }
 
   function renderShell() {
-    const canAudit = _tier !== "engineer";
     const tabs = [
       { id: "audits", label: "Audit History" },
       { id: "notes", label: "Performance Notes" },
@@ -110,7 +113,7 @@
           <div style="font-size:18px;font-weight:800">${esc(_emp.full_name)}</div>
           <div class="text-muted" style="font-size:13px">${esc(_emp.job_title || "—")}</div>
         </div>
-        ${canAudit ? `<a class="btn btn-primary" href="${BASE}/audit.html?engineer=${esc(_emp.id)}"><i data-lucide="clipboard-check"></i> Start New Audit</a>` : ""}
+        ${_canManage ? `<a class="btn btn-primary" href="${BASE}/audit.html?engineer=${esc(_emp.id)}"><i data-lucide="clipboard-check"></i> Start New Audit</a>` : ""}
       </div>
 
       <div class="tab-row" id="tabRow">
