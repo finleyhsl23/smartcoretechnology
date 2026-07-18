@@ -12,6 +12,7 @@ function navLinksFor(tier) {
   }
   const links = [
     { id: "home", icon: "layout-dashboard", label: "Audit an Engineer", href: `${BASE}/index.html` },
+    { id: "leaderboard", icon: "trophy", label: "Leaderboard", href: `${BASE}/leaderboard.html` },
   ];
   if (tier === "owner_admin") {
     links.push({ id: "managers", icon: "users-round", label: "Manage Assignments", href: `${BASE}/managers.html` });
