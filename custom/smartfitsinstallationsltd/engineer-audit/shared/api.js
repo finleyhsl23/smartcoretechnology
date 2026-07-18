@@ -269,3 +269,72 @@ export async function deletePhoto(photoId, storagePath) {
   const { error } = await auditDb().from("audit_photos").delete().eq("id", photoId);
   if (error) throw error;
 }
+
+// ── Performance notes ────────────────────────────────────────────────────
+export async function listPerformanceNotes(engineerEmployeeId) {
+  const { data, error } = await auditDb()
+    .from("audit_performance_notes")
+    .select("*")
+    .eq("engineer_employee_id", engineerEmployeeId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function addPerformanceNote({ engineer_employee_id, author_employee_id, category, note }) {
+  const { error } = await auditDb()
+    .from("audit_performance_notes")
+    .insert({ engineer_employee_id, author_employee_id, category, note });
+  if (error) throw error;
+}
+
+export async function deletePerformanceNote(id) {
+  const { error } = await auditDb().from("audit_performance_notes").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ── Disciplinary actions (Owner/Admin only, append-only) ────────────────
+export async function listDisciplinaryActions(engineerEmployeeId) {
+  const { data, error } = await auditDb()
+    .from("audit_disciplinary_actions")
+    .select("*")
+    .eq("engineer_employee_id", engineerEmployeeId)
+    .order("action_date", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function addDisciplinaryAction({ engineer_employee_id, issued_by_employee_id, action_type, reason, outcome, action_date }) {
+  const { error } = await auditDb()
+    .from("audit_disciplinary_actions")
+    .insert({ engineer_employee_id, issued_by_employee_id, action_type, reason, outcome: outcome || null, action_date });
+  if (error) throw error;
+}
+
+// ── Training records ─────────────────────────────────────────────────────
+export async function listTrainingRecords(engineerEmployeeId) {
+  const { data, error } = await auditDb()
+    .from("audit_training_records")
+    .select("*")
+    .eq("engineer_employee_id", engineerEmployeeId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function addTrainingRecord({ engineer_employee_id, assigned_by_employee_id, title, due_date, notes }) {
+  const { error } = await auditDb()
+    .from("audit_training_records")
+    .insert({ engineer_employee_id, assigned_by_employee_id, title, due_date: due_date || null, notes: notes || null });
+  if (error) throw error;
+}
+
+export async function updateTrainingRecord(id, patch) {
+  const { error } = await auditDb().from("audit_training_records").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteTrainingRecord(id) {
+  const { error } = await auditDb().from("audit_training_records").delete().eq("id", id);
+  if (error) throw error;
+}
