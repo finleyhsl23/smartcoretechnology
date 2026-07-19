@@ -156,6 +156,29 @@ export async function listSubmissionsForEngineer(engineerEmployeeId) {
   return data || [];
 }
 
+// Bulk score rollup for the leaderboard — one request instead of a
+// per-engineer, per-submission waterfall. Returns
+// { [engineerId]: { total, count, auditCount } }.
+export async function listSubmittedScoreTotals(engineerEmployeeIds) {
+  if (!engineerEmployeeIds?.length) return {};
+  const { data, error } = await auditDb()
+    .from("audit_submissions")
+    .select("engineer_employee_id, audit_submission_scores(score)")
+    .in("engineer_employee_id", engineerEmployeeIds)
+    .eq("status", "submitted");
+  if (error) throw error;
+  const byEngineer = {};
+  for (const sub of data || []) {
+    const bucket = byEngineer[sub.engineer_employee_id] || (byEngineer[sub.engineer_employee_id] = { total: 0, count: 0, auditCount: 0 });
+    bucket.auditCount += 1;
+    for (const s of sub.audit_submission_scores || []) {
+      bucket.total += s.score;
+      bucket.count += 1;
+    }
+  }
+  return byEngineer;
+}
+
 export async function getSubmission(id) {
   const { data, error } = await auditDb()
     .from("audit_submissions")

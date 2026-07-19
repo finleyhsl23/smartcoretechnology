@@ -33,7 +33,7 @@
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
   import {
     listSmartfitsEmployees, listMyAssignedEngineerIds,
-    listSubmissionsForEngineer, listScores,
+    listSubmittedScoreTotals,
   } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
@@ -122,19 +122,14 @@
       && (!_deptFilter || _deptFilter.has(emp.department_id))
     );
 
+    const totals = await listSubmittedScoreTotals(pool.map(e => e.id));
+
     const ranked = [];
     for (const emp of pool) {
-      const submissions = (await listSubmissionsForEngineer(emp.id)).filter(s => s.status === "submitted");
-      if (!submissions.length) continue;
-      let total = 0, count = 0;
-      for (const s of submissions) {
-        const scores = await listScores(s.id);
-        total += scores.reduce((a, c) => a + c.score, 0);
-        count += scores.length;
-      }
-      if (!count) continue;
-      const pct = scoreToPercentage(total / count);
-      ranked.push({ emp, pct, auditCount: submissions.length });
+      const t = totals[emp.id];
+      if (!t || !t.count) continue;
+      const pct = scoreToPercentage(t.total / t.count);
+      ranked.push({ emp, pct, auditCount: t.auditCount });
     }
 
     ranked.sort((a, b) => b.pct - a.pct);
