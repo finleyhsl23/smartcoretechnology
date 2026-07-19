@@ -194,38 +194,54 @@ export async function onRequestPost({ request, env }) {
     const filledBody    = fillVars(body, r);
     const bodyHtml = filledBody
       .split(/\n{2,}/)
-      .map(p => `<p style="margin:0 0 18px;font-size:15px;color:${textColor};line-height:1.7">${p.replace(/\n/g,'<br>')}</p>`)
+      .map(p => `<p style="margin:0 0 18px;font-size:15px;color:${textColor};line-height:1.7;font-family:Arial,Helvetica,sans-serif">${p.replace(/\n/g,'<br>')}</p>`)
       .join('');
 
     return `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:${secondaryColor};font-family:'Segoe UI',Arial,sans-serif">
-  <table width="100%" cellpadding="0" cellspacing="0" bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:32px 16px">
-    <tr><td align="center">
-      <table width="560" cellpadding="0" cellspacing="0" bgcolor="${secondaryColor}" style="background:${secondaryColor};border-radius:16px;overflow:hidden;max-width:560px;width:100%">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<!--[if mso]><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
+<style>body,table,td,p,a{font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}table,td{mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse}img{-ms-interpolation-mode:bicubic;display:block;border:0;outline:none;text-decoration:none}</style>
+</head>
+<body style="margin:0;padding:0;background-color:${secondaryColor}" bgcolor="${secondaryColor}">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${secondaryColor}" style="background-color:${secondaryColor}">
+  <tr>
+    <td align="center" bgcolor="${secondaryColor}" style="background-color:${secondaryColor};padding:32px 16px">
+      <!--[if mso]><table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" bgcolor="${secondaryColor}" style="background-color:${secondaryColor};max-width:560px;width:100%">
+
+        <!-- Header -->
         <tr>
-          <td bgcolor="${primaryColor}" style="background:${primaryColor};padding:26px 36px;text-align:center">
+          <td align="center" bgcolor="${primaryColor}" style="background-color:${primaryColor};padding:26px 36px">
             ${logoUrl
-              ? `<img src="${logoUrl}" alt="${companyName}" style="max-height:50px;max-width:200px;object-fit:contain;display:block;margin:0 auto"/>`
-              : `<div style="font-size:22px;font-weight:800;color:#ffffff">${companyName}</div>`
+              ? `<img src="${logoUrl}" alt="${companyName}" width="160" style="max-height:50px;max-width:200px;display:block;border:0;outline:none;margin:0 auto"/>`
+              : `<p style="margin:0;font-size:22px;font-weight:800;color:#ffffff;font-family:Arial,Helvetica,sans-serif">${companyName}</p>`
             }
           </td>
         </tr>
+
+        <!-- Body -->
         <tr>
-          <td bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:36px 36px 28px;color:${textColor}">
-            ${filledSubject ? `<h1 style="margin:0 0 22px;font-size:22px;font-weight:800;color:${textColor};line-height:1.25">${filledSubject}</h1>` : ''}
+          <td bgcolor="${secondaryColor}" style="background-color:${secondaryColor};padding:36px 36px 28px">
+            ${filledSubject ? `<h1 style="margin:0 0 22px;font-size:22px;font-weight:800;color:${textColor};line-height:1.25;font-family:Arial,Helvetica,sans-serif">${filledSubject}</h1>` : ''}
             ${bodyHtml}
           </td>
         </tr>
+
+        <!-- Footer -->
         <tr>
-          <td bgcolor="${primaryColor}" style="background:${primaryColor};padding:16px 36px;text-align:center">
-            <p style="margin:0;font-size:12px;color:rgba(255,255,255,.5)">${companyName} · Powered by <a href="https://smartcoretechnology.co.uk" style="color:rgba(255,255,255,.7);text-decoration:none">SmartCore</a></p>
+          <td align="center" bgcolor="${primaryColor}" style="background-color:${primaryColor};padding:16px 36px">
+            <p style="margin:0;font-size:12px;color:#aaaaaa;font-family:Arial,Helvetica,sans-serif">${companyName} &middot; Powered by <a href="https://smartcoretechnology.co.uk" style="color:#cccccc;text-decoration:none">SmartCore</a></p>
           </td>
         </tr>
+
       </table>
-    </td></tr>
-  </table>
+      <!--[if mso]></td></tr></table><![endif]-->
+    </td>
+  </tr>
+</table>
 </body>
 </html>`;
   }
