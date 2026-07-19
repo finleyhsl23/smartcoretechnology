@@ -78,6 +78,7 @@ export async function onRequestPost({ request, env }) {
 
   const companyName  = branding.company_name || 'SmartCore Technology';
   const primaryColor = branding.primary_color || '#1e5cff';
+  const textColor    = branding.text_color    || '#374151';
   const logoUrl      = branding.prefer_icon ? (branding.icon_url || branding.logo_url) : (branding.logo_url || branding.icon_url);
 
   // Collect recipients
@@ -192,7 +193,7 @@ export async function onRequestPost({ request, env }) {
     const filledBody    = fillVars(body, r);
     const bodyHtml = filledBody
       .split(/\n{2,}/)
-      .map(p => `<p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.7">${p.replace(/\n/g,'<br>')}</p>`)
+      .map(p => `<p style="margin:0 0 18px;font-size:15px;color:${textColor};line-height:1.7">${p.replace(/\n/g,'<br>')}</p>`)
       .join('');
 
     return `<!DOCTYPE html>
@@ -211,7 +212,7 @@ export async function onRequestPost({ request, env }) {
           </td>
         </tr>
         <tr>
-          <td style="padding:36px 36px 28px">
+          <td style="padding:36px 36px 28px;color:${textColor}">
             ${filledSubject ? `<h1 style="margin:0 0 22px;font-size:22px;font-weight:800;color:#0a0f2e;line-height:1.25">${filledSubject}</h1>` : ''}
             ${bodyHtml}
           </td>

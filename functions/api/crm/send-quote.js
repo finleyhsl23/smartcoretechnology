@@ -81,6 +81,7 @@ export async function onRequestPost({ request, env }) {
     const issuerName    = branding.company_name    || 'SmartCore Technology';
     const primaryColor  = branding.primary_color   || '#1e5cff';
     const secondaryColor = branding.secondary_color || '#0a0f1e';
+    const textColor     = branding.text_color       || '#374151';
     const logoUrl = branding.prefer_icon
       ? (branding.icon_url || branding.logo_url)
       : (branding.logo_url || branding.icon_url);
@@ -102,14 +103,14 @@ export async function onRequestPost({ request, env }) {
       const lineTotal = Number(li.total || ((li.qty || 1) * (li.unit_price || 0)));
       if (pd === 'itemised') {
         return `<tr>
-          <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#374151">${esc(li.description || '')}</td>
+          <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:${textColor}">${esc(li.description || '')}</td>
           <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:center;color:#374151">${li.qty || 1}</td>
           <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;color:#374151">&#163;${Number(li.unit_price || 0).toFixed(2)}</td>
           <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;font-weight:600;color:#1a1a2e">&#163;${lineTotal.toFixed(2)}</td>
         </tr>`;
       }
       return `<tr>
-        <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#374151">${esc(li.description || '')}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:${textColor}">${esc(li.description || '')}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:center;color:#374151">${li.qty || 1}</td>
       </tr>`;
     }).join('');
@@ -139,7 +140,7 @@ export async function onRequestPost({ request, env }) {
       `<tr><td bgcolor="#ffffff" style="background:#ffffff;border-radius:12px;padding:28px 28px 24px">`,
       logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:block;border:0;outline:none;max-height:44px;margin:0 0 20px 0"/>` : `<div style="font-size:18px;font-weight:800;color:#1a1a2e;margin-bottom:20px">${esc(issuerName)}</div>`,
       `<h1 style="margin:0 0 6px;font-size:20px;font-weight:800;color:#1a1a2e">You have a new quote</h1>`,
-      `<p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.7">Hi ${esc(recipient_name || coName || 'there')},<br/><br/>${esc(issuerName)} has prepared a quote for you. Click the button below to review the full details and sign it online.</p>`,
+      `<p style="margin:0 0 24px;font-size:14px;color:${textColor};line-height:1.7">Hi ${esc(recipient_name || coName || 'there')},<br/><br/>${esc(issuerName)} has prepared a quote for you. Click the button below to review the full details and sign it online.</p>`,
       `<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>`,
       `<td width="48%" bgcolor="#f8f9fc" style="background:#f8f9fc;border-radius:8px;padding:14px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:4px">Quote Reference</div><div style="font-size:18px;font-weight:800;color:#1a1a2e">${esc(q.quote_number || '')}</div></td>`,
       `<td width="4%"></td>`,
@@ -176,12 +177,12 @@ export async function onRequestPost({ request, env }) {
       ].join('') : '',
       `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px"><tr><td align="right">`,
       `<table cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;min-width:230px">`,
-      pd === 'itemised' ? `<tr><td bgcolor="#f8f9fc" style="background:#f8f9fc;padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151"><span>Subtotal</span><span style="float:right">&#163;${(sub || total).toFixed(2)}</span></td></tr>` : '',
-      pd === 'itemised' && disc > 0 ? `<tr><td bgcolor="#f8f9fc" style="background:#f8f9fc;padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151"><span>Discount</span><span style="float:right">-&#163;${disc.toFixed(2)}</span></td></tr>` : '',
+      pd === 'itemised' ? `<tr><td bgcolor="#f8f9fc" style="background:#f8f9fc;padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:${textColor}"><span>Subtotal</span><span style="float:right">&#163;${(sub || total).toFixed(2)}</span></td></tr>` : '',
+      pd === 'itemised' && disc > 0 ? `<tr><td bgcolor="#f8f9fc" style="background:#f8f9fc;padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:${textColor}"><span>Discount</span><span style="float:right">-&#163;${disc.toFixed(2)}</span></td></tr>` : '',
       pd !== 'desc_only' ? `<tr><td bgcolor="${primaryColor}" style="background:${primaryColor};padding:11px 16px;color:#ffffff;font-weight:800;font-size:15px"><span>TOTAL</span><span style="float:right">&#163;${total.toFixed(2)}</span></td></tr>` : '',
       `</table></td></tr></table>`,
-      q.notes ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px"><tr><td bgcolor="#f8f9fc" style="background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Notes</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">${esc(q.notes)}</div></td></tr></table>` : '',
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px"><tr><td bgcolor="#f8f9fc" style="background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Terms &amp; Conditions</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">${esc(q.terms || 'Payment due within 30 days.')}</div></td></tr></table>`,
+      q.notes ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px"><tr><td bgcolor="#f8f9fc" style="background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Notes</div><div style="font-size:13px;color:${textColor};line-height:1.6;white-space:pre-wrap">${esc(q.notes)}</div></td></tr></table>` : '',
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px"><tr><td bgcolor="#f8f9fc" style="background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Terms &amp; Conditions</div><div style="font-size:13px;color:${textColor};line-height:1.6;white-space:pre-wrap">${esc(q.terms || 'Payment due within 30 days.')}</div></td></tr></table>`,
       `</td></tr></table>`,
       `</td></tr>`,
 

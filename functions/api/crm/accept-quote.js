@@ -181,6 +181,7 @@ export async function onRequestPost({ request, env }) {
 
     const branding    = (Array.isArray(bData) ? bData[0]?.branding : null) || {};
     const coName      = (Array.isArray(coData) ? coData[0]?.name : null) || '';
+    const textColor   = branding.text_color || '#374151';
 
     // ── Fire CRM commands (quote_accepted trigger) ───────────
     // Run async after coName is known so {{company_name}} resolves correctly
@@ -329,7 +330,7 @@ export async function onRequestPost({ request, env }) {
           <img src="${esc(sigImgSrc)}" alt="Your signature" style="max-width:240px;max-height:80px;display:block"/>
         </div>
       </div>` : '',
-      `<p style="font-size:13px;color:#374151;line-height:1.6;margin:0 0 20px">`,
+      `<p style="font-size:13px;color:${textColor};line-height:1.6;margin:0 0 20px">`,
       `A member of the ${esc(issuerName)} team will be in touch shortly. If you have any questions, please don&#8217;t hesitate to get in touch.`,
       `</p>`,
       `<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center">`,
