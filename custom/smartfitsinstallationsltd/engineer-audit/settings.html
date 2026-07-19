@@ -34,10 +34,10 @@
   import { listDepartments, listSmartfitsEmployees, getAuditSettings, updateAuditSettings } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
-  import { esc, setInner, loadingState, errorState, toast, permissionDeniedState, initTagInput } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+  import { esc, setInner, loadingState, errorState, toast, permissionDeniedState, initTagInput, initEmailTagInput } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
-  let _profile, _departments = [], _employees = [], _selected = new Set(), _managerTag, _managerIds = [], _failThreshold = 60, _leaderboardEnabled = true;
+  let _profile, _departments = [], _employees = [], _selected = new Set(), _managerTag, _managerIds = [], _failThreshold = 60, _leaderboardEnabled = true, _emailTag, _alertEmails = [];
 
   try {
     const { profile, tier, settings: navSettings } = await requireModuleAccess();
@@ -65,6 +65,7 @@
       _managerIds = settings.manager_employee_ids || [];
       _failThreshold = settings.fail_threshold_percent ?? 60;
       _leaderboardEnabled = settings.leaderboard_enabled ?? true;
+      _alertEmails = settings.pattern_alert_emails || [];
       draw();
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load settings", message: e.message }));
@@ -131,6 +132,14 @@
         </label>
       </div>
 
+      <div class="card" style="max-width:520px;margin-top:18px">
+        <div class="form-row" style="margin-bottom:0">
+          <label class="form-label">Recurring Pattern Alerts</label>
+          <p class="text-muted" style="font-size:12.5px;margin:0 0 10px">When the same criterion scores "Needs action" on 3 or more of an engineer's submitted audits, everyone below gets emailed the full detail. Type an email and press Enter to add it.</p>
+          <div id="emailTagInput"></div>
+        </div>
+      </div>
+
       <button class="btn btn-primary" id="saveBtn" style="margin-top:18px"><i data-lucide="save"></i> Save Settings</button>
     `;
     setInner("body", html);
@@ -141,6 +150,10 @@
       options: _employees.filter(e => e.id !== _profile.id),
       selected: _managerIds,
       placeholder: "Search employees by name…",
+    });
+
+    _emailTag = initEmailTagInput(document.getElementById("emailTagInput"), {
+      emails: _alertEmails,
     });
 
     document.getElementById("saveBtn").addEventListener("click", async () => {
@@ -155,6 +168,7 @@
           manager_employee_ids: _managerTag.getSelected(),
           fail_threshold_percent: thresholdValue,
           leaderboard_enabled: document.getElementById("leaderboardEnabled").checked,
+          pattern_alert_emails: _emailTag.getEmails(),
         }, _profile.id);
         toast("success", "Settings saved");
       } catch (e) {

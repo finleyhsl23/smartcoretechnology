@@ -247,3 +247,69 @@ export function flagBadge(scores, criteriaById) {
     .join("\n");
   return `<span class="tooltip-wrap" data-tooltip="${esc(reason)}" tabindex="0"><span class="badge badge-red">Needs action</span></span>`;
 }
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Renders a freeform "type an email, press Enter" chip list into
+ * `container` — for things like alert recipient lists, where there's no
+ * backing employee record to search. Calls `onChange(emailsArray)` after
+ * every add/remove.
+ */
+export function initEmailTagInput(container, { emails = [], placeholder = "Type an email and press Enter…", onChange }) {
+  let list = [...emails];
+
+  container.innerHTML = `
+    <div class="tag-chips" data-role="chips"></div>
+    <input type="email" class="form-input" data-role="email-input" placeholder="${esc(placeholder)}" autocomplete="off"/>
+  `;
+
+  const chipsEl = container.querySelector('[data-role="chips"]');
+  const inputEl = container.querySelector('[data-role="email-input"]');
+
+  function drawChips() {
+    if (!list.length) {
+      chipsEl.innerHTML = `<span class="tag-empty-hint">No recipients added yet</span>`;
+      return;
+    }
+    chipsEl.innerHTML = list.map(email => `
+      <span class="tag-chip" data-email="${esc(email)}">${esc(email)}<button type="button" data-role="remove"><i data-lucide="x"></i></button></span>
+    `).join("");
+    chipsEl.querySelectorAll('[data-role="remove"]').forEach(btn => {
+      btn.addEventListener("click", () => {
+        const email = btn.closest("[data-email]").dataset.email;
+        list = list.filter(e => e !== email);
+        drawChips();
+        onChange?.(list);
+        window.lucide?.createIcons?.();
+      });
+    });
+    window.lucide?.createIcons?.();
+  }
+
+  function tryAdd() {
+    const value = inputEl.value.trim().toLowerCase();
+    if (!value) return;
+    if (!EMAIL_RE.test(value)) {
+      toast("error", "Not a valid email", value);
+      return;
+    }
+    if (list.includes(value)) {
+      inputEl.value = "";
+      return;
+    }
+    list.push(value);
+    inputEl.value = "";
+    drawChips();
+    onChange?.(list);
+  }
+
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); tryAdd(); }
+  });
+  inputEl.addEventListener("blur", tryAdd);
+
+  drawChips();
+
+  return { getEmails: () => list };
+}

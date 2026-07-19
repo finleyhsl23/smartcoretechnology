@@ -38,6 +38,7 @@
   } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
+  import { sb } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/supabase.js";
   import { esc, initials, setInner, loadingState, errorState, toast, confirmDialog, fmtDateTime } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
@@ -259,6 +260,28 @@
     return state;
   }
 
+  function goToProfile() {
+    window.location.href = `${BASE}/employee.html?id=${encodeURIComponent(_engineer.id)}`;
+  }
+
+  // Fire-and-forget-ish: checks whether this submission pushed any criterion
+  // to 3+ "Needs action" scores for the engineer and, if so, emails whoever
+  // is configured under Recurring Pattern Alerts in Settings. Failures here
+  // shouldn't block the manager's workflow, just get logged.
+  async function checkPatternAlert(submissionId) {
+    try {
+      const { data: { session } } = await sb().auth.getSession();
+      if (!session) return;
+      await fetch("/api/smartfits-engineer-audit/pattern-alert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ engineer_employee_id: _engineer.id, submission_id: submissionId }),
+      });
+    } catch (e) {
+      console.error("pattern-alert check failed", e);
+    }
+  }
+
   function wireForm(editable) {
     refreshPhotoThumbs();
     if (!editable) return;
@@ -308,8 +331,7 @@
     document.getElementById("saveDraftBtn")?.addEventListener("click", async () => {
       try {
         await saveDraft();
-        _submission = { ..._submission };
-        _scores = Object.fromEntries((await listScores(_submission.id)).map(s => [s.criterion_id, s]));
+        goToProfile();
       } catch (e) {
         toast("error", "Couldn't save draft", e.message);
       }
@@ -330,7 +352,8 @@
             await saveDraft({ silent: true });
             _submission = await submitSubmission(_submission.id);
             toast("success", "Audit submitted");
-            render();
+            await checkPatternAlert(_submission.id);
+            goToProfile();
           } catch (e) {
             toast("error", "Couldn't submit audit", e.message);
           }
