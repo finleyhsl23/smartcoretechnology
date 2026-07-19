@@ -216,7 +216,7 @@ export async function onRequestPost({ request, env }) {
         <tr>
           <td align="center" bgcolor="${primaryColor}" style="background-color:${primaryColor};padding:26px 36px">
             ${logoUrl
-              ? `<img src="${logoUrl}" alt="${companyName}" width="160" style="max-height:50px;max-width:200px;display:block;border:0;outline:none;margin:0 auto"/>`
+              ? `<img src="${logoUrl}" alt="${companyName}" height="44" style="height:44px;max-width:200px;width:auto;display:block;border:0;outline:none;margin:0 auto"/>`
               : `<p style="margin:0;font-size:22px;font-weight:800;color:#ffffff;font-family:Arial,Helvetica,sans-serif">${companyName}</p>`
             }
           </td>
