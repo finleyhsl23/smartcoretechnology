@@ -76,9 +76,10 @@ export async function onRequestPost({ request, env }) {
     branding = bRow?.branding || {};
   } catch (_) {}
 
-  const companyName  = branding.company_name || 'SmartCore Technology';
-  const primaryColor = branding.primary_color || '#1e5cff';
-  const textColor    = branding.text_color    || '#374151';
+  const companyName    = branding.company_name    || 'SmartCore Technology';
+  const primaryColor   = branding.primary_color   || '#1e5cff';
+  const secondaryColor = branding.secondary_color || '#0a0f1e';
+  const textColor      = branding.text_color      || '#374151';
   const logoUrl      = branding.prefer_icon ? (branding.icon_url || branding.logo_url) : (branding.logo_url || branding.icon_url);
 
   // Collect recipients
@@ -199,12 +200,12 @@ export async function onRequestPost({ request, env }) {
     return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:#f0f4ff;font-family:'Segoe UI',Arial,sans-serif">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4ff;padding:32px 16px">
+<body style="margin:0;padding:0;background:${secondaryColor};font-family:'Segoe UI',Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:32px 16px">
     <tr><td align="center">
       <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:560px;width:100%">
         <tr>
-          <td style="background:${primaryColor};padding:26px 36px;text-align:center">
+          <td bgcolor="${primaryColor}" style="background:${primaryColor};padding:26px 36px;text-align:center">
             ${logoUrl
               ? `<img src="${logoUrl}" alt="${companyName}" style="max-height:50px;max-width:200px;object-fit:contain;display:block;margin:0 auto"/>`
               : `<div style="font-size:22px;font-weight:800;color:#ffffff">${companyName}</div>`
