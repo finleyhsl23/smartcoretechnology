@@ -36,6 +36,7 @@
     listPerformanceNotes, addPerformanceNote, deletePerformanceNote,
     listDisciplinaryActions, addDisciplinaryAction,
     listTrainingRecords, addTrainingRecord, updateTrainingRecord, deleteTrainingRecord,
+    listManagerIdsForEngineer,
   } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
@@ -53,6 +54,7 @@
 
   // Audit-history tab state (loaded upfront, it's the default tab)
   let _submissions = [], _criteriaById = {}, _failThresholdPercent = 60, _managerNames = {};
+  let _assignedManagerNames = [];
   // Lazy-loaded tab caches
   let _notes = null, _training = null, _disciplinary = null;
 
@@ -92,6 +94,10 @@
     const managers = await getEmployeesByIds(submissions.map(s => s.manager_employee_id));
     _managerNames = Object.fromEntries(managers.map(m => [m.id, m.full_name]));
 
+    const assignedManagerIds = await listManagerIdsForEngineer(employeeId).catch(() => []);
+    const assignedManagers = await getEmployeesByIds(assignedManagerIds);
+    _assignedManagerNames = assignedManagers.map(m => m.full_name);
+
     renderShell();
   }
 
@@ -110,6 +116,7 @@
         <div style="flex:1;min-width:200px">
           <div style="font-size:18px;font-weight:800">${esc(_emp.full_name)}</div>
           <div class="text-muted" style="font-size:13px">${esc(_emp.job_title || "—")}</div>
+          <div class="text-muted" style="font-size:13px;margin-top:2px">Manager${_assignedManagerNames.length === 1 ? "" : "s"}: ${_assignedManagerNames.length ? esc(_assignedManagerNames.join(", ")) : "—"}</div>
         </div>
         ${_canManage ? `<a class="btn btn-primary" href="${BASE}/audit.html?engineer=${esc(_emp.id)}"><i data-lucide="clipboard-check"></i> Start New Audit</a>` : ""}
       </div>

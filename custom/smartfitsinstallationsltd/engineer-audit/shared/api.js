@@ -97,6 +97,16 @@ export async function listAllActiveAssignments() {
   return data || [];
 }
 
+export async function listManagerIdsForEngineer(engineerEmployeeId) {
+  const { data, error } = await auditDb()
+    .from("audit_manager_assignments")
+    .select("manager_employee_id")
+    .eq("engineer_employee_id", engineerEmployeeId)
+    .eq("is_active", true);
+  if (error) throw error;
+  return (data || []).map(r => r.manager_employee_id);
+}
+
 // Reconciles an engineer's active managers to exactly `desiredManagerIds` —
 // deactivates whichever active assignments were unchecked and inserts
 // whichever new ones were checked. Supports assigning more than one manager
