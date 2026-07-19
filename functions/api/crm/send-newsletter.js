@@ -203,7 +203,7 @@ export async function onRequestPost({ request, env }) {
 <body style="margin:0;padding:0;background:${secondaryColor};font-family:'Segoe UI',Arial,sans-serif">
   <table width="100%" cellpadding="0" cellspacing="0" bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:32px 16px">
     <tr><td align="center">
-      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:560px;width:100%">
+      <table width="560" cellpadding="0" cellspacing="0" bgcolor="${secondaryColor}" style="background:${secondaryColor};border-radius:16px;overflow:hidden;max-width:560px;width:100%">
         <tr>
           <td bgcolor="${primaryColor}" style="background:${primaryColor};padding:26px 36px;text-align:center">
             ${logoUrl
@@ -213,14 +213,14 @@ export async function onRequestPost({ request, env }) {
           </td>
         </tr>
         <tr>
-          <td style="padding:36px 36px 28px;color:${textColor}">
-            ${filledSubject ? `<h1 style="margin:0 0 22px;font-size:22px;font-weight:800;color:#0a0f2e;line-height:1.25">${filledSubject}</h1>` : ''}
+          <td bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:36px 36px 28px;color:${textColor}">
+            ${filledSubject ? `<h1 style="margin:0 0 22px;font-size:22px;font-weight:800;color:${textColor};line-height:1.25">${filledSubject}</h1>` : ''}
             ${bodyHtml}
           </td>
         </tr>
         <tr>
-          <td style="background:#f8f9fc;border-top:1px solid #e5e7eb;padding:18px 36px;text-align:center">
-            <p style="margin:0;font-size:12px;color:#9ca3af">${companyName} · Powered by <a href="https://smartcoretechnology.co.uk" style="color:${primaryColor};text-decoration:none">SmartCore</a></p>
+          <td bgcolor="${primaryColor}" style="background:${primaryColor};padding:16px 36px;text-align:center">
+            <p style="margin:0;font-size:12px;color:rgba(255,255,255,.5)">${companyName} · Powered by <a href="https://smartcoretechnology.co.uk" style="color:rgba(255,255,255,.7);text-decoration:none">SmartCore</a></p>
           </td>
         </tr>
       </table>
