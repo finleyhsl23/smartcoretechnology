@@ -19,7 +19,7 @@ export async function onRequestPost(context) {
     const ext = (file.name || 'jpg').split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
     const allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'];
     if (!allowedExts.includes(ext)) return json({ error: 'Invalid file type' }, 400);
-    if (file.size > 20 * 1024 * 1024) return json({ error: 'File must be under 20 MB' }, 400);
+    if (file.size > 50 * 1024 * 1024) return json({ error: 'File must be under 50 MB' }, 400);
 
     let targetId;
     if (employeeId) {
@@ -43,7 +43,7 @@ export async function onRequestPost(context) {
         Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ id: BUCKET, name: BUCKET, public: true, file_size_limit: 20971520 }),
+      body: JSON.stringify({ id: BUCKET, name: BUCKET, public: true, file_size_limit: 52428800 }),
     });
     // Ignore error — bucket may already exist
 
