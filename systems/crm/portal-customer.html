@@ -132,13 +132,18 @@
     .viewer-ov video{max-width:90vw;max-height:75vh;border-radius:8px}
 
     /* Directory */
-    .dir-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
-    .dir-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px}
-    .dir-av{width:52px;height:52px;border-radius:50%;background:var(--blue2);border:2px solid var(--blue);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:var(--blue)}
-    .dir-name{font-weight:700;font-size:14px}
-    .dir-title{font-size:12px;color:var(--text3)}
-    .dir-contact{font-size:12px;color:var(--text2);display:flex;flex-direction:column;gap:3px;width:100%}
-    .dir-contact a{color:var(--blue);text-decoration:none;word-break:break-all}
+    .dir-section{margin-bottom:28px}
+    .dir-section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--blue);background:rgba(30,92,255,.1);border-radius:99px;padding:4px 12px;display:inline-block;margin-bottom:12px}
+    .dir-list{display:flex;flex-direction:column;gap:8px}
+    .dir-row{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+    .dir-av{width:42px;height:42px;border-radius:50%;background:var(--blue2);border:2px solid var(--blue);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:var(--blue);flex-shrink:0}
+    .dir-info{flex:1;min-width:0}
+    .dir-name{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .dir-title{font-size:12px;color:var(--text3);margin-top:1px}
+    .dir-actions{display:flex;gap:8px;flex-shrink:0}
+    .dir-btn{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--blue);background:rgba(30,92,255,.1);border:none;border-radius:8px;padding:5px 10px;text-decoration:none;cursor:pointer;white-space:nowrap}
+    .dir-btn:hover{background:rgba(30,92,255,.2)}
+    @media(max-width:480px){.dir-actions{flex-direction:column;gap:4px}.dir-btn{font-size:11px;padding:4px 8px}}
 
     /* Stat tiles */
     .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:24px}
@@ -840,24 +845,42 @@ async function loadDirectory(){
     sec.innerHTML=`<div class="empty"><div class="empty-icon">📋</div><h3>Directory unavailable</h3><p>The staff directory hasn't been enabled.</p></div>`;
     return;
   }
+  // Group entries by contact_reason (ungrouped entries go under "General")
+  const groups={};
+  (entries||[]).forEach(e=>{
+    const key=e.contact_reason||"General";
+    if(!groups[key])groups[key]=[];
+    groups[key].push(e);
+  });
+  const ORDER=["Sales","General Support","Technical Support","Billing","Partnerships","Other","General"];
+  const sortedKeys=[...ORDER.filter(k=>groups[k]),...Object.keys(groups).filter(k=>!ORDER.includes(k))];
+
+  function dirRow(e){
+    const initials=esc((e.name||"?").split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase());
+    return `<div class="dir-row">
+      <div class="dir-av">${initials}</div>
+      <div class="dir-info">
+        <div class="dir-name">${esc(e.name)}</div>
+        ${e.job_title?`<div class="dir-title">${esc(e.job_title)}</div>`:""}
+      </div>
+      <div class="dir-actions">
+        ${e.email?`<a class="dir-btn" href="mailto:${esc(e.email)}">✉ Email</a>`:""}
+        ${e.phone?`<a class="dir-btn" href="tel:${esc(e.phone)}">📞 Call</a>`:""}
+      </div>
+    </div>`;
+  }
+
   sec.innerHTML=`
     <div style="margin-bottom:24px">
       <h1 style="font-size:20px;font-weight:800">Staff Directory</h1>
-      <p style="color:var(--text3);font-size:13px;margin-top:4px">Meet the team</p>
+      <p style="color:var(--text3);font-size:13px;margin-top:4px">Get in touch with the right person</p>
     </div>
-    ${!entries?.length?`<div class="empty"><div class="empty-icon">👤</div><h3>No entries yet</h3></div>`:`
-    <div class="dir-grid">
-      ${entries.map(e=>`
-        <div class="dir-card">
-          <div class="dir-av">${esc((e.name||"?").split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase())}</div>
-          <div class="dir-name">${esc(e.name)}</div>
-          ${e.job_title?`<div class="dir-title">${esc(e.job_title)}</div>`:""}
-          <div class="dir-contact">
-            ${e.email?`<a href="mailto:${esc(e.email)}">✉ ${esc(e.email)}</a>`:""}
-            ${e.phone?`<a href="tel:${esc(e.phone)}">📞 ${esc(e.phone)}</a>`:""}
-          </div>
+    ${!entries?.length?`<div class="empty"><div class="empty-icon">👤</div><h3>No entries yet</h3></div>`:
+      sortedKeys.map(key=>`
+        <div class="dir-section">
+          <div class="dir-section-label">${esc(key)}</div>
+          <div class="dir-list">${groups[key].map(dirRow).join("")}</div>
         </div>`).join("")}
-    </div>`}
   `;
 }
 

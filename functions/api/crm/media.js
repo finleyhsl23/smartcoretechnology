@@ -188,9 +188,9 @@ export async function onRequestPost({ request, env }) {
   }
 
   if (action === 'save_directory_entry') {
-    const { id, name, job_title, email, phone, sort_order } = body;
+    const { id, name, job_title, email, phone, sort_order, contact_reason } = body;
     if (!name?.trim()) return json({ error: 'Name required' }, 400);
-    const data = { name: name.trim(), job_title: job_title || null, email: email || null, phone: phone || null, sort_order: sort_order ?? 0 };
+    const data = { name: name.trim(), job_title: job_title || null, email: email || null, phone: phone || null, sort_order: sort_order ?? 0, contact_reason: contact_reason || null };
     if (id) {
       const chk = await fetch(`${SUPABASE_URL}/rest/v1/crm_directory?id=eq.${id}&tenant_id=eq.${tenantId}&select=id&limit=1`, { headers: h });
       const [e] = await chk.json();
