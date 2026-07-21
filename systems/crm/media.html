@@ -32,6 +32,9 @@
     .media-size { font-size:11px; color:var(--text3); margin-top:2px; }
     .media-del { position:absolute; top:6px; right:6px; background:rgba(0,0,0,.6); border:none; color:#fff; cursor:pointer; font-size:12px; padding:3px 7px; border-radius:6px; opacity:0; transition:opacity .15s; }
     .media-card:hover .media-del { opacity:1; }
+    .media-rename-btn { position:absolute; top:6px; left:6px; background:rgba(0,0,0,.6); border:none; color:#fff; cursor:pointer; font-size:11px; padding:3px 7px; border-radius:6px; opacity:0; transition:opacity .15s; }
+    .media-card:hover .media-rename-btn { opacity:1; }
+    .media-name-input { width:100%; background:var(--card2); border:1px solid var(--blue); border-radius:5px; color:var(--text); font-size:12px; font-weight:600; padding:3px 6px; outline:none; }
 
     .upload-zone { border:2px dashed var(--line); border-radius:12px; padding:40px; text-align:center; cursor:pointer; transition:border-color .2s, background .2s; margin-bottom:24px; }
     .upload-zone.drag-over { border-color:var(--blue); background:var(--card2); }
@@ -203,11 +206,12 @@ async function renderLevel() {
         ${files.map(f => `
           <div class="media-card" data-file-id="${f.id}" data-file-type="${esc(f.file_type||"")}">
             <button class="media-del" data-del-file="${f.id}">✕</button>
+            <button class="media-rename-btn" data-rename-file="${f.id}" data-rename-name="${esc(f.name)}">✏ Rename</button>
             ${isImage(f.file_type)
               ? `<div class="media-thumb-placeholder" data-file-id="${f.id}">🖼️</div>`
               : `<div class="media-thumb-placeholder">${mediaIcon(f.file_type)}</div>`}
             <div class="media-info">
-              <div class="media-name" title="${esc(f.name)}">${esc(f.name)}</div>
+              <div class="media-name" id="fname-${f.id}" title="${esc(f.name)}">${esc(f.name)}</div>
               <div class="media-size">${fileSize(f.file_size)}</div>
             </div>
           </div>`).join("")}
@@ -306,6 +310,37 @@ function bindLevelEvents(cur) {
       if (res.error) { toast("bad", res.error); return; }
       toast("ok", "File deleted");
       renderLevel();
+    });
+  });
+
+  document.querySelectorAll("[data-rename-file]").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const fileId = btn.dataset.renameFile;
+      const nameEl = document.getElementById(`fname-${fileId}`);
+      if (!nameEl || nameEl.querySelector("input")) return;
+      const current = btn.dataset.renameName;
+      nameEl.innerHTML = `<input class="media-name-input" value="${esc(current)}" id="ri-${fileId}"/>`;
+      const input = document.getElementById(`ri-${fileId}`);
+      input.focus();
+      input.select();
+
+      async function commit() {
+        const newName = input.value.trim();
+        if (!newName || newName === current) { nameEl.innerHTML = esc(current); return; }
+        const res = await api("rename_file", { file_id: fileId, name: newName });
+        if (res.error) { toast("bad", res.error); nameEl.innerHTML = esc(current); return; }
+        nameEl.innerHTML = esc(newName);
+        nameEl.title = newName;
+        btn.dataset.renameName = newName;
+        toast("ok", "Renamed");
+      }
+
+      input.addEventListener("blur", commit);
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { ev.preventDefault(); input.blur(); }
+        if (ev.key === "Escape") { nameEl.innerHTML = esc(current); }
+      });
     });
   });
 

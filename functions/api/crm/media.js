@@ -142,6 +142,18 @@ export async function onRequestPost({ request, env }) {
     return json({ url: `${SUPABASE_URL}/storage/v1${signedURL}`, file });
   }
 
+  if (action === 'rename_file') {
+    const { file_id, name } = body;
+    if (!name?.trim()) return json({ error: 'Name required' }, 400);
+    const fileRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_media_files?id=eq.${file_id}&tenant_id=eq.${tenantId}&select=id&limit=1`, { headers: h });
+    const [file] = await fileRes.json();
+    if (!file) return json({ error: 'Not found' }, 404);
+    await fetch(`${SUPABASE_URL}/rest/v1/crm_media_files?id=eq.${file_id}`, {
+      method: 'PATCH', headers: hj, body: JSON.stringify({ name: name.trim() }),
+    });
+    return json({ success: true });
+  }
+
   if (action === 'delete_file') {
     const { file_id } = body;
     const fileRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_media_files?id=eq.${file_id}&tenant_id=eq.${tenantId}&select=storage_path&limit=1`, { headers: h });
