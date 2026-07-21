@@ -93,6 +93,21 @@ export async function onRequestPost({ request, env }) {
   }
 
   // ── Files ────────────────────────────────────────────────────────────────────
+  if (action === 'search_files') {
+    const { company_id, query } = body;
+    if (!query?.trim()) return json({ files: [] });
+    // Find all folder ids for this company
+    const fRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_media_folders?tenant_id=eq.${tenantId}&company_id=eq.${company_id}&select=id`, { headers: h });
+    const folders = await fRes.json();
+    if (!folders?.length) return json({ files: [] });
+    const folderIds = folders.map(f => f.id).join(',');
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/crm_media_files?tenant_id=eq.${tenantId}&folder_id=in.(${folderIds})&name=ilike.*${encodeURIComponent(query.trim())}*&order=created_at.desc&limit=100`,
+      { headers: h }
+    );
+    return json({ files: await res.json() });
+  }
+
   if (action === 'list_files') {
     const { folder_id } = body;
     if (!folder_id) return json({ error: 'folder_id required' }, 400);

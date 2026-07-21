@@ -168,11 +168,14 @@ async function renderLevel() {
         <p class="text-muted text-sm">${folders.length} folder${folders.length!==1?"s":""}${cur.type!=="company"?" · "+files.length+" file"+(files.length!==1?"s":""):""}</p>
       </div>
       <div class="page-header-actions" style="gap:8px">
+        ${cur.type === "company" ? `<input class="form-control" id="fileSearch" placeholder="🔍  Search files…" style="width:220px"/>` : ""}
         <button class="btn" id="newFolderBtn">+ New Folder</button>
         ${cur.type === "folder" ? `<button class="btn btn-primary" id="uploadBtn">↑ Upload</button>` : ""}
       </div>
     </div>
+    <div id="searchResults" style="display:none"></div>
 
+    <div id="mainContent">
     ${cur.type === "folder" ? `
       <div class="upload-zone" id="uploadZone">
         <input type="file" id="fileInput" multiple accept="image/*,video/*"/>
@@ -222,6 +225,7 @@ async function renderLevel() {
         <div style="font-size:40px;margin-bottom:12px">🖼️</div>
         <p>No files yet. Upload images or videos above.</p>
       </div>` : ""}
+    </div>
   `;
 
   bindLevelEvents(cur);
@@ -236,9 +240,12 @@ function renderCompanyLevel() {
         <p class="text-muted text-sm">Select a company to manage their media</p>
       </div>
     </div>
+    <div style="margin-bottom:16px">
+      <input class="form-control" id="companySearch" placeholder="🔍  Search companies…" style="max-width:320px"/>
+    </div>
     ${companiesList.length === 0
       ? `<div class="card" style="text-align:center;padding:40px"><div style="font-size:40px;margin-bottom:12px">🏢</div><h3>No companies found</h3><p class="text-muted text-sm">Add companies first to create media folders.</p></div>`
-      : `<div class="folder-grid">
+      : `<div class="folder-grid" id="companyGrid">
           ${companiesList.map(c => `
             <div class="folder-card" data-company-id="${c.id}" data-company-name="${esc(c.name)}">
               <div class="folder-icon">🏢</div>
@@ -251,6 +258,13 @@ function renderCompanyLevel() {
     el.addEventListener("click", () => {
       crumbs.push({ id: el.dataset.companyId, name: el.dataset.companyName, type: "company" });
       renderLevel();
+    });
+  });
+
+  document.getElementById("companySearch")?.addEventListener("input", (e) => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll("[data-company-id]").forEach(card => {
+      card.style.display = card.dataset.companyName.toLowerCase().includes(q) ? "" : "none";
     });
   });
 }
@@ -275,6 +289,50 @@ function bindLevelEvents(cur) {
   });
 
   document.getElementById("newFolderBtn")?.addEventListener("click", () => showNewFolderModal(cur));
+
+  // File search (company level only)
+  let searchTimeout;
+  document.getElementById("fileSearch")?.addEventListener("input", (e) => {
+    clearTimeout(searchTimeout);
+    const q = e.target.value.trim();
+    const resultsEl = document.getElementById("searchResults");
+    const mainContent = document.getElementById("mainContent");
+    if (!q) {
+      resultsEl.style.display = "none";
+      if (mainContent) mainContent.style.display = "";
+      return;
+    }
+    if (mainContent) mainContent.style.display = "none";
+    resultsEl.style.display = "";
+    resultsEl.innerHTML = `<div class="text-muted text-sm" style="padding:8px">Searching…</div>`;
+    searchTimeout = setTimeout(async () => {
+      const { files } = await api("search_files", { company_id: cur.id, query: q });
+      if (!files?.length) {
+        resultsEl.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text3)"><div style="font-size:32px;margin-bottom:10px">🔍</div><p>No files matching "${esc(q)}"</p></div>`;
+        return;
+      }
+      resultsEl.innerHTML = `
+        <div style="margin-bottom:8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text3)">${files.length} result${files.length!==1?"s":""}</div>
+        <div class="media-grid">
+          ${files.map(f => `
+            <div class="media-card" data-file-id="${f.id}" data-file-type="${esc(f.file_type||"")}">
+              <button class="media-rename-btn" data-rename-file="${f.id}" data-rename-name="${esc(f.name)}">✏ Rename</button>
+              <div class="media-thumb-placeholder">${mediaIcon(f.file_type)}</div>
+              <div class="media-info">
+                <div class="media-name" id="fname-${f.id}" title="${esc(f.name)}">${esc(f.name)}</div>
+                <div class="media-size">${fileSize(f.file_size)}</div>
+              </div>
+            </div>`).join("")}
+        </div>`;
+      resultsEl.querySelectorAll("[data-file-id]").forEach(card => {
+        card.addEventListener("click", (e) => {
+          if (e.target.closest("[data-rename-file]")) return;
+          openViewer(card.dataset.fileId, card.dataset.fileType);
+        });
+      });
+      bindRenameButtons(resultsEl);
+    }, 300);
+  });
 
   document.querySelectorAll("[data-folder-id]").forEach(el => {
     el.addEventListener("click", (e) => {
@@ -313,7 +371,25 @@ function bindLevelEvents(cur) {
     });
   });
 
-  document.querySelectorAll("[data-rename-file]").forEach(btn => {
+  bindRenameButtons(document);
+
+  // Upload
+  const zone = document.getElementById("uploadZone");
+  const fileInput = document.getElementById("fileInput");
+  const uploadBtn = document.getElementById("uploadBtn");
+
+  if (zone) {
+    zone.addEventListener("click", (e) => { if (!e.target.closest("button")) fileInput.click(); });
+    uploadBtn?.addEventListener("click", () => fileInput.click());
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag-over"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
+    zone.addEventListener("drop", (e) => { e.preventDefault(); zone.classList.remove("drag-over"); handleFiles(e.dataTransfer.files, cur.id); });
+    fileInput.addEventListener("change", () => { if (fileInput.files.length) handleFiles(fileInput.files, cur.id); });
+  }
+}
+
+function bindRenameButtons(scope) {
+  scope.querySelectorAll("[data-rename-file]").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const fileId = btn.dataset.renameFile;
@@ -343,20 +419,6 @@ function bindLevelEvents(cur) {
       });
     });
   });
-
-  // Upload
-  const zone = document.getElementById("uploadZone");
-  const fileInput = document.getElementById("fileInput");
-  const uploadBtn = document.getElementById("uploadBtn");
-
-  if (zone) {
-    zone.addEventListener("click", (e) => { if (!e.target.closest("button")) fileInput.click(); });
-    uploadBtn?.addEventListener("click", () => fileInput.click());
-    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag-over"); });
-    zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
-    zone.addEventListener("drop", (e) => { e.preventDefault(); zone.classList.remove("drag-over"); handleFiles(e.dataTransfer.files, cur.id); });
-    fileInput.addEventListener("change", () => { if (fileInput.files.length) handleFiles(fileInput.files, cur.id); });
-  }
 }
 
 function confirmFileNames(files) {
