@@ -12,17 +12,25 @@ const MAX_SIZE = 15 * 1024 * 1024; // matches the presence-fire-safety-logos buc
 // browser's direct storage upload, which kept failing RLS in the field for
 // reasons that couldn't be reproduced server-side even with an identical
 // simulated auth context.
+//
+// The body is sent as the raw file bytes (Content-Type header carries the
+// mime type) rather than multipart/FormData — request.formData() was
+// failing with "No initial boundary string" on the very first line before
+// any other code ran, so this sidesteps Cloudflare's multipart parser
+// entirely instead of trying to work around it.
 export async function onRequestPost(context) {
   const { request, env } = context;
   try {
-    // Parse the multipart body before any other awaited network call — the
-    // permission check below is itself a round-trip to Supabase, and
-    // reading the body after that (rather than first) produced "No initial
-    // boundary string" in the field, consistent with the request's body
-    // stream not surviving that extra delay in the Workers runtime.
-    const form = await request.formData();
-    const file = form.get('file');
-    if (!file || typeof file === 'string') return json({ error: 'file is required' }, 400);
+    const contentType = (request.headers.get('content-type') || '').split(';')[0].trim();
+    const ext = ALLOWED_TYPES[contentType];
+    if (!ext) return json({ error: 'Only JPEG, PNG, WebP, or SVG images are allowed' }, 400);
+
+    const contentLength = Number(request.headers.get('content-length') || 0);
+    if (contentLength > MAX_SIZE) return json({ error: 'Image must be 15MB or smaller' }, 400);
+
+    const bytes = await request.arrayBuffer();
+    if (!bytes.byteLength) return json({ error: 'No file data received' }, 400);
+    if (bytes.byteLength > MAX_SIZE) return json({ error: 'Image must be 15MB or smaller' }, 400);
 
     const profile = await getCallerProfile(request, env);
     if (!profile) return json({ error: 'Unauthorised' }, 401);
@@ -30,11 +38,6 @@ export async function onRequestPost(context) {
     const allowed = await hasPermission(env, profile.token, profile.company_id, 'presence.manage_badges');
     if (!allowed) return json({ error: 'Forbidden' }, 403);
 
-    const ext = ALLOWED_TYPES[file.type];
-    if (!ext) return json({ error: 'Only JPEG, PNG, WebP, or SVG images are allowed' }, 400);
-    if (file.size > MAX_SIZE) return json({ error: 'Image must be 15MB or smaller' }, 400);
-
-    const bytes = await file.arrayBuffer();
     const path = `${profile.company_id}/logo.${ext}`;
 
     const uploadRes = await fetch(`${env.SUPABASE_URL}/storage/v1/object/presence-fire-safety-logos/${path}`, {
@@ -42,7 +45,7 @@ export async function onRequestPost(context) {
       headers: {
         apikey: env.SUPABASE_SERVICE_KEY,
         Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-        'Content-Type': file.type,
+        'Content-Type': contentType,
         'x-upsert': 'true',
       },
       body: bytes,

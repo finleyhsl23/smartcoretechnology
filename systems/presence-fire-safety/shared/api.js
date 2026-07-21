@@ -441,15 +441,19 @@ export const settings = {
   // RLS in the field for reasons that couldn't be reproduced even with an
   // identical simulated auth context server-side, so this sidesteps it.
   // Permission is still checked server-side via the caller's own token.
+  // Sent as the raw file body (not FormData/multipart) — the Function's
+  // request.formData() call was failing with "No initial boundary string"
+  // as its very first operation, so multipart is avoided entirely here.
   async uploadIdCardLogo(companyId, file) {
     const { data: { session } } = await sb().auth.getSession();
     if (!session) throw new Error("Not signed in");
-    const fd = new FormData();
-    fd.append("file", file);
     const res = await fetch("/api/presence-fire-safety/upload-logo", {
       method: "POST",
-      headers: { Authorization: `Bearer ${session.access_token}` },
-      body: fd,
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": file.type,
+      },
+      body: file,
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Upload failed");
