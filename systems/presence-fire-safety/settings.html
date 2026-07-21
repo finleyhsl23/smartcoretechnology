@@ -66,6 +66,7 @@
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings, setSoundEnabled } from "/systems/presence-fire-safety/shared/sound.js";
+  import { enhanceSelect } from "/systems/presence-fire-safety/shared/combobox.js";
   import {
     esc, toast, fmtDateTime, timeAgo, confirmDialog, modal,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -187,10 +188,10 @@
         <label class="set-checkbox-field">
           <input type="checkbox" id="f_auto_sign_out_enabled" ${s.auto_sign_out_enabled ? "checked" : ""}/> Automatically sign everyone out at a fixed time
         </label>
-        <div class="set-field-grid">
+        <div class="set-field-grid" id="autoSignOutTimeGrid" style="${s.auto_sign_out_enabled ? "" : "display:none"}">
           <label class="set-field">
             <span class="form-label">Auto sign-out time</span>
-            <input type="time" id="f_auto_sign_out_time" class="form-input" value="${esc((s.auto_sign_out_time || "").slice(0, 5))}" ${s.auto_sign_out_enabled ? "" : "disabled"}/>
+            <input type="time" id="f_auto_sign_out_time" class="form-input" value="${esc((s.auto_sign_out_time || "").slice(0, 5))}"/>
           </label>
         </div>
 
@@ -219,19 +220,24 @@
     refreshIcons();
 
     document.getElementById("f_auto_sign_out_enabled").addEventListener("change", e => {
-      document.getElementById("f_auto_sign_out_time").disabled = !e.target.checked;
+      document.getElementById("autoSignOutTimeGrid").style.display = e.target.checked ? "" : "none";
     });
     document.getElementById("setPinBtn").addEventListener("click", openSetPinModal);
     document.getElementById("setKioskPinBtn").addEventListener("click", openSetKioskPinModal);
     document.getElementById("saveModuleSettingsBtn").addEventListener("click", saveModuleSettings);
 
     // Unsaved-changes tracking: any edit to a module-settings field marks the
-    // form dirty; loading/saving resets it back to clean.
+    // form dirty; loading/saving resets it back to clean. The combobox search
+    // boxes are excluded — they're a display-only proxy over the real hidden
+    // <select>, which already reports its own "change" event when a value is
+    // actually picked; without this, just typing to search would false-flag
+    // the form dirty before anything was ever selected.
     _settingsDirty = false;
-    document.querySelectorAll("#panel-module input, #panel-module select").forEach(el => {
+    document.querySelectorAll("#panel-module input:not(.pfs-combo-input), #panel-module select").forEach(el => {
       el.addEventListener("input", () => { _settingsDirty = true; });
       el.addEventListener("change", () => { _settingsDirty = true; });
     });
+    enhanceSelect(document.getElementById("f_default_sign_in_method"));
   }
 
   async function saveModuleSettings() {
