@@ -430,12 +430,19 @@ export const settings = {
   },
 
   /** Company logo for the ID card template. Public bucket, one object per
-   *  company at a stable path — upsert overwrites on re-upload. */
+   *  company at a stable path — upsert overwrites on re-upload.
+   *  Reads the file into bytes immediately rather than handing the raw
+   *  File/Blob to the client's upload() call — Safari can invalidate a
+   *  <input type="file">'s selected File once the input's value is reset,
+   *  which produced an empty request body ("No content provided") if the
+   *  caller cleared the input before this async upload finished. */
   async uploadIdCardLogo(companyId, file) {
-    const ext = (file.type || "image/png").split("/")[1] || "png";
+    const contentType = file.type || "image/png";
+    const ext = contentType.split("/")[1] || "png";
+    const bytes = await file.arrayBuffer();
     const path = `${companyId}/logo.${ext}`;
     const { error } = await sb().storage.from("presence-fire-safety-logos")
-      .upload(path, file, { upsert: true, contentType: file.type || "image/png" });
+      .upload(path, bytes, { upsert: true, contentType });
     if (error) throw error;
     const { data } = sb().storage.from("presence-fire-safety-logos").getPublicUrl(path);
     return `${data.publicUrl}?t=${Date.now()}`;

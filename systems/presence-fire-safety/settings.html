@@ -726,8 +726,8 @@
       document.getElementById("idc_logo_size").addEventListener("change", e => { t.logo.size = e.target.value; renderIdCardPreview(); });
       document.getElementById("idcLogoUploadBtn").addEventListener("click", () => document.getElementById("idcLogoInput").click());
       document.getElementById("idcLogoInput").addEventListener("change", async (e) => {
-        const file = e.target.files?.[0];
-        e.target.value = "";
+        const input = e.target;
+        const file = input.files?.[0];
         if (!file) return;
         const btn = document.getElementById("idcLogoUploadBtn");
         btn.disabled = true; btn.textContent = "Uploading…";
@@ -740,6 +740,11 @@
         } catch (err) {
           toast("error", "Couldn't upload logo", err.message || "Please try again.");
           btn.disabled = false; btn.textContent = "Upload logo";
+        } finally {
+          // Clear only after the upload has read the file, so re-selecting
+          // the same file later still fires "change" — clearing it earlier
+          // can invalidate the File reference mid-upload in some browsers.
+          input.value = "";
         }
       });
       enhanceSelect(document.getElementById("idc_logo_position"));
