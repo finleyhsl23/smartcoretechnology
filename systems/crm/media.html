@@ -359,18 +359,66 @@ function bindLevelEvents(cur) {
   }
 }
 
+function confirmFileNames(files) {
+  return new Promise((resolve) => {
+    const items = Array.from(files).map(f => ({ file: f, name: f.name }));
+    const m = document.getElementById("modalWrap");
+
+    const rows = items.map((item, i) => `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)">
+        <div style="font-size:22px;flex-shrink:0">${item.file.type.startsWith("image") ? "🖼️" : item.file.type.startsWith("video") ? "🎬" : "📄"}</div>
+        <input class="form-control upload-name-input" data-idx="${i}" value="${esc(item.name)}" style="flex:1"/>
+      </div>`).join("");
+
+    m.innerHTML = `
+      <div class="modal-overlay" id="fnOverlay">
+        <div class="modal" style="max-width:520px">
+          <div class="modal-header">
+            <h2 style="font-size:15px">Confirm file name${items.length > 1 ? "s" : ""}</h2>
+            <button class="btn" id="fnClose">✕</button>
+          </div>
+          <div class="modal-body" style="max-height:60vh;overflow-y:auto">
+            <p class="text-sm text-muted" style="margin-bottom:12px">Edit the name for each file before uploading.</p>
+            ${rows}
+          </div>
+          <div class="modal-footer">
+            <button class="btn" id="fnCancel">Cancel</button>
+            <button class="btn btn-primary" id="fnUpload">Upload</button>
+          </div>
+        </div>
+      </div>`;
+
+    const close = (result) => { m.innerHTML = ""; resolve(result); };
+    document.getElementById("fnClose").onclick = () => close(null);
+    document.getElementById("fnCancel").onclick = () => close(null);
+    document.getElementById("fnOverlay").onclick = (e) => { if (e.target.id === "fnOverlay") close(null); };
+    document.getElementById("fnUpload").onclick = () => {
+      document.querySelectorAll(".upload-name-input").forEach(input => {
+        const idx = parseInt(input.dataset.idx);
+        items[idx].name = input.value.trim() || items[idx].name;
+      });
+      close(items);
+    };
+
+    // Allow Enter to submit
+    m.addEventListener("keydown", (e) => { if (e.key === "Enter") document.getElementById("fnUpload")?.click(); });
+  });
+}
+
 async function handleFiles(fileList, folderId) {
+  const confirmed = await confirmFileNames(fileList);
+  if (!confirmed) return; // user cancelled
+
   const progressWrap = document.getElementById("uploadProgress");
   progressWrap.style.display = "block";
   let done = 0;
-  const total = fileList.length;
 
-  for (const file of fileList) {
-    progressWrap.innerHTML = `<div style="font-size:13px;margin-bottom:6px">Uploading ${esc(file.name)} (${done+1}/${total})</div><div class="progress-bar"><div class="progress-fill" style="width:0%" id="pFill"></div></div>`;
+  for (const { file, name } of confirmed) {
+    progressWrap.innerHTML = `<div style="font-size:13px;margin-bottom:6px">Uploading ${esc(name)} (${done+1}/${confirmed.length})</div><div class="progress-bar"><div class="progress-fill" style="width:0%" id="pFill"></div></div>`;
 
     try {
       const { upload_url, storage_path, error } = await api("create_upload_url", {
-        folder_id: folderId, filename: file.name, file_type: file.type,
+        folder_id: folderId, filename: name, file_type: file.type,
       });
       if (error) { toast("bad", error); done++; continue; }
 
@@ -389,11 +437,11 @@ async function handleFiles(fileList, folderId) {
       });
 
       await api("confirm_upload", {
-        folder_id: folderId, name: file.name, file_type: file.type, file_size: file.size, storage_path,
+        folder_id: folderId, name, file_type: file.type, file_size: file.size, storage_path,
       });
       done++;
     } catch {
-      toast("bad", `Failed to upload ${file.name}`);
+      toast("bad", `Failed to upload ${name}`);
       done++;
     }
   }
