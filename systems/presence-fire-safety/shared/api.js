@@ -60,6 +60,14 @@ export const employees = {
     if (error) throw error;
     return data || [];
   },
+  /** Full data needed to render an ID card: photo, name, job title, code. */
+  async forIdCard(companyId, employeeId) {
+    const { data, error } = await sb().from("core_employees")
+      .select("id, full_name, job_title, employee_id, profile_picture_url")
+      .eq("company_id", companyId).eq("id", employeeId).maybeSingle();
+    if (error) throw error;
+    return data;
+  },
 };
 
 // ── Badges ───────────────────────────────────────────────────────────────
@@ -419,6 +427,18 @@ export const settings = {
     const { error } = await sb().rpc("presence_fire_safety_verify_kiosk_exit_pin", { p_company_id: companyId, p_pin: pin });
     if (error) throw new Error(error.message || "Incorrect PIN");
     return true;
+  },
+
+  /** Company logo for the ID card template. Public bucket, one object per
+   *  company at a stable path — upsert overwrites on re-upload. */
+  async uploadIdCardLogo(companyId, file) {
+    const ext = (file.type || "image/png").split("/")[1] || "png";
+    const path = `${companyId}/logo.${ext}`;
+    const { error } = await sb().storage.from("presence-fire-safety-logos")
+      .upload(path, file, { upsert: true, contentType: file.type || "image/png" });
+    if (error) throw error;
+    const { data } = sb().storage.from("presence-fire-safety-logos").getPublicUrl(path);
+    return `${data.publicUrl}?t=${Date.now()}`;
   },
 };
 

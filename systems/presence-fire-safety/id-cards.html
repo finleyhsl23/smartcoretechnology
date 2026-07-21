@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>ID Cards — SmartCore Presence &amp; Fire Safety</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="pfs-shell">
+  <nav class="pfs-sidebar" id="pfsNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="pfs-main">
+    <div class="pfs-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>ID Cards</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="pfs-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="pageBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+<div id="printArea"></div>
+
+<style>
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .idc-picker-card { display:flex; flex-direction:column; gap:14px; margin-bottom:20px; }
+  .idc-page-layout { display:grid; grid-template-columns: 1fr 300px; gap: 24px; align-items:start; }
+  .idc-page-preview { position:sticky; top:20px; }
+  .idc-page-preview-label { font-size:12px; font-weight:700; color:var(--text3); text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px; }
+  .idc-badge-row { display:flex; align-items:center; gap:12px; padding:12px 14px; border:1px solid var(--line); border-radius:12px; margin-top:14px; }
+  .idc-badge-row > div { flex:1; }
+  .idc-empty-hint { color:var(--text3); font-size:13px; padding:24px; text-align:center; }
+  @media (max-width: 900px) { .idc-page-layout { grid-template-columns: 1fr; } .idc-page-preview { position:static; } }
+
+  @media screen { #printArea { display:none !important; } }
+  @media print {
+    body * { visibility:hidden; }
+    #printArea, #printArea * { visibility:visible; }
+    #printArea { display:block !important; position:absolute; top:0; left:0; }
+    .pfs-idcard-print-face { page-break-inside: avoid; margin-bottom: 4mm; }
+  }
+</style>
+
+<script type="module">
+  import { requirePresenceModuleAccess, hasPermission } from "/systems/presence-fire-safety/shared/auth.js";
+  import { employees, settings, badges } from "/systems/presence-fire-safety/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/presence-fire-safety/shared/nav.js";
+  import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
+  import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
+  import { renderIdCardFront, renderIdCardBack, generateQrDataUrl } from "/systems/presence-fire-safety/shared/id-card-render.js";
+  import {
+    esc, toast, fmtDateTime, confirmDialog,
+    loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
+    offlineBanner, setInner, refreshIcons,
+  } from "/systems/presence-fire-safety/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null, _companyId = null;
+  let _template = null, _logoUrl = null;
+  let _selectedEmployee = null; // { id, name }
+  let _employeeData = null;     // full row from employees.forIdCard
+  let _activeBadge = null;      // current badge row, or null
+  let _searchTimer = null;
+
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    if (enforceKioskGuard("id-cards")) throw new Error("__kiosk_redirect__");
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    renderNav("id-cards", profile);
+    initMobileNav();
+    initTopbar();
+    initKioskToggle({ companyId: _companyId, currentPage: "id-cards" });
+    wireOfflineBanner();
+    initSoundFromSettings(_companyId);
+
+    if (!hasPermission("presence.manage_badges")) {
+      setInner("pageBody", permissionDeniedState("You don't have permission to manage ID cards."));
+    } else {
+      const row = await settings.get(_companyId);
+      _template = row?.id_card_template || null;
+      _logoUrl = row?.id_card_logo_url || null;
+      renderShell();
+      loadAllBadges();
+    }
+  } catch (e) {
+    if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+
+  // ── Shell ────────────────────────────────────────────────────────────────
+  function renderShell() {
+    setInner("pageBody", `
+      <div class="card idc-picker-card">
+        <h2 class="set-section-title" style="margin:0">Print an ID Card</h2>
+        <p class="set-section-desc" style="margin:0">Search for an employee to preview and print their card. The back shows their QR sign-in badge.</p>
+        <div class="set-search-combo">
+          <input type="text" id="empSearch" class="form-input" placeholder="Search employees by name or ID…" autocomplete="off"/>
+          <div class="set-search-results" id="empResults" hidden></div>
+        </div>
+        <div id="empSelectedChip"></div>
+      </div>
+      <div id="cardArea"></div>
+
+      <h2 class="set-section-title" style="margin-top:28px">All issued QR badges</h2>
+      <div id="allBadgesArea"></div>
+    `);
+
+    const searchInput = document.getElementById("empSearch");
+    const resultsBox = document.getElementById("empResults");
+
+    searchInput.addEventListener("input", () => {
+      clearTimeout(_searchTimer);
+      const q = searchInput.value.trim();
+      if (!q) { resultsBox.hidden = true; resultsBox.innerHTML = ""; return; }
+      _searchTimer = setTimeout(async () => {
+        try {
+          const results = await employees.search(_companyId, q, { limit: 8 });
+          resultsBox.innerHTML = results.length
+            ? results.map(r => `<div class="set-search-result" data-emp-id="${esc(r.id)}" data-emp-name="${esc(r.full_name)}">${esc(r.full_name)}${r.employee_id ? ` <span class="text-muted">(${esc(r.employee_id)})</span>` : ""}</div>`).join("")
+            : `<div class="set-search-result text-muted">No employees found</div>`;
+          resultsBox.hidden = false;
+          resultsBox.querySelectorAll("[data-emp-id]").forEach(el => {
+            el.addEventListener("click", () => {
+              _selectedEmployee = { id: el.dataset.empId, name: el.dataset.empName };
+              document.getElementById("empSelectedChip").innerHTML = `<span class="set-selected-chip">${esc(_selectedEmployee.name)} <button type="button" id="clearEmpChip" aria-label="Clear">✕</button></span>`;
+              document.getElementById("clearEmpChip").addEventListener("click", () => {
+                _selectedEmployee = null; _employeeData = null; _activeBadge = null;
+                document.getElementById("empSelectedChip").innerHTML = "";
+                setInner("cardArea", "");
+              });
+              resultsBox.hidden = true;
+              searchInput.value = "";
+              loadSelectedEmployee();
+            });
+          });
+        } catch (e) {
+          resultsBox.innerHTML = `<div class="set-search-result text-muted">${esc(e.message)}</div>`;
+          resultsBox.hidden = false;
+        }
+      }, 250);
+    });
+  }
+
+  // ── Selected employee card ──────────────────────────────────────────────
+  async function loadSelectedEmployee() {
+    setInner("cardArea", loadingState("Loading employee…"));
+    try {
+      const [emp, badge] = await Promise.all([
+        employees.forIdCard(_companyId, _selectedEmployee.id),
+        badges.forEmployee(_selectedEmployee.id),
+      ]);
+      _employeeData = emp;
+      _activeBadge = badge;
+      renderCardArea();
+    } catch (e) {
+      setInner("cardArea", errorState({ title: "Couldn't load employee", message: e.message, retryId: "cardRetry" }));
+      document.getElementById("cardRetry")?.addEventListener("click", loadSelectedEmployee);
+    }
+  }
+
+  function renderCardArea() {
+    if (!_employeeData) return;
+    const qr = _activeBadge ? generateQrDataUrl(_activeBadge.badge_token) : null;
+
+    setInner("cardArea", `
+      <div class="idc-page-layout">
+        <div>
+          <div class="idc-badge-row">
+            <div>
+              ${_activeBadge
+                ? `<div><strong>Active QR badge</strong></div><div class="set-token">${esc(_activeBadge.badge_token)}</div>`
+                : `<div class="text-muted">This employee has no active QR badge — their card back will be blank until one is issued.</div>`}
+            </div>
+            ${_activeBadge
+              ? `<button class="btn btn-danger" id="revokeBadgeBtn" type="button">Revoke Badge</button>`
+              : `<button class="btn btn-primary" id="issueBadgeBtn" type="button">Issue QR Badge</button>`}
+          </div>
+        </div>
+        <div class="idc-page-preview">
+          <div class="idc-page-preview-label">Front</div>
+          <div id="cardFront"></div>
+          <div class="idc-page-preview-label" style="margin-top:16px">Back</div>
+          <div id="cardBack"></div>
+          <div class="set-actions-bar" style="justify-content:flex-start;margin-top:16px">
+            <button class="btn btn-primary" id="printCardBtn" type="button"><i data-lucide="printer"></i> Print Card</button>
+          </div>
+        </div>
+      </div>
+    `);
+    document.getElementById("cardFront").innerHTML = renderIdCardFront(_template, _employeeData, _logoUrl);
+    document.getElementById("cardBack").innerHTML = renderIdCardBack(_template, qr);
+    refreshIcons();
+
+    document.getElementById("issueBadgeBtn")?.addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true; btn.textContent = "Issuing…";
+      try {
+        _activeBadge = await badges.issue(_companyId, _selectedEmployee.id);
+        toast("success", "Badge issued", `A new QR badge was issued for ${_selectedEmployee.name}.`);
+        renderCardArea();
+        loadAllBadges();
+      } catch (e) {
+        const msg = /duplicate key|one_active/i.test(e.message || "")
+          ? "This employee already has an active badge."
+          : (e.message || "Couldn't issue badge.");
+        toast("error", "Couldn't issue badge", msg);
+        btn.disabled = false; btn.textContent = "Issue QR Badge";
+      }
+    });
+
+    document.getElementById("revokeBadgeBtn")?.addEventListener("click", () => {
+      confirmDialog("Revoke this badge?", "The employee will no longer be able to scan in/out, and their card back will need reprinting once a new badge is issued. This cannot be undone.", async () => {
+        try {
+          await badges.revoke(_activeBadge.id);
+          toast("success", "Badge revoked");
+          _activeBadge = null;
+          renderCardArea();
+          loadAllBadges();
+        } catch (e) {
+          toast("error", "Couldn't revoke badge", e.message || "Please try again.");
+        }
+      }, { confirmLabel: "Revoke Badge" });
+    });
+
+    document.getElementById("printCardBtn").addEventListener("click", () => printCard(qr));
+  }
+
+  function printCard(qr) {
+    const orientation = _template?.orientation === "portrait" ? "portrait" : "landscape";
+    const w = orientation === "portrait" ? "54mm" : "85.6mm";
+    const h = orientation === "portrait" ? "85.6mm" : "54mm";
+    setInner("printArea", `
+      <div class="pfs-idcard-print-face" style="width:${w};height:${h}">${renderIdCardFront(_template, _employeeData, _logoUrl)}</div>
+      <div class="pfs-idcard-print-face" style="width:${w};height:${h}">${renderIdCardBack(_template, qr)}</div>
+    `);
+    window.print();
+  }
+
+  // ── All issued badges overview ──────────────────────────────────────────
+  async function loadAllBadges() {
+    setInner("allBadgesArea", loadingState("Loading badges…"));
+    try {
+      const list = await badges.list(_companyId);
+      renderAllBadges(list);
+    } catch (e) {
+      setInner("allBadgesArea", errorState({ title: "Couldn't load badges", message: e.message, retryId: "allBadgesRetry" }));
+      document.getElementById("allBadgesRetry")?.addEventListener("click", loadAllBadges);
+    }
+  }
+
+  function renderAllBadges(list) {
+    if (!list.length) {
+      setInner("allBadgesArea", emptyState({ icon: "id-card", title: "No badges issued yet" }));
+      return;
+    }
+    setInner("allBadgesArea", `
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Employee</th><th>Token</th><th>Status</th><th>Issued</th><th></th></tr></thead>
+          <tbody>
+            ${list.map(b => `
+              <tr>
+                <td>${esc(b.core_employees?.full_name || "—")} ${b.core_employees?.employee_id ? `<span class="text-muted">(${esc(b.core_employees.employee_id)})</span>` : ""}</td>
+                <td class="set-token">${esc(b.badge_token)}</td>
+                <td><span class="badge ${b.status === "active" ? "badge-green" : b.status === "revoked" ? "badge-red" : "badge-grey"}">${esc(b.status)}</span></td>
+                <td>${esc(fmtDateTime(b.issued_at))}</td>
+                <td>${b.status === "active" ? `<button class="btn btn-danger" data-revoke-badge="${esc(b.id)}" type="button">Revoke</button>` : "—"}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    `);
+    document.querySelectorAll("[data-revoke-badge]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        confirmDialog("Revoke this badge?", "The employee will no longer be able to use it to sign in or out. This cannot be undone.", async () => {
+          try {
+            await badges.revoke(btn.dataset.revokeBadge);
+            toast("success", "Badge revoked");
+            if (_activeBadge?.id === btn.dataset.revokeBadge) { _activeBadge = null; renderCardArea(); }
+            loadAllBadges();
+          } catch (e) {
+            toast("error", "Couldn't revoke badge", e.message || "Please try again.");
+          }
+        }, { confirmLabel: "Revoke Badge" });
+      });
+    });
+  }
+
+  // ── Access-blocked rendering (see index.html for rationale) ────────────
+  function renderAccessBlocked(e) {
+    const msg = e?.message || "";
+    document.body.innerHTML = `
+      <div class="pfs-shell">
+        <div class="pfs-main" style="width:100%">
+          <div class="pfs-topbar">
+            <h1>ID Cards</h1>
+            <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+            <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+          </div>
+          <div class="pfs-content" id="content"></div>
+        </div>
+      </div>
+      <div id="toastwrap" aria-live="polite"></div>`;
+    initTheme();
+    initTopbar();
+
+    let html;
+    if (msg.includes("not enabled")) html = moduleDisabledState();
+    else if (msg.includes("permission") || msg.includes("No access")) html = permissionDeniedState(msg);
+    else if (msg.includes("profile") || msg.includes("session")) html = permissionDeniedState(msg || "Your account isn't set up for this module yet.");
+    else html = errorState({ title: "Couldn't load ID Cards", message: msg, retryId: "blockedRetry" });
+
+    setInner("content", html);
+    document.getElementById("blockedRetry")?.addEventListener("click", () => window.location.reload());
+  }
+</script>
+</body>
+</html>

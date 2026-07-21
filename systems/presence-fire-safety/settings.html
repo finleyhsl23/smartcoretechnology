@@ -57,16 +57,35 @@
   .set-token { font-family: ui-monospace, monospace; font-size: 12px; }
   .set-card-header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
   .set-reveal-secret { font-family: ui-monospace, monospace; font-size: 14px; background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; word-break: break-all; margin: 12px 0; }
+
+  .idc-layout { display:grid; grid-template-columns: 1fr 320px; gap: 24px; align-items:start; }
+  .idc-steps { display:flex; flex-wrap:wrap; gap:6px; }
+  .idc-step { background: var(--card2); border:1px solid var(--line); border-radius:999px; padding:8px 14px; font-size:12.5px; font-weight:700; color:var(--text2); }
+  .idc-step.active { background: var(--accent); color:#fff; border-color:var(--accent); }
+  .idc-preview { position: sticky; top: 20px; }
+  .idc-preview-label { font-size:12px; font-weight:700; color:var(--text3); text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px; }
+  .idc-preview-card { width:100%; }
+  .idc-toggle-group { display:flex; gap:8px; }
+  .idc-toggle-btn { flex:1; padding:9px 12px; border-radius:10px; border:1px solid var(--line); background:var(--card2); color:var(--text2); font-weight:700; font-size:13px; }
+  .idc-toggle-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .idc-color-input { width:100%; height:40px; border-radius:8px; border:1px solid var(--line); background:var(--card2); padding:4px; cursor:pointer; }
+  .idc-subhead { font-size:13px; margin: 18px 0 10px; color:var(--text2); }
+  .idc-logo-row { display:flex; gap:16px; align-items:flex-start; }
+  .idc-logo-preview { width:72px; height:72px; border-radius:10px; border:1px solid var(--line); object-fit:contain; background:var(--card2); }
+  .idc-logo-placeholder { display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--text3); text-align:center; }
+  .idc-field-row { display:grid; grid-template-columns: 1fr 44px 100px; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line); }
+  @media (max-width: 900px) { .idc-layout { grid-template-columns: 1fr; } .idc-preview { position:static; } }
 </style>
 
 <script type="module">
   import { requirePresenceModuleAccess, hasPermission } from "/systems/presence-fire-safety/shared/auth.js";
-  import { sites, settings, badges, devices, employees } from "/systems/presence-fire-safety/shared/api.js";
+  import { sites, settings, devices } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings, setSoundEnabled } from "/systems/presence-fire-safety/shared/sound.js";
   import { enhanceSelect } from "/systems/presence-fire-safety/shared/combobox.js";
+  import { renderIdCardFront, renderIdCardBack, generateQrDataUrl } from "/systems/presence-fire-safety/shared/id-card-render.js";
   import {
     esc, toast, fmtDateTime, timeAgo, confirmDialog, modal,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -87,7 +106,7 @@
       <div class="set-tabs" role="tablist" aria-label="Settings sections">
         <button class="set-tab" role="tab" data-tab="module" type="button">Module Settings</button>
         <button class="set-tab" role="tab" data-tab="sites" type="button">Site Settings</button>
-        ${hasPermission("presence.manage_badges") ? `<button class="set-tab" role="tab" data-tab="badges" type="button">Badges</button>` : ""}
+        ${hasPermission("presence.manage_badges") ? `<button class="set-tab" role="tab" data-tab="badges" type="button">ID Cards</button>` : ""}
         <button class="set-tab" role="tab" data-tab="devices" type="button">Devices</button>
       </div>
       <div class="set-tabpanel" id="panel-module" role="tabpanel"></div>
@@ -112,7 +131,7 @@
     document.querySelectorAll(".set-tabpanel").forEach(p => p.classList.toggle("active", p.id === `panel-${tab}`));
     if (tab === "module") loadModuleSettings();
     else if (tab === "sites") loadSiteSettings();
-    else if (tab === "badges") loadBadges();
+    else if (tab === "badges") loadIdCardTemplate();
     else if (tab === "devices") loadDevices();
   }
 
@@ -467,130 +486,347 @@
     });
   }
 
-  // ── Badges ───────────────────────────────────────────────────────────────
-  let _badgeSearchTimer = null;
-  let _selectedEmployee = null;
+  // ── ID Card template designer ────────────────────────────────────────────
+  // QR badge issue/revoke moved to the dedicated id-cards.html page — the
+  // badge token now prints on the back of the card, so managing it belongs
+  // next to the card preview/print flow rather than here.
+  const DEFAULT_ID_CARD_TEMPLATE = {
+    orientation: "landscape",
+    background: { color: "#101828" },
+    shapes: [
+      { type: "circle", color: "#1e5cff", corner: "top-right", size: "lg", opacity: 0.25, enabled: true },
+      { type: "rect", color: "#5b8dff", corner: "bottom-left", size: "md", opacity: 0.18, enabled: true },
+    ],
+    border: { enabled: true, color: "#1e5cff", width: 3 },
+    cornerRadius: 16,
+    photo: { shape: "circle", size: "md", position: "left", borderColor: "#ffffff", borderWidth: 3 },
+    logo: { position: "top-left", size: "sm" },
+    fields: {
+      name: { show: true, fontSize: 16, color: "#ffffff", bold: true },
+      jobTitle: { show: true, fontSize: 12, color: "#c7d2e0" },
+      employeeCode: { show: true, fontSize: 11, color: "#8fa0bd" },
+    },
+    back: { background: { color: "#ffffff" }, qr: { show: true, size: "md" }, text: "If found, please return to reception." },
+  };
+  const IDC_STEPS = ["Background", "Border", "Photo", "Fields & Logo", "Back of Card"];
+  const SHAPE_CORNERS = [["top-left", "Top left"], ["top-right", "Top right"], ["bottom-left", "Bottom left"], ["bottom-right", "Bottom right"]];
+  const SIZE_OPTIONS = [["sm", "Small"], ["md", "Medium"], ["lg", "Large"]];
 
-  async function loadBadges() {
+  let _idCardTemplate = null;
+  let _idCardLogoUrl = null;
+  let _idCardStep = 1;
+
+  async function loadIdCardTemplate() {
     if (!hasPermission("presence.manage_badges")) {
-      setInner("panel-badges", permissionDeniedState("You don't have permission to manage badges."));
+      setInner("panel-badges", permissionDeniedState("You don't have permission to manage ID cards."));
       return;
     }
-    setInner("panel-badges", loadingState("Loading badges…"));
+    setInner("panel-badges", loadingState("Loading ID card template…"));
     try {
-      const list = await badges.list(_companyId);
-      renderBadges(list);
+      const row = await settings.get(_companyId);
+      _idCardTemplate = mergeIdCardTemplate(row?.id_card_template);
+      _idCardLogoUrl = row?.id_card_logo_url || null;
+      _idCardStep = 1;
+      renderIdCardWizard();
     } catch (e) {
-      setInner("panel-badges", errorState({ title: "Couldn't load badges", message: e.message, retryId: "badgesRetry" }));
-      document.getElementById("badgesRetry")?.addEventListener("click", loadBadges);
+      setInner("panel-badges", errorState({ title: "Couldn't load ID card template", message: e.message, retryId: "idCardRetry" }));
+      document.getElementById("idCardRetry")?.addEventListener("click", loadIdCardTemplate);
     }
   }
 
-  function renderBadges(list) {
-    _selectedEmployee = null;
+  // Deep-merges a saved template over the defaults so a fresh company (or an
+  // older/partial saved template) always has every field the renderer and
+  // wizard controls expect.
+  function mergeIdCardTemplate(saved) {
+    const base = JSON.parse(JSON.stringify(DEFAULT_ID_CARD_TEMPLATE));
+    if (!saved) return base;
+    return {
+      ...base, ...saved,
+      background: { ...base.background, ...saved.background },
+      shapes: Array.isArray(saved.shapes) && saved.shapes.length ? saved.shapes : base.shapes,
+      border: { ...base.border, ...saved.border },
+      photo: { ...base.photo, ...saved.photo },
+      logo: { ...base.logo, ...saved.logo },
+      fields: {
+        name: { ...base.fields.name, ...saved.fields?.name },
+        jobTitle: { ...base.fields.jobTitle, ...saved.fields?.jobTitle },
+        employeeCode: { ...base.fields.employeeCode, ...saved.fields?.employeeCode },
+      },
+      back: {
+        ...base.back, ...saved.back,
+        background: { ...base.back.background, ...saved.back?.background },
+        qr: { ...base.back.qr, ...saved.back?.qr },
+      },
+    };
+  }
+
+  function renderIdCardWizard() {
     setInner("panel-badges", `
-      <div class="card" style="margin-bottom:20px">
-        <h2 class="set-section-title">Issue a new badge</h2>
-        <p class="set-section-desc">Search for an employee, then issue an active QR badge for them.</p>
-        <div class="set-search-combo">
-          <input type="text" id="badgeEmpSearch" class="form-input" placeholder="Search employees by name or ID…" autocomplete="off"/>
-          <div class="set-search-results" id="badgeEmpResults" hidden></div>
+      <div class="idc-layout">
+        <div class="idc-form">
+          <div class="idc-steps" role="tablist" aria-label="ID card design steps">
+            ${IDC_STEPS.map((label, i) => `<button type="button" class="idc-step ${_idCardStep === i + 1 ? "active" : ""}" data-step="${i + 1}">${i + 1}. ${label}</button>`).join("")}
+          </div>
+          <div class="card" id="idcStepBody" style="margin-top:14px"></div>
+          <div class="set-actions-bar">
+            <button class="btn" id="idcBackBtn" type="button" ${_idCardStep === 1 ? "disabled" : ""}>← Back</button>
+            ${_idCardStep < IDC_STEPS.length
+              ? `<button class="btn btn-primary" id="idcNextBtn" type="button">Next →</button>`
+              : `<button class="btn btn-primary" id="idcSaveBtn" type="button">Save Template</button>`}
+          </div>
         </div>
-        <div id="badgeSelectedChip"></div>
-        <div class="set-actions-bar">
-          <button class="btn btn-primary" id="issueBadgeBtn" type="button" disabled>Issue Badge</button>
+        <div class="idc-preview">
+          <div class="idc-preview-label">Front</div>
+          <div class="idc-preview-card" id="idcPreviewFront"></div>
+          <div class="idc-preview-label" style="margin-top:16px">Back</div>
+          <div class="idc-preview-card" id="idcPreviewBack"></div>
         </div>
       </div>
-
-      <h2 class="set-section-title">All badges</h2>
-      ${list.length === 0 ? emptyState({ icon: "id-card", title: "No badges issued yet" }) : `
-      <div class="tbl-wrap">
-        <table class="tbl">
-          <thead><tr><th>Employee</th><th>Token</th><th>Status</th><th>Issued</th><th></th></tr></thead>
-          <tbody>
-            ${list.map(b => `
-              <tr>
-                <td>${esc(b.core_employees?.full_name || "—")} ${b.core_employees?.employee_id ? `<span class="text-muted">(${esc(b.core_employees.employee_id)})</span>` : ""}</td>
-                <td class="set-token">${esc(b.badge_token)}</td>
-                <td><span class="badge ${b.status === "active" ? "badge-green" : b.status === "revoked" ? "badge-red" : "badge-grey"}">${esc(b.status)}</span></td>
-                <td>${esc(fmtDateTime(b.issued_at))}</td>
-                <td>${b.status === "active" ? `<button class="btn btn-danger" data-revoke-badge="${esc(b.id)}" type="button">Revoke</button>` : "—"}</td>
-              </tr>`).join("")}
-          </tbody>
-        </table>
-      </div>`}
     `);
+    renderIdCardStepBody();
+    renderIdCardPreview();
+    document.querySelectorAll(".idc-step").forEach(el => el.addEventListener("click", () => {
+      _idCardStep = parseInt(el.dataset.step, 10);
+      renderIdCardWizard();
+    }));
+    document.getElementById("idcBackBtn").addEventListener("click", () => { _idCardStep = Math.max(1, _idCardStep - 1); renderIdCardWizard(); });
+    document.getElementById("idcNextBtn")?.addEventListener("click", () => { _idCardStep = Math.min(IDC_STEPS.length, _idCardStep + 1); renderIdCardWizard(); });
+    document.getElementById("idcSaveBtn")?.addEventListener("click", saveIdCardTemplate);
+  }
 
-    const searchInput = document.getElementById("badgeEmpSearch");
-    const resultsBox = document.getElementById("badgeEmpResults");
-    const issueBtn = document.getElementById("issueBadgeBtn");
+  function renderIdCardPreview() {
+    const sample = {
+      full_name: _profile?.full_name || "Jane Doe",
+      job_title: _profile?.job_title || "Job Title",
+      employee_id: _profile?.employee_id || "EMP0000001",
+      profile_picture_url: null,
+    };
+    document.getElementById("idcPreviewFront").innerHTML = renderIdCardFront(_idCardTemplate, sample, _idCardLogoUrl);
+    document.getElementById("idcPreviewBack").innerHTML = renderIdCardBack(_idCardTemplate, generateQrDataUrl("PFS-SAMPLE-TOKEN"));
+  }
 
-    searchInput.addEventListener("input", () => {
-      clearTimeout(_badgeSearchTimer);
-      const q = searchInput.value.trim();
-      _selectedEmployee = null;
-      issueBtn.disabled = true;
-      document.getElementById("badgeSelectedChip").innerHTML = "";
-      if (!q) { resultsBox.hidden = true; resultsBox.innerHTML = ""; return; }
-      _badgeSearchTimer = setTimeout(async () => {
+  async function saveIdCardTemplate() {
+    const btn = document.getElementById("idcSaveBtn");
+    btn.disabled = true; btn.textContent = "Saving…";
+    try {
+      await settings.upsert(_companyId, { id_card_template: _idCardTemplate });
+      toast("success", "ID card template saved", "Employees' ID cards will now use this design.");
+    } catch (e) {
+      toast("error", "Couldn't save template", e.message || "Please try again.");
+    } finally {
+      btn.disabled = false; btn.textContent = "Save Template";
+    }
+  }
+
+  function renderIdCardStepBody() {
+    const t = _idCardTemplate;
+    const body = document.getElementById("idcStepBody");
+    if (_idCardStep === 1) {
+      body.innerHTML = `
+        <h2 class="set-section-title">Orientation & Background</h2>
+        <p class="set-section-desc">Choose the card shape, background colour, and up to two decorative accent shapes.</p>
+        <div class="set-field-grid">
+          <label class="set-field"><span class="form-label">Orientation</span>
+            <div class="idc-toggle-group">
+              <button type="button" class="idc-toggle-btn ${t.orientation !== "portrait" ? "active" : ""}" data-orientation="landscape">Landscape</button>
+              <button type="button" class="idc-toggle-btn ${t.orientation === "portrait" ? "active" : ""}" data-orientation="portrait">Portrait</button>
+            </div>
+          </label>
+          <label class="set-field"><span class="form-label">Background colour</span><input type="color" class="idc-color-input" id="idc_bg" value="${t.background.color}"/></label>
+        </div>
+        ${shapeEditorHtml(0)}
+        ${shapeEditorHtml(1)}
+      `;
+      body.querySelectorAll("[data-orientation]").forEach(b => b.addEventListener("click", () => {
+        t.orientation = b.dataset.orientation;
+        renderIdCardStepBody(); renderIdCardPreview();
+      }));
+      document.getElementById("idc_bg").addEventListener("input", e => { t.background.color = e.target.value; renderIdCardPreview(); });
+      wireShapeEditor(0); wireShapeEditor(1);
+    } else if (_idCardStep === 2) {
+      body.innerHTML = `
+        <h2 class="set-section-title">Border</h2>
+        <p class="set-section-desc">Add a border around the card and round its corners.</p>
+        <label class="set-checkbox-field"><input type="checkbox" id="idc_border_enabled" ${t.border.enabled !== false ? "checked" : ""}/> Show border</label>
+        <div class="set-field-grid">
+          <label class="set-field"><span class="form-label">Border colour</span><input type="color" class="idc-color-input" id="idc_border_color" value="${t.border.color}"/></label>
+          <label class="set-field"><span class="form-label">Border width (px)</span><input type="range" min="1" max="8" id="idc_border_width" value="${t.border.width}"/></label>
+          <label class="set-field"><span class="form-label">Corner roundness (px)</span><input type="range" min="0" max="32" id="idc_corner_radius" value="${t.cornerRadius}"/></label>
+        </div>
+      `;
+      document.getElementById("idc_border_enabled").addEventListener("change", e => { t.border.enabled = e.target.checked; renderIdCardPreview(); });
+      document.getElementById("idc_border_color").addEventListener("input", e => { t.border.color = e.target.value; renderIdCardPreview(); });
+      document.getElementById("idc_border_width").addEventListener("input", e => { t.border.width = parseInt(e.target.value, 10); renderIdCardPreview(); });
+      document.getElementById("idc_corner_radius").addEventListener("input", e => { t.cornerRadius = parseInt(e.target.value, 10); renderIdCardPreview(); });
+    } else if (_idCardStep === 3) {
+      body.innerHTML = `
+        <h2 class="set-section-title">Photo style</h2>
+        <p class="set-section-desc">How each employee's photo appears on their card.</p>
+        <div class="set-field-grid">
+          <label class="set-field"><span class="form-label">Shape</span>
+            <div class="idc-toggle-group">
+              <button type="button" class="idc-toggle-btn ${t.photo.shape !== "square" ? "active" : ""}" data-photo-shape="circle">Circle</button>
+              <button type="button" class="idc-toggle-btn ${t.photo.shape === "square" ? "active" : ""}" data-photo-shape="square">Square</button>
+            </div>
+          </label>
+          <label class="set-field"><span class="form-label">Position</span>
+            <select id="idc_photo_position" class="form-input">
+              <option value="left" ${t.photo.position === "left" ? "selected" : ""}>Left</option>
+              <option value="right" ${t.photo.position === "right" ? "selected" : ""}>Right</option>
+              <option value="top-center" ${t.photo.position === "top-center" ? "selected" : ""}>Top centre</option>
+            </select>
+          </label>
+          <label class="set-field"><span class="form-label">Size</span>
+            <select id="idc_photo_size" class="form-input">
+              ${SIZE_OPTIONS.map(([v, l]) => `<option value="${v}" ${t.photo.size === v ? "selected" : ""}>${l}</option>`).join("")}
+            </select>
+          </label>
+          <label class="set-field"><span class="form-label">Border colour</span><input type="color" class="idc-color-input" id="idc_photo_border_color" value="${t.photo.borderColor}"/></label>
+          <label class="set-field"><span class="form-label">Border width (px)</span><input type="range" min="0" max="8" id="idc_photo_border_width" value="${t.photo.borderWidth}"/></label>
+        </div>
+      `;
+      body.querySelectorAll("[data-photo-shape]").forEach(b => b.addEventListener("click", () => { t.photo.shape = b.dataset.photoShape; renderIdCardStepBody(); renderIdCardPreview(); }));
+      document.getElementById("idc_photo_position").addEventListener("change", e => { t.photo.position = e.target.value; renderIdCardPreview(); });
+      document.getElementById("idc_photo_size").addEventListener("change", e => { t.photo.size = e.target.value; renderIdCardPreview(); });
+      document.getElementById("idc_photo_border_color").addEventListener("input", e => { t.photo.borderColor = e.target.value; renderIdCardPreview(); });
+      document.getElementById("idc_photo_border_width").addEventListener("input", e => { t.photo.borderWidth = parseInt(e.target.value, 10); renderIdCardPreview(); });
+      enhanceSelect(document.getElementById("idc_photo_position"));
+      enhanceSelect(document.getElementById("idc_photo_size"));
+    } else if (_idCardStep === 4) {
+      const f = t.fields;
+      body.innerHTML = `
+        <h2 class="set-section-title">Fields & Logo</h2>
+        <p class="set-section-desc">Choose which details show on the card, and upload your company logo.</p>
+        ${fieldEditorHtml("name", "Employee name", f.name)}
+        ${fieldEditorHtml("jobTitle", "Job title", f.jobTitle)}
+        ${fieldEditorHtml("employeeCode", "Employee code", f.employeeCode)}
+        <h3 class="idc-subhead">Company logo</h3>
+        <div class="idc-logo-row">
+          ${_idCardLogoUrl ? `<img src="${esc(_idCardLogoUrl)}" alt="Company logo" class="idc-logo-preview"/>` : `<div class="idc-logo-preview idc-logo-placeholder">No logo</div>`}
+          <div>
+            <button type="button" class="btn" id="idcLogoUploadBtn">Upload logo</button>
+            <input type="file" id="idcLogoInput" accept="image/jpeg,image/png,image/webp,image/svg+xml" style="display:none"/>
+            <div class="set-field-grid" style="margin-top:12px">
+              <label class="set-field"><span class="form-label">Position</span>
+                <select id="idc_logo_position" class="form-input">
+                  ${SHAPE_CORNERS.map(([v, l]) => `<option value="${v}" ${t.logo.position === v ? "selected" : ""}>${l}</option>`).join("")}
+                </select>
+              </label>
+              <label class="set-field"><span class="form-label">Size</span>
+                <select id="idc_logo_size" class="form-input">
+                  ${SIZE_OPTIONS.map(([v, l]) => `<option value="${v}" ${t.logo.size === v ? "selected" : ""}>${l}</option>`).join("")}
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
+      `;
+      wireFieldEditor("name"); wireFieldEditor("jobTitle"); wireFieldEditor("employeeCode");
+      document.getElementById("idc_logo_position").addEventListener("change", e => { t.logo.position = e.target.value; renderIdCardPreview(); });
+      document.getElementById("idc_logo_size").addEventListener("change", e => { t.logo.size = e.target.value; renderIdCardPreview(); });
+      document.getElementById("idcLogoUploadBtn").addEventListener("click", () => document.getElementById("idcLogoInput").click());
+      document.getElementById("idcLogoInput").addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = "";
+        if (!file) return;
+        const btn = document.getElementById("idcLogoUploadBtn");
+        btn.disabled = true; btn.textContent = "Uploading…";
         try {
-          const results = await employees.search(_companyId, q, { limit: 8 });
-          resultsBox.innerHTML = results.length
-            ? results.map(r => `<div class="set-search-result" data-emp-id="${esc(r.id)}" data-emp-name="${esc(r.full_name)}">${esc(r.full_name)}${r.employee_id ? ` <span class="text-muted">(${esc(r.employee_id)})</span>` : ""}</div>`).join("")
-            : `<div class="set-search-result text-muted">No employees found</div>`;
-          resultsBox.hidden = false;
-          resultsBox.querySelectorAll("[data-emp-id]").forEach(el => {
-            el.addEventListener("click", () => {
-              _selectedEmployee = { id: el.dataset.empId, name: el.dataset.empName };
-              document.getElementById("badgeSelectedChip").innerHTML = `<span class="set-selected-chip">${esc(_selectedEmployee.name)} <button type="button" id="clearEmpChip" aria-label="Clear">✕</button></span>`;
-              document.getElementById("clearEmpChip").addEventListener("click", () => {
-                _selectedEmployee = null;
-                document.getElementById("badgeSelectedChip").innerHTML = "";
-                issueBtn.disabled = true;
-              });
-              issueBtn.disabled = false;
-              resultsBox.hidden = true;
-              searchInput.value = "";
-            });
-          });
-        } catch (e) {
-          resultsBox.innerHTML = `<div class="set-search-result text-muted">${esc(e.message)}</div>`;
-          resultsBox.hidden = false;
+          _idCardLogoUrl = await settings.uploadIdCardLogo(_companyId, file);
+          await settings.upsert(_companyId, { id_card_logo_url: _idCardLogoUrl });
+          toast("success", "Logo uploaded");
+          renderIdCardStepBody();
+          renderIdCardPreview();
+        } catch (err) {
+          toast("error", "Couldn't upload logo", err.message || "Please try again.");
+          btn.disabled = false; btn.textContent = "Upload logo";
         }
-      }, 250);
-    });
-
-    issueBtn.addEventListener("click", async () => {
-      if (!_selectedEmployee) return;
-      issueBtn.disabled = true;
-      issueBtn.textContent = "Issuing…";
-      try {
-        await badges.issue(_companyId, _selectedEmployee.id);
-        toast("success", "Badge issued", `A new badge was issued for ${_selectedEmployee.name}.`);
-        loadBadges();
-      } catch (e) {
-        const msg = /duplicate key|one_active/i.test(e.message || "")
-          ? "This employee already has an active badge. Revoke it first."
-          : (e.message || "Couldn't issue badge.");
-        toast("error", "Couldn't issue badge", msg);
-        issueBtn.disabled = false;
-        issueBtn.textContent = "Issue Badge";
-      }
-    });
-
-    document.querySelectorAll("[data-revoke-badge]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        confirmDialog("Revoke this badge?", "The employee will no longer be able to use it to sign in or out. This cannot be undone.", async () => {
-          try {
-            await badges.revoke(btn.dataset.revokeBadge);
-            toast("success", "Badge revoked");
-            loadBadges();
-          } catch (e) {
-            toast("error", "Couldn't revoke badge", e.message || "Please try again.");
-          }
-        }, { confirmLabel: "Revoke Badge" });
       });
-    });
+      enhanceSelect(document.getElementById("idc_logo_position"));
+      enhanceSelect(document.getElementById("idc_logo_size"));
+    } else if (_idCardStep === 5) {
+      const b = t.back;
+      body.innerHTML = `
+        <h2 class="set-section-title">Back of card</h2>
+        <p class="set-section-desc">The back shows each employee's QR sign-in badge, so it doubles as their kiosk scan card.</p>
+        <div class="set-field-grid">
+          <label class="set-field"><span class="form-label">Background colour</span><input type="color" class="idc-color-input" id="idc_back_bg" value="${b.background.color}"/></label>
+          <label class="set-field"><span class="form-label">QR code size</span>
+            <select id="idc_qr_size" class="form-input">
+              ${SIZE_OPTIONS.map(([v, l]) => `<option value="${v}" ${b.qr.size === v ? "selected" : ""}>${l}</option>`).join("")}
+            </select>
+          </label>
+        </div>
+        <label class="set-checkbox-field"><input type="checkbox" id="idc_qr_show" ${b.qr.show !== false ? "checked" : ""}/> Show QR sign-in code</label>
+        <label class="set-field" style="margin-top:10px"><span class="form-label">Footer text (optional)</span>
+          <textarea class="form-input" id="idc_back_text" rows="2" maxlength="140">${esc(b.text || "")}</textarea>
+        </label>
+      `;
+      document.getElementById("idc_back_bg").addEventListener("input", e => { b.background.color = e.target.value; renderIdCardPreview(); });
+      document.getElementById("idc_qr_size").addEventListener("change", e => { b.qr.size = e.target.value; renderIdCardPreview(); });
+      document.getElementById("idc_qr_show").addEventListener("change", e => { b.qr.show = e.target.checked; renderIdCardPreview(); });
+      document.getElementById("idc_back_text").addEventListener("input", e => { b.text = e.target.value; renderIdCardPreview(); });
+      enhanceSelect(document.getElementById("idc_qr_size"));
+    }
+  }
+
+  function shapeEditorHtml(i) {
+    const s = _idCardTemplate.shapes[i] || { type: "circle", color: "#1e5cff", corner: "top-right", size: "md", opacity: 0.2, enabled: false };
+    _idCardTemplate.shapes[i] = s;
+    return `
+      <h3 class="idc-subhead">Accent shape ${i + 1}</h3>
+      <label class="set-checkbox-field"><input type="checkbox" class="idc-shape-enabled" data-shape="${i}" ${s.enabled !== false ? "checked" : ""}/> Show this shape</label>
+      <div class="set-field-grid">
+        <label class="set-field"><span class="form-label">Type</span>
+          <select class="form-input idc-shape-type" data-shape="${i}">
+            <option value="circle" ${s.type !== "rect" ? "selected" : ""}>Circle</option>
+            <option value="rect" ${s.type === "rect" ? "selected" : ""}>Bar</option>
+          </select>
+        </label>
+        <label class="set-field"><span class="form-label">Colour</span><input type="color" class="idc-color-input idc-shape-color" data-shape="${i}" value="${s.color}"/></label>
+        <label class="set-field"><span class="form-label">Corner</span>
+          <select class="form-input idc-shape-corner" data-shape="${i}">
+            ${SHAPE_CORNERS.map(([v, l]) => `<option value="${v}" ${s.corner === v ? "selected" : ""}>${l}</option>`).join("")}
+          </select>
+        </label>
+        <label class="set-field"><span class="form-label">Size</span>
+          <select class="form-input idc-shape-size" data-shape="${i}">
+            ${SIZE_OPTIONS.map(([v, l]) => `<option value="${v}" ${s.size === v ? "selected" : ""}>${l}</option>`).join("")}
+          </select>
+        </label>
+        <label class="set-field"><span class="form-label">Opacity</span><input type="range" min="0.05" max="1" step="0.05" class="idc-shape-opacity" data-shape="${i}" value="${s.opacity}"/></label>
+      </div>
+    `;
+  }
+
+  function wireShapeEditor(i) {
+    const t = _idCardTemplate;
+    document.querySelector(`.idc-shape-enabled[data-shape="${i}"]`).addEventListener("change", e => { t.shapes[i].enabled = e.target.checked; renderIdCardPreview(); });
+    document.querySelector(`.idc-shape-type[data-shape="${i}"]`).addEventListener("change", e => { t.shapes[i].type = e.target.value; renderIdCardPreview(); });
+    document.querySelector(`.idc-shape-color[data-shape="${i}"]`).addEventListener("input", e => { t.shapes[i].color = e.target.value; renderIdCardPreview(); });
+    document.querySelector(`.idc-shape-corner[data-shape="${i}"]`).addEventListener("change", e => { t.shapes[i].corner = e.target.value; renderIdCardPreview(); });
+    document.querySelector(`.idc-shape-size[data-shape="${i}"]`).addEventListener("change", e => { t.shapes[i].size = e.target.value; renderIdCardPreview(); });
+    document.querySelector(`.idc-shape-opacity[data-shape="${i}"]`).addEventListener("input", e => { t.shapes[i].opacity = parseFloat(e.target.value); renderIdCardPreview(); });
+    enhanceSelect(document.querySelector(`.idc-shape-type[data-shape="${i}"]`));
+    enhanceSelect(document.querySelector(`.idc-shape-corner[data-shape="${i}"]`));
+    enhanceSelect(document.querySelector(`.idc-shape-size[data-shape="${i}"]`));
+  }
+
+  function fieldEditorHtml(key, label, f) {
+    return `
+      <div class="idc-field-row">
+        <label class="set-checkbox-field" style="padding:0"><input type="checkbox" class="idc-field-show" data-field="${key}" ${f.show !== false ? "checked" : ""}/> ${esc(label)}</label>
+        <input type="color" class="idc-color-input idc-field-color" data-field="${key}" value="${f.color}"/>
+        <input type="range" min="9" max="24" class="idc-field-size" data-field="${key}" value="${f.fontSize}" title="Font size"/>
+      </div>
+    `;
+  }
+
+  function wireFieldEditor(key) {
+    const t = _idCardTemplate;
+    document.querySelector(`.idc-field-show[data-field="${key}"]`).addEventListener("change", e => { t.fields[key].show = e.target.checked; renderIdCardPreview(); });
+    document.querySelector(`.idc-field-color[data-field="${key}"]`).addEventListener("input", e => { t.fields[key].color = e.target.value; renderIdCardPreview(); });
+    document.querySelector(`.idc-field-size[data-field="${key}"]`).addEventListener("input", e => { t.fields[key].fontSize = parseInt(e.target.value, 10); renderIdCardPreview(); });
   }
 
   // ── Devices ──────────────────────────────────────────────────────────────

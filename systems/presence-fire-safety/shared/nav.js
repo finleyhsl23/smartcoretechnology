@@ -11,6 +11,7 @@ const NAV_LINKS = [
   { id: "live-register",  icon: "users",            label: "Live Register",   href: "/systems/presence-fire-safety/live-register.html", permission: "presence.view_live_register" },
   { id: "evacuation",     icon: "flame",            label: "Evacuation",      href: "/systems/presence-fire-safety/evacuation.html", permission: "evacuation.unlock" },
   { id: "reports",        icon: "bar-chart-3",      label: "Reports",         href: "/systems/presence-fire-safety/reports.html", permission: "presence.export_reports" },
+  { id: "id-cards",       icon: "badge-check",      label: "ID Cards",        href: "/systems/presence-fire-safety/id-cards.html", permission: "presence.manage_badges" },
   { id: "settings",       icon: "settings",         label: "Settings",        href: "/systems/presence-fire-safety/settings.html", permission: "presence.manage_settings" },
 ];
 
