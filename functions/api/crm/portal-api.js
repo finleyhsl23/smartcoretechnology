@@ -127,10 +127,21 @@ export async function onRequestPost({ request, env }) {
   if (action === 'sign_quote') {
     const { quote_id, signer_name } = body;
     if (!signer_name?.trim()) return json({ error: 'Full name required to sign' }, 400);
-    const qRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${quote_id}&crm_company_id=eq.${user.crm_company_id}&select=id,status,title,total_amount,crm_companies(name,email)&limit=1`, { headers: h });
+    const qRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${quote_id}&crm_company_id=eq.${user.crm_company_id}&select=id,status,title,quote_number,total,crm_lead_id&limit=1`, { headers: h });
     const [quote] = await qRes.json();
     if (!quote) return json({ error: 'Quote not found' }, 404);
     if (quote.status === 'accepted') return json({ error: 'Already signed' }, 400);
+
+    // Fetch company name separately (avoids FK embed issues)
+    let coName = '';
+    let coEmail = '';
+    if (user.crm_company_id) {
+      const cRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_companies?id=eq.${user.crm_company_id}&select=name,email&limit=1`, { headers: h });
+      const [co] = await cRes.json();
+      coName = co?.name || '';
+      coEmail = co?.email || '';
+    }
+
     await fetch(`${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${quote_id}`, {
       method: 'PATCH', headers: hj,
       body: JSON.stringify({
@@ -145,12 +156,15 @@ export async function onRequestPost({ request, env }) {
     // Fire quote_accepted commands (non-blocking)
     const cmdCtx = {
       quote_id,
+      quote_number: quote.quote_number || '',
       quote_title: quote.title || '',
-      quote_amount: quote.total_amount ? `£${Number(quote.total_amount).toFixed(2)}` : '',
-      company_name: quote.crm_companies?.name || '',
-      company_email: quote.crm_companies?.email || '',
+      quote_amount: quote.total ? `£${Number(quote.total).toFixed(2)}` : '',
+      company_id: user.crm_company_id || '',
+      company_name: coName,
+      company_email: coEmail,
       contact_name: signer_name.trim(),
       contact_email: user.email || '',
+      lead_id: quote.crm_lead_id || '',
     };
     fetch(`https://smartcoretechnology.co.uk/api/crm/commands-run`, {
       method: 'POST',

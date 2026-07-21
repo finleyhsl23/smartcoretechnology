@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Engineer Profile — SmartCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/engineer-audit/shared/audit.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="eia-shell">
+  <nav class="eia-sidebar" id="eiaNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="eia-main">
+    <div class="eia-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Engineer Profile</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="eia-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
+  import {
+    getEmployee, listSubmissionsForEngineer, getEmployeesByIds, listScores, listCriteria,
+    listPerformanceNotes, addPerformanceNote, deletePerformanceNote,
+    listDisciplinaryActions, addDisciplinaryAction,
+    listTrainingRecords, addTrainingRecord, updateTrainingRecord, deleteTrainingRecord,
+    listManagerIdsForEngineer,
+  } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
+  import { esc, initials, setInner, loadingState, emptyState, errorState, toast, confirmDialog, modal, fmtDate, fmtDateTime, scoreToPercentage, percentageBadge, flagBadge } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+
+  initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/engineer-audit";
+  const params = new URLSearchParams(window.location.search);
+  const employeeId = params.get("id");
+
+  let _profile, _tier, _emp, _settings;
+  let _canManage = false; // Owner/Admin or a manager (write ops still gated server-side by RLS)
+  let _canSeeDisciplinary = false;
+  let _activeTab = "audits";
+
+  // Audit-history tab state (loaded upfront, it's the default tab)
+  let _submissions = [], _criteriaById = {}, _failThresholdPercent = 60, _managerNames = {};
+  let _assignedManagerNames = [];
+  // Lazy-loaded tab caches
+  let _notes = null, _training = null, _disciplinary = null;
+
+  try {
+    const { profile, tier, settings } = await requireModuleAccess();
+    _profile = profile; _tier = tier; _settings = settings;
+    renderNav("home", profile, tier, settings);
+    initMobileNav();
+    initTopbar();
+
+    if (!employeeId) throw new Error("No engineer specified.");
+    if (tier === "engineer" && employeeId !== profile.id) {
+      throw new Error("You can only view your own profile.");
+    }
+    // Any Engineering Manager can audit / add notes / assign training for
+    // any engineer, not just their own assigned ones.
+    _canManage = tier !== "engineer";
+    _canSeeDisciplinary = tier === "owner_admin" || employeeId === profile.id;
+
+    await init();
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load this profile", message: e.message }));
+  }
+
+  async function init() {
+    setInner("body", loadingState("Loading profile…"));
+    _emp = await getEmployee(employeeId);
+    if (!_emp) { setInner("body", errorState({ title: "Not found", message: "This employee could not be found." })); return; }
+
+    const [submissions, criteria] = await Promise.all([
+      listSubmissionsForEngineer(employeeId),
+      listCriteria().catch(() => []),
+    ]);
+    _submissions = submissions;
+    _failThresholdPercent = _settings.fail_threshold_percent ?? 60;
+    _criteriaById = Object.fromEntries(criteria.map(c => [c.id, c]));
+    const managers = await getEmployeesByIds(submissions.map(s => s.manager_employee_id));
+    _managerNames = Object.fromEntries(managers.map(m => [m.id, m.full_name]));
+
+    const assignedManagerIds = await listManagerIdsForEngineer(employeeId).catch(() => []);
+    const assignedManagers = await getEmployeesByIds(assignedManagerIds);
+    _assignedManagerNames = assignedManagers.map(m => m.full_name);
+
+    renderShell();
+  }
+
+  function renderShell() {
+    const tabs = [
+      { id: "audits", label: "Audit History" },
+      { id: "notes", label: "Performance Notes" },
+      { id: "training", label: "Training & Development" },
+      ..._canSeeDisciplinary ? [{ id: "disciplinary", label: "Disciplinary Actions" }] : [],
+    ];
+
+    const html = `
+      <a class="back-link" href="${BASE}/index.html"><i data-lucide="arrow-left"></i> Back</a>
+      <div class="card" style="display:flex;align-items:center;gap:16px;margin-bottom:20px;flex-wrap:wrap">
+        <div class="avatar avatar-md" style="width:56px;height:56px;font-size:18px">${esc(initials(_emp.full_name))}</div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:18px;font-weight:800">${esc(_emp.full_name)}</div>
+          <div class="text-muted" style="font-size:13px">${esc(_emp.job_title || "—")}</div>
+          <div class="text-muted" style="font-size:13px;margin-top:2px">Manager${_assignedManagerNames.length === 1 ? "" : "s"}: ${_assignedManagerNames.length ? esc(_assignedManagerNames.join(", ")) : "—"}</div>
+        </div>
+        ${_canManage ? `<a class="btn btn-primary" href="${BASE}/audit.html?engineer=${esc(_emp.id)}"><i data-lucide="clipboard-check"></i> Start New Audit</a>` : ""}
+      </div>
+
+      <div class="tab-row" id="tabRow">
+        ${tabs.map(t => `<button class="tab-btn ${t.id === _activeTab ? "active" : ""}" data-tab="${t.id}">${esc(t.label)}</button>`).join("")}
+      </div>
+      <div id="tabContent"></div>
+    `;
+    setInner("body", html);
+
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _activeTab = btn.dataset.tab;
+        document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+        renderTabContent();
+      });
+    });
+
+    renderTabContent();
+  }
+
+  async function renderTabContent() {
+    if (_activeTab === "audits") return renderAuditsTab();
+    if (_activeTab === "notes") return renderNotesTab();
+    if (_activeTab === "training") return renderTrainingTab();
+    if (_activeTab === "disciplinary") return renderDisciplinaryTab();
+  }
+
+  // ── Audit History ─────────────────────────────────────────────────────
+  function renderAuditsTab() {
+    const html = `
+      <div class="record-actions-row" style="justify-content:flex-start;margin-bottom:14px">
+        <button class="btn" id="patternsBtn" style="display:none"><i data-lucide="repeat"></i> View Recurring Patterns</button>
+      </div>
+      ${_submissions.length === 0
+        ? emptyState({ icon: "clipboard-list", title: "No audits yet", message: "No install audits have been recorded for this engineer yet." })
+        : `<div class="tbl-wrap"><table class="tbl">
+            <thead><tr><th>Date</th><th>Manager</th><th>Status</th><th>Score</th><th>Flag</th><th></th></tr></thead>
+            <tbody id="histBody">
+              ${_submissions.map(s => `
+                <tr class="tbl-row-link" data-id="${esc(s.id)}">
+                  <td>${esc(fmtDate(s.created_at))}</td>
+                  <td>${esc(_managerNames[s.manager_employee_id] || "—")}</td>
+                  <td><span class="badge ${s.status === "submitted" ? "badge-blue" : "badge-grey"}">${esc(s.status)}</span></td>
+                  <td data-avg="${esc(s.id)}">…</td>
+                  <td data-flag="${esc(s.id)}"></td>
+                  <td><i data-lucide="chevron-right"></i></td>
+                </tr>`).join("")}
+            </tbody>
+          </table></div>`}
+    `;
+    setInner("tabContent", html);
+
+    document.querySelectorAll("#histBody tr[data-id]").forEach(row => {
+      row.addEventListener("click", () => {
+        window.location.href = `${BASE}/audit.html?submission=${row.dataset.id}&view=1`;
+      });
+    });
+
+    loadAuditScores();
+  }
+
+  async function loadAuditScores() {
+    // recurring[criterion_id] = [date, ...] — only counts submitted audits,
+    // since drafts aren't a finished review outcome yet.
+    const recurring = {};
+    for (const s of _submissions) {
+      try {
+        const scores = await listScores(s.id);
+        const avgCell = document.querySelector(`[data-avg="${s.id}"]`);
+        const flagCell = document.querySelector(`[data-flag="${s.id}"]`);
+        if (!scores.length) { if (avgCell) avgCell.textContent = "—"; continue; }
+        const avg = scores.reduce((a, c) => a + c.score, 0) / scores.length;
+        const pct = scoreToPercentage(avg);
+        if (avgCell) avgCell.innerHTML = percentageBadge(pct, _failThresholdPercent);
+        if (flagCell) flagCell.innerHTML = flagBadge(scores, _criteriaById);
+
+        if (s.status === "submitted") {
+          for (const sc of scores) {
+            if (sc.score !== 3) continue;
+            (recurring[sc.criterion_id] ||= []).push(s.created_at);
+          }
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    const patternEntries = Object.entries(recurring).filter(([, dates]) => dates.length >= 2);
+    if (patternEntries.length) {
+      const btn = document.getElementById("patternsBtn");
+      if (btn) {
+        btn.style.display = "";
+        btn.addEventListener("click", () => openPatternsModal(patternEntries));
+      }
+      window.lucide?.createIcons?.();
+    }
+  }
+
+  function openPatternsModal(patternEntries) {
+    const sorted = patternEntries.sort((a, b) => b[1].length - a[1].length);
+    modal(`
+      <div class="modal-header"><h3>Recurring issues — ${esc(_emp.full_name)}</h3><button class="btn modal-close">✕</button></div>
+      <div class="modal-body">
+        <p class="text-muted" style="font-size:13px;margin:0 0 10px">Criteria that scored "Needs action" more than once across submitted audits.</p>
+        ${sorted.map(([criterionId, dates]) => `
+          <div class="pattern-row">
+            <div>
+              <div class="pattern-label">${esc(_criteriaById[criterionId]?.label || "Unknown criterion")}</div>
+              <div class="pattern-dates">${dates.map(d => esc(fmtDate(d))).join(", ")}</div>
+            </div>
+            <span class="badge badge-red pattern-count">${dates.length}×</span>
+          </div>`).join("")}
+      </div>
+      <div class="modal-footer"><button class="btn modal-close">Close</button></div>
+    `);
+  }
+
+  // ── Performance Notes ────────────────────────────────────────────────────
+  const CATEGORY_BADGE = { positive: "badge-green", concern: "badge-red", general: "badge-blue" };
+  const CATEGORY_LABEL = { positive: "Positive", concern: "Concern", general: "General" };
+
+  async function renderNotesTab() {
+    setInner("tabContent", loadingState("Loading notes…"));
+    try {
+      if (_notes === null) {
+        const notes = await listPerformanceNotes(employeeId);
+        const authors = await getEmployeesByIds(notes.map(n => n.author_employee_id));
+        const authorNames = Object.fromEntries(authors.map(a => [a.id, a.full_name]));
+        _notes = notes.map(n => ({ ...n, authorName: authorNames[n.author_employee_id] || "Unknown" }));
+      }
+      drawNotesTab();
+    } catch (e) {
+      setInner("tabContent", errorState({ title: "Couldn't load notes", message: e.message }));
+    }
+  }
+
+  function drawNotesTab() {
+    const html = `
+      ${_canManage ? `<div class="record-actions-row"><button class="btn btn-primary" id="addNoteBtn"><i data-lucide="plus"></i> Add Note</button></div>` : ""}
+      ${_notes.length === 0
+        ? emptyState({ icon: "message-square", title: "No notes yet", message: "Feedback about this engineer's work will show up here." })
+        : _notes.map(n => `
+          <div class="record-card" data-id="${esc(n.id)}">
+            <div class="record-head">
+              <span class="badge ${CATEGORY_BADGE[n.category] || "badge-grey"}">${esc(CATEGORY_LABEL[n.category] || n.category)}</span>
+              <span class="record-meta">${esc(n.authorName)} · ${esc(fmtDateTime(n.created_at))}</span>
+            </div>
+            <div class="record-body">${esc(n.note)}</div>
+            ${_tier === "owner_admin" || n.author_employee_id === _profile.id ? `
+              <div style="display:flex;justify-content:flex-end;margin-top:8px">
+                <button class="btn" data-role="delete-note" data-id="${esc(n.id)}">Delete</button>
+              </div>` : ""}
+          </div>`).join("")}
+    `;
+    setInner("tabContent", html);
+
+    document.getElementById("addNoteBtn")?.addEventListener("click", openAddNoteModal);
+    document.querySelectorAll('[data-role="delete-note"]').forEach(btn => {
+      btn.addEventListener("click", () => {
+        confirmDialog("Delete this note?", "This can't be undone.", async () => {
+          try {
+            await deletePerformanceNote(btn.dataset.id);
+            _notes = null;
+            await renderNotesTab();
+          } catch (e) {
+            toast("error", "Couldn't delete note", e.message);
+          }
+        }, { confirmLabel: "Delete" });
+      });
+    });
+  }
+
+  function openAddNoteModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Add note — ${esc(_emp.full_name)}</h3><button class="btn modal-close">✕</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label class="form-label" for="noteCategory">Category</label>
+          <select id="noteCategory" class="form-input">
+            <option value="general">General</option>
+            <option value="positive">Positive</option>
+            <option value="concern">Concern</option>
+          </select>
+        </div>
+        <div class="form-row" style="margin-bottom:0">
+          <label class="form-label" for="noteText">Note</label>
+          <textarea id="noteText" class="form-input" placeholder="What happened?"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveNoteBtn">Save Note</button>
+      </div>
+    `);
+    overlay.querySelector("#saveNoteBtn").addEventListener("click", async () => {
+      const note = overlay.querySelector("#noteText").value.trim();
+      if (!note) { toast("error", "Write a note first"); return; }
+      try {
+        await addPerformanceNote({
+          engineer_employee_id: employeeId,
+          author_employee_id: _profile.id,
+          category: overlay.querySelector("#noteCategory").value,
+          note,
+        });
+        overlay.remove();
+        toast("success", "Note added");
+        _notes = null;
+        await renderNotesTab();
+      } catch (e) {
+        toast("error", "Couldn't save note", e.message);
+      }
+    });
+  }
+
+  // ── Training & Development ───────────────────────────────────────────────
+  const TRAINING_BADGE = { assigned: "badge-grey", in_progress: "badge-yellow", completed: "badge-green" };
+  const TRAINING_LABEL = { assigned: "Assigned", in_progress: "In progress", completed: "Completed" };
+
+  async function renderTrainingTab() {
+    setInner("tabContent", loadingState("Loading training records…"));
+    try {
+      if (_training === null) {
+        const records = await listTrainingRecords(employeeId);
+        const assigners = await getEmployeesByIds(records.map(r => r.assigned_by_employee_id).filter(Boolean));
+        const assignerNames = Object.fromEntries(assigners.map(a => [a.id, a.full_name]));
+        _training = records.map(r => ({ ...r, assignerName: assignerNames[r.assigned_by_employee_id] || "—" }));
+      }
+      drawTrainingTab();
+    } catch (e) {
+      setInner("tabContent", errorState({ title: "Couldn't load training records", message: e.message }));
+    }
+  }
+
+  function drawTrainingTab() {
+    const html = `
+      ${_canManage ? `<div class="record-actions-row"><button class="btn btn-primary" id="addTrainingBtn"><i data-lucide="plus"></i> Assign Training</button></div>` : ""}
+      ${_training.length === 0
+        ? emptyState({ icon: "graduation-cap", title: "No training assigned", message: "Courses and certifications assigned to this engineer will show up here." })
+        : _training.map(r => `
+          <div class="record-card" data-id="${esc(r.id)}">
+            <div class="record-head">
+              <span class="badge ${TRAINING_BADGE[r.status] || "badge-grey"}">${esc(TRAINING_LABEL[r.status] || r.status)}</span>
+              <span class="record-meta">
+                ${r.due_date ? `Due ${esc(fmtDate(r.due_date))} · ` : ""}
+                ${r.status === "completed" && r.completed_date ? `Completed ${esc(fmtDate(r.completed_date))} · ` : ""}
+                Assigned by ${esc(r.assignerName)}
+              </span>
+            </div>
+            <div style="font-weight:700;font-size:13.5px;margin-bottom:4px">${esc(r.title)}</div>
+            ${r.notes ? `<div class="record-body">${esc(r.notes)}</div>` : ""}
+            ${_canManage ? `
+              <div style="display:flex;gap:8px;margin-top:10px">
+                ${r.status !== "in_progress" && r.status !== "completed" ? `<button class="btn" data-action="in_progress" data-id="${esc(r.id)}">Mark In Progress</button>` : ""}
+                ${r.status !== "completed" ? `<button class="btn" data-action="completed" data-id="${esc(r.id)}">Mark Complete</button>` : ""}
+                <button class="btn" data-action="delete" data-id="${esc(r.id)}">Delete</button>
+              </div>` : ""}
+          </div>`).join("")}
+    `;
+    setInner("tabContent", html);
+
+    document.getElementById("addTrainingBtn")?.addEventListener("click", openAddTrainingModal);
+
+    document.querySelectorAll('[data-action="in_progress"], [data-action="completed"]').forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const patch = btn.dataset.action === "completed"
+          ? { status: "completed", completed_date: new Date().toISOString().slice(0, 10) }
+          : { status: "in_progress" };
+        try {
+          await updateTrainingRecord(btn.dataset.id, patch);
+          _training = null;
+          await renderTrainingTab();
+        } catch (e) {
+          toast("error", "Couldn't update training record", e.message);
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-action="delete"]').forEach(btn => {
+      btn.addEventListener("click", () => {
+        confirmDialog("Delete training record?", "This can't be undone.", async () => {
+          try {
+            await deleteTrainingRecord(btn.dataset.id);
+            _training = null;
+            await renderTrainingTab();
+          } catch (e) {
+            toast("error", "Couldn't delete training record", e.message);
+          }
+        }, { confirmLabel: "Delete" });
+      });
+    });
+  }
+
+  function openAddTrainingModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Assign training — ${esc(_emp.full_name)}</h3><button class="btn modal-close">✕</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label class="form-label" for="trainingTitle">Course / certification</label>
+          <input type="text" id="trainingTitle" class="form-input" placeholder="e.g. AVI re-accreditation"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="trainingDue">Due date (optional)</label>
+          <input type="date" id="trainingDue" class="form-input"/>
+        </div>
+        <div class="form-row" style="margin-bottom:0">
+          <label class="form-label" for="trainingNotes">Notes (optional)</label>
+          <textarea id="trainingNotes" class="form-input" placeholder="Any context…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveTrainingBtn">Assign</button>
+      </div>
+    `);
+    overlay.querySelector("#saveTrainingBtn").addEventListener("click", async () => {
+      const title = overlay.querySelector("#trainingTitle").value.trim();
+      if (!title) { toast("error", "Enter a course or certification name"); return; }
+      try {
+        await addTrainingRecord({
+          engineer_employee_id: employeeId,
+          assigned_by_employee_id: _profile.id,
+          title,
+          due_date: overlay.querySelector("#trainingDue").value || null,
+          notes: overlay.querySelector("#trainingNotes").value.trim() || null,
+        });
+        overlay.remove();
+        toast("success", "Training assigned");
+        _training = null;
+        await renderTrainingTab();
+      } catch (e) {
+        toast("error", "Couldn't assign training", e.message);
+      }
+    });
+  }
+
+  // ── Disciplinary Actions (Owner/Admin only visibility) ───────────────────
+  const ACTION_LABEL = { verbal_warning: "Verbal warning", written_warning: "Written warning", final_warning: "Final warning", dismissal: "Dismissal", other: "Other" };
+  const ACTION_BADGE = { verbal_warning: "badge-yellow", written_warning: "badge-red", final_warning: "badge-red", dismissal: "badge-red", other: "badge-grey" };
+
+  async function renderDisciplinaryTab() {
+    setInner("tabContent", loadingState("Loading disciplinary records…"));
+    try {
+      if (_disciplinary === null) {
+        const records = await listDisciplinaryActions(employeeId);
+        const issuers = await getEmployeesByIds(records.map(r => r.issued_by_employee_id));
+        const issuerNames = Object.fromEntries(issuers.map(a => [a.id, a.full_name]));
+        _disciplinary = records.map(r => ({ ...r, issuerName: issuerNames[r.issued_by_employee_id] || "Unknown" }));
+      }
+      drawDisciplinaryTab();
+    } catch (e) {
+      setInner("tabContent", errorState({ title: "Couldn't load disciplinary records", message: e.message }));
+    }
+  }
+
+  function drawDisciplinaryTab() {
+    const html = `
+      <p class="text-muted" style="font-size:12.5px;margin:0 0 14px">Visible to Owners/Admins only, and to the engineer for their own record. Entries can't be edited or removed once logged.</p>
+      ${_tier === "owner_admin" ? `<div class="record-actions-row"><button class="btn btn-primary" id="addDisciplinaryBtn"><i data-lucide="plus"></i> Log Disciplinary Action</button></div>` : ""}
+      ${_disciplinary.length === 0
+        ? emptyState({ icon: "shield-alert", title: "No disciplinary actions", message: "Nothing has been logged for this engineer." })
+        : _disciplinary.map(r => `
+          <div class="record-card">
+            <div class="record-head">
+              <span class="badge ${ACTION_BADGE[r.action_type] || "badge-grey"}">${esc(ACTION_LABEL[r.action_type] || r.action_type)}</span>
+              <span class="record-meta">${esc(fmtDate(r.action_date))} · Issued by ${esc(r.issuerName)}</span>
+            </div>
+            <div class="record-body"><strong>Reason:</strong> ${esc(r.reason)}</div>
+            ${r.outcome ? `<div class="record-body" style="margin-top:6px"><strong>Outcome:</strong> ${esc(r.outcome)}</div>` : ""}
+          </div>`).join("")}
+    `;
+    setInner("tabContent", html);
+
+    document.getElementById("addDisciplinaryBtn")?.addEventListener("click", openAddDisciplinaryModal);
+  }
+
+  function openAddDisciplinaryModal() {
+    const today = new Date().toISOString().slice(0, 10);
+    const overlay = modal(`
+      <div class="modal-header"><h3>Log disciplinary action — ${esc(_emp.full_name)}</h3><button class="btn modal-close">✕</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label class="form-label" for="discType">Action type</label>
+          <select id="discType" class="form-input">
+            <option value="verbal_warning">Verbal warning</option>
+            <option value="written_warning">Written warning</option>
+            <option value="final_warning">Final warning</option>
+            <option value="dismissal">Dismissal</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="discDate">Date</label>
+          <input type="date" id="discDate" class="form-input" value="${esc(today)}"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="discReason">Reason</label>
+          <textarea id="discReason" class="form-input" placeholder="What happened?"></textarea>
+        </div>
+        <div class="form-row" style="margin-bottom:0">
+          <label class="form-label" for="discOutcome">Outcome / next steps (optional)</label>
+          <textarea id="discOutcome" class="form-input"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveDiscBtn">Log Action</button>
+      </div>
+    `);
+    overlay.querySelector("#saveDiscBtn").addEventListener("click", async () => {
+      const reason = overlay.querySelector("#discReason").value.trim();
+      if (!reason) { toast("error", "Enter a reason"); return; }
+      confirmDialog(
+        "Log this disciplinary action?",
+        "This will be permanently recorded and cannot be edited or deleted afterwards.",
+        async () => {
+          try {
+            await addDisciplinaryAction({
+              engineer_employee_id: employeeId,
+              issued_by_employee_id: _profile.id,
+              action_type: overlay.querySelector("#discType").value,
+              reason,
+              outcome: overlay.querySelector("#discOutcome").value.trim() || null,
+              action_date: overlay.querySelector("#discDate").value || today,
+            });
+            overlay.remove();
+            toast("success", "Disciplinary action logged");
+            _disciplinary = null;
+            await renderDisciplinaryTab();
+          } catch (e) {
+            toast("error", "Couldn't log action", e.message);
+          }
+        },
+        { danger: false, confirmLabel: "Log Action" }
+      );
+    });
+  }
+</script>
+</body>
+</html>

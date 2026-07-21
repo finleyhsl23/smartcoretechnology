@@ -37,7 +37,9 @@ export async function onRequestGet(context) {
         );
         if (usersRes.ok) {
           const usersData = await usersRes.json();
-          existingAccount = (usersData?.users?.length > 0);
+          existingAccount = (usersData?.users?.some(
+            u => u.email?.toLowerCase() === inviteEmail.toLowerCase()
+          ));
         }
       } catch (_) { /* non-fatal */ }
     }

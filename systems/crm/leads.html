@@ -53,6 +53,7 @@ import { esc, fmt, fmtDate, toast, confirm, leadBadge, loading, setInner, makeCo
 initTheme();
 
 let profile, tier, allLeads = [], companiesList = [], contactsList = [], staffList = [], allStages = [];
+let _toolbarRendered = false;
 const selectedIds = new Set();
 const hasBulk = () => ["business","enterprise"].includes(tier);
 
@@ -138,87 +139,97 @@ function buildStageOptions(selectedKey = "") {
 
 // ── Load & render ─────────────────────────────────────────────
 async function loadAndRender(search="", status="") {
-  setInner("content", loading());
+  if (!_toolbarRendered) {
+    // First render: build toolbar + empty table shell
+    document.getElementById("content").innerHTML = `
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1>Leads</h1>
+          <p id="leadsSubtitle">&nbsp;</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn" onclick="window.location.href='/systems/crm/pipeline.html'">📋 Pipeline View</button>
+          <button class="btn btn-primary" id="addBtn">+ New Lead</button>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <div class="search-input-wrap">
+          <span class="search-icon">🔍</span>
+          <input class="search-input" type="text" placeholder="Search leads…" id="searchInput"/>
+        </div>
+        <select class="filter-select" id="statusFilter">
+          <option value="">All Statuses</option>
+          ${buildStageOptions()}
+        </select>
+      </div>
+
+      <div class="card">
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                ${hasBulk() ? `<th style="width:36px"><input type="checkbox" id="selectAll" title="Select all"/></th>` : ""}
+                <th>Lead</th>
+                <th>Company</th>
+                <th>Status</th>
+                <th>Quote</th>
+                <th>Value</th>
+                <th>Probability</th>
+                <th>Source</th>
+                <th>Assigned</th>
+                <th>Close Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="leadsTableBody">
+              <tr><td colspan="${hasBulk()?11:10}">${loading()}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+
+    document.getElementById("addBtn").onclick = () => openModal();
+    document.getElementById("searchInput").addEventListener("input", debounce(e => {
+      loadAndRender(e.target.value, document.getElementById("statusFilter").value);
+    }, 350));
+    document.getElementById("statusFilter").addEventListener("change", e => {
+      loadAndRender(document.getElementById("searchInput").value, e.target.value);
+    });
+    document.getElementById("selectAll")?.addEventListener("change", e => {
+      document.querySelectorAll(".lead-cb").forEach(cb => {
+        cb.checked = e.target.checked;
+        if (e.target.checked) selectedIds.add(cb.dataset.id);
+        else selectedIds.delete(cb.dataset.id);
+      });
+      updateBulkBar();
+    });
+    _toolbarRendered = true;
+  }
+
+  // Fetch and update only the table body + subtitle
   try {
     const res = await leads.list({ search, status, limit: 200 });
     allLeads = res.data;
-    renderTable(allLeads);
-    // Restore filter state after re-render (renderTable rebuilds the whole content div)
-    const sf = document.getElementById("statusFilter");
-    const si = document.getElementById("searchInput");
-    if (sf) sf.value = status;
-    if (si) si.value = search;
+    renderTableBody(allLeads);
   } catch(e) { toast("bad","Load error",e.message); }
 }
 
-function renderTable(rows) {
+function renderTableBody(rows) {
   const totalValue = rows.filter(l => !["won","lost"].includes(l.status)).reduce((s,l) => s + (Number(l.estimated_value)||0), 0);
   const forecast = rows.filter(l => !["won","lost"].includes(l.status)).reduce((s,l) => s + (Number(l.estimated_value)||0)*((l.probability||0)/100), 0);
 
-  document.getElementById("content").innerHTML = `
-    <div class="page-header">
-      <div class="page-header-left">
-        <h1>Leads</h1>
-        <p>${rows.length} lead${rows.length !== 1 ? "s" : ""} · Pipeline: ${fmt(totalValue)} · Forecast: ${fmt(forecast)}</p>
-      </div>
-      <div class="page-header-actions">
-        <button class="btn" onclick="window.location.href='/systems/crm/pipeline.html'">📋 Pipeline View</button>
-        <button class="btn btn-primary" id="addBtn">+ New Lead</button>
-      </div>
-    </div>
+  const subtitle = document.getElementById("leadsSubtitle");
+  if (subtitle) subtitle.textContent = `${rows.length} lead${rows.length !== 1 ? "s" : ""} · Pipeline: ${fmt(totalValue)} · Forecast: ${fmt(forecast)}`;
 
-    <div class="filter-bar">
-      <div class="search-input-wrap">
-        <span class="search-icon">🔍</span>
-        <input class="search-input" type="text" placeholder="Search leads…" id="searchInput"/>
-      </div>
-      <select class="filter-select" id="statusFilter">
-        <option value="">All Statuses</option>
-        ${buildStageOptions()}
-      </select>
-    </div>
+  const tbody = document.getElementById("leadsTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = rows.length === 0
+    ? `<tr><td colspan="${hasBulk()?11:10}"><div class="empty-state"><div class="empty-icon">🎯</div><h3>No leads yet</h3><p>Create your first lead to start tracking opportunities.</p></div></td></tr>`
+    : rows.map(l => leadRow(l)).join("");
 
-    <div class="card">
-      <div class="tbl-wrap">
-        <table class="tbl">
-          <thead>
-            <tr>
-              ${hasBulk() ? `<th style="width:36px"><input type="checkbox" id="selectAll" title="Select all"/></th>` : ""}
-              <th>Lead</th>
-              <th>Company</th>
-              <th>Status</th>
-              <th>Value</th>
-              <th>Probability</th>
-              <th>Source</th>
-              <th>Assigned</th>
-              <th>Close Date</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.length === 0
-              ? `<tr><td colspan="${hasBulk()?10:9}"><div class="empty-state"><div class="empty-icon">🎯</div><h3>No leads yet</h3><p>Create your first lead to start tracking opportunities.</p></div></td></tr>`
-              : rows.map(l => leadRow(l)).join("")}
-          </tbody>
-        </table>
-      </div>
-    </div>`;
-
-  document.getElementById("addBtn").onclick = () => openModal();
-  document.getElementById("searchInput").addEventListener("input", debounce(e => loadAndRender(e.target.value, document.getElementById("statusFilter").value), 300));
-  document.getElementById("statusFilter").addEventListener("change", e => loadAndRender(document.getElementById("searchInput").value, e.target.value));
   document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => deleteLead(b.dataset.id)));
-
-  // Checkbox logic (business+ only)
-  document.getElementById("selectAll")?.addEventListener("change", e => {
-    document.querySelectorAll(".lead-cb").forEach(cb => {
-      cb.checked = e.target.checked;
-      if (e.target.checked) selectedIds.add(cb.dataset.id);
-      else selectedIds.delete(cb.dataset.id);
-    });
-    updateBulkBar();
-  });
 
   document.querySelectorAll(".lead-cb").forEach(cb => {
     if (selectedIds.has(cb.dataset.id)) cb.checked = true;
@@ -233,6 +244,8 @@ function renderTable(rows) {
   });
 }
 
+function renderTable(rows) { renderTableBody(rows); }
+
 function leadRow(l) {
   const co = l.crm_companies?.name;
   const staff = staffList.find(s => s.id === l.assigned_to);
@@ -244,7 +257,15 @@ function leadRow(l) {
       ${tierHasFeature(tier, "lead_scoring") && l.lead_score ? `<div class="tbl-muted">Score: ${l.lead_score}</div>` : ""}
     </td>
     <td>${co ? esc(co) : '<span class="text-dim">—</span>'}</td>
-    <td>${leadBadge(l.status)}</td>
+    <td>${leadBadge(l.status, allStages)}</td>
+    <td>${(() => {
+      const qs = l.crm_quotes || [];
+      if (!qs.length) return '<span class="text-dim">—</span>';
+      return qs.slice(0,2).map(q => {
+        const qStatus = q.status === 'accepted' ? 'badge-green' : q.status === 'sent' ? 'badge-blue' : 'badge-grey';
+        return `<span class="badge ${qStatus}" style="font-size:11px;cursor:default" title="${esc(q.title||'')}${q.total ? ' · £'+Number(q.total).toFixed(2) : ''}">${esc(q.quote_number||'Quote')}</span>`;
+      }).join(' ') + (qs.length > 2 ? ` <span class="text-dim" style="font-size:11px">+${qs.length-2}</span>` : '');
+    })()}</td>
     <td>${l.estimated_value ? `<strong>${fmt(l.estimated_value)}</strong>` : '<span class="text-dim">—</span>'}</td>
     <td>
       <div style="display:flex;align-items:center;gap:8px">
@@ -296,7 +317,7 @@ function openModal(id) {
           <div class="form-group">
             <label class="form-label">Status</label>
             <select class="form-control" id="mStatus">
-              ${buildStageOptions(l?.pipeline_stage || l?.status || "new")}
+              ${buildStageOptions((() => { const keys = allStages.map(s => s.key); return [l?.pipeline_stage, l?.status].find(k => k && keys.includes(k)) || l?.pipeline_stage || l?.status || "new"; })())}
             </select>
           </div>
           <div class="form-group">
@@ -368,14 +389,11 @@ function openModal(id) {
     btn.disabled = true;
     try {
       const pipelineStage = document.getElementById("mStatus").value;
-      // Derive canonical status: sub-stages inherit their parent's key
-      const stageObj = allStages.find(s => s.key === pipelineStage);
-      const status = stageObj?.parent || pipelineStage;
       const fields = {
         title,
         crm_company_id: compCombo.getValue() || null,
         crm_contact_id: contCombo.getValue() || null,
-        status,
+        status: pipelineStage,
         pipeline_stage: pipelineStage,
         source: document.getElementById("mSource").value || null,
         estimated_value: parseFloat(document.getElementById("mValue").value) || null,

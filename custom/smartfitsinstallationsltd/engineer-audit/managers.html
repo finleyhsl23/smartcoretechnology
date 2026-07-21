@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Manage Assignments — SmartCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/engineer-audit/shared/audit.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="eia-shell">
+  <nav class="eia-sidebar" id="eiaNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="eia-main">
+    <div class="eia-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Manage Assignments</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="eia-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
+  import { listSmartfitsEmployees, listAllActiveAssignments, setEngineerManagers, unassignEngineer } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
+  import { esc, initials, setInner, loadingState, errorState, toast, confirmDialog, permissionDeniedState } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+
+  initTheme();
+  let _profile, _settings, _employees = [], _assignments = [], _managerRosterIds = new Set(), _deptFilter = null;
+
+  try {
+    const { profile, tier, settings } = await requireModuleAccess();
+    _profile = profile; _settings = settings;
+    renderNav("managers", profile, tier, settings);
+    initMobileNav();
+    initTopbar();
+
+    if (tier !== "owner_admin") {
+      setInner("body", permissionDeniedState("Only Owners and Admins can manage manager-engineer assignments."));
+    } else {
+      await render();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+  }
+
+  async function render() {
+    setInner("body", loadingState("Loading employees…"));
+    try {
+      const [employees, assignments] = await Promise.all([listSmartfitsEmployees(), listAllActiveAssignments()]);
+      _employees = employees;
+      _assignments = assignments;
+      _managerRosterIds = new Set(_settings.manager_employee_ids || []);
+      // Same department visibility configured on the Settings page for the
+      // engineer picker — an empty list means unrestricted.
+      _deptFilter = _settings.visible_department_ids?.length ? new Set(_settings.visible_department_ids) : null;
+      draw();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load employees", message: e.message }));
+    }
+  }
+
+  function managerIdsFor(employeeId) {
+    return _assignments.filter(x => x.engineer_employee_id === employeeId).map(x => x.manager_employee_id);
+  }
+
+  function managerNamesFor(employeeId) {
+    return managerIdsFor(employeeId).map(id => _employees.find(e => e.id === id)?.full_name || "Unknown");
+  }
+
+  function draw() {
+    const html = `
+      <div class="page-head">
+        <h2>Manager → Engineer Assignments</h2>
+        <p>Assign each engineer to one or more Engineering Managers who review their installs. Senior Regional Engineering Managers (set on the <a href="${"/custom/smartfitsinstallationsltd/engineer-audit/settings.html"}" style="color:var(--accent2)">Settings page</a>) don't appear below — they're the ones being assigned to.</p>
+      </div>
+      <div class="search-wrap">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="text" id="empSearch" class="form-input" placeholder="Search by name or job title…" autocomplete="off"/>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Employee</th><th>Job title</th><th>Assigned manager</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    `;
+    setInner("body", html);
+    drawRows("");
+    document.getElementById("empSearch").addEventListener("input", e => drawRows(e.target.value));
+  }
+
+  function drawRows(query) {
+    const q = query.trim().toLowerCase();
+    // Roster members are hidden by default (they're who you assign TO), but
+    // if an Owner/Admin has explicitly scoped this page to specific
+    // departments and a roster member belongs to one, that's a deliberate
+    // override — same rule as the engineer picker on the home page.
+    const pool = _employees.filter(e =>
+      e.id !== _profile.id
+      && (!_managerRosterIds.has(e.id) || !!_deptFilter)
+      && (!_deptFilter || _deptFilter.has(e.department_id))
+    );
+    const filtered = !q ? pool : pool.filter(e =>
+      (e.full_name || "").toLowerCase().includes(q) || (e.job_title || "").toLowerCase().includes(q)
+    );
+    const tbody = document.getElementById("rows");
+    tbody.innerHTML = filtered.map(e => {
+      const mgrNames = managerNamesFor(e.id);
+      return `
+        <tr>
+          <td style="display:flex;align-items:center;gap:10px">
+            <div class="avatar avatar-sm">${esc(initials(e.full_name))}</div>
+            ${esc(e.full_name)}
+          </td>
+          <td>${esc(e.job_title || "—")}</td>
+          <td>${mgrNames.length ? esc(mgrNames.join(", ")) : `<span class="text-muted">— unassigned —</span>`}</td>
+          <td style="display:flex;gap:8px;justify-content:flex-end">
+            <div class="assign-dd" data-engineer="${esc(e.id)}">
+              <button class="btn" data-role="assign-trigger">${mgrNames.length ? "Edit" : "Assign"}</button>
+              <div class="assign-dd-panel" data-role="assign-panel"></div>
+            </div>
+            ${mgrNames.length ? `<button class="btn" data-unassign="${esc(e.id)}">Unassign</button>` : ""}
+          </td>
+        </tr>`;
+    }).join("");
+
+    tbody.querySelectorAll(".assign-dd").forEach(wireAssignDropdown);
+    tbody.querySelectorAll("[data-unassign]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const emp = _employees.find(x => x.id === btn.dataset.unassign);
+        confirmDialog(
+          "Unassign engineer?",
+          `Remove all of ${emp?.full_name || "this employee"}'s current Engineering Manager assignments?`,
+          async () => {
+            try {
+              await unassignEngineer(btn.dataset.unassign);
+              toast("success", "Assignment removed");
+              await render();
+            } catch (e2) {
+              toast("error", "Couldn't unassign", e2.message);
+            }
+          },
+          { confirmLabel: "Unassign" }
+        );
+      });
+    });
+    window.lucide?.createIcons?.();
+  }
+
+  // Row-anchored dropdown: check one or more names, hit Done to save them
+  // all at once — no full-screen modal.
+  function wireAssignDropdown(dd) {
+    const engineerId = dd.dataset.engineer;
+    const engineer = _employees.find(e => e.id === engineerId);
+    const trigger = dd.querySelector('[data-role="assign-trigger"]');
+    const panel = dd.querySelector('[data-role="assign-panel"]');
+    const currentIds = new Set(managerIdsFor(engineerId));
+
+    // Restrict to the Senior Regional Engineering Manager roster (Settings
+    // page). Falls back to every employee if no roster has been set up yet,
+    // so assignment still works before Settings is configured.
+    const rosterPool = _managerRosterIds.size
+      ? _employees.filter(e => _managerRosterIds.has(e.id))
+      : _employees.filter(e => e.id !== engineerId);
+
+    if (rosterPool.length) {
+      panel.innerHTML = `
+        ${rosterPool.map(c => `
+          <label class="assign-dd-option ${currentIds.has(c.id) ? "selected" : ""}" data-manager="${esc(c.id)}">
+            <input type="checkbox" value="${esc(c.id)}" ${currentIds.has(c.id) ? "checked" : ""}/>
+            <span class="assign-dd-option-text">
+              ${esc(c.full_name)}
+              ${c.job_title ? `<small>${esc(c.job_title)}</small>` : ""}
+            </span>
+          </label>`).join("")}
+        <div class="assign-dd-footer"><button class="btn btn-primary" data-role="assign-done">Done</button></div>
+      `;
+    } else {
+      panel.innerHTML = `<div class="assign-dd-empty">No Senior Regional Engineering Managers are set up yet. Add some on the <a href="${"/custom/smartfitsinstallationsltd/engineer-audit/settings.html"}">Settings page</a> first.</div>`;
+    }
+
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      document.querySelectorAll(".assign-dd.open").forEach(other => { if (other !== dd) other.classList.remove("open"); });
+      dd.classList.toggle("open");
+    });
+
+    // Labels already toggle their checkbox natively on click — just mirror
+    // the resulting checked state onto the `.selected` highlight class.
+    panel.querySelectorAll(".assign-dd-option").forEach(opt => {
+      const checkbox = opt.querySelector("input");
+      checkbox.addEventListener("change", () => opt.classList.toggle("selected", checkbox.checked));
+    });
+
+    panel.querySelector('[data-role="assign-done"]')?.addEventListener("click", async () => {
+      const selectedIds = [...panel.querySelectorAll(".assign-dd-option input:checked")].map(cb => cb.value);
+      dd.classList.remove("open");
+      try {
+        await setEngineerManagers(engineerId, selectedIds, _profile.id);
+        toast("success", `${engineer.full_name} updated`);
+        await render();
+      } catch (e2) {
+        toast("error", "Couldn't save assignment", e2.message);
+      }
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    document.querySelectorAll(".assign-dd.open").forEach(dd => {
+      if (!dd.contains(e.target)) dd.classList.remove("open");
+    });
+  });
+</script>
+</body>
+</html>

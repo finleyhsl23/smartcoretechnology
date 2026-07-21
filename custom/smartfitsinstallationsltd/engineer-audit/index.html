@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Engineer Install Audit — SmartCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/engineer-audit/shared/audit.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="eia-shell">
+  <nav class="eia-sidebar" id="eiaNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="eia-main">
+    <div class="eia-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1 id="pageTitle">Engineer Install Audit</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="eia-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
+  import { listSmartfitsEmployees, listMyAssignedEngineerIds, listSubmissionsForEngineer, getEmployeesByIds, listCriteria } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
+  import { esc, initials, setInner, loadingState, emptyState, errorState, fmtDate, scoreToPercentage, percentageBadge, flagBadge } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+
+  initTheme();
+
+  const BASE = "/custom/smartfitsinstallationsltd/engineer-audit";
+  let _profile, _tier;
+  let _allEmployees = [];
+  let _scope = "mine"; // 'mine' | 'all' — only relevant for owner_admin
+  let _settings;
+
+  try {
+    const { profile, tier, settings } = await requireModuleAccess();
+    _profile = profile; _tier = tier; _settings = settings;
+    renderNav("home", profile, tier, settings);
+    initMobileNav();
+    initTopbar();
+
+    const firstName = (profile.full_name || "").split(" ")[0] || "there";
+
+    if (tier === "engineer") {
+      document.getElementById("pageTitle").textContent = "My Audit History";
+      await renderMyHistory(firstName);
+    } else {
+      document.getElementById("pageTitle").textContent = "Audit an Engineer";
+      await renderPicker(firstName);
+    }
+  } catch (e) {
+    if (!document.body.innerHTML.includes("eia-state")) {
+      setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+    }
+  }
+
+  async function renderMyHistory(firstName) {
+    setInner("body", loadingState("Loading your audit history…"));
+    try {
+      const [submissions, criteria] = await Promise.all([
+        listSubmissionsForEngineer(_profile.id),
+        listCriteria().catch(() => []),
+      ]);
+      const managerIds = submissions.map(s => s.manager_employee_id);
+      const managers = await getEmployeesByIds(managerIds);
+      const managerName = id => managers.find(m => m.id === id)?.full_name || "—";
+
+      const html = `
+        <div class="page-head">
+          <h2>Welcome, ${esc(firstName)}</h2>
+          <p>Your past install audits and scores, reviewed by your Engineering Manager.</p>
+        </div>
+        ${submissions.length === 0
+          ? emptyState({ icon: "clipboard-list", title: "No audits yet", message: "Once an Engineering Manager reviews one of your installs, it will show up here." })
+          : historyTable(submissions, managerName)}
+      `;
+      setInner("body", html);
+      wireHistoryRows(submissions, _settings.fail_threshold_percent ?? 60, criteria);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load your history", message: e.message }));
+    }
+  }
+
+  async function renderPicker(firstName) {
+    setInner("body", loadingState("Loading engineers…"));
+    try {
+      _allEmployees = await listSmartfitsEmployees();
+
+      // Any Engineering Manager (or Owner/Admin) can audit any engineer —
+      // "My Engineers" is just a convenience filter, not a hard boundary.
+      const visibleIds = _scope === "mine" ? new Set(await listMyAssignedEngineerIds(_profile.id)) : null;
+
+      // Owner/Admin-configured department visibility (Settings page). An
+      // empty list means unrestricted — every Smartfits employee shows up.
+      const deptFilter = _settings.visible_department_ids?.length ? new Set(_settings.visible_department_ids) : null;
+      const managerRosterIds = new Set(_settings.manager_employee_ids || []);
+
+      renderPickerBody(firstName, visibleIds, deptFilter, managerRosterIds);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load engineers", message: e.message }));
+    }
+  }
+
+  function renderPickerBody(firstName, visibleIds, deptFilter, managerRosterIds) {
+    // Managers are hidden from the picker by default (they're the ones
+    // doing the auditing) — but if an Owner/Admin has explicitly scoped
+    // the picker to specific departments and a manager belongs to one,
+    // that's a deliberate override and they should show up too.
+    const pool = _allEmployees.filter(emp =>
+      emp.id !== _profile.id
+      && (!managerRosterIds.has(emp.id) || !!deptFilter)
+      && (!visibleIds || visibleIds.has(emp.id))
+      && (!deptFilter || deptFilter.has(emp.department_id))
+    );
+
+    const scopeToggle = `
+      <div class="pill-row">
+        <button class="pill ${_scope === "mine" ? "active" : ""}" data-scope="mine">My Engineers</button>
+        <button class="pill ${_scope === "all" ? "active" : ""}" data-scope="all">All Engineers</button>
+      </div>`;
+
+    const html = `
+      <div class="page-head">
+        <h2>Welcome, ${esc(firstName)}</h2>
+        <p>Which engineer would you like to audit today?</p>
+      </div>
+      ${scopeToggle}
+      <div class="search-wrap">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="text" id="empSearch" class="form-input" placeholder="Search by name or job title…" autocomplete="off"/>
+      </div>
+      <div id="empGrid"></div>
+    `;
+    setInner("body", html);
+
+    document.querySelectorAll(".pill[data-scope]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        _scope = btn.dataset.scope;
+        await renderPicker(firstName);
+      });
+    });
+
+    const grid = document.getElementById("empGrid");
+    function draw(filterText) {
+      const q = (filterText || "").trim().toLowerCase();
+      const filtered = !q ? pool : pool.filter(e =>
+        (e.full_name || "").toLowerCase().includes(q) || (e.job_title || "").toLowerCase().includes(q)
+      );
+      if (!filtered.length) {
+        grid.innerHTML = emptyState({
+          icon: "user-search",
+          title: pool.length ? "No matches" : "No engineers here yet",
+          message: pool.length ? "Try a different search." : (_scope === "mine" ? "No engineers are currently assigned to you." : "No employees found for Smartfits."),
+        });
+      } else {
+        grid.innerHTML = `<div class="emp-grid">${filtered.map(empCard).join("")}</div>`;
+      }
+      window.lucide?.createIcons?.();
+    }
+    draw("");
+    document.getElementById("empSearch").addEventListener("input", (e) => draw(e.target.value));
+  }
+
+  function empCard(emp) {
+    return `
+      <div class="emp-card">
+        <div class="avatar avatar-md">${esc(initials(emp.full_name))}</div>
+        <div class="emp-card-body">
+          <div class="emp-name">${esc(emp.full_name)}</div>
+          <div class="emp-meta">${esc(emp.job_title || "—")}</div>
+          <div class="emp-actions">
+            <a class="btn" href="${BASE}/employee.html?id=${esc(emp.id)}"><i data-lucide="user"></i> View</a>
+            <a class="btn btn-primary" href="${BASE}/audit.html?engineer=${esc(emp.id)}"><i data-lucide="clipboard-check"></i> Audit</a>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function historyTable(submissions, managerName) {
+    return `
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Date</th><th>Manager</th><th>Status</th><th>Score</th><th>Flag</th><th></th></tr></thead>
+          <tbody id="histBody">
+            ${submissions.map(s => `
+              <tr class="tbl-row-link" data-id="${esc(s.id)}">
+                <td>${esc(fmtDate(s.created_at))}</td>
+                <td>${esc(managerName(s.manager_employee_id))}</td>
+                <td><span class="badge ${s.status === "submitted" ? "badge-blue" : "badge-grey"}">${esc(s.status)}</span></td>
+                <td data-avg="${esc(s.id)}">…</td>
+                <td data-flag="${esc(s.id)}"></td>
+                <td><i data-lucide="chevron-right"></i></td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  function wireHistoryRows(submissions, failThresholdPercent, criteria) {
+    const criteriaById = Object.fromEntries((criteria || []).map(c => [c.id, c]));
+    document.querySelectorAll("#histBody tr[data-id]").forEach(row => {
+      row.addEventListener("click", () => {
+        window.location.href = `${BASE}/audit.html?submission=${row.dataset.id}&view=1`;
+      });
+    });
+    import("/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js").then(async ({ listScores }) => {
+      for (const s of submissions) {
+        try {
+          const scores = await listScores(s.id);
+          const avgCell = document.querySelector(`[data-avg="${s.id}"]`);
+          const flagCell = document.querySelector(`[data-flag="${s.id}"]`);
+          if (!scores.length) {
+            if (avgCell) avgCell.textContent = "—";
+            continue;
+          }
+          const avg = scores.reduce((a, c) => a + c.score, 0) / scores.length;
+          const pct = scoreToPercentage(avg);
+          if (avgCell) avgCell.innerHTML = percentageBadge(pct, failThresholdPercent);
+          if (flagCell) flagCell.innerHTML = flagBadge(scores, criteriaById);
+        } catch { /* non-fatal */ }
+      }
+    });
+  }
+</script>
+</body>
+</html>

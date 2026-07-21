@@ -26,20 +26,24 @@ async function sendEmail(key, to, subject, html, replyTo) {
   return r.ok;
 }
 
+// Single shared fill factory — avoids duplicate function declarations
+function makeFill(ctx, escFn) {
+  return function fill(str) {
+    return (str || '').replace(/\{\{(\w+)\}\}/g, (_, k) => escFn ? esc(ctx[k] ?? '') : String(ctx[k] ?? ''));
+  };
+}
+
 function buildEmailHtml(config, ctx) {
-  // Replace {{field}} tokens from context
-  function fill(str) {
-    return (str || '').replace(/\{\{(\w+)\}\}/g, (_, k) => esc(ctx[k] ?? `{{${k}}}`));
-  }
+  const fill = makeFill(ctx, true);
   const subject = fill(config.email_subject || 'SmartCore Notification');
   const bodyText = fill(config.email_body || '');
   const preheader = fill(config.email_preheader || subject);
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!DOCTYPE html><html lang="en" bgcolor="#06060e"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(subject)}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#06060e;font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;color:#e0e0ea;-webkit-font-smoothing:antialiased}
+body{background:#06060e;font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;color:#e0e0ea;-webkit-font-smoothing:antialiased;margin:0;padding:0}
 .wrap{max-width:600px;margin:32px auto;border-radius:24px;overflow:hidden;border:1px solid rgba(255,255,255,.08);box-shadow:0 32px 80px rgba(0,0,0,.7)}
 .hdr{background:linear-gradient(135deg,#0b0b18 0%,#0f1529 60%,#0c1220 100%);padding:32px 40px;border-bottom:1px solid rgba(255,255,255,.07)}
 .logo{display:inline-flex;align-items:center;gap:12px}
@@ -60,7 +64,7 @@ h1{font-size:28px;font-weight:800;color:#f5f5f7;letter-spacing:-.04em;line-heigh
 .small{font-size:12px;color:#52526e;line-height:1.7}
 .ftr{padding:28px 40px;background:#09090f;border-top:1px solid rgba(255,255,255,.06);font-size:12px;color:#52526e;text-align:center;line-height:2}
 .ftr a{color:#5b8fff;text-decoration:none}
-</style></head><body>
+</style></head><body bgcolor="#06060e" style="background:#06060e;margin:0;padding:0">
 <div style="display:none;max-height:0;overflow:hidden;font-size:0">${esc(preheader)}</div>
 <div class="wrap">
   <div class="hdr">
@@ -73,12 +77,16 @@ h1{font-size:28px;font-weight:800;color:#f5f5f7;letter-spacing:-.04em;line-heigh
     <div class="tag">⚡ Automation</div>
     <h1>${esc(subject)}</h1>
     ${bodyText ? `<p class="content">${bodyText}</p>` : ''}
-    ${ctx.company_name || ctx.contact_name ? `
+    ${(ctx.company_name || ctx.contact_name || ctx.quote_number || ctx.quote_title || ctx.quote_amount || ctx.trigger_value) ? `
     <div class="section">
       <div class="section-label">Details</div>
+      ${ctx.quote_number ? `<div class="row"><span class="row-label">Quote Number</span><span class="row-val">${esc(ctx.quote_number)}</span></div>` : ''}
+      ${ctx.quote_title ? `<div class="row"><span class="row-label">Quote Title</span><span class="row-val">${esc(ctx.quote_title)}</span></div>` : ''}
+      ${ctx.quote_amount ? `<div class="row"><span class="row-label">Amount</span><span class="row-val">${esc(ctx.quote_amount)}</span></div>` : ''}
       ${ctx.company_name ? `<div class="row"><span class="row-label">Company</span><span class="row-val">${esc(ctx.company_name)}</span></div>` : ''}
-      ${ctx.contact_name ? `<div class="row"><span class="row-label">Contact</span><span class="row-val">${esc(ctx.contact_name)}</span></div>` : ''}
-      ${ctx.trigger_value ? `<div class="row"><span class="row-label">Status / Value</span><span class="row-val">${esc(ctx.trigger_value)}</span></div>` : ''}
+      ${ctx.contact_name ? `<div class="row"><span class="row-label">Accepted By</span><span class="row-val">${esc(ctx.contact_name)}</span></div>` : ''}
+      ${ctx.contact_email ? `<div class="row"><span class="row-label">Contact Email</span><span class="row-val">${esc(ctx.contact_email)}</span></div>` : ''}
+      ${(ctx.trigger_label || ctx.trigger_value) ? `<div class="row"><span class="row-label">Status / Value</span><span class="row-val">${esc(ctx.trigger_label || ctx.trigger_value)}</span></div>` : ''}
     </div>` : ''}
     <a href="${SITE}/systems/crm/" class="cta-btn">Open SmartCore CRM →</a>
     <div class="divider"></div>
@@ -129,14 +137,49 @@ export async function onRequestPost(context) {
     const resendKey = env.RESEND_SMARTCORE_SHOP || env.RESEND_API_KEY;
     let ran = 0;
 
-    for (const cmd of commands) {
-      // Check trigger value matches (if set)
-      if (cmd.trigger_value && trigger_value && cmd.trigger_value !== trigger_value) continue;
-      if (cmd.trigger_field && trigger_field && cmd.trigger_field !== trigger_field) continue;
+    // ── Enrich trigger context ──────────────────────────────────
+    // Resolve stage key → human name
+    let stages = [];
+    try {
+      const stgRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_settings?tenant_id=eq.${tenant_id}&select=pipeline_stages&limit=1`, { headers: svcHdr });
+      const stgData = await stgRes.json().catch(() => []);
+      stages = Array.isArray(stgData) && stgData[0]?.pipeline_stages ? stgData[0].pipeline_stages : [];
+    } catch(_) {}
+    function resolveStage(key) {
+      if (!key) return key;
+      const s = stages.find(s => s.key === key);
+      return s?.name || key;
+    }
+    // Add readable label for the trigger value
+    if (trigger_value) triggerCtx.trigger_label = resolveStage(trigger_value);
 
-      // Check company filter (if set)
-      if (cmd.company_ids?.length && triggerCtx.company_id) {
-        if (!cmd.company_ids.includes(triggerCtx.company_id)) continue;
+    // If a lead is linked but no quote details yet, look up the most recent linked quote
+    if (triggerCtx.lead_id && !triggerCtx.quote_number) {
+      try {
+        const qRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/crm_quotes?crm_lead_id=eq.${triggerCtx.lead_id}&select=id,quote_number,title,total&order=created_at.desc&limit=1`,
+          { headers: svcHdr }
+        );
+        const qData = await qRes.json().catch(() => []);
+        if (Array.isArray(qData) && qData[0]) {
+          const q = qData[0];
+          triggerCtx.quote_id     = triggerCtx.quote_id     || q.id        || '';
+          triggerCtx.quote_number = triggerCtx.quote_number || q.quote_number || '';
+          triggerCtx.quote_title  = triggerCtx.quote_title  || q.title      || '';
+          triggerCtx.quote_amount = triggerCtx.quote_amount || (q.total ? `£${Number(q.total).toFixed(2)}` : '');
+        }
+      } catch(_) {}
+    }
+    // ── End enrichment ──────────────────────────────────────────
+
+    for (const cmd of commands) {
+      // Check trigger value matches (if set on the command, it must equal the incoming value)
+      if (cmd.trigger_value && cmd.trigger_value !== (trigger_value ?? '')) continue;
+      if (cmd.trigger_field && cmd.trigger_field !== (trigger_field ?? '')) continue;
+
+      // Check company filter (if set, skip when company_id is missing or not in the list)
+      if (cmd.company_ids?.length) {
+        if (!triggerCtx.company_id || !cmd.company_ids.includes(triggerCtx.company_id)) continue;
       }
 
       const cfg = cmd.action_config || {};
@@ -145,7 +188,7 @@ export async function onRequestPost(context) {
       try {
         if (cmd.action_type === 'send_email' || cmd.action_type === 'notify_team') {
           const ctx = { ...triggerCtx, trigger_value };
-          function fill(s) { return (s||'').replace(/\{\{(\w+)\}\}/g, (_, k) => esc(ctx[k] ?? '')); }
+          const fill = makeFill(ctx, true);
 
           // Collect all recipient addresses
           const toAddresses = new Set();
@@ -155,10 +198,14 @@ export async function onRequestPost(context) {
             cfg.email_to_custom.split(',').map(s => s.trim()).filter(Boolean).forEach(a => toAddresses.add(a));
           }
 
-          // Customer email from context
+          // Customer email from context — try all likely fields
           if (cfg.send_to_customer) {
-            const customerEmail = triggerCtx.company_email || triggerCtx.contact_email;
-            if (customerEmail) toAddresses.add(customerEmail);
+            const customerEmail = triggerCtx.contact_email || triggerCtx.company_email || triggerCtx.email;
+            if (customerEmail) {
+              toAddresses.add(customerEmail);
+            } else {
+              console.warn('send_to_customer: no email found in context for command', cmd.id);
+            }
           }
 
           // Team emails — fetch from DB
@@ -170,7 +217,9 @@ export async function onRequestPost(context) {
 
           const recipients = [...toAddresses].filter(Boolean);
           if (recipients.length) {
-            await sendEmail(resendKey, recipients, cfg.email_subject || 'SmartCore Notification', buildEmailHtml(cfg, ctx), cfg.email_reply_to);
+            await sendEmail(resendKey, recipients, fill(cfg.email_subject || 'SmartCore Notification'), buildEmailHtml(cfg, ctx), cfg.email_reply_to);
+          } else {
+            console.warn('send_email: no recipients resolved for command', cmd.id);
           }
         } else if (cmd.action_type === 'webhook') {
           if (cfg.webhook_url) {
@@ -182,7 +231,7 @@ export async function onRequestPost(context) {
           }
         } else if (cmd.action_type === 'create_task') {
           const ctx = { ...triggerCtx, trigger_value };
-          function fill(s) { return (s||'').replace(/\{\{(\w+)\}\}/g, (_, k) => String(ctx[k] ?? '')); }
+          const fill = makeFill(ctx, false);
           const dueDate = cfg.task_due_days
             ? new Date(Date.now() + cfg.task_due_days * 86400000).toISOString().split('T')[0]
             : null;
@@ -200,9 +249,28 @@ export async function onRequestPost(context) {
               priority: 'medium',
             }),
           });
+        } else if (cmd.action_type === 'set_lead_status') {
+          if (cfg.lead_status) {
+            let leadId = triggerCtx.lead_id;
+            // Fall back: look up lead_id from the linked quote if not in ctx
+            if (!leadId && triggerCtx.quote_id) {
+              const qr = await fetch(`${SUPABASE_URL}/rest/v1/crm_quotes?id=eq.${triggerCtx.quote_id}&select=crm_lead_id&limit=1`, { headers: svcHdr });
+              const qd = await qr.json().catch(() => []);
+              leadId = Array.isArray(qd) ? qd[0]?.crm_lead_id : null;
+            }
+            if (leadId) {
+              await fetch(`${SUPABASE_URL}/rest/v1/crm_leads?id=eq.${leadId}`, {
+                method: 'PATCH',
+                headers: { ...svcHdr, Prefer: 'return=minimal' },
+                body: JSON.stringify({ status: cfg.lead_status, pipeline_stage: cfg.lead_status }),
+              });
+            } else {
+              console.warn('set_lead_status: no lead_id found for command', cmd.id, '— ctx:', JSON.stringify({ lead_id: triggerCtx.lead_id, quote_id: triggerCtx.quote_id }));
+            }
+          }
         } else if (cmd.action_type === 'add_note') {
           const ctx = { ...triggerCtx, trigger_value };
-          function fill(s) { return (s||'').replace(/\{\{(\w+)\}\}/g, (_, k) => String(ctx[k] ?? '')); }
+          const fill = makeFill(ctx, false);
           await fetch(`${SUPABASE_URL}/rest/v1/crm_activities`, {
             method: 'POST',
             headers: { ...svcHdr, Prefer: 'return=minimal' },

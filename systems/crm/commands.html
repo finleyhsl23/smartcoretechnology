@@ -22,7 +22,8 @@
     .csel-dropdown {
       position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 200;
       background: var(--card); border: 1px solid var(--line2); border-radius: 12px;
-      box-shadow: 0 12px 40px rgba(0,0,0,.5); overflow: hidden;
+      box-shadow: 0 12px 40px rgba(0,0,0,.5); overflow-x: hidden; overflow-y: auto;
+      max-height: 320px;
       animation: dropIn .12s ease;
     }
     @keyframes dropIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
@@ -133,10 +134,11 @@ import { initTheme } from "/systems/crm/shared/theme.js";
 import { esc, toast } from "/systems/crm/shared/ui.js?v=2";
 import { sb } from "/systems/crm/shared/supabase.js";
 import { loadStatusLabels, getCompanyStatuses, getLeadStatuses } from "/systems/crm/shared/statusLabels.js?v=2";
+import { getStages } from "/systems/crm/shared/api.js?v=2";
 
 initTheme();
 
-let profile, tier, commands = [];
+let profile, tier, commands = [], _editingId = null, _stages = [];
 
 // ── Option definitions ──────────────────────────────────────────────────────
 const TRIGGERS = [
@@ -162,10 +164,11 @@ const TRIGGERS = [
 ];
 
 const ACTIONS = [
-  { value:"send_email",   icon:"📧", label:"Send an email",      desc:"Send a branded email to a customer, contact, or your team" },
-  { value:"notify_team",  icon:"🔔", label:"Notify your team",   desc:"Send an internal email notification to all staff members" },
-  { value:"create_task",  icon:"✅", label:"Create a task",      desc:"Automatically create a follow-up task linked to the record" },
-  { value:"add_note",     icon:"📝", label:"Add a note",         desc:"Add an internal note to the company or lead record" },
+  { value:"send_email",      icon:"📧", label:"Send an email",       desc:"Send a branded email to a customer, contact, or your team" },
+  { value:"notify_team",     icon:"🔔", label:"Notify your team",    desc:"Send an internal email notification to all staff members" },
+  { value:"create_task",     icon:"✅", label:"Create a task",       desc:"Automatically create a follow-up task linked to the record" },
+  { value:"add_note",        icon:"📝", label:"Add a note",          desc:"Add an internal note to the company or lead record" },
+  { value:"set_lead_status", icon:"🎯", label:"Set lead status",     desc:"Move the lead to a specific pipeline stage automatically" },
 ];
 
 
@@ -229,9 +232,11 @@ document.addEventListener("click", e => {
 });
 
 function updateActionFields(action) {
-  document.getElementById("emailFields").style.display   = (action === "send_email" || action === "notify_team") ? "" : "none";
-  document.getElementById("taskFields").style.display    = action === "create_task" ? "" : "none";
-  document.getElementById("noteFields").style.display    = action === "add_note"    ? "" : "none";
+  document.getElementById("emailFields").style.display        = (action === "send_email" || action === "notify_team") ? "" : "none";
+  document.getElementById("taskFields").style.display         = action === "create_task"     ? "" : "none";
+  document.getElementById("noteFields").style.display         = action === "add_note"        ? "" : "none";
+  document.getElementById("setLeadStatusFields").style.display = action === "set_lead_status" ? "" : "none";
+  if (action === "set_lead_status") populateLeadStatusPicker();
 }
 
 // ── Main load/render ─────────────────────────────────────────────────────────
@@ -242,6 +247,7 @@ try {
   initSupport(tier);
   initTopbar(profile);
   await loadStatusLabels(profile.company_id);
+  _stages = await getStages();
   await loadCommands();
 } catch(e) { if (!e.message?.includes("CRM not enabled")) toast("bad","Error",e.message); }
 
@@ -259,7 +265,7 @@ function render() {
     <div class="cmd-grid">
       <div>
         <div class="cmd-form-card">
-          <h2>⚡ New Command</h2>
+          <h2 id="formTitle">⚡ New Command</h2>
 
           <div class="field">
             <label>Command name</label>
@@ -410,7 +416,23 @@ function render() {
             </div>
           </div>
 
-          <button class="btn-primary" id="saveCmd" onclick="saveCommand()">Create Command</button>
+          <!-- Set lead status fields -->
+          <div id="setLeadStatusFields" style="display:none">
+            <div class="action-section">
+              <div class="field">
+                <label>Set lead to this stage</label>
+                <select id="leadStatusTarget" style="width:100%;background:var(--bg);border:1px solid var(--line2);border-radius:10px;padding:10px 13px;color:var(--text);font-size:14px;font-family:inherit;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none">
+                  <option value="">Loading stages…</option>
+                </select>
+                <div class="hint">The lead linked to the trigger will be moved to this stage.</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;align-items:center">
+            <button class="btn-primary" id="saveCmd" onclick="saveCommand()">Create Command</button>
+            <button id="cancelEditBtn" onclick="cancelEdit()" style="display:none;background:none;border:1px solid var(--line2);border-radius:10px;padding:10px 16px;font-size:13px;font-weight:600;color:var(--text-dim);cursor:pointer">Cancel</button>
+          </div>
         </div>
       </div>
 
@@ -424,6 +446,9 @@ function render() {
             const trig = TRIGGERS.find(t => t.value === c.trigger_type) || {};
             const act  = ACTIONS.find(a => a.value === c.action_type)   || {};
             const cfg  = c.action_config || {};
+            const trigValueLabel = c.trigger_value
+              ? (_stages.find(s => s.key === c.trigger_value)?.name || getLeadStatuses().find(s => s.value === c.trigger_value)?.label || getCompanyStatuses().find(s => s.value === c.trigger_value)?.label || c.trigger_value)
+              : null;
             return `<div class="cmd-card${c.is_active?"":" inactive"}">
               <div class="cmd-top">
                 <div class="cmd-icon">${trig.icon||"⚡"}</div>
@@ -431,7 +456,7 @@ function render() {
                   <div class="cmd-name">${esc(c.name)}</div>
                   <div class="cmd-desc">
                     <span class="pill pill-blue">${trig.label||c.trigger_type}</span>
-                    ${c.trigger_value ? `<span class="pill pill-amber" style="margin-left:4px">= ${esc(c.trigger_value)}</span>` : ""}
+                    ${trigValueLabel ? `<span class="pill pill-amber" style="margin-left:4px">= ${esc(trigValueLabel)}</span>` : ""}
                     <span style="color:var(--text-dim);margin:0 6px">→</span>
                     <span class="pill pill-green">${act.icon||""} ${act.label||c.action_type}</span>
                     ${cfg.email_subject ? `<div style="margin-top:5px;font-size:11px;color:var(--text-dim)">Subject: ${esc(cfg.email_subject)}</div>` : ""}
@@ -440,6 +465,7 @@ function render() {
                 <div class="cmd-actions">
                   <button class="toggle-btn" onclick="runNow('${c.id}')" title="Run this command now manually" style="background:rgba(30,92,255,.1);border-color:rgba(30,92,255,.3);color:var(--blue)">▶ Run</button>
                   <button class="toggle-btn${c.is_active?" on":""}" onclick="toggleCommand('${c.id}',${!c.is_active})">${c.is_active?"On":"Off"}</button>
+                  <button class="toggle-btn" onclick="editCommand('${c.id}')" style="background:rgba(255,193,7,.1);border-color:rgba(255,193,7,.3);color:#ffc107">Edit</button>
                   <button class="del-btn" onclick="deleteCommand('${c.id}')">Delete</button>
                 </div>
               </div>
@@ -568,7 +594,7 @@ const PROJECT_STATUSES = [
   { value: "cancelled", label: "Cancelled" },
 ];
 
-function updateTriggerValueField(trigger) {
+async function updateTriggerValueField(trigger, selectedValue) {
   const wrap  = document.getElementById("triggerValueWrap");
   const field = document.getElementById("triggerValueField");
   const hint  = document.getElementById("triggerValueHint");
@@ -579,15 +605,21 @@ function updateTriggerValueField(trigger) {
   if (!show) return;
 
   let statuses = null;
-  if (trigger === "company_status_changed") statuses = getCompanyStatuses();
-  else if (trigger === "lead_status_changed" || trigger === "deal_stage_changed") statuses = getLeadStatuses();
-  else if (trigger === "contact_status_changed") statuses = CONTACT_STATUSES;
-  else if (trigger === "project_status_changed") statuses = PROJECT_STATUSES;
+  if (trigger === "company_status_changed") {
+    statuses = getCompanyStatuses().map(s => ({ value: s.value, label: s.label }));
+  } else if (trigger === "lead_status_changed" || trigger === "deal_stage_changed") {
+    const stages = await getStages();
+    statuses = stages.map(s => ({ value: s.key, label: s.parent ? `↳ ${s.name}` : s.name }));
+  } else if (trigger === "contact_status_changed") {
+    statuses = CONTACT_STATUSES;
+  } else if (trigger === "project_status_changed") {
+    statuses = PROJECT_STATUSES;
+  }
 
   hint.textContent = "Leave blank to fire on any status change.";
   field.innerHTML = `<select id="triggerValue" style="width:100%;background:var(--bg);border:1px solid var(--line2);border-radius:10px;padding:10px 13px;color:var(--text);font-size:14px;font-family:inherit;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none">
     <option value="">— Any value (fire on all) —</option>
-    ${(statuses||[]).map(s => `<option value="${esc(s.value)}">${esc(s.label)}</option>`).join("")}
+    ${(statuses||[]).map(s => `<option value="${esc(s.value)}"${selectedValue === s.value ? " selected" : ""}>${esc(s.label)}</option>`).join("")}
   </select>`;
 }
 
@@ -595,6 +627,115 @@ const _origSetCsel = window.setCsel.bind(window);
 window.setCsel = (id, value, label, icon) => {
   _origSetCsel(id, value, label, icon);
   if (id === "trigger") updateTriggerValueField(value);
+};
+
+window.updateTriggerValueField = updateTriggerValueField;
+
+async function populateLeadStatusPicker(selectedValue = "") {
+  const sel = document.getElementById("leadStatusTarget");
+  if (!sel) return;
+  const stages = await getStages();
+  sel.innerHTML = `<option value="">— Choose a stage —</option>`
+    + stages.map(s => `<option value="${esc(s.key)}"${selectedValue === s.key ? " selected" : ""}>${s.parent ? "↳ " : ""}${esc(s.name)}</option>`).join("");
+}
+
+window.editCommand = async (id) => {
+  const cmd = commands.find(c => c.id === id);
+  if (!cmd) return;
+  _editingId = id;
+
+  // Scroll form into view
+  document.querySelector(".cmd-form-card").scrollIntoView({ behavior: "smooth", block: "start" });
+
+  document.getElementById("formTitle").textContent = "✏️ Edit Command";
+  document.getElementById("saveCmd").textContent = "Save Changes";
+  document.getElementById("cancelEditBtn").style.display = "";
+
+  // Name
+  document.getElementById("cmdName").value = cmd.name || "";
+
+  // Trigger
+  const trig = TRIGGERS.find(t => t.value === cmd.trigger_type);
+  if (trig) setCsel("trigger", trig.value, trig.label, trig.icon || "");
+
+  // Trigger value — populate after stages load
+  await updateTriggerValueField(cmd.trigger_type, cmd.trigger_value || "");
+
+  // Company filter
+  const cfg = cmd.action_config || {};
+  const scope = cmd.company_ids?.length ? "specific" : "all";
+  document.getElementById("companyScope").value = scope;
+  if (scope === "specific") {
+    document.getElementById("companyFilterWrap").style.display = "";
+    document.getElementById("companyFilterBadge").style.display = "";
+    document.getElementById("companyFilterBadge").textContent = "Specific companies";
+    document.getElementById("companyFilterBtn").textContent = "Change Filter";
+    await loadCompanyCheckboxes();
+    if (cmd.company_ids) {
+      document.querySelectorAll('#companyCheckboxes input[type="checkbox"]').forEach(cb => {
+        cb.checked = cmd.company_ids.includes(cb.value);
+      });
+    }
+  }
+
+  // Action
+  const act = ACTIONS.find(a => a.value === cmd.action_type);
+  if (act) setCsel("action", act.value, act.label, act.icon || "");
+  updateActionFields(cmd.action_type);
+
+  // Email fields
+  if (cmd.action_type === "send_email" || cmd.action_type === "notify_team") {
+    document.getElementById("sendToCustom").checked    = !!cfg.send_to_custom;
+    document.getElementById("sendToTeam").checked      = !!cfg.send_to_team;
+    document.getElementById("sendToCustomer").checked  = !!cfg.send_to_customer;
+    document.getElementById("customEmailWrap").style.display = cfg.send_to_custom ? "" : "none";
+    document.getElementById("emailToCustom").value     = cfg.email_to_custom || "";
+    document.getElementById("emailReplyTo").value      = cfg.email_reply_to  || "";
+    document.getElementById("emailSubject").value      = cfg.email_subject   || "";
+    document.getElementById("emailBody").value         = cfg.email_body      || "";
+  }
+
+  // Task fields
+  if (cmd.action_type === "create_task") {
+    document.getElementById("taskTitle").value    = cfg.task_title    || "";
+    document.getElementById("taskDueDays").value  = cfg.task_due_days || "";
+    document.getElementById("taskNotes").value    = cfg.task_notes    || "";
+  }
+
+  // Note fields
+  if (cmd.action_type === "add_note") {
+    document.getElementById("noteContent").value = cfg.note_content || "";
+  }
+
+  // Set lead status fields
+  if (cmd.action_type === "set_lead_status") {
+    await populateLeadStatusPicker(cfg.lead_status || "");
+  }
+};
+
+window.cancelEdit = () => {
+  _editingId = null;
+  document.getElementById("formTitle").textContent = "⚡ New Command";
+  document.getElementById("saveCmd").textContent = "Create Command";
+  document.getElementById("cancelEditBtn").style.display = "none";
+  document.getElementById("cmdName").value = "";
+  // Reset selects
+  ["trigger","action"].forEach(id => {
+    const el = document.getElementById(`csel-${id}`);
+    el.dataset.value = "";
+    document.getElementById(`csel-label-${id}`).textContent = id === "trigger" ? "Choose a trigger…" : "Choose an action…";
+    document.getElementById(`csel-label-${id}`).style.color = "var(--text-dim)";
+    document.getElementById(`csel-icon-${id}`).style.display = "none";
+  });
+  document.getElementById("triggerValueWrap").style.display = "none";
+  document.getElementById("emailFields").style.display = "none";
+  document.getElementById("taskFields").style.display  = "none";
+  document.getElementById("noteFields").style.display  = "none";
+  document.getElementById("setLeadStatusFields").style.display = "none";
+  document.getElementById("companyScope").value = "all";
+  document.getElementById("companyFilterWrap").style.display = "none";
+  document.getElementById("companyFilterBadge").style.display = "none";
+  document.getElementById("companyFilterBtn").textContent = "Use Company Filter?";
 };
 
 window.saveCommand = async () => {
@@ -639,6 +780,12 @@ window.saveCommand = async () => {
     actionConfig.note_content = noteContent;
   }
 
+  if (actionType === "set_lead_status") {
+    const leadStatusTarget = document.getElementById("leadStatusTarget")?.value;
+    if (!leadStatusTarget) { toast("bad","Missing","Please choose a lead stage to set."); return; }
+    actionConfig.lead_status = leadStatusTarget;
+  }
+
   const btn = document.getElementById("saveCmd");
   btn.disabled = true; btn.textContent = "Saving…";
 
@@ -649,22 +796,29 @@ window.saveCommand = async () => {
     if (!companyIds.length) { toast("bad","Missing","Select at least one company or choose 'All companies'."); return; }
   }
 
-  const { data: { user } } = await sb().auth.getUser();
-  const { error } = await sb().from("crm_commands").insert({
-    tenant_id:     profile.company_id,
-    created_by:    user.id,
+  const payload = {
     name,
     trigger_type:  triggerType,
     trigger_value: triggerValue || null,
     action_type:   actionType,
     action_config: actionConfig,
     company_ids:   companyIds,
-    is_active:     true,
-  });
+  };
 
-  btn.disabled = false; btn.textContent = "Create Command";
-  if (error) { toast("bad","Error", error.message); return; }
-  toast("ok","Command created","Your automation is now active.");
+  let error;
+  if (_editingId) {
+    ({ error } = await sb().from("crm_commands").update(payload).eq("id", _editingId));
+    btn.disabled = false; btn.textContent = "Save Changes";
+    if (error) { toast("bad","Error", error.message); return; }
+    toast("ok","Command updated","Your changes have been saved.");
+    cancelEdit();
+  } else {
+    const { data: { user } } = await sb().auth.getUser();
+    ({ error } = await sb().from("crm_commands").insert({ ...payload, tenant_id: profile.company_id, created_by: user.id, is_active: true }));
+    btn.disabled = false; btn.textContent = "Create Command";
+    if (error) { toast("bad","Error", error.message); return; }
+    toast("ok","Command created","Your automation is now active.");
+  }
   await loadCommands();
 };
 

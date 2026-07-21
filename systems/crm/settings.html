@@ -21,6 +21,7 @@
     .stage-drag { cursor:grab; color:var(--text3); font-size:16px; padding:0 4px; }
     .add-child-btn { background:transparent; border:1px dashed var(--line); color:var(--text3); border-radius:6px; padding:3px 10px; font-size:11px; font-weight:600; cursor:pointer; white-space:nowrap; transition:border-color .15s,color .15s; }
     .add-child-btn:hover { border-color:var(--accent); color:var(--accent); }
+    .stage-item.drag-over { outline:2px solid var(--accent); outline-offset:1px; }
     .color-picker-wrap { position:relative; display:inline-block; }
     .color-swatch { width:28px; height:28px; border-radius:6px; cursor:pointer; border:2px solid var(--line2); display:inline-block; }
     .template-row { padding:12px 14px; background:var(--card2); border-radius:var(--r2); border:1px solid var(--line); margin-bottom:8px; }
@@ -252,8 +253,8 @@ function stageItem(s, i, isChild) {
   const parent = s.parent || "";
   const canEdit = tierHasFeature(tier,"custom_pipelines");
   const childClass = isChild || parent ? " child" : "";
-  return `<div class="stage-item${childClass}" draggable="${canEdit && !childClass}" data-index="${i}" data-key="${esc(key)}" data-parent="${esc(parent)}">
-    <span class="stage-drag">${canEdit && !childClass ? "⠿" : "·"}</span>
+  return `<div class="stage-item${childClass}" draggable="${canEdit ? "true" : "false"}" data-index="${i}" data-key="${esc(key)}" data-parent="${esc(parent)}">
+    <span class="stage-drag">${canEdit ? "⠿" : "·"}</span>
     <div class="color-picker-wrap">
       <div class="stage-dot" style="background:${s.color}" title="Click to change colour" data-color="${s.color}"></div>
       <input type="color" value="${s.color}" style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer" class="stage-color-input"/>
@@ -302,6 +303,7 @@ function buildBrandingTab() {
   const preferIcon = br.prefer_icon === true;
   const primaryColor = br.primary_color || "#1e5cff";
   const secondaryColor = br.secondary_color || "#0a0f1e";
+  const textColor = br.text_color || "#374151";
   const companyName = br.company_name || "";
 
   return `
@@ -363,6 +365,16 @@ function buildBrandingTab() {
         <div style="display:flex;align-items:center;gap:10px">
           <div style="width:36px;height:36px;border-radius:8px;background:${secondaryColor};border:2px solid var(--line2)" id="secondarySwatch"></div>
           <input type="color" id="secondaryColorInput" value="${secondaryColor}" class="form-control" style="width:80px;height:36px;padding:2px;cursor:pointer"/>
+        </div>
+      </div>
+      <div class="color-row">
+        <div>
+          <div style="font-weight:600">Text / Body Colour</div>
+          <div class="text-sm text-muted">Body text colour used in quotes, newsletters and automated emails</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:8px;background:${textColor};border:2px solid var(--line2)" id="textSwatch"></div>
+          <input type="color" id="textColorInput" value="${textColor}" class="form-control" style="width:80px;height:36px;padding:2px;cursor:pointer"/>
         </div>
       </div>
       <button class="btn btn-primary" id="saveBrandingBtn" style="max-width:160px">Save Branding</button>
@@ -660,6 +672,8 @@ function bindEvents() {
   bindBrandingEvents();
 }
 
+let _dragItem = null;
+
 function bindStageEvents() {
   document.querySelectorAll("#stagesList .stage-color-input").forEach(inp => {
     inp.addEventListener("input", e => {
@@ -670,7 +684,6 @@ function bindStageEvents() {
     b.addEventListener("click", e => {
       const item = e.target.closest(".stage-item");
       const key = item.dataset.key;
-      // Remove any children of this stage too
       document.querySelectorAll(`#stagesList .stage-item[data-parent="${key}"]`).forEach(c => c.remove());
       item.remove();
     });
@@ -681,11 +694,57 @@ function bindStageEvents() {
       const parentKey = parentEl.dataset.key;
       const childKey = `stage_${Date.now()}`;
       const childHtml = stageItem({ key: childKey, name: "New Sub-Stage", color: "#6366f1", order: 0, parent: parentKey }, 0, true);
-      // Insert after any existing children of this parent, otherwise after the parent itself
       const existingChildren = [...document.querySelectorAll(`#stagesList .stage-item[data-parent="${parentKey}"]`)];
       const insertAfter = existingChildren.length ? existingChildren[existingChildren.length - 1] : parentEl;
       insertAfter.insertAdjacentHTML("afterend", childHtml);
       bindStageEvents();
+    });
+  });
+
+  // Drag-and-drop for both parent and child stages
+  document.querySelectorAll("#stagesList .stage-item").forEach(item => {
+    item.addEventListener("dragstart", e => {
+      _dragItem = item;
+      item.style.opacity = "0.4";
+      e.dataTransfer.effectAllowed = "move";
+    });
+    item.addEventListener("dragend", () => {
+      _dragItem = null;
+      item.style.opacity = "";
+      document.querySelectorAll("#stagesList .stage-item").forEach(i => i.classList.remove("drag-over"));
+    });
+    item.addEventListener("dragover", e => {
+      e.preventDefault();
+      if (!_dragItem || _dragItem === item) return;
+      // Only allow dropping within same level (same parent)
+      if (_dragItem.dataset.parent !== item.dataset.parent) return;
+      e.dataTransfer.dropEffect = "move";
+      item.classList.add("drag-over");
+    });
+    item.addEventListener("dragleave", () => item.classList.remove("drag-over"));
+    item.addEventListener("drop", e => {
+      e.preventDefault();
+      item.classList.remove("drag-over");
+      if (!_dragItem || _dragItem === item) return;
+      if (_dragItem.dataset.parent !== item.dataset.parent) return;
+      const list = document.getElementById("stagesList");
+      const items = [...list.querySelectorAll(".stage-item")];
+      const fromIdx = items.indexOf(_dragItem);
+      const toIdx = items.indexOf(item);
+      if (fromIdx < toIdx) {
+        item.after(_dragItem);
+        // If parent, also move its children
+        if (!_dragItem.dataset.parent) {
+          const children = [...list.querySelectorAll(`.stage-item[data-parent="${_dragItem.dataset.key}"]`)];
+          children.reverse().forEach(c => _dragItem.after(c));
+        }
+      } else {
+        item.before(_dragItem);
+        if (!_dragItem.dataset.parent) {
+          const children = [...list.querySelectorAll(`.stage-item[data-parent="${_dragItem.dataset.key}"]`)];
+          children.reverse().forEach(c => _dragItem.after(c));
+        }
+      }
     });
   });
 }
@@ -812,12 +871,16 @@ function bindBrandingEvents() {
   document.getElementById("secondaryColorInput")?.addEventListener("input", e => {
     document.getElementById("secondarySwatch").style.background = e.target.value;
   });
+  document.getElementById("textColorInput")?.addEventListener("input", e => {
+    document.getElementById("textSwatch").style.background = e.target.value;
+  });
 
   document.getElementById("saveBrandingBtn")?.addEventListener("click", async () => {
     const primary = document.getElementById("primaryColorInput").value;
     const secondary = document.getElementById("secondaryColorInput").value;
+    const textCol = document.getElementById("textColorInput").value;
     const companyName = document.getElementById("companyNameInput").value.trim();
-    await mergeBranding({ primary_color: primary, secondary_color: secondary, company_name: companyName });
+    await mergeBranding({ primary_color: primary, secondary_color: secondary, text_color: textCol, company_name: companyName });
     toast("ok","Branding saved");
   });
 

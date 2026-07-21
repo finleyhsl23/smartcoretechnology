@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Leaderboard — SmartCore Engineer Install Audit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/engineer-audit/shared/audit.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="eia-shell">
+  <nav class="eia-sidebar" id="eiaNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="eia-main">
+    <div class="eia-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Leaderboard</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="eia-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
+  import {
+    listSmartfitsEmployees, listMyAssignedEngineerIds,
+    listSubmittedScoreTotals,
+  } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
+  import { esc, initials, setInner, loadingState, emptyState, errorState, scoreToPercentage } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+
+  initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/engineer-audit";
+
+  let _profile, _tier, _settings;
+  let _allEmployees = [];
+  let _failThresholdPercent = 60;
+  let _managerRosterIds = new Set();
+  let _deptFilter = null;
+  let _scope = "mine"; // 'mine' | 'all'
+
+  try {
+    const { profile, tier, settings } = await requireModuleAccess();
+    _profile = profile; _tier = tier; _settings = settings;
+    renderNav("leaderboard", profile, tier, settings);
+    initMobileNav();
+    initTopbar();
+
+    if (tier === "engineer") {
+      setInner("body", errorState({ title: "Not available", message: "The leaderboard is only visible to Engineering Managers, Owners, and Admins." }));
+    } else if (settings.leaderboard_enabled === false) {
+      setInner("body", errorState({ title: "Leaderboard disabled", message: "An Owner or Admin has turned this feature off. Ask them to re-enable it in Settings if you need it." }));
+    } else {
+      await render();
+    }
+  } catch (e) {
+    if (!document.body.innerHTML.includes("eia-state")) {
+      setInner("body", errorState({ title: "Couldn't load the leaderboard", message: e.message }));
+    }
+  }
+
+  async function render() {
+    setInner("body", loadingState("Loading leaderboard…"));
+    try {
+      _allEmployees = await listSmartfitsEmployees();
+      _failThresholdPercent = _settings.fail_threshold_percent ?? 60;
+      _managerRosterIds = new Set(_settings.manager_employee_ids || []);
+      _deptFilter = _settings.visible_department_ids?.length ? new Set(_settings.visible_department_ids) : null;
+
+      drawShell();
+      await drawLeaderboard();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load the leaderboard", message: e.message }));
+    }
+  }
+
+  function drawShell() {
+    const html = `
+      <div class="page-head">
+        <h2>Leaderboard</h2>
+        <p>Engineers ranked by overall install quality across their submitted audits.</p>
+      </div>
+      <div class="pill-row">
+        <button class="pill ${_scope === "mine" ? "active" : ""}" data-scope="mine">My Engineers</button>
+        <button class="pill ${_scope === "all" ? "active" : ""}" data-scope="all">All Engineers</button>
+      </div>
+      <div id="leaderboardList"></div>
+    `;
+    setInner("body", html);
+
+    document.querySelectorAll(".pill[data-scope]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        _scope = btn.dataset.scope;
+        document.querySelectorAll(".pill[data-scope]").forEach(b => b.classList.toggle("active", b === btn));
+        await drawLeaderboard();
+      });
+    });
+  }
+
+  async function drawLeaderboard() {
+    setInner("leaderboardList", loadingState("Crunching scores…"));
+
+    let visibleIds = null;
+    if (_scope === "mine") {
+      visibleIds = new Set(await listMyAssignedEngineerIds(_profile.id));
+    }
+
+    const pool = _allEmployees.filter(emp =>
+      emp.id !== _profile.id
+      && !_managerRosterIds.has(emp.id)
+      && (!visibleIds || visibleIds.has(emp.id))
+      && (!_deptFilter || _deptFilter.has(emp.department_id))
+    );
+
+    const totals = await listSubmittedScoreTotals(pool.map(e => e.id));
+
+    const ranked = [];
+    for (const emp of pool) {
+      const t = totals[emp.id];
+      if (!t || !t.count) continue;
+      const pct = scoreToPercentage(t.total / t.count);
+      ranked.push({ emp, pct, auditCount: t.auditCount });
+    }
+
+    ranked.sort((a, b) => b.pct - a.pct);
+
+    if (!ranked.length) {
+      setInner("leaderboardList", emptyState({
+        icon: "trophy",
+        title: "Nothing to rank yet",
+        message: _scope === "mine" ? "None of your assigned engineers have a submitted audit yet." : "No submitted audits found for Smartfits engineers yet.",
+      }));
+      return;
+    }
+
+    const html = ranked.map((r, i) => {
+      const rank = i + 1;
+      const rankClass = rank === 1 ? "gold" : rank === 2 ? "silver" : rank === 3 ? "bronze" : "";
+      const failing = r.pct < _failThresholdPercent;
+      return `
+        <div class="leaderboard-row" data-id="${esc(r.emp.id)}">
+          <div class="leaderboard-rank ${rankClass}">${rank}</div>
+          <div class="avatar avatar-md">${esc(initials(r.emp.full_name))}</div>
+          <div class="leaderboard-info">
+            <div class="leaderboard-name">${esc(r.emp.full_name)}</div>
+            <div class="leaderboard-meta">${esc(r.emp.job_title || "—")} · ${r.auditCount} submitted audit${r.auditCount === 1 ? "" : "s"}</div>
+          </div>
+          <div class="leaderboard-bar-track"><div class="leaderboard-bar-fill" style="width:${r.pct}%;background:${failing ? "var(--bad)" : "var(--good)"}"></div></div>
+          <div class="leaderboard-score ${failing ? "fail" : "pass"}">${r.pct}%</div>
+        </div>`;
+    }).join("");
+
+    setInner("leaderboardList", html);
+    document.querySelectorAll(".leaderboard-row[data-id]").forEach(row => {
+      row.addEventListener("click", () => {
+        window.location.href = `${BASE}/employee.html?id=${row.dataset.id}`;
+      });
+    });
+  }
+</script>
+</body>
+</html>

@@ -72,7 +72,7 @@ export function initials(name) {
   return name.split(" ").slice(0,2).map(w => w[0]).join("").toUpperCase();
 }
 
-export function leadBadge(status) {
+export function leadBadge(status, stages = []) {
   const map = {
     new:           ["badge-blue",   "New"],
     contacted:     ["badge-yellow", "Contacted"],
@@ -82,8 +82,14 @@ export function leadBadge(status) {
     won:           ["badge-green",  "Won"],
     lost:          ["badge-red",    "Lost"],
   };
-  const [cls, label] = map[status] || ["badge-grey", status];
-  return `<span class="badge ${cls}">${label}</span>`;
+  if (map[status]) {
+    const [cls, label] = map[status];
+    return `<span class="badge ${cls}">${label}</span>`;
+  }
+  // Fall back to dynamic pipeline stages
+  const stage = stages.find(s => s.key === status);
+  const label = stage?.name || status;
+  return `<span class="badge badge-grey">${label}</span>`;
 }
 
 export function companyStatusBadge(status) {

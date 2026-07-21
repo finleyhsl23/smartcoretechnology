@@ -81,6 +81,7 @@ export async function onRequestPost({ request, env }) {
     const issuerName    = branding.company_name    || 'SmartCore Technology';
     const primaryColor  = branding.primary_color   || '#1e5cff';
     const secondaryColor = branding.secondary_color || '#0a0f1e';
+    const textColor     = branding.text_color       || '#374151';
     const logoUrl = branding.prefer_icon
       ? (branding.icon_url || branding.logo_url)
       : (branding.logo_url || branding.icon_url);
@@ -98,131 +99,100 @@ export async function onRequestPost({ request, env }) {
 
     // Build table-based email HTML (safe for all email clients)
     const pd = q.pricing_display || 'itemised';
-    const lineRows = (q.line_items || []).map(li => {
+    const lineRows = pd === 'total_only' ? '' : (q.line_items || []).map(li => {
       const lineTotal = Number(li.total || ((li.qty || 1) * (li.unit_price || 0)));
       if (pd === 'itemised') {
         return `<tr>
-          <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#374151">${esc(li.description || '')}</td>
+          <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:${textColor}">${esc(li.description || '')}</td>
           <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:center;color:#374151">${li.qty || 1}</td>
           <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;color:#374151">&#163;${Number(li.unit_price || 0).toFixed(2)}</td>
           <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;font-weight:600;color:#1a1a2e">&#163;${lineTotal.toFixed(2)}</td>
         </tr>`;
       }
       return `<tr>
-        <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#374151">${esc(li.description || '')}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:${textColor}">${esc(li.description || '')}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:center;color:#374151">${li.qty || 1}</td>
       </tr>`;
     }).join('');
 
     const emailSubject = `Quote ${q.quote_number || ''} from ${issuerName}${q.title ? ' — ' + q.title : ''}`;
 
+    // Build email as a single-column table — every td gets explicit bgcolor so Gmail renders correctly
     const emailHtml = [
       '<!DOCTYPE html>',
-      '<html lang="en"><head>',
-      '<meta charset="utf-8"/>',
-      '<meta name="viewport" content="width=device-width,initial-scale=1"/>',
+      `<html lang="en"><head>`,
+      '<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>',
       `<title>${esc(emailSubject)}</title>`,
+      `<style>body{margin:0;padding:0;background:${secondaryColor}}img{display:block;border:0}</style>`,
       '</head>',
-      `<body style="margin:0;padding:0;background:${secondaryColor};font-family:Arial,Helvetica,sans-serif">`,
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${secondaryColor};padding:24px 0">`,
-      `<tr><td align="center">`,
-      `<table width="620" cellpadding="0" cellspacing="0" border="0" style="max-width:620px;width:100%">`,
+      `<body bgcolor="${secondaryColor}" style="margin:0;padding:0;background:${secondaryColor};font-family:Arial,Helvetica,sans-serif">`,
 
-      // Logo row
-      `<tr><td align="center" style="padding:0 16px 20px">`,
-      logoUrl
-        ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:block;max-height:44px"/>`
-        : `<div style="font-size:20px;font-weight:800;color:#ffffff">${esc(issuerName)}</div>`,
-      `</td></tr>`,
+      // Outer full-width table — bgcolor on table AND td
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${secondaryColor}">`,
+      `<tr><td bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:0">`,
 
-      // Intro card
-      `<tr><td style="padding:0 16px 20px">`,
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:12px">`,
-      `<tr><td style="padding:28px 32px">`,
-      `<h1 style="margin:0 0 6px;font-size:20px;font-weight:800;color:#1a1a2e">You have a new quote</h1>`,
-      `<p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.7">`,
-      `Hi ${esc(recipient_name || coName || 'there')},<br/><br/>`,
-      `${esc(issuerName)} has prepared a quote for you. Click the button below to review the full details and sign it online.`,
-      `</p>`,
+      // Inner centered 600px table
+      `<table width="600" align="center" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%">`,
 
-      // Stats table
+      // ── Intro card ──
+      `<tr><td bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:16px 16px 16px">`,
       `<table width="100%" cellpadding="0" cellspacing="0" border="0">`,
-      `<tr>`,
-      `<td width="48%" style="background:#f8f9fc;border-radius:8px;padding:14px 16px">`,
-      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:4px">Quote Reference</div>`,
-      `<div style="font-size:18px;font-weight:800;color:#1a1a2e">${esc(q.quote_number || '')}</div>`,
-      `</td>`,
+      `<tr><td bgcolor="#ffffff" style="background:#ffffff;border-radius:12px;padding:28px 28px 24px">`,
+      logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(issuerName)}" height="44" style="display:block;border:0;outline:none;max-height:44px;margin:0 0 20px 0"/>` : `<div style="font-size:18px;font-weight:800;color:#1a1a2e;margin-bottom:20px">${esc(issuerName)}</div>`,
+      `<h1 style="margin:0 0 6px;font-size:20px;font-weight:800;color:#1a1a2e">You have a new quote</h1>`,
+      `<p style="margin:0 0 24px;font-size:14px;color:${textColor};line-height:1.7">Hi ${esc(recipient_name || coName || 'there')},<br/><br/>${esc(issuerName)} has prepared a quote for you. Click the button below to review the full details and sign it online.</p>`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>`,
+      `<td width="48%" bgcolor="#f8f9fc" style="background:#f8f9fc;border-radius:8px;padding:14px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:4px">Quote Reference</div><div style="font-size:18px;font-weight:800;color:#1a1a2e">${esc(q.quote_number || '')}</div></td>`,
       `<td width="4%"></td>`,
-      `<td width="48%" style="background:#f8f9fc;border-radius:8px;padding:14px 16px">`,
-      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:4px">Total Value</div>`,
-      `<div style="font-size:18px;font-weight:800;color:#1a1a2e">&#163;${total.toFixed(2)}</div>`,
-      `</td>`,
+      `<td width="48%" bgcolor="#f8f9fc" style="background:#f8f9fc;border-radius:8px;padding:14px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:4px">Total Value</div><div style="font-size:18px;font-weight:800;color:#1a1a2e">&#163;${total.toFixed(2)}</div></td>`,
       `</tr>`,
-      expiryStr ? [
-        `<tr><td colspan="3" style="padding-top:12px">`,
-        `<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:11px 14px;font-size:12px;font-weight:700;color:#9a3412">`,
-        `&#9200; This quote is valid until ${esc(expiryStr)}`,
-        `</div></td></tr>`,
-      ].join('') : '',
+      expiryStr ? `<tr><td colspan="3" style="padding-top:12px"><div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:11px 14px;font-size:12px;font-weight:700;color:#9a3412">&#9200; This quote is valid until ${esc(expiryStr)}</div></td></tr>` : '',
       `</table>`,
-
-      // CTA button
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:28px">`,
-      `<tr><td align="center">`,
-      `<a href="${acceptUrl}" style="display:inline-block;background:${primaryColor};color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:15px 48px;border-radius:8px">`,
-      `Review &amp; Sign Quote &#8594;`,
-      `</a>`,
-      `</td></tr>`,
-      `<tr><td align="center" style="padding-top:10px;font-size:11px;color:#9ca3af">`,
-      `Or paste this link in your browser:<br/>`,
-      `<a href="${acceptUrl}" style="color:${primaryColor};word-break:break-all;font-size:11px">${acceptUrl}</a>`,
-      `</td></tr>`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:24px">`,
+      `<tr><td align="center"><a href="${acceptUrl}" style="display:inline-block;background:${primaryColor};color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:15px 40px;border-radius:8px">Review &amp; Sign Quote &#8594;</a></td></tr>`,
+      `<tr><td align="center" style="padding-top:10px;font-size:11px;color:#6b7280">Or paste this link in your browser:<br/><a href="${acceptUrl}" style="color:${primaryColor};word-break:break-all;font-size:11px">${acceptUrl}</a></td></tr>`,
       `</table>`,
       `</td></tr></table>`,
       `</td></tr>`,
 
-      // Quote summary card
-      `<tr><td style="padding:0 16px 20px">`,
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:12px;overflow:hidden">`,
-      // Dark header
-      `<tr><td style="background:${secondaryColor};padding:22px 28px">`,
-      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:rgba(255,255,255,.55);margin-bottom:4px">Quote Summary</div>`,
+      // ── Quote summary card ──
+      `<tr><td bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:0 16px 16px">`,
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0">`,
+      `<tr><td bgcolor="${secondaryColor}" style="background:${secondaryColor};border-radius:12px 12px 0 0;padding:22px 28px">`,
+      `<div style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#9ca3af;margin-bottom:4px">Quote Summary</div>`,
       `<div style="font-size:22px;font-weight:900;color:#ffffff">${esc(q.quote_number || '')}</div>`,
-      q.title ? `<div style="font-size:13px;color:rgba(255,255,255,.7);margin-top:2px">${esc(q.title)}</div>` : '',
+      q.title ? `<div style="font-size:13px;color:#d1d5db;margin-top:2px">${esc(q.title)}</div>` : '',
       `</td></tr>`,
-      // Line items
-      `<tr><td style="padding:20px 28px">`,
-      [
+      `<tr><td bgcolor="#ffffff" style="background:#ffffff;border-radius:0 0 12px 12px;padding:20px 28px">`,
+      pd !== 'total_only' ? [
         `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">`,
-        `<tr style="background:${primaryColor}">`,
-        `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:left">Description</th>`,
-        `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:center;width:48px">Qty</th>`,
-        pd === 'itemised' ? `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:right;width:88px">Unit</th>` : '',
-        pd === 'itemised' ? `<th style="padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:right;width:88px">Total</th>` : '',
+        `<tr>`,
+        `<th bgcolor="${primaryColor}" style="background:${primaryColor};padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:left">Description</th>`,
+        `<th bgcolor="${primaryColor}" style="background:${primaryColor};padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:center;width:48px">Qty</th>`,
+        pd === 'itemised' ? `<th bgcolor="${primaryColor}" style="background:${primaryColor};padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:right;width:88px">Unit</th>` : '',
+        pd === 'itemised' ? `<th bgcolor="${primaryColor}" style="background:${primaryColor};padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#ffffff;text-align:right;width:88px">Total</th>` : '',
         `</tr>`,
         lineRows || `<tr><td colspan="${pd === 'itemised' ? 4 : 2}" style="padding:14px;text-align:center;color:#9ca3af;font-size:13px">No line items</td></tr>`,
         `</table>`,
-      ].join(''),
-      // Totals
-      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px">`,
-      `<tr><td align="right">`,
+      ].join('') : '',
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px"><tr><td align="right">`,
       `<table cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;min-width:230px">`,
-      pd === 'itemised' ? `<tr><td style="padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151"><span>Subtotal</span><span style="float:right">&#163;${(sub || total).toFixed(2)}</span></td></tr>` : '',
-      pd === 'itemised' && disc > 0 ? `<tr><td style="padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151"><span>Discount</span><span style="float:right">-&#163;${disc.toFixed(2)}</span></td></tr>` : '',
-      pd !== 'desc_only' ? `<tr><td style="padding:11px 16px;background:${primaryColor};color:#ffffff;font-weight:800;font-size:15px"><span>TOTAL</span><span style="float:right">&#163;${total.toFixed(2)}</span></td></tr>` : '',
+      pd === 'itemised' ? `<tr><td bgcolor="#f8f9fc" style="background:#f8f9fc;padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:${textColor}"><span>Subtotal</span><span style="float:right">&#163;${(sub || total).toFixed(2)}</span></td></tr>` : '',
+      pd === 'itemised' && disc > 0 ? `<tr><td bgcolor="#f8f9fc" style="background:#f8f9fc;padding:9px 16px;border-bottom:1px solid #e5e7eb;font-size:13px;color:${textColor}"><span>Discount</span><span style="float:right">-&#163;${disc.toFixed(2)}</span></td></tr>` : '',
+      pd !== 'desc_only' ? `<tr><td bgcolor="${primaryColor}" style="background:${primaryColor};padding:11px 16px;color:#ffffff;font-weight:800;font-size:15px"><span>TOTAL</span><span style="float:right">&#163;${total.toFixed(2)}</span></td></tr>` : '',
       `</table></td></tr></table>`,
-      // Notes + Terms
-      q.notes ? `<div style="margin-top:16px;background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Notes</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">${esc(q.notes)}</div></div>` : '',
-      `<div style="margin-top:12px;background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Terms &amp; Conditions</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">${esc(q.terms || 'Payment due within 30 days.')}</div></div>`,
+      q.notes ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px"><tr><td bgcolor="#f8f9fc" style="background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Notes</div><div style="font-size:13px;color:${textColor};line-height:1.6;white-space:pre-wrap">${esc(q.notes)}</div></td></tr></table>` : '',
+      `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px"><tr><td bgcolor="#f8f9fc" style="background:#f8f9fc;border-radius:8px;padding:14px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;font-weight:700;margin-bottom:5px">Terms &amp; Conditions</div><div style="font-size:13px;color:${textColor};line-height:1.6;white-space:pre-wrap">${esc(q.terms || 'Payment due within 30 days.')}</div></td></tr></table>`,
+      `</td></tr></table>`,
       `</td></tr>`,
-      `</table></td></tr>`,
 
-      // Footer
-      `<tr><td align="center" style="padding:0 16px 32px;font-size:11px;color:#9ca3af">`,
+      // ── Footer ──
+      `<tr><td bgcolor="${secondaryColor}" style="background:${secondaryColor};padding:16px 24px 28px;text-align:center;font-size:11px;color:#9ca3af">`,
       `This email was sent by ${esc(issuerName)}. Quote ${esc(q.quote_number || '')}.`,
       `</td></tr>`,
 
-      `</table></td></tr></table>`,
+      `</table>`,          // end inner 600px table
+      `</td></tr></table>`, // end outer full-width table
       `</body></html>`,
     ].join('\n');
 
@@ -246,6 +216,27 @@ export async function onRequestPost({ request, env }) {
       } catch (_) {}
       return json({ error: `Email delivery failed: ${errMsg}` }, 500);
     }
+
+    // Fire quote_sent commands (non-blocking)
+    fetch(`${new URL(request.url).origin}/api/crm/commands-run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+      body: JSON.stringify({
+        tenant_id: tenantId,
+        trigger_type: 'quote_sent',
+        ctx: {
+          quote_id,
+          quote_number: q.quote_number || '',
+          quote_title: q.title || '',
+          quote_amount: `£${total.toFixed(2)}`,
+          company_id: q.crm_company_id || '',
+          company_name: coName,
+          contact_email,
+          contact_name: recipient_name || '',
+          lead_id: q.crm_lead_id || '',
+        },
+      }),
+    }).catch(() => {});
 
     // Persist token + status on quote
     await fetch(
