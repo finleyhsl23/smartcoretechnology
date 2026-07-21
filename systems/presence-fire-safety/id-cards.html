@@ -59,7 +59,7 @@
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
-  import { renderIdCardFront, renderIdCardBack, generateQrDataUrl } from "/systems/presence-fire-safety/shared/id-card-render.js";
+  import { renderCardFace, normalizeTemplate, generateQrDataUrl } from "/systems/presence-fire-safety/shared/id-card-render.js";
   import {
     esc, toast, fmtDateTime, confirmDialog,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -92,7 +92,7 @@
       setInner("pageBody", permissionDeniedState("You don't have permission to manage ID cards."));
     } else {
       const row = await settings.get(_companyId);
-      _template = row?.id_card_template || null;
+      _template = normalizeTemplate(row?.id_card_template);
       _logoUrl = row?.id_card_logo_url || null;
       renderShell();
       loadAllBadges();
@@ -208,8 +208,9 @@
         </div>
       </div>
     `);
-    document.getElementById("cardFront").innerHTML = renderIdCardFront(_template, _employeeData, _logoUrl);
-    document.getElementById("cardBack").innerHTML = renderIdCardBack(_template, qr);
+    const ctx = { employee: _employeeData, logoUrl: _logoUrl, qrDataUrl: qr };
+    document.getElementById("cardFront").innerHTML = renderCardFace(_template, "front", ctx);
+    document.getElementById("cardBack").innerHTML = renderCardFace(_template, "back", ctx);
     refreshIcons();
 
     document.getElementById("issueBadgeBtn")?.addEventListener("click", async (e) => {
@@ -250,9 +251,10 @@
     const orientation = _template?.orientation === "portrait" ? "portrait" : "landscape";
     const w = orientation === "portrait" ? "54mm" : "85.6mm";
     const h = orientation === "portrait" ? "85.6mm" : "54mm";
+    const ctx = { employee: _employeeData, logoUrl: _logoUrl, qrDataUrl: qr };
     setInner("printArea", `
-      <div class="pfs-idcard-print-face" style="width:${w};height:${h}">${renderIdCardFront(_template, _employeeData, _logoUrl)}</div>
-      <div class="pfs-idcard-print-face" style="width:${w};height:${h}">${renderIdCardBack(_template, qr)}</div>
+      <div class="pfs-idcard-print-face" style="width:${w};height:${h}">${renderCardFace(_template, "front", ctx)}</div>
+      <div class="pfs-idcard-print-face" style="width:${w};height:${h}">${renderCardFace(_template, "back", ctx)}</div>
     `);
     window.print();
   }
