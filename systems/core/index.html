@@ -139,7 +139,11 @@
     tbody tr{cursor:pointer;transition:background .1s;}
     tbody tr:hover td{background:rgba(255,255,255,.03);}
     .emp-cell{display:flex;align-items:center;gap:12px;}
-    .avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,rgba(91,143,255,.5),rgba(14,165,255,.3));border:1px solid rgba(91,143,255,.35);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;}
+    .avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,rgba(91,143,255,.5),rgba(14,165,255,.3));border:1px solid rgba(91,143,255,.35);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;overflow:hidden;}
+    .avatar img,.emp-view-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;}
+    [data-av-upload]{position:relative;cursor:pointer;}
+    [data-av-upload]::after{content:'📷';position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;font-size:15px;opacity:0;transition:opacity .15s;}
+    [data-av-upload]:hover::after{opacity:1;}
     .emp-name{font-size:13px;font-weight:600;letter-spacing:-.01em;}
     .emp-title{font-size:11px;color:var(--muted);margin-top:1px;}
     .mono{font-family:'SF Mono',ui-monospace,monospace;font-size:11px;color:var(--muted);}
@@ -343,7 +347,7 @@
     .emp-view-card{width:min(880px,100%);height:min(800px,92vh);background:linear-gradient(145deg,#0d1020,#090c18);border:1px solid rgba(255,255,255,.09);border-radius:24px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 60px 140px rgba(0,0,0,.85);}
     .emp-view-head{padding:22px 28px 20px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
     .emp-view-hero{display:flex;align-items:center;gap:16px;}
-    .emp-view-avatar{width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,rgba(91,143,255,.5),rgba(14,165,255,.3));border:2px solid rgba(91,143,255,.3);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff;flex-shrink:0;}
+    .emp-view-avatar{width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,rgba(91,143,255,.5),rgba(14,165,255,.3));border:2px solid rgba(91,143,255,.3);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff;flex-shrink:0;overflow:hidden;}
     .emp-view-name{font-size:20px;font-weight:800;letter-spacing:-.04em;}
     .emp-view-sub{font-size:13px;color:var(--muted);margin-top:3px;}
     .emp-view-body{flex:1;overflow-y:auto;padding:24px 28px;display:grid;grid-template-columns:1fr 1fr;gap:16px;align-content:start;}
@@ -1387,7 +1391,11 @@ function renderMyProfile() {
 function openMyEdit() {
   const e = myEmpRecord;
   if(!e) return;
-  document.getElementById('mpEditAvatar').textContent = initials(e.full_name);
+  const mpAv = document.getElementById('mpEditAvatar');
+  setAvatarImg(mpAv, e);
+  mpAv.setAttribute('data-av-upload', '');
+  mpAv.title = 'Click to change photo';
+  mpAv.onclick = uploadMyAvatar;
   document.getElementById('mpEditName').textContent = e.full_name;
   document.getElementById('mp_pronouns').value = e.pronouns||'';
   document.getElementById('mp_dob').value = e.date_of_birth||'';
@@ -1539,7 +1547,7 @@ function renderTable(rows) {
       <tbody>${rows.map(e=>`
         <tr data-id="${e.id}">
           <td><div class="emp-cell">
-            <div class="avatar">${initials(e.full_name)}</div>
+            <div class="avatar">${avatarElHtml(e)}</div>
             <div><div class="emp-name">${esc(e.full_name)}</div><div class="emp-title">${esc(e.job_title||'')}</div></div>
           </div></td>
           <td><span class="mono">${esc(e.employee_id||'')}</span></td>
@@ -1561,7 +1569,17 @@ function openView(emp) {
   const shift = shiftPatterns.find(s=>s.id===emp.shift_pattern_id);
   const dept = emp.department?.name || emp.department_name || '—';
 
-  document.getElementById('evAvatar').textContent = initials(emp.full_name);
+  const evAv = document.getElementById('evAvatar');
+  setAvatarImg(evAv, emp);
+  if (['admin','owner'].includes(role)) {
+    evAv.setAttribute('data-av-upload', '');
+    evAv.title = 'Click to change photo';
+    evAv.onclick = () => uploadAvatarForEmp(emp);
+  } else {
+    evAv.removeAttribute('data-av-upload');
+    evAv.title = '';
+    evAv.onclick = null;
+  }
   document.getElementById('evName').textContent = emp.full_name;
   document.getElementById('evSub').textContent = [emp.job_title, dept].filter(v=>v&&v!=='—').join(' · ') || 'No title set';
 
@@ -2747,6 +2765,91 @@ function fmtDate(d){try{return new Date(d).toLocaleDateString('en-GB',{day:'2-di
 function fmtEmpType(t,c){if(t==='full_time')return'Full Time';if(t==='part_time')return'Part Time';return c||'Other';}
 
 init();
+
+// ── Avatar helpers ───────────────────────────────────────────────────────────
+function setAvatarImg(el, emp) {
+  el.innerHTML = '';
+  if (emp?.profile_picture_url) {
+    const img = document.createElement('img');
+    img.src = emp.profile_picture_url;
+    img.alt = emp.full_name || '';
+    img.onerror = () => { el.innerHTML = ''; el.textContent = initials(emp.full_name); };
+    el.appendChild(img);
+  } else {
+    el.textContent = initials(emp.full_name);
+  }
+}
+
+function avatarElHtml(emp) {
+  if (emp?.profile_picture_url) {
+    const safeUrl = emp.profile_picture_url.replace(/"/g, '%22');
+    return `<img src="${safeUrl}" alt="" onerror="this.outerHTML='${initials(emp.full_name)}'" />`;
+  }
+  return initials(emp.full_name);
+}
+
+function triggerAvatarUpload(fileInputId, onFilePicked) {
+  const input = document.getElementById(fileInputId);
+  input.value = '';
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    onFilePicked(file);
+  };
+  input.click();
+}
+
+async function uploadAvatarForEmp(emp) {
+  triggerAvatarUpload('_avatarInput', async (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('employee_id', emp.id);
+    try {
+      toast('info', 'Uploading…', 'Please wait');
+      const res = await fetch('/api/core/upload-avatar', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token },
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      const url = data.url;
+      const idx = employees.findIndex(e => e.id === emp.id);
+      if (idx >= 0) employees[idx].profile_picture_url = url;
+      if (editingEmp?.id === emp.id) editingEmp = { ...editingEmp, profile_picture_url: url };
+      setAvatarImg(document.getElementById('evAvatar'), { ...emp, profile_picture_url: url });
+      renderTable(employees);
+      toast('ok', 'Photo updated', '');
+    } catch(e) {
+      toast('err', 'Upload failed', e.message);
+    }
+  });
+}
+
+async function uploadMyAvatar() {
+  triggerAvatarUpload('_myAvatarInput', async (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      toast('info', 'Uploading…', 'Please wait');
+      const res = await fetch('/api/core/upload-avatar', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token },
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      myEmpRecord = { ...myEmpRecord, profile_picture_url: data.url };
+      setAvatarImg(document.getElementById('mpEditAvatar'), myEmpRecord);
+      renderMyProfile();
+      toast('ok', 'Photo updated', '');
+    } catch(e) {
+      toast('err', 'Upload failed', e.message);
+    }
+  });
+}
 </script>
+<input type="file" id="_avatarInput" accept="image/*" style="display:none">
+<input type="file" id="_myAvatarInput" accept="image/*" style="display:none">
 </body>
 </html>
