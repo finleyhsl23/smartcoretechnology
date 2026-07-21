@@ -47,11 +47,11 @@ export async function onRequestPost({ request, env }) {
     const tenantNames = {};
     if (tenantIds.length) {
       const cRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/companies?id=in.(${tenantIds.join(',')})&select=id,name`,
+        `${SUPABASE_URL}/rest/v1/smartcore_core_companies?id=in.(${tenantIds.join(',')})&select=id,company_name`,
         { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
       );
       const companies = await cRes.json();
-      companies.forEach(c => { tenantNames[c.id] = c.name; });
+      companies.forEach(c => { tenantNames[c.id] = c.company_name; });
     }
     const accounts = rows.map(r => ({
       id: r.id,
