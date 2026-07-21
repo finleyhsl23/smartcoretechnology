@@ -49,7 +49,8 @@ export async function onRequestPost(context) {
 
     const storagePath = `${profile.company_id}/${targetId}.${ext}`;
 
-    // Upload (upsert)
+    // Upload (upsert) — read into buffer first so the body isn't a stream
+    const fileBytes = await file.arrayBuffer();
     const uploadRes = await fetch(
       `${env.SUPABASE_URL}/storage/v1/object/${BUCKET}/${storagePath}`,
       {
@@ -60,8 +61,7 @@ export async function onRequestPost(context) {
           'Content-Type': file.type || 'image/jpeg',
           'x-upsert': 'true',
         },
-        body: file.stream(),
-        duplex: 'half',
+        body: fileBytes,
       }
     );
     if (!uploadRes.ok) {
