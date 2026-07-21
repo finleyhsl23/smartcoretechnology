@@ -436,16 +436,24 @@ export const settings = {
    *  <input type="file">'s selected File once the input's value is reset,
    *  which produced an empty request body ("No content provided") if the
    *  caller cleared the input before this async upload finished. */
+  // Goes through a server-side Function (service-role upload) rather than a
+  // direct client -> Supabase Storage call — the direct upload kept failing
+  // RLS in the field for reasons that couldn't be reproduced even with an
+  // identical simulated auth context server-side, so this sidesteps it.
+  // Permission is still checked server-side via the caller's own token.
   async uploadIdCardLogo(companyId, file) {
-    const contentType = file.type || "image/png";
-    const ext = contentType.split("/")[1] || "png";
-    const bytes = await file.arrayBuffer();
-    const path = `${companyId}/logo.${ext}`;
-    const { error } = await sb().storage.from("presence-fire-safety-logos")
-      .upload(path, bytes, { upsert: true, contentType });
-    if (error) throw error;
-    const { data } = sb().storage.from("presence-fire-safety-logos").getPublicUrl(path);
-    return `${data.publicUrl}?t=${Date.now()}`;
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) throw new Error("Not signed in");
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/api/presence-fire-safety/upload-logo", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      body: fd,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Upload failed");
+    return data.url;
   },
 };
 
