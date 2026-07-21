@@ -21,24 +21,50 @@ export async function onRequestOptions() {
 export async function onRequestPost({ request, env }) {
   const SERVICE_KEY = env.SUPABASE_SERVICE_KEY;
 
-  const { email, password } = await request.json();
+  const { email, password, user_id: selectedUserId } = await request.json();
   if (!email || !password) return new Response(JSON.stringify({ error: 'Email and password required' }), { status: 400, headers: CORS });
 
   const password_hash = await hashPassword(password, email);
 
-  // Find matching portal user
+  // Find all matching portal users (same email may be linked to multiple companies)
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/crm_portal_users?email=eq.${encodeURIComponent(email)}&password_hash=eq.${password_hash}&status=eq.active&select=*&limit=1`,
+    `${SUPABASE_URL}/rest/v1/crm_portal_users?email=eq.${encodeURIComponent(email)}&password_hash=eq.${password_hash}&status=eq.active&select=*`,
     { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
   );
   const rows = await res.json();
   if (!rows?.length) return new Response(JSON.stringify({ error: 'Invalid email or password' }), { status: 401, headers: CORS });
 
-  const user = rows[0];
+  // Determine which user record to log in as
+  let user;
+  if (rows.length === 1) {
+    user = rows[0];
+  } else if (selectedUserId) {
+    user = rows.find(r => r.id === selectedUserId);
+    if (!user) return new Response(JSON.stringify({ error: 'Invalid selection' }), { status: 401, headers: CORS });
+  } else {
+    // Multiple accounts — fetch company names and ask the client to pick
+    const companyIds = rows.map(r => r.crm_company_id).filter(Boolean);
+    const companyNames = {};
+    if (companyIds.length) {
+      const cRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/crm_companies?id=in.(${companyIds.join(',')})&select=id,name`,
+        { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
+      );
+      const companies = await cRes.json();
+      companies.forEach(c => { companyNames[c.id] = c.name; });
+    }
+    const accounts = rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      crm_company_id: r.crm_company_id,
+      company_name: r.crm_company_id ? (companyNames[r.crm_company_id] || 'Unknown Company') : 'No company linked',
+    }));
+    return new Response(JSON.stringify({ requires_selection: true, accounts }), { status: 200, headers: CORS });
+  }
+
   const session_token = crypto.randomUUID();
   const session_expires_at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Store session token
   await fetch(`${SUPABASE_URL}/rest/v1/crm_portal_users?id=eq.${user.id}`, {
     method: 'PATCH',
     headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },

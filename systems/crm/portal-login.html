@@ -32,6 +32,13 @@
     .error { color:#ef4444; font-size:13px; margin-top:8px; display:none; }
     .footer-link { text-align:center; margin-top:20px; font-size:13px; color:var(--text3); }
     .footer-link a { color:var(--blue); text-decoration:none; }
+    .account-btn { display:flex; align-items:center; gap:14px; width:100%; padding:14px 16px; background:var(--bg); border:1px solid var(--line); border-radius:var(--r); color:var(--text); font-size:14px; font-weight:600; cursor:pointer; margin-bottom:10px; text-align:left; transition:border-color .15s,background .15s; }
+    .account-btn:hover { border-color:var(--blue); background:rgba(30,92,255,.06); }
+    .account-av { width:38px; height:38px; border-radius:50%; background:rgba(30,92,255,.15); border:2px solid rgba(30,92,255,.3); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; color:var(--blue); flex-shrink:0; }
+    .account-info { min-width:0; }
+    .account-company { font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .account-name { font-size:12px; color:var(--text3); margin-top:1px; }
+    .back-link { display:inline-block; margin-bottom:16px; font-size:13px; color:var(--blue); cursor:pointer; background:none; border:none; padding:0; }
   </style>
 </head>
 <body>
@@ -68,6 +75,72 @@ if (stored) {
   } catch(_) {}
 }
 
+let _pendingEmail = null, _pendingPassword = null;
+
+async function doLogin(email, password, user_id) {
+  const res = await fetch("/api/crm/portal-login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, user_id }),
+  });
+  const data = await res.json();
+  return { ok: res.ok, data };
+}
+
+function showSelectionScreen(accounts) {
+  const card = document.querySelector(".card");
+  card.innerHTML = `
+    <button class="back-link" id="backBtn">← Back</button>
+    <div class="logo">
+      <div class="logo-dot">SC</div>
+      <h1>Choose an account</h1>
+      <p>Your email is linked to multiple companies. Select one to continue.</p>
+    </div>
+    <div id="accountList">
+      ${accounts.map(a => `
+        <button class="account-btn" data-uid="${a.id}">
+          <div class="account-av">${(a.company_name||"?")[0].toUpperCase()}</div>
+          <div class="account-info">
+            <div class="account-company">${esc(a.company_name)}</div>
+            <div class="account-name">${esc(a.name)}</div>
+          </div>
+        </button>`).join("")}
+    </div>
+    <div class="error" id="selErr" style="display:none"></div>
+  `;
+
+  document.getElementById("backBtn").onclick = () => window.location.reload();
+
+  document.querySelectorAll(".account-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      document.querySelectorAll(".account-btn").forEach(b => b.disabled = true);
+      const selErr = document.getElementById("selErr");
+      selErr.style.display = "none";
+      try {
+        const { ok, data } = await doLogin(_pendingEmail, _pendingPassword, btn.dataset.uid);
+        if (!ok || !data.session_token) {
+          selErr.textContent = data.error || "Something went wrong. Please try again.";
+          selErr.style.display = "block";
+          document.querySelectorAll(".account-btn").forEach(b => b.disabled = false);
+          return;
+        }
+        localStorage.setItem("portal_session", JSON.stringify({
+          token: data.session_token,
+          user: data.user,
+          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        }));
+        window.location.href = "/systems/crm/portal-customer.html";
+      } catch(_) {
+        selErr.textContent = "Connection error. Please try again.";
+        selErr.style.display = "block";
+        document.querySelectorAll(".account-btn").forEach(b => b.disabled = false);
+      }
+    });
+  });
+}
+
+function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
 document.getElementById("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const btn = document.getElementById("loginBtn");
@@ -80,18 +153,20 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
   const password = document.getElementById("password").value;
 
   try {
-    const res = await fetch("/api/crm/portal-login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    const data = await res.json();
+    const { ok, data } = await doLogin(email, password);
 
-    if (!res.ok) {
+    if (!ok) {
       err.textContent = data.error || "Invalid email or password.";
       err.style.display = "block";
       btn.disabled = false;
       btn.textContent = "Sign In";
+      return;
+    }
+
+    if (data.requires_selection) {
+      _pendingEmail = email;
+      _pendingPassword = password;
+      showSelectionScreen(data.accounts);
       return;
     }
 
