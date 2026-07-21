@@ -15,15 +15,20 @@ const MAX_SIZE = 15 * 1024 * 1024; // matches the presence-fire-safety-logos buc
 export async function onRequestPost(context) {
   const { request, env } = context;
   try {
+    // Parse the multipart body before any other awaited network call — the
+    // permission check below is itself a round-trip to Supabase, and
+    // reading the body after that (rather than first) produced "No initial
+    // boundary string" in the field, consistent with the request's body
+    // stream not surviving that extra delay in the Workers runtime.
+    const form = await request.formData();
+    const file = form.get('file');
+    if (!file || typeof file === 'string') return json({ error: 'file is required' }, 400);
+
     const profile = await getCallerProfile(request, env);
     if (!profile) return json({ error: 'Unauthorised' }, 401);
 
     const allowed = await hasPermission(env, profile.token, profile.company_id, 'presence.manage_badges');
     if (!allowed) return json({ error: 'Forbidden' }, 403);
-
-    const form = await request.formData();
-    const file = form.get('file');
-    if (!file || typeof file === 'string') return json({ error: 'file is required' }, 400);
 
     const ext = ALLOWED_TYPES[file.type];
     if (!ext) return json({ error: 'Only JPEG, PNG, WebP, or SVG images are allowed' }, 400);
