@@ -42,22 +42,23 @@ export async function onRequestPost({ request, env }) {
     user = rows.find(r => r.id === selectedUserId);
     if (!user) return new Response(JSON.stringify({ error: 'Invalid selection' }), { status: 401, headers: CORS });
   } else {
-    // Multiple accounts — fetch company names and ask the client to pick
-    const companyIds = rows.map(r => r.crm_company_id).filter(Boolean);
-    const companyNames = {};
-    if (companyIds.length) {
+    // Multiple accounts — fetch host company names (tenant) from the companies table
+    const tenantIds = [...new Set(rows.map(r => r.tenant_id).filter(Boolean))];
+    const tenantNames = {};
+    if (tenantIds.length) {
       const cRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/crm_companies?id=in.(${companyIds.join(',')})&select=id,name`,
+        `${SUPABASE_URL}/rest/v1/companies?id=in.(${tenantIds.join(',')})&select=id,name`,
         { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
       );
       const companies = await cRes.json();
-      companies.forEach(c => { companyNames[c.id] = c.name; });
+      companies.forEach(c => { tenantNames[c.id] = c.name; });
     }
     const accounts = rows.map(r => ({
       id: r.id,
       name: r.name,
+      tenant_id: r.tenant_id,
       crm_company_id: r.crm_company_id,
-      company_name: r.crm_company_id ? (companyNames[r.crm_company_id] || 'Unknown Company') : 'No company linked',
+      company_name: r.tenant_id ? (tenantNames[r.tenant_id] || 'Unknown') : 'Unknown',
     }));
     return new Response(JSON.stringify({ requires_selection: true, accounts }), { status: 200, headers: CORS });
   }
