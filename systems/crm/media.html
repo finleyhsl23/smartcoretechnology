@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Media Library — SmartCore CRM</title>
+  <link rel="stylesheet" href="/systems/crm/crm.css?v=3"/>
+  <style>
+    .breadcrumb { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text3); margin-bottom:20px; flex-wrap:wrap; }
+    .breadcrumb-item { cursor:pointer; color:var(--text3); transition:color .15s; }
+    .breadcrumb-item:hover { color:var(--text); }
+    .breadcrumb-item.active { color:var(--text); font-weight:600; cursor:default; }
+    .breadcrumb-sep { color:var(--line2); }
+
+    .folder-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; margin-bottom:24px; }
+    .folder-card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; cursor:pointer; transition:border-color .15s, background .15s; display:flex; flex-direction:column; gap:8px; position:relative; }
+    .folder-card:hover { border-color:var(--blue); background:var(--card2); }
+    .folder-icon { font-size:32px; line-height:1; }
+    .folder-name { font-weight:700; font-size:13px; word-break:break-word; line-height:1.3; }
+    .folder-meta { font-size:11px; color:var(--text3); }
+    .folder-del { position:absolute; top:8px; right:8px; background:none; border:none; color:var(--text3); cursor:pointer; font-size:14px; padding:2px 4px; border-radius:4px; opacity:0; transition:opacity .15s; }
+    .folder-card:hover .folder-del { opacity:1; }
+    .folder-del:hover { color:var(--bad); }
+
+    .media-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
+    .media-card { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; cursor:pointer; transition:border-color .15s; position:relative; }
+    .media-card:hover { border-color:var(--blue); }
+    .media-thumb { width:100%; aspect-ratio:16/10; object-fit:cover; display:block; background:var(--card2); }
+    .media-thumb-placeholder { width:100%; aspect-ratio:16/10; display:flex; align-items:center; justify-content:center; font-size:36px; background:var(--card2); }
+    .media-info { padding:10px 12px; }
+    .media-name { font-weight:600; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .media-size { font-size:11px; color:var(--text3); margin-top:2px; }
+    .media-del { position:absolute; top:6px; right:6px; background:rgba(0,0,0,.6); border:none; color:#fff; cursor:pointer; font-size:12px; padding:3px 7px; border-radius:6px; opacity:0; transition:opacity .15s; }
+    .media-card:hover .media-del { opacity:1; }
+
+    .upload-zone { border:2px dashed var(--line); border-radius:12px; padding:40px; text-align:center; cursor:pointer; transition:border-color .2s, background .2s; margin-bottom:24px; }
+    .upload-zone.drag-over { border-color:var(--blue); background:var(--card2); }
+    .upload-zone:hover { border-color:var(--text3); }
+    .upload-zone input { display:none; }
+
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; }
+    .modal { background:var(--card); border:1px solid var(--line); border-radius:16px; width:100%; max-width:500px; }
+    .modal-header { padding:20px 24px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; }
+    .modal-body { padding:20px 24px; }
+    .modal-footer { padding:16px 24px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px; }
+
+    .viewer-overlay { position:fixed; inset:0; background:rgba(0,0,0,.9); z-index:300; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+    .viewer-close { position:absolute; top:20px; right:20px; background:rgba(255,255,255,.1); border:none; color:#fff; font-size:18px; cursor:pointer; padding:8px 12px; border-radius:8px; }
+    .viewer-img { max-width:90vw; max-height:80vh; border-radius:8px; object-fit:contain; }
+    .viewer-video { max-width:90vw; max-height:80vh; border-radius:8px; }
+    .viewer-actions { margin-top:16px; display:flex; gap:10px; }
+    .viewer-btn { background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.2); color:#fff; padding:8px 18px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600; }
+
+    .progress-bar { height:4px; background:var(--line); border-radius:2px; overflow:hidden; margin-top:8px; }
+    .progress-fill { height:100%; background:var(--blue); border-radius:2px; transition:width .3s; }
+  </style>
+</head>
+<body>
+<div class="crm-shell">
+  <nav class="crm-sidebar" id="crmNav"></nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="crm-main">
+    <div class="crm-topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">Media Library</div>
+      <div class="topbar-actions">
+        <button class="topbar-btn" id="themeToggle">☀️</button>
+        <button class="topbar-btn" id="logoutBtn">🚪</button>
+      </div>
+    </div>
+    <div class="crm-content" id="content">
+      <div class="loading-spinner"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap"></div>
+<div id="modalWrap"></div>
+<div id="viewerWrap"></div>
+
+<script type="module">
+import { requireCRMAccess, tierHasFeature } from "/systems/crm/shared/auth.js?v=3";
+import { renderNav, initMobileNav, initTopbar } from "/systems/crm/shared/nav.js?v=11";
+import { initTheme } from "/systems/crm/shared/theme.js";
+import { esc, toast, tierGate } from "/systems/crm/shared/ui.js";
+
+initTheme();
+
+let profile, tier;
+
+try {
+  ({ profile, tier } = await requireCRMAccess());
+  renderNav("media", profile, tier);
+  initMobileNav();
+  initTopbar(profile);
+
+  if (!tierHasFeature(tier, "portal")) {
+    document.getElementById("content").innerHTML = tierGate("portal");
+  } else {
+    await renderMedia();
+  }
+} catch(e) { if (!e.message.includes("CRM not enabled") && !e.message.includes("session")) toast("bad","Error",e.message); }
+
+function fileSize(b) {
+  if (!b) return "";
+  if (b < 1024) return b + "B";
+  if (b < 1048576) return Math.round(b/1024) + "KB";
+  return (b/1048576).toFixed(1) + "MB";
+}
+function mediaIcon(type) {
+  if (!type) return "📄";
+  if (type.startsWith("image")) return "🖼️";
+  if (type.startsWith("video")) return "🎬";
+  return "📄";
+}
+function isImage(type) { return type?.startsWith("image"); }
+function isVideo(type) { return type?.startsWith("video"); }
+
+async function api(action, extra = {}) {
+  const { sb } = await import("/systems/crm/shared/supabase.js");
+  const { data: { session } } = await sb().auth.getSession();
+  const token = session?.access_token || "";
+  const res = await fetch("/api/crm/media", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action, ...extra }),
+  });
+  return res.json();
+}
+
+// ── State ──────────────────────────────────────────────────────────────────
+let companies = [];
+let crumbs = []; // [{id, name, type: 'root'|'company'|'folder'}]
+
+async function renderMedia() {
+  const { companies: cos } = await api("list_companies");
+  companies = cos || [];
+  crumbs = [{ id: null, name: "All Companies", type: "root" }];
+  await renderLevel();
+}
+
+async function renderLevel() {
+  const cur = crumbs[crumbs.length - 1];
+
+  let foldersPromise, filesPromise;
+  if (cur.type === "root") {
+    // Show company tiles
+    renderCompanyLevel();
+    return;
+  } else if (cur.type === "company") {
+    foldersPromise = api("list_folders", { company_id: cur.id });
+    filesPromise = Promise.resolve({ files: [] });
+  } else {
+    foldersPromise = api("list_folders", { parent_folder_id: cur.id });
+    filesPromise = api("list_files", { folder_id: cur.id });
+  }
+
+  const [fRes, fiRes] = await Promise.all([foldersPromise, filesPromise]);
+  const folders = fRes.folders || [];
+  const files = fiRes.files || [];
+
+  const content = document.getElementById("content");
+  content.innerHTML = buildBreadcrumb() + `
+    <div class="page-header" style="margin-bottom:16px">
+      <div class="page-header-left">
+        <h1>${esc(cur.name)}</h1>
+        <p class="text-muted text-sm">${folders.length} folder${folders.length!==1?"s":""}${cur.type!=="company"?" · "+files.length+" file"+(files.length!==1?"s":""):""}</p>
+      </div>
+      <div class="page-header-actions" style="gap:8px">
+        <button class="btn" id="newFolderBtn">+ New Folder</button>
+        ${cur.type === "folder" ? `<button class="btn btn-primary" id="uploadBtn">↑ Upload</button>` : ""}
+      </div>
+    </div>
+
+    ${cur.type === "folder" ? `
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="fileInput" multiple accept="image/*,video/*"/>
+        <div style="font-size:32px;margin-bottom:8px">📤</div>
+        <div style="font-weight:700;margin-bottom:4px">Drop files here or click to upload</div>
+        <div class="text-sm text-muted">Images and videos up to 100MB</div>
+        <div id="uploadProgress" style="display:none;margin-top:12px"></div>
+      </div>` : ""}
+
+    ${folders.length ? `
+      <div style="margin-bottom:8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text3)">Folders</div>
+      <div class="folder-grid">
+        ${folders.map(f => `
+          <div class="folder-card" data-folder-id="${f.id}" data-folder-name="${esc(f.name)}">
+            <button class="folder-del" data-del-folder="${f.id}">✕</button>
+            <div class="folder-icon">📁</div>
+            <div class="folder-name">${esc(f.name)}</div>
+          </div>`).join("")}
+      </div>` : ""}
+
+    ${!folders.length && cur.type === "company" ? `
+      <div class="card" style="text-align:center;padding:40px">
+        <div style="font-size:40px;margin-bottom:12px">📁</div>
+        <h3>No folders yet</h3>
+        <p class="text-muted text-sm">Create a folder to start organising media files.</p>
+      </div>` : ""}
+
+    ${cur.type === "folder" && files.length ? `
+      <div style="margin-bottom:8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text3)">Files</div>
+      <div class="media-grid">
+        ${files.map(f => `
+          <div class="media-card" data-file-id="${f.id}" data-file-type="${esc(f.file_type||"")}">
+            <button class="media-del" data-del-file="${f.id}">✕</button>
+            ${isImage(f.file_type)
+              ? `<div class="media-thumb-placeholder" data-file-id="${f.id}">🖼️</div>`
+              : `<div class="media-thumb-placeholder">${mediaIcon(f.file_type)}</div>`}
+            <div class="media-info">
+              <div class="media-name" title="${esc(f.name)}">${esc(f.name)}</div>
+              <div class="media-size">${fileSize(f.file_size)}</div>
+            </div>
+          </div>`).join("")}
+      </div>` : ""}
+
+    ${cur.type === "folder" && !files.length && !folders.length ? `
+      <div style="text-align:center;padding:40px;color:var(--text3)">
+        <div style="font-size:40px;margin-bottom:12px">🖼️</div>
+        <p>No files yet. Upload images or videos above.</p>
+      </div>` : ""}
+  `;
+
+  bindLevelEvents(cur);
+}
+
+function renderCompanyLevel() {
+  const content = document.getElementById("content");
+  content.innerHTML = `
+    <div class="page-header" style="margin-bottom:16px">
+      <div class="page-header-left">
+        <h1>Media Library</h1>
+        <p class="text-muted text-sm">Select a company to manage their media</p>
+      </div>
+    </div>
+    ${companies.length === 0
+      ? `<div class="card" style="text-align:center;padding:40px"><div style="font-size:40px;margin-bottom:12px">🏢</div><h3>No companies found</h3><p class="text-muted text-sm">Add companies first to create media folders.</p></div>`
+      : `<div class="folder-grid">
+          ${companies.map(c => `
+            <div class="folder-card" data-company-id="${c.id}" data-company-name="${esc(c.name)}">
+              <div class="folder-icon">🏢</div>
+              <div class="folder-name">${esc(c.name)}</div>
+            </div>`).join("")}
+        </div>`}
+  `;
+
+  document.querySelectorAll("[data-company-id]").forEach(el => {
+    el.addEventListener("click", () => {
+      crumbs.push({ id: el.dataset.companyId, name: el.dataset.companyName, type: "company" });
+      renderLevel();
+    });
+  });
+}
+
+function buildBreadcrumb() {
+  return `<div class="breadcrumb">
+    ${crumbs.map((c, i) => {
+      const isLast = i === crumbs.length - 1;
+      return `${i > 0 ? '<span class="breadcrumb-sep">›</span>' : ''}
+        <span class="breadcrumb-item${isLast ? " active" : ""}" data-crumb="${i}">${esc(c.name)}</span>`;
+    }).join("")}
+  </div>`;
+}
+
+function bindLevelEvents(cur) {
+  document.querySelectorAll("[data-crumb]").forEach(el => {
+    el.addEventListener("click", () => {
+      const idx = parseInt(el.dataset.crumb);
+      crumbs = crumbs.slice(0, idx + 1);
+      renderLevel();
+    });
+  });
+
+  document.getElementById("newFolderBtn")?.addEventListener("click", () => showNewFolderModal(cur));
+
+  document.querySelectorAll("[data-folder-id]").forEach(el => {
+    el.addEventListener("click", (e) => {
+      if (e.target.closest("[data-del-folder]")) return;
+      crumbs.push({ id: el.dataset.folderId, name: el.dataset.folderName, type: "folder" });
+      renderLevel();
+    });
+  });
+
+  document.querySelectorAll("[data-del-folder]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm("Delete this folder and all its files?")) return;
+      const res = await api("delete_folder", { folder_id: btn.dataset.delFolder });
+      if (res.error) { toast("bad", res.error); return; }
+      toast("ok", "Folder deleted");
+      renderLevel();
+    });
+  });
+
+  document.querySelectorAll("[data-file-id]").forEach(card => {
+    card.addEventListener("click", (e) => {
+      if (e.target.closest("[data-del-file]")) return;
+      openViewer(card.dataset.fileId, card.dataset.fileType);
+    });
+  });
+
+  document.querySelectorAll("[data-del-file]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm("Delete this file?")) return;
+      const res = await api("delete_file", { file_id: btn.dataset.delFile });
+      if (res.error) { toast("bad", res.error); return; }
+      toast("ok", "File deleted");
+      renderLevel();
+    });
+  });
+
+  // Upload
+  const zone = document.getElementById("uploadZone");
+  const fileInput = document.getElementById("fileInput");
+  const uploadBtn = document.getElementById("uploadBtn");
+
+  if (zone) {
+    zone.addEventListener("click", (e) => { if (!e.target.closest("button")) fileInput.click(); });
+    uploadBtn?.addEventListener("click", () => fileInput.click());
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag-over"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
+    zone.addEventListener("drop", (e) => { e.preventDefault(); zone.classList.remove("drag-over"); handleFiles(e.dataTransfer.files, cur.id); });
+    fileInput.addEventListener("change", () => { if (fileInput.files.length) handleFiles(fileInput.files, cur.id); });
+  }
+}
+
+async function handleFiles(fileList, folderId) {
+  const progressWrap = document.getElementById("uploadProgress");
+  progressWrap.style.display = "block";
+  let done = 0;
+  const total = fileList.length;
+
+  for (const file of fileList) {
+    progressWrap.innerHTML = `<div style="font-size:13px;margin-bottom:6px">Uploading ${esc(file.name)} (${done+1}/${total})</div><div class="progress-bar"><div class="progress-fill" style="width:0%" id="pFill"></div></div>`;
+
+    try {
+      const { upload_url, storage_path, error } = await api("create_upload_url", {
+        folder_id: folderId, filename: file.name, file_type: file.type,
+      });
+      if (error) { toast("bad", error); done++; continue; }
+
+      const xhr = new XMLHttpRequest();
+      await new Promise((resolve, reject) => {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            document.getElementById("pFill").style.width = Math.round(e.loaded/e.total*100) + "%";
+          }
+        };
+        xhr.onload = () => resolve();
+        xhr.onerror = () => reject();
+        xhr.open("PUT", upload_url);
+        xhr.setRequestHeader("Content-Type", file.type);
+        xhr.send(file);
+      });
+
+      await api("confirm_upload", {
+        folder_id: folderId, name: file.name, file_type: file.type, file_size: file.size, storage_path,
+      });
+      done++;
+    } catch {
+      toast("bad", `Failed to upload ${file.name}`);
+      done++;
+    }
+  }
+
+  progressWrap.style.display = "none";
+  toast("ok", `${done} file${done !== 1 ? "s" : ""} uploaded`);
+  renderLevel();
+}
+
+async function openViewer(fileId, fileType) {
+  const { url, file, error } = await api("get_signed_url", { file_id: fileId });
+  if (error || !url) { toast("bad", "Could not load file"); return; }
+
+  const viewer = document.getElementById("viewerWrap");
+  viewer.innerHTML = `
+    <div class="viewer-overlay" id="viewerOverlay">
+      <button class="viewer-close" id="viewerClose">✕</button>
+      <div style="text-align:center">
+        ${isImage(fileType)
+          ? `<img src="${url}" class="viewer-img" alt="${esc(file.name)}"/>`
+          : isVideo(fileType)
+            ? `<video src="${url}" class="viewer-video" controls autoplay></video>`
+            : `<div style="color:#fff;font-size:18px;padding:40px">${mediaIcon(fileType)} ${esc(file.name)}</div>`}
+        <div style="color:rgba(255,255,255,.7);font-size:13px;margin-top:12px">${esc(file.name)}</div>
+      </div>
+      <div class="viewer-actions">
+        <a href="${url}" download="${esc(file.name)}" class="viewer-btn">⬇ Download</a>
+        <button class="viewer-btn" id="viewerClose2">Close</button>
+      </div>
+    </div>`;
+
+  const close = () => { viewer.innerHTML = ""; };
+  document.getElementById("viewerClose").onclick = close;
+  document.getElementById("viewerClose2").onclick = close;
+  document.getElementById("viewerOverlay").onclick = (e) => { if (e.target.id === "viewerOverlay") close(); };
+}
+
+function showNewFolderModal(cur) {
+  const m = document.getElementById("modalWrap");
+  m.innerHTML = `
+    <div class="modal-overlay" id="mOverlay">
+      <div class="modal">
+        <div class="modal-header"><h2 style="font-size:15px">New Folder</h2><button class="btn" id="closeModal">✕</button></div>
+        <div class="modal-body">
+          <label class="form-label">Folder Name *</label>
+          <input class="form-control" id="folderName" placeholder="e.g. Project Photos" autofocus/>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="cancelBtn">Cancel</button>
+          <button class="btn btn-primary" id="createBtn">Create</button>
+        </div>
+      </div>
+    </div>`;
+
+  const close = () => { m.innerHTML = ""; };
+  document.getElementById("closeModal").onclick = close;
+  document.getElementById("cancelBtn").onclick = close;
+  document.getElementById("mOverlay").onclick = (e) => { if (e.target.id === "mOverlay") close(); };
+
+  document.getElementById("createBtn").onclick = async () => {
+    const name = document.getElementById("folderName").value.trim();
+    if (!name) { toast("bad", "Name required"); return; }
+    const payload = { name };
+    if (cur.type === "company") payload.company_id = cur.id;
+    if (cur.type === "folder") payload.parent_folder_id = cur.id;
+    const res = await api("create_folder", payload);
+    if (res.error) { toast("bad", res.error); return; }
+    close();
+    toast("ok", "Folder created");
+    renderLevel();
+  };
+
+  document.getElementById("folderName").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("createBtn").click();
+  });
+}
+</script>
+</body>
+</html>

@@ -20,6 +20,7 @@ const NAV_LINKS = [
   { id: "leaderboard",icon: "🏆", label: "Leaderboard",    href: "/systems/crm/leaderboard.html",tier: "professional", section: "features", featureFlag: "leaderboard" },
   // Customer
   { id: "portal",     icon: "🌐", label: "Customer Portal", href: "/systems/crm/portal.html",     tier: "business",     section: "customer" },
+  { id: "media",      icon: "🖼️", label: "Media Library",   href: "/systems/crm/media.html",      tier: "business",     section: "customer" },
   { id: "tickets",    icon: "🎫", label: "Tickets",         href: "/systems/crm/tickets.html",    tier: "professional", section: "customer" },
   { id: "messaging",  icon: "💬", label: "Messaging",       href: "/systems/crm/messaging.html",  tier: "business",     section: "customer" },
   { id: "projects",   icon: "📋", label: "Projects",        href: "/systems/crm/projects.html",   tier: "business",     section: "customer" },

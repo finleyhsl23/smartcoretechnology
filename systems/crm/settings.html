@@ -231,6 +231,39 @@ function renderSettings() {
           </div>
         </div>
       </div>` : ""}
+
+      ${tierHasFeature(tier, "portal") ? `
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><h2>📋 Staff Directory</h2></div>
+        <div class="card-body" style="display:grid;gap:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:14px;background:var(--card2);border-radius:var(--r2)">
+            <div>
+              <div style="font-weight:600">Enable Staff Directory</div>
+              <div class="text-sm text-muted">Show a staff directory on the customer portal for your clients to see.</div>
+            </div>
+            ${(profile.role === "owner" || profile.role === "admin") ? `
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <div id="dirToggleWrap" style="position:relative;width:44px;height:24px">
+                <input type="checkbox" id="dirToggle" ${settings?.directory_enabled ? "checked" : ""} style="opacity:0;width:0;height:0;position:absolute">
+                <div id="dirTrack" style="position:absolute;inset:0;border-radius:99px;background:${settings?.directory_enabled ? "var(--blue)" : "var(--line)"};transition:background .2s"></div>
+                <div id="dirThumb" style="position:absolute;top:3px;left:${settings?.directory_enabled ? "23px" : "3px"};width:18px;height:18px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>
+              </div>
+              <span id="dirLabel" style="font-size:13px;font-weight:600;color:${settings?.directory_enabled ? "var(--blue)" : "var(--text3)"}">${settings?.directory_enabled ? "On" : "Off"}</span>
+            </label>` : `
+            <span class="badge badge-grey">${settings?.directory_enabled ? "On" : "Off"} — admin only</span>`}
+          </div>
+
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div style="font-weight:600;font-size:13px">Directory Entries</div>
+              <button class="btn btn-sm btn-primary" id="addDirectoryBtn">+ Add Person</button>
+            </div>
+            <div id="directoryList" style="display:grid;gap:8px">
+              <div class="text-muted text-sm" style="padding:8px">Loading…</div>
+            </div>
+          </div>
+        </div>
+      </div>` : ""}
     </div>`;
 
   bindEvents();
@@ -608,6 +641,125 @@ function bindEvents() {
     toggleTheme();
     document.getElementById("themeToggleSettings").textContent = getTheme() === "dark" ? "☀️ Switch to Light" : "🌙 Switch to Dark";
   });
+
+  // Directory toggle + entries
+  document.getElementById("dirToggle")?.addEventListener("change", async (e) => {
+    const enabled = e.target.checked;
+    document.getElementById("dirTrack").style.background = enabled ? "var(--blue)" : "var(--line)";
+    document.getElementById("dirThumb").style.left = enabled ? "23px" : "3px";
+    document.getElementById("dirLabel").style.color = enabled ? "var(--blue)" : "var(--text3)";
+    document.getElementById("dirLabel").textContent = enabled ? "On" : "Off";
+    try {
+      const { data: { session: s } } = await sb().auth.getSession();
+      await fetch("/api/crm/media", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.access_token}` },
+        body: JSON.stringify({ action: "toggle_directory", enabled }),
+      });
+      settings = { ...settings, directory_enabled: enabled };
+      toast("ok", enabled ? "Directory enabled" : "Directory disabled");
+    } catch(err) { toast("bad", "Error"); }
+  });
+
+  if (document.getElementById("directoryList")) {
+    loadDirectoryEntries();
+    document.getElementById("addDirectoryBtn")?.addEventListener("click", () => showDirectoryModal(null));
+  }
+
+  async function loadDirectoryEntries() {
+    const listEl = document.getElementById("directoryList");
+    if (!listEl) return;
+    const { data: { session: s } } = await sb().auth.getSession();
+    const res = await fetch("/api/crm/media", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.access_token}` },
+      body: JSON.stringify({ action: "list_directory" }),
+    });
+    const { entries } = await res.json();
+    if (!entries?.length) {
+      listEl.innerHTML = `<div class="text-muted text-sm" style="padding:8px">No entries yet. Add people to your directory.</div>`;
+      return;
+    }
+    listEl.innerHTML = entries.map(e => `
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card2);border-radius:var(--r2);border:1px solid var(--line)">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(30,92,255,.15);border:1px solid rgba(30,92,255,.3);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--blue);flex-shrink:0">${esc((e.name||"?").split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase())}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:13px">${esc(e.name)}</div>
+          <div class="text-sm text-muted">${esc(e.job_title||"")}${e.email?` · ${esc(e.email)}`:""}</div>
+        </div>
+        <button class="btn btn-sm" data-edit-dir="${esc(JSON.stringify(e).replace(/"/g,'&quot;'))}">Edit</button>
+        <button class="btn btn-sm btn-danger" data-del-dir="${e.id}">Remove</button>
+      </div>`).join("");
+
+    listEl.querySelectorAll("[data-del-dir]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Remove this person from the directory?")) return;
+        const s2 = (await sb().auth.getSession()).data.session;
+        await fetch("/api/crm/media", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${s2.access_token}` },
+          body: JSON.stringify({ action: "delete_directory_entry", id: btn.dataset.delDir }),
+        });
+        toast("ok", "Removed");
+        loadDirectoryEntries();
+      });
+    });
+
+    listEl.querySelectorAll("[data-edit-dir]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        try { showDirectoryModal(JSON.parse(btn.dataset.editDir.replace(/&quot;/g,'"'))); } catch(_) {}
+      });
+    });
+  }
+
+  function showDirectoryModal(entry) {
+    const m = document.getElementById("modalWrap") || (() => { const d=document.createElement("div");d.id="modalWrap";document.body.appendChild(d);return d; })();
+    m.innerHTML = `
+      <div class="modal-overlay" id="dOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px">
+        <div style="background:var(--card);border:1px solid var(--line);border-radius:16px;width:100%;max-width:420px">
+          <div style="padding:20px 24px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+            <h2 style="font-size:15px">${entry ? "Edit Person" : "Add to Directory"}</h2>
+            <button class="btn" id="dClose">✕</button>
+          </div>
+          <div style="padding:20px 24px;display:grid;gap:12px">
+            <div><label class="form-label">Full Name *</label><input class="form-control" id="dName" value="${esc(entry?.name||"")}" placeholder="e.g. Jane Smith"/></div>
+            <div><label class="form-label">Job Title</label><input class="form-control" id="dTitle" value="${esc(entry?.job_title||"")}" placeholder="e.g. Account Manager"/></div>
+            <div><label class="form-label">Email</label><input class="form-control" id="dEmail" type="email" value="${esc(entry?.email||"")}" placeholder="jane@company.com"/></div>
+            <div><label class="form-label">Phone</label><input class="form-control" id="dPhone" value="${esc(entry?.phone||"")}" placeholder="+44 7700 000000"/></div>
+          </div>
+          <div style="padding:16px 24px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px">
+            <button class="btn" id="dCancel">Cancel</button>
+            <button class="btn btn-primary" id="dSave">${entry ? "Save" : "Add"}</button>
+          </div>
+        </div>
+      </div>`;
+
+    const close = () => { m.innerHTML = ""; };
+    document.getElementById("dClose").onclick = close;
+    document.getElementById("dCancel").onclick = close;
+    document.getElementById("dOverlay").onclick = (e) => { if (e.target.id === "dOverlay") close(); };
+    document.getElementById("dSave").onclick = async () => {
+      const name = document.getElementById("dName").value.trim();
+      if (!name) { toast("bad", "Name required"); return; }
+      const s2 = (await sb().auth.getSession()).data.session;
+      const res = await fetch("/api/crm/media", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${s2.access_token}` },
+        body: JSON.stringify({
+          action: "save_directory_entry",
+          id: entry?.id || undefined,
+          name, job_title: document.getElementById("dTitle").value.trim(),
+          email: document.getElementById("dEmail").value.trim(),
+          phone: document.getElementById("dPhone").value.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.error) { toast("bad", data.error); return; }
+      close();
+      toast("ok", entry ? "Updated" : "Added to directory");
+      loadDirectoryEntries();
+    };
+  }
 
   // Leaderboard toggle
   document.getElementById("lbToggle")?.addEventListener("change", async (e) => {
