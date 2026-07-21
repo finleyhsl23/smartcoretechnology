@@ -33,7 +33,7 @@ export async function onRequestPatch(context) {
       'personal_email', 'personal_phone',
       'emergency_contact_1_name', 'emergency_contact_1_relationship', 'emergency_contact_1_phone',
       'emergency_contact_2_name', 'emergency_contact_2_relationship', 'emergency_contact_2_phone',
-      'dietary_requirements', 'accessibility_needs',
+      'dietary_requirements', 'accessibility_needs', 'profile_picture_url',
     ];
     const updateData = {};
     for (const k of allowed) {
