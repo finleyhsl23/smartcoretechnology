@@ -215,10 +215,6 @@ async function loadPortal() {
 }
 
 function showAddUserModal() {
-  const companyOptions = companiesList.map(c =>
-    `<option value="${c.id}">${esc(c.name)}</option>`
-  ).join("");
-
   document.getElementById("modalWrap").innerHTML = `
     <div class="modal-overlay" id="mOverlay">
       <div class="modal">
@@ -230,10 +226,11 @@ function showAddUserModal() {
           <div style="display:grid;gap:14px">
             <div>
               <label class="form-label">Company *</label>
-              <select class="form-control" id="puCompany">
-                <option value="">— Select a company —</option>
-                ${companyOptions}
-              </select>
+              <div style="position:relative">
+                <input class="form-control" id="puCompanyInput" placeholder="Type to search companies…" autocomplete="off"/>
+                <input type="hidden" id="puCompany"/>
+                <div id="puCompanyDropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--card);border:1px solid var(--line2);border-radius:10px;z-index:50;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.2)"></div>
+              </div>
             </div>
             <div>
               <label class="form-label">Customer Name</label>
@@ -265,6 +262,33 @@ function showAddUserModal() {
   document.getElementById("closeModal").onclick = close;
   document.getElementById("cancelBtn").onclick = close;
   document.getElementById("mOverlay").onclick = (e) => { if (e.target.id==="mOverlay") close(); };
+
+  // Company typeahead
+  const companyInput = document.getElementById("puCompanyInput");
+  const companyHidden = document.getElementById("puCompany");
+  const companyDropdown = document.getElementById("puCompanyDropdown");
+  companyInput.addEventListener("input", () => {
+    const q = companyInput.value.trim().toLowerCase();
+    companyHidden.value = "";
+    if (!q) { companyDropdown.style.display = "none"; return; }
+    const matches = companiesList.filter(c => c.name.toLowerCase().includes(q)).slice(0, 10);
+    if (!matches.length) { companyDropdown.style.display = "none"; return; }
+    companyDropdown.innerHTML = matches.map(c =>
+      `<div data-id="${c.id}" data-name="${esc(c.name)}" style="padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line)">${esc(c.name)}</div>`
+    ).join("");
+    companyDropdown.style.display = "block";
+    companyDropdown.querySelectorAll("[data-id]").forEach(row => {
+      row.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        companyHidden.value = row.dataset.id;
+        companyInput.value = row.dataset.name;
+        companyDropdown.style.display = "none";
+      });
+      row.addEventListener("mouseover", () => row.style.background = "var(--card2)");
+      row.addEventListener("mouseout", () => row.style.background = "");
+    });
+  });
+  companyInput.addEventListener("blur", () => { setTimeout(() => { companyDropdown.style.display = "none"; }, 150); });
 
   document.getElementById("genPwBtn").onclick = () => {
     const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789!@#$";
