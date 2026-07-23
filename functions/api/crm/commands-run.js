@@ -53,7 +53,7 @@ body{background:#06060e;font-family:-apple-system,BlinkMacSystemFont,'Inter',Hel
 .body{background:#0e0e18;padding:40px}
 .tag{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-bottom:20px;background:rgba(91,143,255,.12);color:#5b8fff;border:1px solid rgba(91,143,255,.22)}
 h1{font-size:28px;font-weight:800;color:#f5f5f7;letter-spacing:-.04em;line-height:1.2;margin-bottom:16px}
-.content{font-size:15px;color:#a0a0b8;line-height:1.8;white-space:pre-wrap}
+.content{font-size:15px;color:#a0a0b8;line-height:1.8}
 .section{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:24px;margin:24px 0}
 .section-label{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#52526e;margin-bottom:12px}
 .row{display:flex;gap:8px;margin-bottom:8px;font-size:13px}
@@ -76,7 +76,7 @@ h1{font-size:28px;font-weight:800;color:#f5f5f7;letter-spacing:-.04em;line-heigh
   <div class="body">
     <div class="tag">⚡ Automation</div>
     <h1>${esc(subject)}</h1>
-    ${bodyText ? `<p class="content">${bodyText}</p>` : ''}
+    ${bodyText ? `<p class="content">${bodyText.replace(/\n/g, '<br>')}</p>` : ''}
     ${(ctx.company_name || ctx.contact_name || ctx.quote_number || ctx.quote_title || ctx.quote_amount || ctx.trigger_value) ? `
     <div class="section">
       <div class="section-label">Details</div>
