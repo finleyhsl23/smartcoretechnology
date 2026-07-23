@@ -279,7 +279,7 @@ function openModal(id) {
           </div>
         </div>
 
-        <datalist id="prodList">${productsList.map(p => `<option value="${esc(p.name)}"/>`).join("")}</datalist>
+        <datalist id="prodList">${productsList.map(p => `<option value="${esc(p.name)}${p.sku ? ` (${esc(p.sku)})` : ""}"/>`).join("")}</datalist>
 
         <div class="section-title" style="margin-top:16px">Line Items</div>
         <div id="lineItems">
@@ -365,7 +365,10 @@ function openModal(id) {
   // Auto-fill price + show cost/uplift badge when a product is selected from the datalist
   overlay.querySelector("#lineItems").addEventListener("change", e => {
     if (!e.target.classList.contains("li-desc")) return;
-    const match = productsList.find(p => p.name.toLowerCase() === e.target.value.toLowerCase());
+    const match = productsList.find(p => {
+      const v = e.target.value.toLowerCase();
+      return p.name.toLowerCase() === v || (p.sku && `${p.name} (${p.sku})`.toLowerCase() === v);
+    });
     if (match && match.price != null) {
       const row = e.target.closest(".line-row");
       const priceInput = row.querySelector(".li-price");
