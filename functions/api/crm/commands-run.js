@@ -39,62 +39,145 @@ function buildEmailHtml(config, ctx) {
   const bodyText = fill(config.email_body || '');
   const preheader = fill(config.email_preheader || subject);
 
-  return `<!DOCTYPE html><html lang="en" bgcolor="#06060e"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const F = 'Arial,Helvetica,sans-serif';
+
+  function detailRow(label, value) {
+    if (!value) return '';
+    return `<tr>
+      <td width="130" style="padding:5px 0;font-size:13px;color:#52526e;font-family:${F};vertical-align:top;">${label}</td>
+      <td style="padding:5px 0;font-size:13px;color:#c0c0d4;font-weight:600;font-family:${F};vertical-align:top;">${value}</td>
+    </tr>`;
+  }
+
+  const detailRows = [
+    detailRow('Quote Number', ctx.quote_number ? esc(ctx.quote_number) : ''),
+    detailRow('Quote Title',  ctx.quote_title  ? esc(ctx.quote_title)  : ''),
+    detailRow('Amount',       ctx.quote_amount ? esc(ctx.quote_amount) : ''),
+    detailRow('Company',      ctx.company_name ? esc(ctx.company_name) : ''),
+    detailRow('Accepted By',  ctx.contact_name ? esc(ctx.contact_name) : ''),
+    detailRow('Contact Email',ctx.contact_email? esc(ctx.contact_email): ''),
+    detailRow('Status / Value', (ctx.trigger_label || ctx.trigger_value) ? esc(ctx.trigger_label || ctx.trigger_value) : ''),
+  ].join('');
+
+  const hasDetails = !!(ctx.company_name || ctx.contact_name || ctx.quote_number || ctx.quote_title || ctx.quote_amount || ctx.trigger_value);
+
+  const crmUrl = `${SITE}/systems/crm/`;
+
+  return `<!DOCTYPE html>
+<html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="color-scheme" content="dark"/>
+<!--[if mso]><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
 <title>${esc(subject)}</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:#06060e;font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;color:#e0e0ea;-webkit-font-smoothing:antialiased;margin:0;padding:0}
-.wrap{max-width:600px;margin:32px auto;border-radius:24px;overflow:hidden;border:1px solid rgba(255,255,255,.08);box-shadow:0 32px 80px rgba(0,0,0,.7)}
-.hdr{background:linear-gradient(135deg,#0b0b18 0%,#0f1529 60%,#0c1220 100%);padding:32px 40px;border-bottom:1px solid rgba(255,255,255,.07)}
-.logo{display:inline-flex;align-items:center;gap:12px}
-.logo-mark{width:42px;height:42px;border-radius:12px;display:block}
-.logo-name{font-size:17px;font-weight:800;color:#f5f5f7;letter-spacing:-.03em}
-.logo-tag{font-size:10px;color:rgba(255,255,255,.35);letter-spacing:.08em;text-transform:uppercase;margin-top:1px}
-.body{background:#0e0e18;padding:40px}
-.tag{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-bottom:20px;background:rgba(91,143,255,.12);color:#5b8fff;border:1px solid rgba(91,143,255,.22)}
-h1{font-size:28px;font-weight:800;color:#f5f5f7;letter-spacing:-.04em;line-height:1.2;margin-bottom:16px}
-.content{font-size:15px;color:#a0a0b8;line-height:1.8}
-.section{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:24px;margin:24px 0}
-.section-label{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#52526e;margin-bottom:12px}
-.row{display:flex;gap:8px;margin-bottom:8px;font-size:13px}
-.row-label{color:#52526e;min-width:120px;flex-shrink:0}
-.row-val{color:#c0c0d4;font-weight:500}
-.cta-btn{display:block;background:linear-gradient(135deg,#1e5cff,#1a7aff);color:#fff!important;text-decoration:none;text-align:center;font-size:15px;font-weight:700;padding:17px 28px;border-radius:14px;letter-spacing:-.01em;margin:24px 0;box-shadow:0 8px 24px rgba(30,92,255,.3)}
-.divider{height:1px;background:rgba(255,255,255,.06);margin:24px 0}
-.small{font-size:12px;color:#52526e;line-height:1.7}
-.ftr{padding:28px 40px;background:#09090f;border-top:1px solid rgba(255,255,255,.06);font-size:12px;color:#52526e;text-align:center;line-height:2}
-.ftr a{color:#5b8fff;text-decoration:none}
-</style></head><body bgcolor="#06060e" style="background:#06060e;margin:0;padding:0">
-<div style="display:none;max-height:0;overflow:hidden;font-size:0">${esc(preheader)}</div>
-<div class="wrap">
-  <div class="hdr">
-    <div class="logo">
-      <img src="https://smartcoretechnology.co.uk/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png" alt="SmartCore" class="logo-mark" width="42" height="42" style="border-radius:12px;display:block"/>
-      <div><div class="logo-name">SmartCore</div><div class="logo-tag">CRM</div></div>
-    </div>
-  </div>
-  <div class="body">
-    <div class="tag">⚡ Automation</div>
-    <h1>${esc(subject)}</h1>
-    ${bodyText ? `<p class="content">${bodyText.replace(/\n/g, '<br>')}</p>` : ''}
-    ${(ctx.company_name || ctx.contact_name || ctx.quote_number || ctx.quote_title || ctx.quote_amount || ctx.trigger_value) ? `
-    <div class="section">
-      <div class="section-label">Details</div>
-      ${ctx.quote_number ? `<div class="row"><span class="row-label">Quote Number</span><span class="row-val">${esc(ctx.quote_number)}</span></div>` : ''}
-      ${ctx.quote_title ? `<div class="row"><span class="row-label">Quote Title</span><span class="row-val">${esc(ctx.quote_title)}</span></div>` : ''}
-      ${ctx.quote_amount ? `<div class="row"><span class="row-label">Amount</span><span class="row-val">${esc(ctx.quote_amount)}</span></div>` : ''}
-      ${ctx.company_name ? `<div class="row"><span class="row-label">Company</span><span class="row-val">${esc(ctx.company_name)}</span></div>` : ''}
-      ${ctx.contact_name ? `<div class="row"><span class="row-label">Accepted By</span><span class="row-val">${esc(ctx.contact_name)}</span></div>` : ''}
-      ${ctx.contact_email ? `<div class="row"><span class="row-label">Contact Email</span><span class="row-val">${esc(ctx.contact_email)}</span></div>` : ''}
-      ${(ctx.trigger_label || ctx.trigger_value) ? `<div class="row"><span class="row-label">Status / Value</span><span class="row-val">${esc(ctx.trigger_label || ctx.trigger_value)}</span></div>` : ''}
-    </div>` : ''}
-    <a href="${SITE}/systems/crm/" class="cta-btn">Open SmartCore CRM →</a>
-    <div class="divider"></div>
-    <p class="small">This email was sent automatically by a SmartCore CRM command. To manage automations, visit the Commands page in your CRM.</p>
-  </div>
-  <div class="ftr">SmartCore Technology &bull; <a href="${SITE}">${SITE.replace('https://','')}</a><br>
-  <a href="mailto:support@smartcoretechnology.co.uk">support@smartcoretechnology.co.uk</a></div>
-</div></body></html>`;
+body,table,td{margin:0;padding:0;border:0}
+body{background:#06060e;font-family:${F}}
+img{border:0;display:block}
+a{color:#5b8fff}
+</style>
+</head>
+<body bgcolor="#06060e" style="margin:0;padding:0;background:#06060e;">
+<div style="display:none;max-height:0;overflow:hidden;font-size:0;color:#06060e;">${esc(preheader)}&nbsp;</div>
+
+<!-- Outer -->
+<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#06060e">
+<tr><td align="center" style="padding:32px 16px;">
+
+  <!-- Card -->
+  <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;border:1px solid #1e1e2e;">
+
+    <!-- Header -->
+    <tr>
+      <td bgcolor="#0b0b18" style="padding:32px 40px;border-bottom:1px solid #1a1a2a;">
+        <table cellpadding="0" cellspacing="0" border="0">
+          <tr>
+            <td style="padding-right:12px;vertical-align:middle;">
+              <img src="https://smartcoretechnology.co.uk/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png" alt="SC" width="42" height="42" style="border-radius:10px;display:block;"/>
+            </td>
+            <td style="vertical-align:middle;">
+              <div style="font-size:17px;font-weight:800;color:#f5f5f7;font-family:${F};letter-spacing:-0.03em;">SmartCore</div>
+              <div style="font-size:10px;color:#444460;letter-spacing:0.08em;text-transform:uppercase;font-family:${F};margin-top:2px;">CRM</div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+    <!-- Body -->
+    <tr>
+      <td bgcolor="#0e0e18" style="padding:40px;">
+
+        <!-- Badge -->
+        <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;">
+          <tr>
+            <td bgcolor="#0e0e18" style="padding:5px 14px;border:1px solid #2a3a6e;font-size:11px;font-weight:700;color:#5b8fff;letter-spacing:0.05em;text-transform:uppercase;font-family:${F};">
+              &#9889; AUTOMATION
+            </td>
+          </tr>
+        </table>
+
+        <!-- Subject -->
+        <p style="font-size:26px;font-weight:800;color:#f5f5f7;line-height:1.2;margin:0 0 20px;font-family:${F};">${esc(subject)}</p>
+
+        <!-- Body text -->
+        ${bodyText ? `<p style="font-size:15px;color:#a0a0b8;line-height:1.8;margin:0 0 24px;font-family:${F};">${bodyText.replace(/\n/g, '<br/>')}</p>` : ''}
+
+        <!-- Details section -->
+        ${hasDetails ? `
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;border:1px solid #1e1e2e;background:#090914;">
+          <tr><td style="padding:24px;">
+            <p style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#52526e;margin:0 0 14px;font-family:${F};">DETAILS</p>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+              ${detailRows}
+            </table>
+          </td></tr>
+        </table>` : ''}
+
+        <!-- CTA Button — VML for Outlook, normal anchor for everyone else -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:28px 0;">
+          <tr><td align="center">
+            <!--[if mso]>
+            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"
+              href="${crmUrl}" style="height:52px;v-text-anchor:middle;width:440px;" arcsize="26%"
+              strokecolor="#1e5cff" fillcolor="#1e5cff">
+              <w:anchorlock/>
+              <center style="color:#ffffff;font-family:${F};font-size:15px;font-weight:700;">Open SmartCore CRM &#8594;</center>
+            </v:roundrect>
+            <![endif]-->
+            <!--[if !mso]><!-->
+            <a href="${crmUrl}" style="display:inline-block;background:#1e5cff;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:16px 40px;border-radius:12px;font-family:${F};">Open SmartCore CRM &#8594;</a>
+            <!--<![endif]-->
+          </td></tr>
+        </table>
+
+        <!-- Divider -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+          <tr><td bgcolor="#1a1a2a" style="height:1px;font-size:0;line-height:0;"> </td></tr>
+        </table>
+
+        <!-- Small print -->
+        <p style="font-size:12px;color:#52526e;line-height:1.7;margin:0;font-family:${F};">This email was sent automatically by a SmartCore CRM command. To manage automations, visit the Commands page in your CRM.</p>
+
+      </td>
+    </tr>
+
+    <!-- Footer -->
+    <tr>
+      <td bgcolor="#09090f" style="padding:28px 40px;border-top:1px solid #1a1a2a;text-align:center;font-size:12px;color:#52526e;font-family:${F};line-height:2.2;">
+        SmartCore Technology &bull; <a href="${SITE}" style="color:#5b8fff;text-decoration:none;">${SITE.replace('https://','')}</a><br/>
+        <a href="mailto:support@smartcoretechnology.co.uk" style="color:#5b8fff;text-decoration:none;">support@smartcoretechnology.co.uk</a>
+      </td>
+    </tr>
+
+  </table>
+  <!-- /Card -->
+
+</td></tr>
+</table>
+</body>
+</html>`;
 }
 
 export async function onRequestPost(context) {
