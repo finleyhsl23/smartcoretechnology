@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="/systems/presence-fire-safety/shared/jsqr-lib.js"></script>
 </head>
 <body>
 <div class="pfs-shell">
@@ -78,7 +79,7 @@
   import { employees, badges, presence, settings, visitors, contractors } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
-  import { isBarcodeDetectorSupported, startQrScanner } from "/systems/presence-fire-safety/shared/qr.js";
+  import { isQrScanningSupported, startQrScanner } from "/systems/presence-fire-safety/shared/qr.js";
   import { renderPhotoCaptureStep } from "/systems/presence-fire-safety/shared/camera.js";
   import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
   import { enforceKioskGuard, initKioskToggle, renderKioskEvacuationBanner, isKioskModeActive } from "/systems/presence-fire-safety/shared/kiosk.js";
@@ -97,7 +98,7 @@
   let _canManageVisitors = false;
   let _canManageContractors = false;
   let _companySettings = null;
-  let _qrSupported = isBarcodeDetectorSupported();
+  let _qrSupported = isQrScanningSupported();
   let _scanner = null;          // { stop, switchCamera } while the scan tab is active
   let _selected = null;         // the identified employee { id, full_name, job_title, ... }
   let _currentStatus = null;    // 'in' | 'out' | null (unknown)
@@ -226,10 +227,12 @@
     _scanner = startQrScanner(video, {
       onDetect: (value) => onBadgeScanned(value),
       onError: (err) => {
-        if (err.message === "BARCODE_DETECTOR_UNSUPPORTED") {
+        if (err.message === "QR_SCANNING_UNSUPPORTED") {
           _qrSupported = false;
           toast("info", "QR scanning unavailable", "Your browser doesn't support camera-based scanning. Switched to manual lookup.");
           renderTabs("manual");
+        } else if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+          setInner("scanStatus", `<p class="form-error">Camera access was blocked. Allow camera access for this site, or use Manual Lookup instead.</p>`);
         } else {
           setInner("scanStatus", `<p class="form-error">Camera error: ${esc(err.message || "could not access camera")}. Try Manual Lookup instead.</p>`);
         }

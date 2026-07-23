@@ -1,10 +1,17 @@
 // QR badge scanning for Presence & Fire Safety.
-// Uses the native BarcodeDetector API where available; callers must always
-// provide a manual-entry fallback since BarcodeDetector is not universal
-// (notably absent in Firefox and Safari at time of writing).
+// Uses the native BarcodeDetector API where available (faster, no extra
+// decode work), and otherwise falls back to jsQR (shared/jsqr-lib.js,
+// vendored — see that file for license) decoding frames drawn to an
+// offscreen canvas. Between the two, camera-based scanning works in every
+// browser that can grant camera access, including Safari and Firefox.
 
 export function isBarcodeDetectorSupported() {
   return "BarcodeDetector" in window;
+}
+
+/** Whether camera-based QR scanning can work at all in this browser. */
+export function isQrScanningSupported() {
+  return isBarcodeDetectorSupported() || typeof window.jsQR === "function";
 }
 
 /**
@@ -23,19 +30,27 @@ export function isBarcodeDetectorSupported() {
 export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, facingMode = "environment" } = {}) {
   let stream = null;
   let detector = null;
+  let canvas = null;
+  let ctx = null;
   let rafId = null;
   let lastValue = null;
   let lastAt = 0;
   let currentFacing = facingMode;
   let stopped = false;
+  const useNative = isBarcodeDetectorSupported();
 
   async function start() {
-    if (!isBarcodeDetectorSupported()) {
-      onError?.(new Error("BARCODE_DETECTOR_UNSUPPORTED"));
+    if (!useNative && typeof window.jsQR !== "function") {
+      onError?.(new Error("QR_SCANNING_UNSUPPORTED"));
       return;
     }
     try {
-      detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+      if (useNative) {
+        detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+      } else {
+        canvas = document.createElement("canvas");
+        ctx = canvas.getContext("2d", { willReadFrequently: true });
+      }
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: currentFacing },
         audio: false,
@@ -52,9 +67,8 @@ export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, 
     if (stopped) return;
     try {
       if (videoEl.readyState >= 2) {
-        const codes = await detector.detect(videoEl);
-        if (codes.length) {
-          const value = codes[0].rawValue;
+        const value = useNative ? await detectNative() : detectWithJsQr();
+        if (value) {
           const now = Date.now();
           if (value !== lastValue || now - lastAt > debounceMs) {
             lastValue = value;
@@ -67,6 +81,25 @@ export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, 
       // Detection errors are usually transient (frame not ready) — don't stop the loop.
     }
     rafId = requestAnimationFrame(tick);
+  }
+
+  async function detectNative() {
+    const codes = await detector.detect(videoEl);
+    return codes.length ? codes[0].rawValue : null;
+  }
+
+  function detectWithJsQr() {
+    const w = videoEl.videoWidth;
+    const h = videoEl.videoHeight;
+    if (!w || !h) return null;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    ctx.drawImage(videoEl, 0, 0, w, h);
+    const frame = ctx.getImageData(0, 0, w, h);
+    const result = window.jsQR(frame.data, w, h, { inversionAttempts: "dontInvert" });
+    return result?.data || null;
   }
 
   function stop() {
