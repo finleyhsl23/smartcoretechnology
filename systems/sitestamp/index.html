@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Dashboard — SiteLens</title>
+  <title>Dashboard — SiteStamp</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/systems/sitelens/shared/sitelens.css"/>
+  <link rel="stylesheet" href="/systems/sitestamp/shared/sitestamp.css"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
 <body>
@@ -33,15 +33,15 @@
 <div id="toastwrap" aria-live="polite"></div>
 
 <script type="module">
-  import { requireSiteLensAccess, hasPermission } from "/systems/sitelens/shared/auth.js";
-  import { projects, media, tasks } from "/systems/sitelens/shared/api.js";
-  import { renderNav, initMobileNav, initTopbar } from "/systems/sitelens/shared/nav.js";
-  import { initTheme } from "/systems/sitelens/shared/theme.js";
+  import { requireSiteStampAccess, hasPermission } from "/systems/sitestamp/shared/auth.js";
+  import { projects, media, tasks } from "/systems/sitestamp/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitestamp/shared/nav.js";
+  import { initTheme } from "/systems/sitestamp/shared/theme.js";
   import {
     esc, timeAgo, initials,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
     offlineBanner, staleBadge, setInner,
-  } from "/systems/sitelens/shared/ui.js";
+  } from "/systems/sitestamp/shared/ui.js";
 
   initTheme();
 
@@ -50,7 +50,7 @@
   let _lastRefreshed = null;
 
   try {
-    const { profile } = await requireSiteLensAccess();
+    const { profile } = await requireSiteStampAccess();
     _profile = profile;
     _companyId = profile.company_id;
 
@@ -91,10 +91,10 @@
     const openTasks = myTasks.filter(t => t.status !== "done");
 
     const quickActions = [
-      { permission: "sitelens.capture_media", href: "capture.html", icon: "camera", label: "Capture Photo/Video" },
-      { permission: "sitelens.view_projects", href: "projects.html", icon: "folder-kanban", label: "View Projects" },
-      { permission: "sitelens.manage_projects", href: "projects.html?new=1", icon: "plus-circle", label: "New Project" },
-      { permission: "sitelens.view_projects", href: "tasks.html", icon: "check-square", label: "My Tasks" },
+      { permission: "sitestamp.capture_media", href: "capture.html", icon: "camera", label: "Capture Photo/Video" },
+      { permission: "sitestamp.view_projects", href: "projects.html", icon: "folder-kanban", label: "View Projects" },
+      { permission: "sitestamp.manage_projects", href: "projects.html?new=1", icon: "plus-circle", label: "New Project" },
+      { permission: "sitestamp.view_projects", href: "tasks.html", icon: "check-square", label: "My Tasks" },
     ].filter(a => hasPermission(a.permission));
 
     const html = `
@@ -126,7 +126,7 @@
           <a class="btn" href="projects.html">All Projects →</a>
         </div>
         ${recentMedia.length === 0
-          ? emptyState({ icon: "camera", title: "No photos or videos yet", message: "Captures from every project will show up here.", actionHtml: hasPermission("sitelens.capture_media") ? `<a class="btn btn-primary" href="capture.html">Capture your first photo</a>` : "" })
+          ? emptyState({ icon: "camera", title: "No photos or videos yet", message: "Captures from every project will show up here.", actionHtml: hasPermission("sitestamp.capture_media") ? `<a class="btn btn-primary" href="capture.html">Capture your first photo</a>` : "" })
           : `<div class="sl-gallery">${recentMedia.map(mediaTile).join("")}</div>`}
       </div>
 
@@ -149,7 +149,7 @@
       <div class="sl-media-tile" style="cursor:default">
         <div class="sl-media-type-badge"><i data-lucide="${m.media_type === 'video' ? 'video' : 'image'}"></i>${esc(m.media_type)}</div>
         <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-size:11px;text-align:center;padding:8px">
-          ${esc(m.sitelens_projects?.name || "Project")}
+          ${esc(m.sitestamp_projects?.name || "Project")}
         </div>
         <div class="sl-media-caption">${esc(timeAgo(m.taken_at))}</div>
       </div>`;
@@ -159,12 +159,12 @@
     const badge = { low: "badge-grey", normal: "badge-blue", high: "badge-red" }[t.priority] || "badge-grey";
     return `
       <div class="activity-row">
-        <div class="avatar avatar-sm">${esc(initials(t.sitelens_projects?.name || "?"))}</div>
+        <div class="avatar avatar-sm">${esc(initials(t.sitestamp_projects?.name || "?"))}</div>
         <div>
           <div class="activity-name">${esc(t.title)}</div>
           <div class="activity-meta">
             <span class="badge ${badge}">${esc(t.priority)}</span>
-            <span>${esc(t.sitelens_projects?.name || "")}</span>
+            <span>${esc(t.sitestamp_projects?.name || "")}</span>
           </div>
         </div>
         <div class="activity-time">${t.due_date ? esc(t.due_date) : ""}</div>
@@ -177,7 +177,7 @@
       <div class="sl-shell">
         <div class="sl-main" style="width:100%">
           <div class="sl-topbar">
-            <h1>SiteLens</h1>
+            <h1>SiteStamp</h1>
             <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
             <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
           </div>
@@ -192,7 +192,7 @@
     if (msg.includes("not enabled")) html = moduleDisabledState();
     else if (msg.includes("permission") || msg.includes("No access")) html = permissionDeniedState(msg);
     else if (msg.includes("profile") || msg.includes("session")) html = permissionDeniedState(msg || "Your account isn't set up for this module yet.");
-    else html = errorState({ title: "Couldn't load SiteLens", message: msg, retryId: "blockedRetry" });
+    else html = errorState({ title: "Couldn't load SiteStamp", message: msg, retryId: "blockedRetry" });
 
     setInner("content", html);
     document.getElementById("blockedRetry")?.addEventListener("click", () => window.location.reload());

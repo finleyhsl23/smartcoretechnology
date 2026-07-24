@@ -4,13 +4,13 @@ import { sb } from "./supabase.js";
 import { hasPermission } from "./auth.js";
 
 const NAV_LINKS = [
-  { id: "dashboard",   icon: "layout-dashboard", label: "Dashboard",   href: "/systems/sitelens/index.html" },
-  { id: "projects",    icon: "folder-kanban",    label: "Projects",    href: "/systems/sitelens/projects.html", permission: "sitelens.view_projects" },
-  { id: "capture",     icon: "camera",           label: "Capture",     href: "/systems/sitelens/capture.html", permission: "sitelens.capture_media" },
-  { id: "tasks",       icon: "check-square",     label: "Tasks",       href: "/systems/sitelens/tasks.html", permission: "sitelens.view_projects" },
-  { id: "checklists",  icon: "list-checks",      label: "Checklists",  href: "/systems/sitelens/checklists.html", permission: "sitelens.manage_checklists" },
-  { id: "team",        icon: "users",            label: "Team",        href: "/systems/sitelens/team.html", permission: "sitelens.manage_team" },
-  { id: "settings",    icon: "settings",         label: "Settings",    href: "/systems/sitelens/settings.html", permission: "sitelens.manage_settings" },
+  { id: "dashboard",   icon: "layout-dashboard", label: "Dashboard",   href: "/systems/sitestamp/index.html" },
+  { id: "projects",    icon: "folder-kanban",    label: "Projects",    href: "/systems/sitestamp/projects.html", permission: "sitestamp.view_projects" },
+  { id: "capture",     icon: "camera",           label: "Capture",     href: "/systems/sitestamp/capture.html", permission: "sitestamp.capture_media" },
+  { id: "tasks",       icon: "check-square",     label: "Tasks",       href: "/systems/sitestamp/tasks.html", permission: "sitestamp.view_projects" },
+  { id: "checklists",  icon: "list-checks",      label: "Checklists",  href: "/systems/sitestamp/checklists.html", permission: "sitestamp.manage_checklists" },
+  { id: "team",        icon: "users",            label: "Team",        href: "/systems/sitestamp/team.html", permission: "sitestamp.manage_team" },
+  { id: "settings",    icon: "settings",         label: "Settings",    href: "/systems/sitestamp/settings.html", permission: "sitestamp.manage_settings" },
 ];
 
 export function renderNav(currentPage, profile) {
@@ -24,9 +24,9 @@ export function renderNav(currentPage, profile) {
 
   nav.innerHTML = `
     <div class="sidebar-logo">
-      <div class="logo-dot">SL</div>
+      <div class="logo-dot">SS</div>
       <div class="logo-text">
-        <strong>SiteLens</strong>
+        <strong>SiteStamp</strong>
         <span>by SmartCore</span>
       </div>
     </div>

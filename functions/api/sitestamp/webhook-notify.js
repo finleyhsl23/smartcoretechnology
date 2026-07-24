@@ -1,4 +1,4 @@
-// POST /api/sitelens/webhook-notify { companyId, eventType, payload }
+// POST /api/sitestamp/webhook-notify { companyId, eventType, payload }
 // Fans an event out to the company's active outbound webhooks. Called by the
 // client right after a successful action (media upload, checklist/task
 // completion) — this project has no pg_net/http extension wired up anywhere,
@@ -22,7 +22,7 @@ export async function onRequestPost({ request, env }) {
 
   let hooks;
   try {
-    hooks = await sbGet(env, `/sitelens_webhooks?company_id=eq.${companyId}&is_active=eq.true&event_types=cs.{${eventType}}&select=*`);
+    hooks = await sbGet(env, `/sitestamp_webhooks?company_id=eq.${companyId}&is_active=eq.true&event_types=cs.{${eventType}}&select=*`);
   } catch {
     return json({ delivered: 0 });
   }
@@ -35,7 +35,7 @@ export async function onRequestPost({ request, env }) {
       const signature = await hmacHex(hook.secret, bodyText);
       const res = await fetch(hook.target_url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-SiteLens-Signature': signature, 'X-SiteLens-Event': eventType },
+        headers: { 'Content-Type': 'application/json', 'X-SiteStamp-Signature': signature, 'X-SiteStamp-Event': eventType },
         body: bodyText,
       });
       status = res.ok ? 'ok' : `http_${res.status}`;
@@ -43,7 +43,7 @@ export async function onRequestPost({ request, env }) {
     } catch {
       status = 'unreachable';
     }
-    await sbPatch(env, `/sitelens_webhooks?id=eq.${hook.id}`, { last_fired_at: new Date().toISOString(), last_status: status }).catch(() => {});
+    await sbPatch(env, `/sitestamp_webhooks?id=eq.${hook.id}`, { last_fired_at: new Date().toISOString(), last_status: status }).catch(() => {});
   }
 
   return json({ delivered, total: hooks.length });

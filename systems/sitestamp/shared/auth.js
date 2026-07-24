@@ -1,6 +1,6 @@
 import { sb } from "./supabase.js";
 
-const MODULE_KEY = "sitelens";
+const MODULE_KEY = "sitestamp";
 
 let _profile = null;
 let _permissions = null;
@@ -71,10 +71,10 @@ function renderBlockScreen({ icon, title, message, actionHref, actionLabel }) {
  * Full module access flow:
  *  1. Valid session       -> requireAuth() above
  *  2. Employee is active  -> auth_user_id resolved
- *  3. Company entitlement -> company_modules.enabled for 'sitelens'
- *  4. Caller holds at least one SiteLens permission
+ *  3. Company entitlement -> company_modules.enabled for 'sitestamp'
+ *  4. Caller holds at least one SiteStamp permission
  */
-export async function requireSiteLensAccess() {
+export async function requireSiteStampAccess() {
   let profile;
   try {
     profile = await getProfile();
@@ -98,11 +98,11 @@ export async function requireSiteLensAccess() {
     renderBlockScreen({
       icon: "🔒",
       title: "Module Not Enabled",
-      message: "SiteLens has not been enabled for your company.",
+      message: "SiteStamp has not been enabled for your company.",
       actionHref: "/shop/index.html",
       actionLabel: "View Plans →",
     });
-    throw new Error("SiteLens not enabled");
+    throw new Error("SiteStamp not enabled");
   }
 
   const permissions = await getMyPermissions(profile.company_id);
@@ -110,7 +110,7 @@ export async function requireSiteLensAccess() {
     renderBlockScreen({
       icon: "🚫",
       title: "No Access",
-      message: "You don't have any SiteLens permissions yet. Ask an owner or administrator to grant you access.",
+      message: "You don't have any SiteStamp permissions yet. Ask an owner or administrator to grant you access.",
     });
     throw new Error("No permissions");
   }
@@ -120,7 +120,7 @@ export async function requireSiteLensAccess() {
 
 export async function getMyPermissions(companyId) {
   if (_permissions) return _permissions;
-  const { data, error } = await sb().rpc("sitelens_my_permissions", { p_company_id: companyId });
+  const { data, error } = await sb().rpc("sitestamp_my_permissions", { p_company_id: companyId });
   if (error) throw error;
   _permissions = data || [];
   return _permissions;

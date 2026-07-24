@@ -1,4 +1,4 @@
-// Live camera photo/video capture for SiteLens. Deliberately does not use
+// Live camera photo/video capture for SiteStamp. Deliberately does not use
 // <input type="file" capture>, which on many browsers just opens the OS
 // camera app and hands back a file — this drives an in-page <video> preview
 // so the crew can see the shot framing and retake it before it's used.

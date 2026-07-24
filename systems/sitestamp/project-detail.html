@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Project — SiteLens</title>
+  <title>Project — SiteStamp</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/systems/sitelens/shared/sitelens.css"/>
+  <link rel="stylesheet" href="/systems/sitestamp/shared/sitestamp.css"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
 <body>
@@ -28,11 +28,11 @@
 <div id="toastwrap" aria-live="polite"></div>
 
 <script type="module">
-  import { requireSiteLensAccess, hasPermission } from "/systems/sitelens/shared/auth.js";
-  import { projects, members, media, tags, comments, checklistTemplates, projectChecklists, dailyLogs, tasks, employees } from "/systems/sitelens/shared/api.js";
-  import { renderNav, initMobileNav, initTopbar } from "/systems/sitelens/shared/nav.js";
-  import { initTheme } from "/systems/sitelens/shared/theme.js";
-  import { esc, fmtDate, fmtDateTime, timeAgo, initials, fmtBytes, mapsUrl, loadingState, emptyState, errorState, setInner, toast, modal, confirmDialog } from "/systems/sitelens/shared/ui.js";
+  import { requireSiteStampAccess, hasPermission } from "/systems/sitestamp/shared/auth.js";
+  import { projects, members, media, tags, comments, checklistTemplates, projectChecklists, dailyLogs, tasks, employees } from "/systems/sitestamp/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitestamp/shared/nav.js";
+  import { initTheme } from "/systems/sitestamp/shared/theme.js";
+  import { esc, fmtDate, fmtDateTime, timeAgo, initials, fmtBytes, mapsUrl, loadingState, emptyState, errorState, setInner, toast, modal, confirmDialog } from "/systems/sitestamp/shared/ui.js";
 
   initTheme();
 
@@ -42,7 +42,7 @@
 
   try {
     if (!projectId) throw new Error("Missing project id.");
-    const { profile } = await requireSiteLensAccess();
+    const { profile } = await requireSiteStampAccess();
     _profile = profile; _companyId = profile.company_id;
     renderNav("projects", profile);
     initMobileNav();
@@ -81,7 +81,7 @@
 
   function renderShell() {
     const statusBadge = { active: "badge-green", completed: "badge-blue", archived: "badge-grey" }[_project.status] || "badge-grey";
-    const canManage = hasPermission("sitelens.manage_projects");
+    const canManage = hasPermission("sitestamp.manage_projects");
     const html = `
       <div class="sl-page-head">
         <div>
@@ -90,7 +90,7 @@
           <p>${esc([_project.client_name, [_project.city, _project.postcode].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || "No client or location set")}</p>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-          ${hasPermission("sitelens.capture_media") ? `<a class="btn btn-primary" href="capture.html?project=${esc(_project.id)}"><i data-lucide="camera"></i> Capture</a>` : ""}
+          ${hasPermission("sitestamp.capture_media") ? `<a class="btn btn-primary" href="capture.html?project=${esc(_project.id)}"><i data-lucide="camera"></i> Capture</a>` : ""}
           ${canManage ? `<button class="btn" id="editProjectBtn"><i data-lucide="pencil"></i> Edit</button>` : ""}
           ${canManage && _project.status !== "archived" ? `<button class="btn" id="archiveBtn"><i data-lucide="archive"></i> Archive</button>` : ""}
         </div>
@@ -129,7 +129,7 @@
     try {
       const items = await media.listForProject(_project.id);
       if (!items.length) {
-        setInner("tabBody", emptyState({ icon: "camera", title: "No photos or videos yet", message: "Capture the first photo for this project.", actionHtml: hasPermission("sitelens.capture_media") ? `<a class="btn btn-primary" href="capture.html?project=${esc(_project.id)}"><i data-lucide="camera"></i> Capture</a>` : "" }));
+        setInner("tabBody", emptyState({ icon: "camera", title: "No photos or videos yet", message: "Capture the first photo for this project.", actionHtml: hasPermission("sitestamp.capture_media") ? `<a class="btn btn-primary" href="capture.html?project=${esc(_project.id)}"><i data-lucide="camera"></i> Capture</a>` : "" }));
         return;
       }
       setInner("tabBody", `<div class="sl-gallery" id="galleryGrid">${items.map(m => `<div class="sl-media-tile" data-id="${m.id}"><div class="sl-media-type-badge"><i data-lucide="${m.media_type === 'video' ? 'video' : 'image'}"></i>${esc(m.media_type)}</div><div class="sl-media-caption">${esc(timeAgo(m.taken_at))}</div></div>`).join("")}</div>`);
@@ -155,7 +155,7 @@
     try {
       const m = await media.get(mediaId);
       const [url, cList] = await Promise.all([media.signedUrl(m.storage_path), comments.list(mediaId)]);
-      const currentTags = (m.sitelens_media_tags || []).map(t => t.sitelens_tags).filter(Boolean);
+      const currentTags = (m.sitestamp_media_tags || []).map(t => t.sitestamp_tags).filter(Boolean);
       overlay.querySelector(".modal-body").parentElement.innerHTML = `
         <div class="modal-header"><h3>${esc(m.caption || (m.media_type === "video" ? "Video" : "Photo"))}</h3><button class="modal-close" aria-label="Close">&times;</button></div>
         <div class="modal-body sl-media-viewer">
@@ -166,7 +166,7 @@
             ${m.file_size_bytes ? `<span><i data-lucide="hard-drive"></i>${esc(fmtBytes(m.file_size_bytes))}</span>` : ""}
             ${m.latitude != null ? `<span><i data-lucide="map-pin"></i><a href="${mapsUrl(m.latitude, m.longitude)}" target="_blank" rel="noopener">View on map</a></span>` : `<span><i data-lucide="map-pin-off"></i>No location</span>`}
           </div>
-          <div id="tagArea">${currentTags.map(t => `<span class="sl-tag-chip" style="background:${esc(t.color)}22;color:${esc(t.color)};border-color:${esc(t.color)}55">${esc(t.name)}</span>`).join("") || `<span class="text-muted">No tags</span>`} ${hasPermission("sitelens.capture_media") ? `<button class="btn" id="editTagsBtn" style="margin-left:6px">Edit tags</button>` : ""}</div>
+          <div id="tagArea">${currentTags.map(t => `<span class="sl-tag-chip" style="background:${esc(t.color)}22;color:${esc(t.color)};border-color:${esc(t.color)}55">${esc(t.name)}</span>`).join("") || `<span class="text-muted">No tags</span>`} ${hasPermission("sitestamp.capture_media") ? `<button class="btn" id="editTagsBtn" style="margin-left:6px">Edit tags</button>` : ""}</div>
           <div>
             <p class="form-label">Comments</p>
             <div class="sl-comment-list" id="commentList">${cList.map(commentRow).join("") || `<p class="text-muted">No comments yet.</p>`}</div>
@@ -177,7 +177,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          ${hasPermission("sitelens.delete_media") ? `<button class="btn btn-danger" id="deleteMediaBtn"><i data-lucide="trash-2"></i> Delete</button>` : ""}
+          ${hasPermission("sitestamp.delete_media") ? `<button class="btn btn-danger" id="deleteMediaBtn"><i data-lucide="trash-2"></i> Delete</button>` : ""}
         </div>`;
       window.lucide?.createIcons?.();
 
@@ -238,7 +238,7 @@
     setInner("tabBody", loadingState("Loading checklists…"));
     try {
       const [list, templates] = await Promise.all([projectChecklists.listForProject(_project.id), checklistTemplates.list(_companyId)]);
-      const addBtn = hasPermission("sitelens.manage_checklists") ? `<button class="btn btn-primary" id="addChecklistBtn"><i data-lucide="plus"></i> Add Checklist</button>` : "";
+      const addBtn = hasPermission("sitestamp.manage_checklists") ? `<button class="btn btn-primary" id="addChecklistBtn"><i data-lucide="plus"></i> Add Checklist</button>` : "";
       if (!list.length) {
         setInner("tabBody", emptyState({ icon: "list-checks", title: "No checklists yet", message: "Attach a checklist to track quality steps for this project.", actionHtml: addBtn }));
       } else {
@@ -257,7 +257,7 @@
   }
 
   function checklistCard(c) {
-    const items = c.sitelens_project_checklist_items || [];
+    const items = c.sitestamp_project_checklist_items || [];
     const done = items.filter(i => i.is_complete).length;
     const pct = items.length ? Math.round((done / items.length) * 100) : 0;
     return `
@@ -279,7 +279,7 @@
         ${templates.length === 0 ? `<p class="text-muted">No checklist templates yet. Create one in the Checklists page.</p>` : `
         <div class="form-field"><label class="form-label">Template</label>
           <select class="form-select" id="templatePick">
-            ${templates.map(t => `<option value="${t.id}">${esc(t.name)} (${(t.sitelens_checklist_template_items || []).length} items)</option>`).join("")}
+            ${templates.map(t => `<option value="${t.id}">${esc(t.name)} (${(t.sitestamp_checklist_template_items || []).length} items)</option>`).join("")}
           </select>
         </div>`}
       </div>
@@ -301,7 +301,7 @@
     setInner("tabBody", loadingState("Loading daily logs…"));
     try {
       const logs = await dailyLogs.listForProject(_project.id);
-      const addBtn = hasPermission("sitelens.capture_media") ? `<button class="btn btn-primary" id="addLogBtn"><i data-lucide="plus"></i> Add Log</button>` : "";
+      const addBtn = hasPermission("sitestamp.capture_media") ? `<button class="btn btn-primary" id="addLogBtn"><i data-lucide="plus"></i> Add Log</button>` : "";
       setInner("tabBody", `
         <div class="sl-page-head" style="margin-bottom:10px"><div></div>${addBtn}</div>
         ${logs.length === 0 ? emptyState({ icon: "calendar-days", title: "No daily logs yet", message: "Log site conditions, crew and progress day by day." }) : `
@@ -351,7 +351,7 @@
     setInner("tabBody", loadingState("Loading tasks…"));
     try {
       const list = await tasks.listForProject(_project.id);
-      const addBtn = hasPermission("sitelens.manage_tasks") ? `<button class="btn btn-primary" id="addTaskBtn"><i data-lucide="plus"></i> Add Task</button>` : "";
+      const addBtn = hasPermission("sitestamp.manage_tasks") ? `<button class="btn btn-primary" id="addTaskBtn"><i data-lucide="plus"></i> Add Task</button>` : "";
       setInner("tabBody", `
         <div class="sl-page-head" style="margin-bottom:10px"><div></div>${addBtn}</div>
         ${list.length === 0 ? emptyState({ icon: "check-square", title: "No tasks yet" }) : list.map(taskRow).join("")}
@@ -420,7 +420,7 @@
     setInner("tabBody", loadingState("Loading team…"));
     try {
       const list = await members.listForProject(_project.id);
-      const canManage = hasPermission("sitelens.manage_projects") || hasPermission("sitelens.manage_team");
+      const canManage = hasPermission("sitestamp.manage_projects") || hasPermission("sitestamp.manage_team");
       setInner("tabBody", `
         <p class="text-muted" style="margin-bottom:14px">${list.length === 0 ? "No members set — this project is visible to the whole company. Add members to restrict access to a specific crew." : "Only listed members (plus owners/admins) can see this project."}</p>
         ${canManage ? `<button class="btn btn-primary" id="addMemberBtn" style="margin-bottom:14px"><i data-lucide="user-plus"></i> Add Member</button>` : ""}

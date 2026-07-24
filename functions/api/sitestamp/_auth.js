@@ -1,4 +1,4 @@
-// Shared auth/authorization helpers for SiteLens Cloudflare Pages Functions.
+// Shared auth/authorization helpers for SiteStamp Cloudflare Pages Functions.
 // Mirrors functions/api/presence-fire-safety/_auth.js — fetch-based, no npm
 // dependencies, one shared helper file per module.
 
@@ -85,11 +85,11 @@ export async function sbPatch(env, path, body) {
 }
 
 // True if the caller (identified by their OWN bearer token) holds
-// `permission` within `companyId` — forwards to sitelens_has_permission as
+// `permission` within `companyId` — forwards to sitestamp_has_permission as
 // the calling user, a server-side re-check rather than a UI convenience.
 export async function hasPermission(env, token, companyId, permission) {
   try {
-    const res = await fetch(`${baseUrl(env)}/rest/v1/rpc/sitelens_has_permission`, {
+    const res = await fetch(`${baseUrl(env)}/rest/v1/rpc/sitestamp_has_permission`, {
       method: 'POST',
       headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ p_company_id: companyId, p_permission: permission }),
