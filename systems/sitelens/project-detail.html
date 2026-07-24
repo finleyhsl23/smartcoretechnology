@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Project — SiteLens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/sitelens/shared/sitelens.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1 id="pageTitle">Project</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireSiteLensAccess, hasPermission } from "/systems/sitelens/shared/auth.js";
+  import { projects, members, media, tags, comments, checklistTemplates, projectChecklists, dailyLogs, tasks, employees } from "/systems/sitelens/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitelens/shared/nav.js";
+  import { initTheme } from "/systems/sitelens/shared/theme.js";
+  import { esc, fmtDate, fmtDateTime, timeAgo, initials, fmtBytes, mapsUrl, loadingState, emptyState, errorState, setInner, toast, modal, confirmDialog } from "/systems/sitelens/shared/ui.js";
+
+  initTheme();
+
+  const projectId = new URLSearchParams(location.search).get("id");
+  let _profile = null, _companyId = null, _project = null, _tab = "gallery";
+  let _companyEmployees = [], _companyTags = [];
+
+  try {
+    if (!projectId) throw new Error("Missing project id.");
+    const { profile } = await requireSiteLensAccess();
+    _profile = profile; _companyId = profile.company_id;
+    renderNav("projects", profile);
+    initMobileNav();
+    initTopbar();
+
+    await loadProject();
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load project", message: e.message || "" }));
+  }
+
+  async function loadProject() {
+    setInner("body", loadingState("Loading project…"));
+    try {
+      [_project, _companyEmployees, _companyTags] = await Promise.all([
+        projects.get(projectId),
+        employees.listForCompany(_companyId),
+        tags.list(_companyId),
+      ]);
+      if (!_project) throw new Error("Project not found, or you don't have access to it.");
+      document.getElementById("pageTitle").textContent = _project.name;
+      renderShell();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load project", message: e.message || "", retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", loadProject);
+    }
+  }
+
+  const TABS = [
+    { id: "gallery", label: "Gallery", icon: "image" },
+    { id: "checklists", label: "Checklists", icon: "list-checks" },
+    { id: "dailylogs", label: "Daily Logs", icon: "calendar-days" },
+    { id: "tasks", label: "Tasks", icon: "check-square" },
+    { id: "team", label: "Team", icon: "users" },
+    { id: "details", label: "Details", icon: "info" },
+  ];
+
+  function renderShell() {
+    const statusBadge = { active: "badge-green", completed: "badge-blue", archived: "badge-grey" }[_project.status] || "badge-grey";
+    const canManage = hasPermission("sitelens.manage_projects");
+    const html = `
+      <div class="sl-page-head">
+        <div>
+          <a href="projects.html" class="btn" style="margin-bottom:10px"><i data-lucide="arrow-left"></i> All Projects</a>
+          <h2>${esc(_project.name)} <span class="badge ${statusBadge}">${esc(_project.status)}</span></h2>
+          <p>${esc([_project.client_name, [_project.city, _project.postcode].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || "No client or location set")}</p>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          ${hasPermission("sitelens.capture_media") ? `<a class="btn btn-primary" href="capture.html?project=${esc(_project.id)}"><i data-lucide="camera"></i> Capture</a>` : ""}
+          ${canManage ? `<button class="btn" id="editProjectBtn"><i data-lucide="pencil"></i> Edit</button>` : ""}
+          ${canManage && _project.status !== "archived" ? `<button class="btn" id="archiveBtn"><i data-lucide="archive"></i> Archive</button>` : ""}
+        </div>
+      </div>
+      <div class="sl-tabs" role="tablist">
+        ${TABS.map(t => `<button class="sl-tab ${t.id === _tab ? "active" : ""}" data-tab="${t.id}" role="tab"><i data-lucide="${t.icon}" style="width:14px;height:14px;vertical-align:-2px"></i> ${t.label}</button>`).join("")}
+      </div>
+      <div id="tabBody"></div>
+    `;
+    setInner("body", html);
+    document.querySelectorAll(".sl-tab").forEach(btn => btn.addEventListener("click", () => { _tab = btn.dataset.tab; renderShell(); }));
+    document.getElementById("editProjectBtn")?.addEventListener("click", openEditModal);
+    document.getElementById("archiveBtn")?.addEventListener("click", () => {
+      confirmDialog("Archive project?", "The project will be hidden from the active list but all photos, videos and data are kept.", async () => {
+        await projects.update(_project.id, { status: "archived", archived_at: new Date().toISOString() });
+        toast("success", "Project archived");
+        await loadProject();
+      }, { confirmLabel: "Archive" });
+    });
+
+    renderTab();
+  }
+
+  function renderTab() {
+    if (_tab === "gallery") return renderGallery();
+    if (_tab === "checklists") return renderChecklists();
+    if (_tab === "dailylogs") return renderDailyLogs();
+    if (_tab === "tasks") return renderTasks();
+    if (_tab === "team") return renderTeam();
+    if (_tab === "details") return renderDetails();
+  }
+
+  // ── Gallery ──────────────────────────────────────────────────────────
+  async function renderGallery() {
+    setInner("tabBody", loadingState("Loading media…"));
+    try {
+      const items = await media.listForProject(_project.id);
+      if (!items.length) {
+        setInner("tabBody", emptyState({ icon: "camera", title: "No photos or videos yet", message: "Capture the first photo for this project.", actionHtml: hasPermission("sitelens.capture_media") ? `<a class="btn btn-primary" href="capture.html?project=${esc(_project.id)}"><i data-lucide="camera"></i> Capture</a>` : "" }));
+        return;
+      }
+      setInner("tabBody", `<div class="sl-gallery" id="galleryGrid">${items.map(m => `<div class="sl-media-tile" data-id="${m.id}"><div class="sl-media-type-badge"><i data-lucide="${m.media_type === 'video' ? 'video' : 'image'}"></i>${esc(m.media_type)}</div><div class="sl-media-caption">${esc(timeAgo(m.taken_at))}</div></div>`).join("")}</div>`);
+
+      // Load signed thumbnails progressively.
+      for (const m of items) {
+        media.signedUrl(m.storage_path).then(url => {
+          const tile = document.querySelector(`.sl-media-tile[data-id="${m.id}"]`);
+          if (!tile || !url) return;
+          const el = m.media_type === "video" ? `<video src="${url}" preload="metadata" muted></video>` : `<img src="${url}" alt="${esc(m.caption || 'Job site photo')}" loading="lazy"/>`;
+          tile.insertAdjacentHTML("afterbegin", el);
+        }).catch(() => {});
+      }
+
+      document.querySelectorAll(".sl-media-tile").forEach(tile => tile.addEventListener("click", () => openMediaViewer(tile.dataset.id)));
+    } catch (e) {
+      setInner("tabBody", errorState({ title: "Couldn't load media", message: e.message || "" }));
+    }
+  }
+
+  async function openMediaViewer(mediaId) {
+    const overlay = modal(`<div class="modal-body"><div class="sl-state"><div class="sl-spinner"></div></div></div>`, { size: "wide" });
+    try {
+      const m = await media.get(mediaId);
+      const [url, cList] = await Promise.all([media.signedUrl(m.storage_path), comments.list(mediaId)]);
+      const currentTags = (m.sitelens_media_tags || []).map(t => t.sitelens_tags).filter(Boolean);
+      overlay.querySelector(".modal-body").parentElement.innerHTML = `
+        <div class="modal-header"><h3>${esc(m.caption || (m.media_type === "video" ? "Video" : "Photo"))}</h3><button class="modal-close" aria-label="Close">&times;</button></div>
+        <div class="modal-body sl-media-viewer">
+          <div class="sl-media-viewer-frame">${m.media_type === "video" ? `<video src="${url}" controls></video>` : `<img src="${url}" alt="${esc(m.caption || 'Job site photo')}"/>`}</div>
+          <div class="sl-media-meta-row">
+            <span><i data-lucide="user"></i>${esc(m.core_employees?.full_name || "Unknown")}</span>
+            <span><i data-lucide="clock"></i>${esc(fmtDateTime(m.taken_at))}</span>
+            ${m.file_size_bytes ? `<span><i data-lucide="hard-drive"></i>${esc(fmtBytes(m.file_size_bytes))}</span>` : ""}
+            ${m.latitude != null ? `<span><i data-lucide="map-pin"></i><a href="${mapsUrl(m.latitude, m.longitude)}" target="_blank" rel="noopener">View on map</a></span>` : `<span><i data-lucide="map-pin-off"></i>No location</span>`}
+          </div>
+          <div id="tagArea">${currentTags.map(t => `<span class="sl-tag-chip" style="background:${esc(t.color)}22;color:${esc(t.color)};border-color:${esc(t.color)}55">${esc(t.name)}</span>`).join("") || `<span class="text-muted">No tags</span>`} ${hasPermission("sitelens.capture_media") ? `<button class="btn" id="editTagsBtn" style="margin-left:6px">Edit tags</button>` : ""}</div>
+          <div>
+            <p class="form-label">Comments</p>
+            <div class="sl-comment-list" id="commentList">${cList.map(commentRow).join("") || `<p class="text-muted">No comments yet.</p>`}</div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <input class="form-input" id="commentInput" placeholder="Add a comment…"/>
+              <button class="btn btn-primary" id="commentSendBtn">Send</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          ${hasPermission("sitelens.delete_media") ? `<button class="btn btn-danger" id="deleteMediaBtn"><i data-lucide="trash-2"></i> Delete</button>` : ""}
+        </div>`;
+      window.lucide?.createIcons?.();
+
+      overlay.querySelectorAll(".modal-close").forEach(b => b.addEventListener("click", () => overlay.remove()));
+      overlay.querySelector("#commentSendBtn")?.addEventListener("click", async () => {
+        const input = overlay.querySelector("#commentInput");
+        const body = input.value.trim();
+        if (!body) return;
+        await comments.add({ media_id: mediaId, company_id: _companyId, author_employee_id: _profile.id, body });
+        input.value = "";
+        const fresh = await comments.list(mediaId);
+        overlay.querySelector("#commentList").innerHTML = fresh.map(commentRow).join("");
+      });
+      overlay.querySelector("#editTagsBtn")?.addEventListener("click", () => openTagPicker(mediaId, currentTags, overlay));
+      overlay.querySelector("#deleteMediaBtn")?.addEventListener("click", () => {
+        confirmDialog("Delete this photo/video?", "This cannot be undone.", async () => {
+          await media.removeFile(m.storage_path).catch(() => {});
+          await media.remove(mediaId);
+          overlay.remove();
+          toast("success", "Deleted");
+          renderGallery();
+        });
+      });
+    } catch (e) {
+      overlay.remove();
+      toast("error", "Couldn't open media", e.message || "");
+    }
+  }
+
+  function commentRow(c) {
+    return `<div class="sl-comment-row"><div class="avatar avatar-sm">${esc(initials(c.core_employees?.full_name))}</div><div class="sl-comment-body"><div class="sl-comment-author">${esc(c.core_employees?.full_name || "Unknown")} <span class="sl-comment-time">${esc(timeAgo(c.created_at))}</span></div>${esc(c.body)}</div></div>`;
+  }
+
+  function openTagPicker(mediaId, currentTags, parentOverlay) {
+    const selected = new Set(currentTags.map(t => t.id));
+    const overlay = modal(`
+      <div class="modal-header"><h3>Edit Tags</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        <div id="tagChips" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          ${_companyTags.map(t => `<label class="sl-tag-chip" style="background:${esc(t.color)}22;color:${esc(t.color)};border-color:${esc(t.color)}55;cursor:pointer"><input type="checkbox" value="${esc(t.id)}" ${selected.has(t.id) ? "checked" : ""} style="margin-right:4px"/>${esc(t.name)}</label>`).join("") || `<p class="text-muted">No tags yet — add some in Settings.</p>`}
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn" id="tagCancel">Cancel</button><button class="btn btn-primary" id="tagSave">Save</button></div>
+    `);
+    overlay.querySelectorAll(".modal-close, #tagCancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    overlay.querySelector("#tagSave").addEventListener("click", async () => {
+      const ids = [...overlay.querySelectorAll('#tagChips input:checked')].map(el => el.value);
+      await media.setTags(mediaId, ids);
+      overlay.remove();
+      parentOverlay.remove();
+      toast("success", "Tags updated");
+      openMediaViewer(mediaId);
+    });
+  }
+
+  // ── Checklists ───────────────────────────────────────────────────────
+  async function renderChecklists() {
+    setInner("tabBody", loadingState("Loading checklists…"));
+    try {
+      const [list, templates] = await Promise.all([projectChecklists.listForProject(_project.id), checklistTemplates.list(_companyId)]);
+      const addBtn = hasPermission("sitelens.manage_checklists") ? `<button class="btn btn-primary" id="addChecklistBtn"><i data-lucide="plus"></i> Add Checklist</button>` : "";
+      if (!list.length) {
+        setInner("tabBody", emptyState({ icon: "list-checks", title: "No checklists yet", message: "Attach a checklist to track quality steps for this project.", actionHtml: addBtn }));
+      } else {
+        setInner("tabBody", `<div class="sl-page-head" style="margin-bottom:10px"><div></div>${addBtn}</div>${list.map(checklistCard).join("")}`);
+      }
+      document.getElementById("addChecklistBtn")?.addEventListener("click", () => openChecklistPicker(templates));
+      document.querySelectorAll(".sl-checklist-item input[type=checkbox]").forEach(cb => {
+        cb.addEventListener("change", async () => {
+          await projectChecklists.toggleItem(cb.dataset.itemId, cb.checked, _profile.id);
+          renderChecklists();
+        });
+      });
+    } catch (e) {
+      setInner("tabBody", errorState({ title: "Couldn't load checklists", message: e.message || "" }));
+    }
+  }
+
+  function checklistCard(c) {
+    const items = c.sitelens_project_checklist_items || [];
+    const done = items.filter(i => i.is_complete).length;
+    const pct = items.length ? Math.round((done / items.length) * 100) : 0;
+    return `
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-header-row"><h2>${esc(c.name)}</h2><span class="text-muted">${done}/${items.length}</span></div>
+        <div class="sl-checklist-progress"><div class="sl-checklist-progress-bar" style="width:${pct}%"></div></div>
+        ${items.map(i => `
+          <div class="sl-checklist-item ${i.is_complete ? "done" : ""}">
+            <input type="checkbox" data-item-id="${i.id}" ${i.is_complete ? "checked" : ""}/>
+            <span class="sl-checklist-label">${esc(i.label)}${i.requires_photo ? ` <i data-lucide="camera" style="width:12px;height:12px;vertical-align:-2px;color:var(--text3)"></i>` : ""}</span>
+          </div>`).join("")}
+      </div>`;
+  }
+
+  function openChecklistPicker(templates) {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Add Checklist</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        ${templates.length === 0 ? `<p class="text-muted">No checklist templates yet. Create one in the Checklists page.</p>` : `
+        <div class="form-field"><label class="form-label">Template</label>
+          <select class="form-select" id="templatePick">
+            ${templates.map(t => `<option value="${t.id}">${esc(t.name)} (${(t.sitelens_checklist_template_items || []).length} items)</option>`).join("")}
+          </select>
+        </div>`}
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button>${templates.length ? `<button class="btn btn-primary" id="save">Add</button>` : ""}</div>
+    `);
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    overlay.querySelector("#save")?.addEventListener("click", async () => {
+      const tId = overlay.querySelector("#templatePick").value;
+      const template = templates.find(t => t.id === tId);
+      await projectChecklists.createFromTemplate({ projectId: _project.id, companyId: _companyId, template, createdBy: _profile.id });
+      overlay.remove();
+      toast("success", "Checklist added");
+      renderChecklists();
+    });
+  }
+
+  // ── Daily logs ───────────────────────────────────────────────────────
+  async function renderDailyLogs() {
+    setInner("tabBody", loadingState("Loading daily logs…"));
+    try {
+      const logs = await dailyLogs.listForProject(_project.id);
+      const addBtn = hasPermission("sitelens.capture_media") ? `<button class="btn btn-primary" id="addLogBtn"><i data-lucide="plus"></i> Add Log</button>` : "";
+      setInner("tabBody", `
+        <div class="sl-page-head" style="margin-bottom:10px"><div></div>${addBtn}</div>
+        ${logs.length === 0 ? emptyState({ icon: "calendar-days", title: "No daily logs yet", message: "Log site conditions, crew and progress day by day." }) : `
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Date</th><th>Weather</th><th>Crew</th><th>Notes</th><th>By</th></tr></thead><tbody>
+          ${logs.map(l => `<tr><td>${esc(fmtDate(l.log_date))}</td><td>${esc(l.weather || "—")}</td><td>${l.crew_count ?? "—"}</td><td>${esc(l.notes)}</td><td>${esc(l.core_employees?.full_name || "—")}</td></tr>`).join("")}
+        </tbody></table></div>`}
+      `);
+      document.getElementById("addLogBtn")?.addEventListener("click", openLogModal);
+    } catch (e) {
+      setInner("tabBody", errorState({ title: "Couldn't load daily logs", message: e.message || "" }));
+    }
+  }
+
+  function openLogModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Add Daily Log</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Date</label><input type="date" class="form-input" id="logDate" value="${new Date().toISOString().slice(0,10)}"/></div>
+          <div class="form-field"><label class="form-label">Weather</label><input class="form-input" id="logWeather" placeholder="Sunny, 18°C"/></div>
+        </div>
+        <div class="form-field"><label class="form-label">Crew count</label><input type="number" min="0" class="form-input" id="logCrew"/></div>
+        <div class="form-field"><label class="form-label">Notes *</label><textarea class="form-textarea" id="logNotes"></textarea></div>
+        <div id="logError" class="form-error"></div>
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Save</button></div>
+    `);
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    overlay.querySelector("#save").addEventListener("click", async () => {
+      const notes = overlay.querySelector("#logNotes").value.trim();
+      if (!notes) { overlay.querySelector("#logError").textContent = "Notes are required."; return; }
+      await dailyLogs.create({
+        project_id: _project.id, company_id: _companyId,
+        log_date: overlay.querySelector("#logDate").value,
+        weather: overlay.querySelector("#logWeather").value.trim() || null,
+        crew_count: overlay.querySelector("#logCrew").value ? Number(overlay.querySelector("#logCrew").value) : null,
+        notes, created_by: _profile.id,
+      });
+      overlay.remove();
+      toast("success", "Log added");
+      renderDailyLogs();
+    });
+  }
+
+  // ── Tasks ────────────────────────────────────────────────────────────
+  async function renderTasks() {
+    setInner("tabBody", loadingState("Loading tasks…"));
+    try {
+      const list = await tasks.listForProject(_project.id);
+      const addBtn = hasPermission("sitelens.manage_tasks") ? `<button class="btn btn-primary" id="addTaskBtn"><i data-lucide="plus"></i> Add Task</button>` : "";
+      setInner("tabBody", `
+        <div class="sl-page-head" style="margin-bottom:10px"><div></div>${addBtn}</div>
+        ${list.length === 0 ? emptyState({ icon: "check-square", title: "No tasks yet" }) : list.map(taskRow).join("")}
+      `);
+      document.getElementById("addTaskBtn")?.addEventListener("click", openTaskModal);
+      document.querySelectorAll("[data-task-toggle]").forEach(cb => cb.addEventListener("change", async () => {
+        await tasks.update(cb.dataset.taskToggle, { status: cb.checked ? "done" : "open" });
+        renderTasks();
+      }));
+    } catch (e) {
+      setInner("tabBody", errorState({ title: "Couldn't load tasks", message: e.message || "" }));
+    }
+  }
+
+  function taskRow(t) {
+    const badge = { low: "badge-grey", normal: "badge-blue", high: "badge-red" }[t.priority] || "badge-grey";
+    return `
+      <div class="sl-task-row ${t.status === "done" ? "done" : ""}">
+        <input type="checkbox" data-task-toggle="${t.id}" ${t.status === "done" ? "checked" : ""} style="width:20px;height:20px;accent-color:var(--accent)"/>
+        <div style="flex:1">
+          <div class="sl-task-title">${esc(t.title)}</div>
+          <div class="sl-task-meta"><span class="badge ${badge}">${esc(t.priority)}</span>${t.due_date ? `<span><i data-lucide="calendar" style="width:11px;height:11px;vertical-align:-1px"></i> ${esc(fmtDate(t.due_date))}</span>` : ""}${t["core_employees"] ? `<span>${esc(t.core_employees.full_name)}</span>` : ""}</div>
+        </div>
+      </div>`;
+  }
+
+  function openTaskModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Add Task</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Title *</label><input class="form-input" id="tTitle"/></div>
+        <div class="form-field"><label class="form-label">Description</label><textarea class="form-textarea" id="tDesc"></textarea></div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Assignee</label>
+            <select class="form-select" id="tAssignee"><option value="">Unassigned</option>${_companyEmployees.map(e => `<option value="${e.id}">${esc(e.full_name)}</option>`).join("")}</select>
+          </div>
+          <div class="form-field"><label class="form-label">Priority</label>
+            <select class="form-select" id="tPriority"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option></select>
+          </div>
+        </div>
+        <div class="form-field"><label class="form-label">Due date</label><input type="date" class="form-input" id="tDue"/></div>
+        <div id="tError" class="form-error"></div>
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Add Task</button></div>
+    `);
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    overlay.querySelector("#save").addEventListener("click", async () => {
+      const title = overlay.querySelector("#tTitle").value.trim();
+      if (!title) { overlay.querySelector("#tError").textContent = "Title is required."; return; }
+      await tasks.create({
+        project_id: _project.id, company_id: _companyId, title,
+        description: overlay.querySelector("#tDesc").value.trim() || null,
+        assignee_employee_id: overlay.querySelector("#tAssignee").value || null,
+        priority: overlay.querySelector("#tPriority").value,
+        due_date: overlay.querySelector("#tDue").value || null,
+        created_by: _profile.id,
+      });
+      overlay.remove();
+      toast("success", "Task added");
+      renderTasks();
+    });
+  }
+
+  // ── Team ─────────────────────────────────────────────────────────────
+  async function renderTeam() {
+    setInner("tabBody", loadingState("Loading team…"));
+    try {
+      const list = await members.listForProject(_project.id);
+      const canManage = hasPermission("sitelens.manage_projects") || hasPermission("sitelens.manage_team");
+      setInner("tabBody", `
+        <p class="text-muted" style="margin-bottom:14px">${list.length === 0 ? "No members set — this project is visible to the whole company. Add members to restrict access to a specific crew." : "Only listed members (plus owners/admins) can see this project."}</p>
+        ${canManage ? `<button class="btn btn-primary" id="addMemberBtn" style="margin-bottom:14px"><i data-lucide="user-plus"></i> Add Member</button>` : ""}
+        ${list.length === 0 ? "" : `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Name</th><th>Role</th><th>Project Role</th>${canManage ? "<th></th>" : ""}</tr></thead><tbody>
+          ${list.map(m => `<tr><td>${esc(m.core_employees?.full_name || "—")}</td><td>${esc(m.core_employees?.role || "—")}</td><td>${esc(m.project_role)}</td>${canManage ? `<td><button class="btn" data-remove="${m.id}">Remove</button></td>` : ""}</tr>`).join("")}
+        </tbody></table></div>`}
+      `);
+      document.getElementById("addMemberBtn")?.addEventListener("click", () => openMemberModal(list));
+      document.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", async () => {
+        await members.remove(btn.dataset.remove);
+        renderTeam();
+      }));
+    } catch (e) {
+      setInner("tabBody", errorState({ title: "Couldn't load team", message: e.message || "" }));
+    }
+  }
+
+  function openMemberModal(existing) {
+    const existingIds = new Set(existing.map(m => m.employee_id));
+    const available = _companyEmployees.filter(e => !existingIds.has(e.id));
+    const overlay = modal(`
+      <div class="modal-header"><h3>Add Member</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        ${available.length === 0 ? `<p class="text-muted">Everyone in the company is already a member.</p>` : `
+        <div class="form-field"><label class="form-label">Employee</label><select class="form-select" id="mEmp">${available.map(e => `<option value="${e.id}">${esc(e.full_name)}</option>`).join("")}</select></div>
+        <div class="form-field"><label class="form-label">Project role</label><select class="form-select" id="mRole"><option value="member">Member</option><option value="lead">Lead</option></select></div>`}
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button>${available.length ? `<button class="btn btn-primary" id="save">Add</button>` : ""}</div>
+    `);
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    overlay.querySelector("#save")?.addEventListener("click", async () => {
+      await members.add({ project_id: _project.id, company_id: _companyId, employee_id: overlay.querySelector("#mEmp").value, project_role: overlay.querySelector("#mRole").value, added_by: _profile.id });
+      overlay.remove();
+      toast("success", "Member added");
+      renderTeam();
+    });
+  }
+
+  // ── Details ──────────────────────────────────────────────────────────
+  function renderDetails() {
+    const p = _project;
+    setInner("tabBody", `
+      <div class="card">
+        <div class="form-row">
+          <div><p class="form-label">Client</p><p>${esc(p.client_name || "—")}</p></div>
+          <div><p class="form-label">Status</p><p>${esc(p.status)}</p></div>
+        </div>
+        <div class="form-row">
+          <div><p class="form-label">Address</p><p>${esc([p.address_line_1, p.address_line_2, p.city, p.county, p.postcode, p.country].filter(Boolean).join(", ") || "—")}</p></div>
+          <div><p class="form-label">Coordinates</p><p>${p.latitude != null ? `<a href="${mapsUrl(p.latitude, p.longitude)}" target="_blank" rel="noopener">${p.latitude}, ${p.longitude} →</a>` : "—"}</p></div>
+        </div>
+        <div><p class="form-label">Description</p><p>${esc(p.description || "—")}</p></div>
+        <div class="form-row">
+          <div><p class="form-label">Created</p><p>${esc(fmtDateTime(p.created_at))}</p></div>
+          <div><p class="form-label">Last updated</p><p>${esc(fmtDateTime(p.updated_at))}</p></div>
+        </div>
+      </div>
+    `);
+  }
+
+  function openEditModal() {
+    const p = _project;
+    const overlay = modal(`
+      <div class="modal-header"><h3>Edit Project</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Project name *</label><input class="form-input" id="eName" value="${esc(p.name)}"/></div>
+        <div class="form-field"><label class="form-label">Client name</label><input class="form-input" id="eClient" value="${esc(p.client_name || "")}"/></div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Address line 1</label><input class="form-input" id="eAddr1" value="${esc(p.address_line_1 || "")}"/></div>
+          <div class="form-field"><label class="form-label">City</label><input class="form-input" id="eCity" value="${esc(p.city || "")}"/></div>
+        </div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Postcode</label><input class="form-input" id="ePostcode" value="${esc(p.postcode || "")}"/></div>
+          <div class="form-field"><label class="form-label">Status</label>
+            <select class="form-select" id="eStatus">${["active","completed","archived"].map(s => `<option value="${s}" ${s === p.status ? "selected" : ""}>${s}</option>`).join("")}</select>
+          </div>
+        </div>
+        <div class="form-field"><label class="form-label">Description</label><textarea class="form-textarea" id="eDesc">${esc(p.description || "")}</textarea></div>
+        <div id="eError" class="form-error"></div>
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Save Changes</button></div>
+    `);
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    overlay.querySelector("#save").addEventListener("click", async () => {
+      const name = overlay.querySelector("#eName").value.trim();
+      if (!name) { overlay.querySelector("#eError").textContent = "Project name is required."; return; }
+      try {
+        await projects.update(p.id, {
+          name, client_name: overlay.querySelector("#eClient").value.trim() || null,
+          address_line_1: overlay.querySelector("#eAddr1").value.trim() || null,
+          city: overlay.querySelector("#eCity").value.trim() || null,
+          postcode: overlay.querySelector("#ePostcode").value.trim() || null,
+          status: overlay.querySelector("#eStatus").value,
+          description: overlay.querySelector("#eDesc").value.trim() || null,
+          updated_by: _profile.id,
+        });
+        overlay.remove();
+        toast("success", "Project updated");
+        await loadProject();
+      } catch (e) {
+        overlay.querySelector("#eError").textContent = e.message || "Could not save changes.";
+      }
+    });
+  }
+</script>
+</body>
+</html>

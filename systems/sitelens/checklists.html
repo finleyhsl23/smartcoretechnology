@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Checklist Templates — SiteLens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/sitelens/shared/sitelens.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Checklist Templates</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireSiteLensAccess, hasPermission } from "/systems/sitelens/shared/auth.js";
+  import { checklistTemplates } from "/systems/sitelens/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitelens/shared/nav.js";
+  import { initTheme } from "/systems/sitelens/shared/theme.js";
+  import { esc, loadingState, emptyState, errorState, permissionDeniedState, setInner, toast, modal, confirmDialog } from "/systems/sitelens/shared/ui.js";
+
+  initTheme();
+  let _profile = null, _companyId = null;
+
+  try {
+    const { profile } = await requireSiteLensAccess();
+    _profile = profile; _companyId = profile.company_id;
+    renderNav("checklists", profile);
+    initMobileNav();
+    initTopbar();
+
+    if (!hasPermission("sitelens.manage_checklists")) {
+      setInner("body", permissionDeniedState("Only Owners, Admins and Managers can manage checklist templates."));
+    } else {
+      await load();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Checklists", message: e.message || "" }));
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading templates…"));
+    try {
+      const list = await checklistTemplates.list(_companyId);
+      setInner("body", `
+        <div class="sl-page-head"><div><h2>Checklist Templates</h2><p>Reusable checklists you can attach to any project.</p></div><button class="btn btn-primary" id="newBtn"><i data-lucide="plus"></i> New Template</button></div>
+        ${list.length === 0 ? emptyState({ icon: "list-checks", title: "No templates yet" }) : list.map(templateCard).join("")}
+      `);
+      document.getElementById("newBtn").addEventListener("click", () => openTemplateModal());
+      document.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => openTemplateModal(list.find(t => t.id === b.dataset.edit))));
+      document.querySelectorAll("[data-delete]").forEach(b => b.addEventListener("click", () => {
+        confirmDialog("Delete template?", "Projects that already used this template keep their checklist — only the reusable template is removed.", async () => {
+          await checklistTemplates.remove(b.dataset.delete);
+          toast("success", "Template deleted");
+          load();
+        });
+      }));
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load templates", message: e.message || "", retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", load);
+    }
+  }
+
+  function templateCard(t) {
+    const items = t.sitelens_checklist_template_items || [];
+    return `
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-header-row">
+          <h2>${esc(t.name)}</h2>
+          <div style="display:flex;gap:8px"><button class="btn" data-edit="${t.id}"><i data-lucide="pencil"></i> Edit</button><button class="btn btn-danger" data-delete="${t.id}"><i data-lucide="trash-2"></i></button></div>
+        </div>
+        ${t.description ? `<p class="text-muted" style="margin:0 0 10px">${esc(t.description)}</p>` : ""}
+        <ul style="margin:0;padding-left:18px;font-size:13px;color:var(--text2)">
+          ${items.map(i => `<li>${esc(i.label)}${i.requires_photo ? " (photo required)" : ""}</li>`).join("") || `<li>No items yet</li>`}
+        </ul>
+      </div>`;
+  }
+
+  function openTemplateModal(existing) {
+    let items = existing ? [...(existing.sitelens_checklist_template_items || [])] : [];
+    const overlay = modal(`
+      <div class="modal-header"><h3>${existing ? "Edit" : "New"} Template</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Name *</label><input class="form-input" id="tName" value="${esc(existing?.name || "")}"/></div>
+        <div class="form-field"><label class="form-label">Description</label><textarea class="form-textarea" id="tDesc">${esc(existing?.description || "")}</textarea></div>
+        <div class="form-field">
+          <label class="form-label">Items</label>
+          <div id="itemList"></div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <input class="form-input" id="newItemInput" placeholder="Add checklist item…"/>
+            <button class="btn" id="addItemBtn">Add</button>
+          </div>
+        </div>
+        <div id="tError" class="form-error"></div>
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">${existing ? "Save Changes" : "Create Template"}</button></div>
+    `, { size: "wide" });
+
+    function renderItems() {
+      overlay.querySelector("#itemList").innerHTML = items.map((it, idx) => `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line2)">
+          <span style="flex:1;font-size:13px">${esc(it.label)}</span>
+          <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:4px"><input type="checkbox" data-photo-idx="${idx}" ${it.requires_photo ? "checked" : ""}/> photo required</label>
+          <button class="btn" data-remove-idx="${idx}" style="padding:4px 8px"><i data-lucide="x" style="width:12px;height:12px"></i></button>
+        </div>`).join("") || `<p class="text-muted">No items added yet.</p>`;
+      window.lucide?.createIcons?.();
+      overlay.querySelectorAll("[data-remove-idx]").forEach(b => b.addEventListener("click", () => { items.splice(Number(b.dataset.removeIdx), 1); renderItems(); }));
+      overlay.querySelectorAll("[data-photo-idx]").forEach(cb => cb.addEventListener("change", () => { items[Number(cb.dataset.photoIdx)].requires_photo = cb.checked; }));
+    }
+    renderItems();
+
+    overlay.querySelector("#addItemBtn").addEventListener("click", () => {
+      const input = overlay.querySelector("#newItemInput");
+      const label = input.value.trim();
+      if (!label) return;
+      items.push({ label, requires_photo: false, sort_order: items.length });
+      input.value = "";
+      renderItems();
+    });
+
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    overlay.querySelector("#save").addEventListener("click", async () => {
+      const name = overlay.querySelector("#tName").value.trim();
+      if (!name) { overlay.querySelector("#tError").textContent = "Name is required."; return; }
+      try {
+        let template = existing;
+        if (existing) {
+          await checklistTemplates.update(existing.id, { name, description: overlay.querySelector("#tDesc").value.trim() || null });
+          for (const old of existing.sitelens_checklist_template_items || []) {
+            if (!items.some(i => i.id === old.id)) await checklistTemplates.removeItem(old.id);
+          }
+        } else {
+          template = await checklistTemplates.create({ company_id: _companyId, name, description: overlay.querySelector("#tDesc").value.trim() || null, created_by: _profile.id });
+        }
+        for (let idx = 0; idx < items.length; idx++) {
+          const it = items[idx];
+          if (!it.id) await checklistTemplates.addItem({ template_id: template.id, label: it.label, sort_order: idx, requires_photo: !!it.requires_photo });
+        }
+        overlay.remove();
+        toast("success", existing ? "Template updated" : "Template created");
+        load();
+      } catch (e) {
+        overlay.querySelector("#tError").textContent = e.message || "Could not save template.";
+      }
+    });
+  }
+</script>
+</body>
+</html>

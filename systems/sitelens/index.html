@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Dashboard — SiteLens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/sitelens/shared/sitelens.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Dashboard</h1>
+      <button class="icon-btn" id="refreshBtn" aria-label="Refresh dashboard" title="Refresh"><i data-lucide="refresh-cw"></i></button>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="sl-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="dashboardBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireSiteLensAccess, hasPermission } from "/systems/sitelens/shared/auth.js";
+  import { projects, media, tasks } from "/systems/sitelens/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitelens/shared/nav.js";
+  import { initTheme } from "/systems/sitelens/shared/theme.js";
+  import {
+    esc, timeAgo, initials,
+    loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
+    offlineBanner, staleBadge, setInner,
+  } from "/systems/sitelens/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null;
+  let _companyId = null;
+  let _lastRefreshed = null;
+
+  try {
+    const { profile } = await requireSiteLensAccess();
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    renderNav("dashboard", profile);
+    initMobileNav();
+    initTopbar();
+    wireOfflineBanner();
+
+    document.getElementById("refreshBtn").addEventListener("click", () => loadDashboard());
+
+    await loadDashboard();
+  } catch (e) {
+    renderAccessBlocked(e);
+  }
+
+  async function loadDashboard() {
+    setInner("dashboardBody", loadingState("Loading dashboard…"));
+    try {
+      const [projectList, recentMedia, myTasks] = await Promise.all([
+        projects.list(_companyId, { status: "active" }),
+        media.listRecentForCompany(_companyId, 12),
+        tasks.listForCompany(_companyId, { assigneeId: _profile.id }).catch(() => []),
+      ]);
+      _lastRefreshed = new Date();
+      renderDashboard({ projectList, recentMedia, myTasks });
+    } catch (e) {
+      setInner("dashboardBody", errorState({
+        title: "Couldn't load the dashboard",
+        message: e.message || "Something went wrong fetching data.",
+        retryId: "dashRetry",
+      }));
+      document.getElementById("dashRetry")?.addEventListener("click", loadDashboard);
+    }
+  }
+
+  function renderDashboard({ projectList, recentMedia, myTasks }) {
+    const firstName = (_profile.full_name || "").split(" ")[0] || "there";
+    const openTasks = myTasks.filter(t => t.status !== "done");
+
+    const quickActions = [
+      { permission: "sitelens.capture_media", href: "capture.html", icon: "camera", label: "Capture Photo/Video" },
+      { permission: "sitelens.view_projects", href: "projects.html", icon: "folder-kanban", label: "View Projects" },
+      { permission: "sitelens.manage_projects", href: "projects.html?new=1", icon: "plus-circle", label: "New Project" },
+      { permission: "sitelens.view_projects", href: "tasks.html", icon: "check-square", label: "My Tasks" },
+    ].filter(a => hasPermission(a.permission));
+
+    const html = `
+      <div class="sl-page-head">
+        <div>
+          <h2>Welcome back, ${esc(firstName)}</h2>
+          <p>Here's what's happening across your job sites. ${staleBadge(_lastRefreshed)}</p>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-value">${projectList.length}</div><div class="stat-label">Active Projects</div></div>
+        <div class="stat-card"><div class="stat-value">${recentMedia.length}</div><div class="stat-label">Recent Captures</div></div>
+        <div class="stat-card"><div class="stat-value">${openTasks.length}</div><div class="stat-label">My Open Tasks</div></div>
+      </div>
+
+      ${quickActions.length ? `
+      <div class="quick-actions">
+        ${quickActions.map(a => `
+          <a class="quick-action" href="${esc(a.href)}">
+            <i data-lucide="${esc(a.icon)}"></i>
+            <span>${esc(a.label)}</span>
+          </a>`).join("")}
+      </div>` : ""}
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header-row">
+          <h2>Recent Captures</h2>
+          <a class="btn" href="projects.html">All Projects →</a>
+        </div>
+        ${recentMedia.length === 0
+          ? emptyState({ icon: "camera", title: "No photos or videos yet", message: "Captures from every project will show up here.", actionHtml: hasPermission("sitelens.capture_media") ? `<a class="btn btn-primary" href="capture.html">Capture your first photo</a>` : "" })
+          : `<div class="sl-gallery">${recentMedia.map(mediaTile).join("")}</div>`}
+      </div>
+
+      <div class="card">
+        <div class="card-header-row">
+          <h2>My Open Tasks</h2>
+          <a class="btn" href="tasks.html">All Tasks →</a>
+        </div>
+        ${openTasks.length === 0
+          ? emptyState({ icon: "check-square", title: "Nothing assigned to you", message: "Tasks assigned to you across all projects will appear here." })
+          : `<div class="activity-list">${openTasks.slice(0, 6).map(taskRow).join("")}</div>`}
+      </div>
+    `;
+
+    setInner("dashboardBody", html);
+  }
+
+  function mediaTile(m) {
+    return `
+      <div class="sl-media-tile" style="cursor:default">
+        <div class="sl-media-type-badge"><i data-lucide="${m.media_type === 'video' ? 'video' : 'image'}"></i>${esc(m.media_type)}</div>
+        <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-size:11px;text-align:center;padding:8px">
+          ${esc(m.sitelens_projects?.name || "Project")}
+        </div>
+        <div class="sl-media-caption">${esc(timeAgo(m.taken_at))}</div>
+      </div>`;
+  }
+
+  function taskRow(t) {
+    const badge = { low: "badge-grey", normal: "badge-blue", high: "badge-red" }[t.priority] || "badge-grey";
+    return `
+      <div class="activity-row">
+        <div class="avatar avatar-sm">${esc(initials(t.sitelens_projects?.name || "?"))}</div>
+        <div>
+          <div class="activity-name">${esc(t.title)}</div>
+          <div class="activity-meta">
+            <span class="badge ${badge}">${esc(t.priority)}</span>
+            <span>${esc(t.sitelens_projects?.name || "")}</span>
+          </div>
+        </div>
+        <div class="activity-time">${t.due_date ? esc(t.due_date) : ""}</div>
+      </div>`;
+  }
+
+  function renderAccessBlocked(e) {
+    const msg = e?.message || "";
+    document.body.innerHTML = `
+      <div class="sl-shell">
+        <div class="sl-main" style="width:100%">
+          <div class="sl-topbar">
+            <h1>SiteLens</h1>
+            <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+            <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+          </div>
+          <div class="sl-content" id="content"></div>
+        </div>
+      </div>
+      <div id="toastwrap" aria-live="polite"></div>`;
+    initTheme();
+    initTopbar();
+
+    let html;
+    if (msg.includes("not enabled")) html = moduleDisabledState();
+    else if (msg.includes("permission") || msg.includes("No access")) html = permissionDeniedState(msg);
+    else if (msg.includes("profile") || msg.includes("session")) html = permissionDeniedState(msg || "Your account isn't set up for this module yet.");
+    else html = errorState({ title: "Couldn't load SiteLens", message: msg, retryId: "blockedRetry" });
+
+    setInner("content", html);
+    document.getElementById("blockedRetry")?.addEventListener("click", () => window.location.reload());
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+</script>
+</body>
+</html>

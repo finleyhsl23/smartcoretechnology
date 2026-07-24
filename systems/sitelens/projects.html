@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Projects — SiteLens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/sitelens/shared/sitelens.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Projects</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="sl-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireSiteLensAccess, hasPermission } from "/systems/sitelens/shared/auth.js";
+  import { projects } from "/systems/sitelens/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitelens/shared/nav.js";
+  import { initTheme } from "/systems/sitelens/shared/theme.js";
+  import { esc, fmtDate, loadingState, emptyState, errorState, setInner, toast, modal } from "/systems/sitelens/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null, _companyId = null, _all = [], _statusFilter = "active", _search = "";
+
+  try {
+    const { profile } = await requireSiteLensAccess();
+    _profile = profile;
+    _companyId = profile.company_id;
+    renderNav("projects", profile);
+    initMobileNav();
+    initTopbar();
+
+    await load();
+
+    if (new URLSearchParams(location.search).get("new") === "1" && hasPermission("sitelens.manage_projects")) {
+      openProjectModal();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Projects", message: e.message || "" }));
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading projects…"));
+    try {
+      _all = await projects.list(_companyId);
+      render();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load projects", message: e.message || "", retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", load);
+    }
+  }
+
+  function render() {
+    const filtered = _all.filter(p => {
+      if (_statusFilter !== "all" && p.status !== _statusFilter) return false;
+      if (_search && !p.name.toLowerCase().includes(_search.toLowerCase()) && !(p.client_name || "").toLowerCase().includes(_search.toLowerCase())) return false;
+      return true;
+    });
+
+    const html = `
+      <div class="sl-page-head">
+        <div><h2>Projects</h2><p>Every job site you're documenting, in one place.</p></div>
+        ${hasPermission("sitelens.manage_projects") ? `<button class="btn btn-primary" id="newProjectBtn"><i data-lucide="plus"></i> New Project</button>` : ""}
+      </div>
+
+      <div class="sl-toolbar">
+        <input class="form-input" id="searchInput" placeholder="Search projects…" value="${esc(_search)}"/>
+        <select class="form-select" id="statusFilter" style="max-width:180px">
+          ${["active", "completed", "archived", "all"].map(s => `<option value="${s}" ${s === _statusFilter ? "selected" : ""}>${s[0].toUpperCase() + s.slice(1)}</option>`).join("")}
+        </select>
+      </div>
+
+      ${filtered.length === 0
+        ? emptyState({ icon: "folder-kanban", title: "No projects found", message: "Create a project to start capturing job-site photos and videos.", actionHtml: hasPermission("sitelens.manage_projects") ? `<button class="btn btn-primary" id="emptyNewBtn"><i data-lucide="plus"></i> New Project</button>` : "" })
+        : `<div class="sl-project-grid">${filtered.map(projectCard).join("")}</div>`}
+    `;
+    setInner("body", html);
+
+    document.getElementById("newProjectBtn")?.addEventListener("click", () => openProjectModal());
+    document.getElementById("emptyNewBtn")?.addEventListener("click", () => openProjectModal());
+    document.getElementById("searchInput")?.addEventListener("input", (e) => { _search = e.target.value; render(); });
+    document.getElementById("statusFilter")?.addEventListener("change", (e) => { _statusFilter = e.target.value; render(); });
+  }
+
+  function projectCard(p) {
+    const badge = { active: "badge-green", completed: "badge-blue", archived: "badge-grey" }[p.status] || "badge-grey";
+    const location = [p.city, p.postcode].filter(Boolean).join(", ");
+    return `
+      <a class="sl-project-card" href="project-detail.html?id=${esc(p.id)}">
+        <div class="sl-project-cover"><i data-lucide="image" style="width:32px;height:32px"></i></div>
+        <div class="sl-project-body">
+          <span class="badge ${badge}" style="align-self:flex-start">${esc(p.status)}</span>
+          <h3>${esc(p.name)}</h3>
+          ${p.client_name ? `<div class="sl-project-meta"><i data-lucide="briefcase" style="width:12px;height:12px"></i>${esc(p.client_name)}</div>` : ""}
+          ${location ? `<div class="sl-project-meta"><i data-lucide="map-pin" style="width:12px;height:12px"></i>${esc(location)}</div>` : ""}
+          <div class="sl-project-stats"><span><i data-lucide="calendar"></i>${esc(fmtDate(p.created_at))}</span></div>
+        </div>
+      </a>`;
+  }
+
+  function openProjectModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>New Project</h3><button class="modal-close" aria-label="Close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Project name *</label><input class="form-input" id="pName" required/></div>
+        <div class="form-field"><label class="form-label">Client name</label><input class="form-input" id="pClient"/></div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Address line 1</label><input class="form-input" id="pAddr1"/></div>
+          <div class="form-field"><label class="form-label">City</label><input class="form-input" id="pCity"/></div>
+        </div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Postcode</label><input class="form-input" id="pPostcode"/></div>
+          <div class="form-field"><label class="form-label">Country</label><input class="form-input" id="pCountry" value="United Kingdom"/></div>
+        </div>
+        <div class="form-field"><label class="form-label">Description</label><textarea class="form-textarea" id="pDesc"></textarea></div>
+        <div id="pError" class="form-error"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="pCancel">Cancel</button>
+        <button class="btn btn-primary" id="pSave"><i data-lucide="check"></i> Create Project</button>
+      </div>
+    `);
+    overlay.querySelector("#pCancel").addEventListener("click", () => overlay.remove());
+    overlay.querySelector("#pSave").addEventListener("click", async () => {
+      const name = overlay.querySelector("#pName").value.trim();
+      if (!name) { overlay.querySelector("#pError").textContent = "Project name is required."; return; }
+      try {
+        const p = await projects.create({
+          company_id: _companyId, name,
+          client_name: overlay.querySelector("#pClient").value.trim() || null,
+          address_line_1: overlay.querySelector("#pAddr1").value.trim() || null,
+          city: overlay.querySelector("#pCity").value.trim() || null,
+          postcode: overlay.querySelector("#pPostcode").value.trim() || null,
+          country: overlay.querySelector("#pCountry").value.trim() || null,
+          description: overlay.querySelector("#pDesc").value.trim() || null,
+          created_by: _profile.id,
+        });
+        overlay.remove();
+        toast("success", "Project created", name);
+        window.location.href = `project-detail.html?id=${p.id}`;
+      } catch (e) {
+        overlay.querySelector("#pError").textContent = e.message || "Could not create project.";
+      }
+    });
+  }
+</script>
+</body>
+</html>

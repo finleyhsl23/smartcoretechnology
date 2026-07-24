@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Capture — SiteLens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/sitelens/shared/sitelens.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Capture</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content" style="max-width:640px"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireSiteLensAccess } from "/systems/sitelens/shared/auth.js";
+  import { projects, media, tags } from "/systems/sitelens/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitelens/shared/nav.js";
+  import { initTheme } from "/systems/sitelens/shared/theme.js";
+  import { renderPhotoCaptureStep, isCameraSupported } from "/systems/sitelens/shared/camera.js";
+  import { getCurrentPosition } from "/systems/sitelens/shared/geo.js";
+  import { esc, loadingState, emptyState, errorState, setInner, toast } from "/systems/sitelens/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null, _companyId = null, _projectList = [], _companyTags = [], _selectedProjectId = new URLSearchParams(location.search).get("project") || "";
+  let _mediaType = "photo", _captured = null; // {blob, width, height, name?, type?}
+
+  try {
+    const { profile } = await requireSiteLensAccess();
+    _profile = profile; _companyId = profile.company_id;
+    renderNav("capture", profile);
+    initMobileNav();
+    initTopbar();
+
+    setInner("body", loadingState("Loading projects…"));
+    [_projectList, _companyTags] = await Promise.all([projects.list(_companyId, { status: "active" }), tags.list(_companyId)]);
+
+    if (!_projectList.length) {
+      setInner("body", emptyState({ icon: "folder-kanban", title: "No active projects", message: "Create a project first before capturing photos.", actionHtml: `<a class="btn btn-primary" href="projects.html?new=1">New Project</a>` }));
+    } else {
+      if (!_projectList.some(p => p.id === _selectedProjectId)) _selectedProjectId = _projectList[0].id;
+      renderCaptureUI();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Capture", message: e.message || "" }));
+  }
+
+  function renderCaptureUI() {
+    setInner("body", `
+      <div class="card" style="margin-bottom:16px">
+        <div class="form-field" style="margin-bottom:10px">
+          <label class="form-label">Project</label>
+          <select class="form-select" id="projectSelect">${_projectList.map(p => `<option value="${p.id}" ${p.id === _selectedProjectId ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn ${_mediaType === "photo" ? "btn-primary" : ""}" id="modePhoto"><i data-lucide="image"></i> Photo</button>
+          <button class="btn ${_mediaType === "video" ? "btn-primary" : ""}" id="modeVideo"><i data-lucide="video"></i> Video</button>
+        </div>
+      </div>
+      <div class="card" id="captureArea"></div>
+    `);
+    document.getElementById("projectSelect").addEventListener("change", (e) => { _selectedProjectId = e.target.value; });
+    document.getElementById("modePhoto").addEventListener("click", () => { _mediaType = "photo"; renderCaptureUI(); });
+    document.getElementById("modeVideo").addEventListener("click", () => { _mediaType = "video"; renderCaptureUI(); });
+
+    if (_mediaType === "photo") renderPhotoMode(); else renderVideoMode();
+  }
+
+  function renderPhotoMode() {
+    const area = document.getElementById("captureArea");
+    area.innerHTML = `<div id="camHost"></div><div style="text-align:center;margin-top:14px"><label class="btn" style="cursor:pointer">Upload photo from device<input type="file" accept="image/*" id="filePick" style="display:none"/></label></div>`;
+    renderPhotoCaptureStep(document.getElementById("camHost"), {
+      title: "Frame your shot",
+      onCancel: () => {},
+      onCaptured: ({ blob, width, height }) => openDetailsForm({ blob, width, height, ext: "jpg", contentType: "image/jpeg" }),
+    });
+    document.getElementById("filePick").addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => { openDetailsForm({ blob: file, width: img.naturalWidth, height: img.naturalHeight, ext: (file.name.split(".").pop() || "jpg"), contentType: file.type }); URL.revokeObjectURL(url); };
+      img.src = url;
+    });
+  }
+
+  function renderVideoMode() {
+    const area = document.getElementById("captureArea");
+    if (!isCameraSupported()) {
+      area.innerHTML = `<p class="text-muted" style="text-align:center">Camera not available. Upload a video instead.</p><div style="text-align:center;margin-top:14px"><label class="btn" style="cursor:pointer">Upload video from device<input type="file" accept="video/*" id="filePick" style="display:none"/></label></div>`;
+      wireVideoFilePick();
+      return;
+    }
+    area.innerHTML = `
+      <div class="sl-camera-step">
+        <div class="sl-cam-frame" style="margin:0 auto"><video id="recPreview" playsinline muted autoplay></video></div>
+        <div id="recError" class="form-error"></div>
+        <div class="sl-camera-actions">
+          <button class="btn btn-primary" id="recStartBtn"><i data-lucide="circle"></i> Start Recording</button>
+          <button class="btn btn-danger" id="recStopBtn" style="display:none"><i data-lucide="square"></i> Stop</button>
+        </div>
+        <div style="margin-top:8px"><label class="btn" style="cursor:pointer">Upload video from device<input type="file" accept="video/*" id="filePick" style="display:none"/></label></div>
+      </div>`;
+    wireVideoFilePick();
+
+    let stream = null, recorder = null, chunks = [];
+    const video = document.getElementById("recPreview");
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true })
+      .then(s => { stream = s; video.srcObject = s; })
+      .catch(err => { document.getElementById("recError").textContent = `Camera error: ${err.message}`; });
+
+    document.getElementById("recStartBtn").addEventListener("click", () => {
+      if (!stream) return;
+      chunks = [];
+      recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("video/webm") ? "video/webm" : "" });
+      recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunks, { type: recorder.mimeType || "video/webm" });
+        openDetailsForm({ blob, ext: (recorder.mimeType || "video/webm").includes("mp4") ? "mp4" : "webm", contentType: blob.type });
+      };
+      recorder.start();
+      document.getElementById("recStartBtn").style.display = "none";
+      document.getElementById("recStopBtn").style.display = "";
+    });
+    document.getElementById("recStopBtn").addEventListener("click", () => recorder?.stop());
+  }
+
+  function wireVideoFilePick() {
+    document.getElementById("filePick").addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      openDetailsForm({ blob: file, ext: (file.name.split(".").pop() || "mp4"), contentType: file.type });
+    });
+  }
+
+  function openDetailsForm({ blob, width, height, ext, contentType }) {
+    _captured = { blob, width, height, ext, contentType };
+    const previewUrl = URL.createObjectURL(blob);
+    const isVideo = _mediaType === "video";
+    document.getElementById("captureArea").innerHTML = `
+      <div class="sl-cam-frame" style="margin:0 auto 14px">${isVideo ? `<video src="${previewUrl}" controls></video>` : `<img src="${previewUrl}" alt="Preview"/>`}</div>
+      <div class="form-field"><label class="form-label">Caption</label><input class="form-input" id="capCaption" placeholder="What is this showing?"/></div>
+      <div class="form-field">
+        <label class="form-label">Tags</label>
+        <div id="capTags" style="display:flex;flex-wrap:wrap;gap:8px">
+          ${_companyTags.map(t => `<label class="sl-tag-chip" style="background:${esc(t.color)}22;color:${esc(t.color)};border-color:${esc(t.color)}55;cursor:pointer"><input type="checkbox" value="${esc(t.id)}" style="margin-right:4px"/>${esc(t.name)}</label>`).join("") || `<span class="text-muted">No tags yet</span>`}
+        </div>
+      </div>
+      <div id="capError" class="form-error"></div>
+      <div style="display:flex;gap:10px;margin-top:10px">
+        <button class="btn" id="capRetry">Discard</button>
+        <button class="btn btn-primary" id="capSave"><i data-lucide="upload"></i> Save to Project</button>
+      </div>
+    `;
+    window.lucide?.createIcons?.();
+    document.getElementById("capRetry").addEventListener("click", () => { URL.revokeObjectURL(previewUrl); renderCaptureUI(); });
+    document.getElementById("capSave").addEventListener("click", saveCapture);
+  }
+
+  async function saveCapture() {
+    const saveBtn = document.getElementById("capSave");
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = `<i data-lucide="loader"></i> Uploading…`;
+    window.lucide?.createIcons?.();
+    try {
+      const position = await getCurrentPosition();
+      const mediaId = crypto.randomUUID();
+      const path = `${_companyId}/${_selectedProjectId}/${mediaId}.${_captured.ext}`;
+      await media.uploadFile(path, _captured.blob);
+
+      const tagIds = [...document.querySelectorAll('#capTags input:checked')].map(el => el.value);
+      const row = await media.create({
+        id: mediaId, company_id: _companyId, project_id: _selectedProjectId,
+        media_type: _mediaType, storage_path: path,
+        caption: document.getElementById("capCaption").value.trim() || null,
+        latitude: position?.latitude ?? null, longitude: position?.longitude ?? null,
+        uploaded_by: _profile.id,
+        file_size_bytes: _captured.blob.size,
+        width: _captured.width || null, height: _captured.height || null,
+      });
+      if (tagIds.length) await media.setTags(row.id, tagIds);
+
+      fetch("/api/sitelens/webhook-notify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: _companyId, eventType: "media.uploaded", payload: { mediaId: row.id, projectId: _selectedProjectId } }),
+      }).catch(() => {});
+
+      toast("success", "Saved", "Photo/video added to project.");
+      renderCaptureUI();
+    } catch (e) {
+      document.getElementById("capError").textContent = e.message || "Upload failed.";
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = `<i data-lucide="upload"></i> Save to Project`;
+      window.lucide?.createIcons?.();
+    }
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Team — SiteLens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/sitelens/shared/sitelens.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Team &amp; Permissions</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireSiteLensAccess, hasPermission } from "/systems/sitelens/shared/auth.js";
+  import { permissionGrants, employees } from "/systems/sitelens/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitelens/shared/nav.js";
+  import { initTheme } from "/systems/sitelens/shared/theme.js";
+  import { esc, loadingState, emptyState, errorState, permissionDeniedState, setInner, toast, modal, confirmDialog } from "/systems/sitelens/shared/ui.js";
+
+  initTheme();
+  let _profile = null, _companyId = null, _companyEmployees = [];
+
+  const ALL_PERMISSIONS = [
+    "sitelens.view_projects", "sitelens.manage_projects", "sitelens.capture_media", "sitelens.delete_media",
+    "sitelens.manage_checklists", "sitelens.manage_tasks", "sitelens.manage_team", "sitelens.manage_settings", "sitelens.export_reports",
+  ];
+
+  try {
+    const { profile } = await requireSiteLensAccess();
+    _profile = profile; _companyId = profile.company_id;
+    renderNav("team", profile);
+    initMobileNav();
+    initTopbar();
+
+    if (!hasPermission("sitelens.manage_team") && !["owner", "admin", "administrator"].includes(profile.role)) {
+      setInner("body", permissionDeniedState("Only Owners and Admins can manage SiteLens permissions."));
+    } else {
+      await load();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Team", message: e.message || "" }));
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading team…"));
+    try {
+      [_companyEmployees] = await Promise.all([employees.listForCompany(_companyId)]);
+      const grants = await permissionGrants.listForCompany(_companyId);
+      render(grants);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load team", message: e.message || "", retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", load);
+    }
+  }
+
+  function render(grants) {
+    const byEmployee = {};
+    for (const g of grants) {
+      (byEmployee[g.employee_id] = byEmployee[g.employee_id] || { employee: g.core_employees, grants: [] }).grants.push(g);
+    }
+    const rows = Object.entries(byEmployee);
+
+    setInner("body", `
+      <div class="sl-page-head">
+        <div><h2>Team &amp; Permissions</h2><p>Owners and Admins always have full access. Grant extra SiteLens permissions to other roles here.</p></div>
+        <button class="btn btn-primary" id="grantBtn"><i data-lucide="user-plus"></i> Grant Permission</button>
+      </div>
+      ${rows.length === 0 ? emptyState({ icon: "users", title: "No extra permissions granted", message: "Everyone else uses the default permission set for their role." }) : `
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Role</th><th>Granted Permissions</th><th></th></tr></thead><tbody>
+        ${rows.map(([empId, r]) => `
+          <tr>
+            <td>${esc(r.employee?.full_name || "—")}</td>
+            <td>${esc(r.employee?.role || "—")}</td>
+            <td>${r.grants.map(g => `<span class="badge badge-blue" style="margin:2px">${esc(g.permission.replace("sitelens.", ""))} <button data-revoke="${g.id}" style="background:none;border:none;color:inherit;cursor:pointer;margin-left:4px">&times;</button></span>`).join("")}</td>
+          </tr>`).join("")}
+      </tbody></table></div>`}
+    `);
+    document.getElementById("grantBtn").addEventListener("click", openGrantModal);
+    document.querySelectorAll("[data-revoke]").forEach(b => b.addEventListener("click", () => {
+      confirmDialog("Revoke permission?", "This user will lose this permission immediately.", async () => {
+        await permissionGrants.revoke(b.dataset.revoke);
+        toast("success", "Permission revoked");
+        load();
+      });
+    }));
+  }
+
+  function openGrantModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Grant Permission</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Employee</label>
+          <select class="form-select" id="gEmp">${_companyEmployees.map(e => `<option value="${e.id}">${esc(e.full_name)} (${esc(e.role)})</option>`).join("")}</select>
+        </div>
+        <div class="form-field"><label class="form-label">Permission</label>
+          <select class="form-select" id="gPerm">${ALL_PERMISSIONS.map(p => `<option value="${p}">${p.replace("sitelens.", "")}</option>`).join("")}</select>
+        </div>
+        <div id="gError" class="form-error"></div>
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Grant</button></div>
+    `);
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    overlay.querySelector("#save").addEventListener("click", async () => {
+      try {
+        await permissionGrants.grant({
+          company_id: _companyId, employee_id: overlay.querySelector("#gEmp").value,
+          permission: overlay.querySelector("#gPerm").value, granted_by: _profile.id,
+        });
+        overlay.remove();
+        toast("success", "Permission granted");
+        load();
+      } catch (e) {
+        overlay.querySelector("#gError").textContent = e.message || "Could not grant permission.";
+      }
+    });
+  }
+</script>
+</body>
+</html>

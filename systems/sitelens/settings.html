@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Settings — SiteLens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/sitelens/shared/sitelens.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Settings</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireSiteLensAccess, hasPermission } from "/systems/sitelens/shared/auth.js";
+  import { settings, tags, webhooks, apiKeys } from "/systems/sitelens/shared/api.js";
+  import { sb } from "/systems/sitelens/shared/supabase.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitelens/shared/nav.js";
+  import { initTheme } from "/systems/sitelens/shared/theme.js";
+  import { esc, timeAgo, loadingState, errorState, permissionDeniedState, setInner, toast, modal, confirmDialog } from "/systems/sitelens/shared/ui.js";
+
+  initTheme();
+  let _profile = null, _companyId = null;
+
+  try {
+    const { profile } = await requireSiteLensAccess();
+    _profile = profile; _companyId = profile.company_id;
+    renderNav("settings", profile);
+    initMobileNav();
+    initTopbar();
+
+    if (!hasPermission("sitelens.manage_settings")) {
+      setInner("body", permissionDeniedState("Only Owners and Admins can manage SiteLens settings."));
+    } else {
+      await load();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Settings", message: e.message || "" }));
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading settings…"));
+    try {
+      const [companySettings, tagList, webhookList, keyList] = await Promise.all([
+        settings.get(_companyId), tags.list(_companyId), webhooks.list(_companyId), apiKeys.list(_companyId),
+      ]);
+      render({ companySettings, tagList, webhookList, keyList });
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load settings", message: e.message || "", retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", load);
+    }
+  }
+
+  function render({ companySettings, tagList, webhookList, keyList }) {
+    setInner("body", `
+      <div class="sl-page-head"><div><h2>Settings</h2><p>Company-wide SiteLens configuration.</p></div></div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h2 style="margin:0 0 14px;font-size:15px">General</h2>
+        <label style="display:flex;align-items:center;gap:10px;font-size:13.5px;margin-bottom:10px">
+          <input type="checkbox" id="notifyToggle" ${companySettings?.notify_on_upload ? "checked" : ""} style="width:18px;height:18px;accent-color:var(--accent)"/>
+          Notify the team when new media is uploaded
+        </label>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header-row"><h2>Tags</h2><button class="btn" id="addTagBtn"><i data-lucide="plus"></i> Add Tag</button></div>
+        <div id="tagList" style="display:flex;flex-wrap:wrap;gap:8px">
+          ${tagList.map(t => `<span class="sl-tag-chip" style="background:${esc(t.color)}22;color:${esc(t.color)};border-color:${esc(t.color)}55">${esc(t.name)} <button data-remove-tag="${t.id}" style="background:none;border:none;color:inherit;cursor:pointer;margin-left:4px">&times;</button></span>`).join("") || `<span class="text-muted">No tags yet.</span>`}
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header-row"><h2>Outbound Webhooks</h2><button class="btn" id="addWebhookBtn"><i data-lucide="plus"></i> Add Webhook</button></div>
+        <p class="text-muted" style="margin:0 0 10px">Fires a POST request when media is uploaded or a checklist/task is completed — connect SiteLens to other tools.</p>
+        ${webhookList.length === 0 ? `<p class="text-muted">No webhooks configured.</p>` : `
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Label</th><th>URL</th><th>Events</th><th>Status</th><th></th></tr></thead><tbody>
+          ${webhookList.map(w => `<tr><td>${esc(w.label)}</td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.target_url)}</td><td>${w.event_types.length}</td><td>${w.is_active ? `<span class="badge badge-green">Active</span>` : `<span class="badge badge-grey">Disabled</span>`}</td><td><button class="btn" data-remove-webhook="${w.id}">Remove</button></td></tr>`).join("")}
+        </tbody></table></div>`}
+      </div>
+
+      <div class="card">
+        <div class="card-header-row"><h2>API Keys</h2><button class="btn" id="addKeyBtn"><i data-lucide="plus"></i> New Key</button></div>
+        <p class="text-muted" style="margin:0 0 10px">Read-only key for pulling projects and media into external tools via <code>/api/sitelens/api-export</code>.</p>
+        ${keyList.length === 0 ? `<p class="text-muted">No API keys yet.</p>` : `
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Label</th><th>Key</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>
+          ${keyList.map(k => `<tr><td>${esc(k.label)}</td><td><code>${esc(k.key_prefix)}…</code></td><td>${k.last_used_at ? esc(timeAgo(k.last_used_at)) : "Never"}</td><td>${k.revoked_at ? `<span class="badge badge-grey">Revoked</span>` : `<span class="badge badge-green">Active</span>`}</td><td>${!k.revoked_at ? `<button class="btn" data-revoke-key="${k.id}">Revoke</button>` : ""}</td></tr>`).join("")}
+        </tbody></table></div>`}
+      </div>
+    `);
+
+    document.getElementById("notifyToggle").addEventListener("change", async (e) => {
+      await settings.upsert({ company_id: _companyId, notify_on_upload: e.target.checked, updated_by: _profile.id });
+      toast("success", "Saved");
+    });
+    document.getElementById("addTagBtn").addEventListener("click", () => openTagModal());
+    document.querySelectorAll("[data-remove-tag]").forEach(b => b.addEventListener("click", async () => { await tags.remove(b.dataset.removeTag); toast("success", "Tag removed"); load(); }));
+    document.getElementById("addWebhookBtn").addEventListener("click", () => openWebhookModal());
+    document.querySelectorAll("[data-remove-webhook]").forEach(b => b.addEventListener("click", () => {
+      confirmDialog("Remove webhook?", "This endpoint will stop receiving SiteLens events.", async () => { await webhooks.remove(b.dataset.removeWebhook); toast("success", "Webhook removed"); load(); });
+    }));
+    document.getElementById("addKeyBtn").addEventListener("click", () => openApiKeyModal());
+    document.querySelectorAll("[data-revoke-key]").forEach(b => b.addEventListener("click", () => {
+      confirmDialog("Revoke API key?", "Any integration using this key will stop working immediately.", async () => { await apiKeys.revoke(b.dataset.revokeKey); toast("success", "Key revoked"); load(); });
+    }));
+  }
+
+  function openTagModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Add Tag</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Name *</label><input class="form-input" id="tagName"/></div>
+        <div class="form-field"><label class="form-label">Color</label><input type="color" id="tagColor" value="#1e5cff" style="width:60px;height:40px;border:none;background:none"/></div>
+        <div id="tagError" class="form-error"></div>
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Add</button></div>
+    `);
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    overlay.querySelector("#save").addEventListener("click", async () => {
+      const name = overlay.querySelector("#tagName").value.trim();
+      if (!name) { overlay.querySelector("#tagError").textContent = "Name is required."; return; }
+      try {
+        await tags.create({ company_id: _companyId, name, color: overlay.querySelector("#tagColor").value, created_by: _profile.id });
+        overlay.remove();
+        toast("success", "Tag added");
+        load();
+      } catch (e) { overlay.querySelector("#tagError").textContent = e.message || "Could not add tag."; }
+    });
+  }
+
+  function openWebhookModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Add Webhook</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Label *</label><input class="form-input" id="wLabel" placeholder="e.g. Zapier"/></div>
+        <div class="form-field"><label class="form-label">Target URL *</label><input class="form-input" id="wUrl" placeholder="https://…"/></div>
+        <div class="form-field"><label class="form-label">Events</label>
+          ${["media.uploaded", "checklist.completed", "task.completed"].map(ev => `<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px"><input type="checkbox" class="wEvent" value="${ev}" checked/> ${ev}</label>`).join("")}
+        </div>
+        <div id="wError" class="form-error"></div>
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Add Webhook</button></div>
+    `);
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    overlay.querySelector("#save").addEventListener("click", async () => {
+      const label = overlay.querySelector("#wLabel").value.trim();
+      const url = overlay.querySelector("#wUrl").value.trim();
+      if (!label || !url) { overlay.querySelector("#wError").textContent = "Label and URL are required."; return; }
+      const eventTypes = [...overlay.querySelectorAll(".wEvent:checked")].map(el => el.value);
+      try {
+        await webhooks.create({ company_id: _companyId, label, target_url: url, event_types: eventTypes, secret: crypto.randomUUID(), created_by: _profile.id });
+        overlay.remove();
+        toast("success", "Webhook added");
+        load();
+      } catch (e) { overlay.querySelector("#wError").textContent = e.message || "Could not add webhook."; }
+    });
+  }
+
+  function openApiKeyModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>New API Key</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Label *</label><input class="form-input" id="kLabel" placeholder="e.g. Reporting dashboard"/></div>
+        <div id="kResult"></div>
+        <div id="kError" class="form-error"></div>
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Close</button><button class="btn btn-primary" id="save">Create Key</button></div>
+    `);
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    overlay.querySelector("#save").addEventListener("click", async () => {
+      const label = overlay.querySelector("#kLabel").value.trim();
+      if (!label) { overlay.querySelector("#kError").textContent = "Label is required."; return; }
+      try {
+        const { data: sessionData } = await sb().auth.getSession();
+        const res = await fetch("/api/sitelens/create-api-key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session.access_token}` },
+          body: JSON.stringify({ companyId: _companyId, label }),
+        });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out.error || "Could not create key.");
+        overlay.querySelector("#kResult").innerHTML = `
+          <div class="form-field"><label class="form-label">Your new API key (shown once — copy it now)</label>
+            <input class="form-input" readonly value="${esc(out.apiKey)}" onclick="this.select()"/>
+          </div>`;
+        overlay.querySelector("#save").style.display = "none";
+        toast("success", "API key created");
+      } catch (e) {
+        overlay.querySelector("#kError").textContent = e.message || "Could not create key.";
+      }
+    });
+  }
+</script>
+</body>
+</html>
