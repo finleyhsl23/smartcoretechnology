@@ -62,7 +62,7 @@ export const projects = {
 export const members = {
   async listForProject(projectId) {
     const { data, error } = await sb().from("sitestamp_project_members")
-      .select("*, core_employees(id, full_name, work_email, role)")
+      .select("*, core_employees!employee_id(id, full_name, work_email, role)")
       .eq("project_id", projectId).order("added_at");
     throwIfError(error);
     return data || [];
@@ -335,7 +335,7 @@ export const employees = {
 export const permissionGrants = {
   async listForCompany(companyId) {
     const { data, error } = await sb().from("sitestamp_permission_grants")
-      .select("*, core_employees(full_name, work_email, role)").eq("company_id", companyId).order("granted_at", { ascending: false });
+      .select("*, core_employees!employee_id(full_name, work_email, role)").eq("company_id", companyId).order("granted_at", { ascending: false });
     throwIfError(error);
     return data || [];
   },
