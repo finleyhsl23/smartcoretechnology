@@ -36,14 +36,19 @@ export function confirmDialog(title, msg, onConfirm, { danger = true, confirmLab
   return overlay;
 }
 
-export function modal(html, { size = "" } = {}) {
+export function modal(html, { size = "", onClose } = {}) {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `<div class="modal ${size}" role="dialog" aria-modal="true">${html}</div>`;
   document.body.appendChild(overlay);
-  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
-  overlay.addEventListener("keydown", e => { if (e.key === "Escape") overlay.remove(); });
-  overlay.querySelectorAll(".modal-close").forEach(btn => btn.addEventListener("click", () => overlay.remove()));
+  // Every close path (outside click, Escape, .modal-close, or a caller
+  // explicitly calling overlay.close()) funnels through here, so callers
+  // with teardown to do (e.g. destroying a map instance) only need to pass
+  // onClose once instead of wiring cleanup into every dismissal path.
+  overlay.close = () => { onClose?.(); overlay.remove(); };
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.close(); });
+  overlay.addEventListener("keydown", e => { if (e.key === "Escape") overlay.close(); });
+  overlay.querySelectorAll(".modal-close").forEach(btn => btn.addEventListener("click", () => overlay.close()));
   window.lucide?.createIcons?.();
   return overlay;
 }

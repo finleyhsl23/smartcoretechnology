@@ -8,7 +8,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/systems/sitestamp/shared/sitestamp.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 <div class="sl-shell">
@@ -33,6 +35,8 @@
   import { renderNav, initMobileNav, initTopbar } from "/systems/sitestamp/shared/nav.js";
   import { initTheme } from "/systems/sitestamp/shared/theme.js";
   import { esc, fmtDate, fmtDateTime, timeAgo, initials, fmtBytes, mapsUrl, loadingState, emptyState, errorState, setInner, toast, modal, confirmDialog } from "/systems/sitestamp/shared/ui.js";
+  import { geocodeAddress, mountLocationPicker } from "/systems/sitestamp/shared/mapPicker.js";
+  import { getCurrentPosition } from "/systems/sitestamp/shared/geo.js";
 
   initTheme();
 
@@ -483,6 +487,8 @@
 
   function openEditModal() {
     const p = _project;
+    let _lat = p.latitude ?? null, _lng = p.longitude ?? null, _picker = null;
+
     const overlay = modal(`
       <div class="modal-header"><h3>Edit Project</h3><button class="modal-close">&times;</button></div>
       <div class="modal-body">
@@ -498,12 +504,64 @@
             <select class="form-select" id="eStatus">${["active","completed","archived"].map(s => `<option value="${s}" ${s === p.status ? "selected" : ""}>${s}</option>`).join("")}</select>
           </div>
         </div>
-        <div class="form-field"><label class="form-label">Description</label><textarea class="form-textarea" id="eDesc">${esc(p.description || "")}</textarea></div>
+
+        <label class="form-label">Location</label>
+        <p class="sl-location-hint">Find the address on the map, use your current location, or click/drag the pin directly.</p>
+        <div class="sl-location-actions">
+          <button type="button" class="btn" id="eLocateAddr"><i data-lucide="search"></i> Find address on map</button>
+          <button type="button" class="btn" id="eUseGps"><i data-lucide="locate-fixed"></i> Use my location</button>
+        </div>
+        <div id="eMap" class="sl-location-map"></div>
+        <div id="eCoords" class="sl-location-coords">${_lat != null ? `Pinned at ${_lat.toFixed(6)}, ${_lng.toFixed(6)}` : "No location pinned yet."}</div>
+
+        <div class="form-field" style="margin-top:14px"><label class="form-label">Description</label><textarea class="form-textarea" id="eDesc">${esc(p.description || "")}</textarea></div>
         <div id="eError" class="form-error"></div>
       </div>
       <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Save Changes</button></div>
-    `);
-    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    `, { size: "wide", onClose: () => _picker?.destroy() });
+
+    function setCoords(lat, lng) {
+      _lat = lat; _lng = lng;
+      overlay.querySelector("#eCoords").textContent = `Pinned at ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    }
+
+    _picker = mountLocationPicker(overlay.querySelector("#eMap"), {
+      latitude: p.latitude ?? null, longitude: p.longitude ?? null,
+      onChange: ({ latitude, longitude }) => setCoords(latitude, longitude),
+    });
+
+    overlay.querySelector("#eLocateAddr").addEventListener("click", async () => {
+      const addressText = [
+        overlay.querySelector("#eAddr1").value, overlay.querySelector("#eCity").value,
+        overlay.querySelector("#ePostcode").value,
+      ].filter(Boolean).join(", ");
+      if (!addressText.trim()) { toast("error", "Enter an address first"); return; }
+      const btn = overlay.querySelector("#eLocateAddr");
+      btn.disabled = true;
+      try {
+        const result = await geocodeAddress(addressText);
+        if (!result) { toast("error", "Couldn't find that address", "Try adjusting it, or drop the pin manually."); return; }
+        _picker.setPosition(result.latitude, result.longitude);
+        setCoords(result.latitude, result.longitude);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    overlay.querySelector("#eUseGps").addEventListener("click", async () => {
+      const btn = overlay.querySelector("#eUseGps");
+      btn.disabled = true;
+      try {
+        const pos = await getCurrentPosition();
+        if (!pos) { toast("error", "Couldn't get your location", "Check location permissions and try again."); return; }
+        _picker.setPosition(pos.latitude, pos.longitude);
+        setCoords(pos.latitude, pos.longitude);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.close()));
     overlay.querySelector("#save").addEventListener("click", async () => {
       const name = overlay.querySelector("#eName").value.trim();
       if (!name) { overlay.querySelector("#eError").textContent = "Project name is required."; return; }
@@ -514,10 +572,11 @@
           city: overlay.querySelector("#eCity").value.trim() || null,
           postcode: overlay.querySelector("#ePostcode").value.trim() || null,
           status: overlay.querySelector("#eStatus").value,
+          latitude: _lat, longitude: _lng,
           description: overlay.querySelector("#eDesc").value.trim() || null,
           updated_by: _profile.id,
         });
-        overlay.remove();
+        overlay.close();
         toast("success", "Project updated");
         await loadProject();
       } catch (e) {

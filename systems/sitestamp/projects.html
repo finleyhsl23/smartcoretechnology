@@ -8,7 +8,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/systems/sitestamp/shared/sitestamp.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 <div class="sl-shell">
@@ -36,6 +38,8 @@
   import { renderNav, initMobileNav, initTopbar } from "/systems/sitestamp/shared/nav.js";
   import { initTheme } from "/systems/sitestamp/shared/theme.js";
   import { esc, fmtDate, loadingState, emptyState, errorState, setInner, toast, modal } from "/systems/sitestamp/shared/ui.js";
+  import { geocodeAddress, mountLocationPicker } from "/systems/sitestamp/shared/mapPicker.js";
+  import { getCurrentPosition } from "/systems/sitestamp/shared/geo.js";
 
   initTheme();
 
@@ -118,6 +122,8 @@
   }
 
   function openProjectModal() {
+    let _lat = null, _lng = null, _picker = null;
+
     const overlay = modal(`
       <div class="modal-header"><h3>New Project</h3><button class="modal-close" aria-label="Close">&times;</button></div>
       <div class="modal-body">
@@ -131,15 +137,67 @@
           <div class="form-field"><label class="form-label">Postcode</label><input class="form-input" id="pPostcode"/></div>
           <div class="form-field"><label class="form-label">Country</label><input class="form-input" id="pCountry" value="United Kingdom"/></div>
         </div>
-        <div class="form-field"><label class="form-label">Description</label><textarea class="form-textarea" id="pDesc"></textarea></div>
+
+        <label class="form-label">Location</label>
+        <p class="sl-location-hint">Find the address on the map, use your current location, or click/drag the pin directly.</p>
+        <div class="sl-location-actions">
+          <button type="button" class="btn" id="pLocateAddr"><i data-lucide="search"></i> Find address on map</button>
+          <button type="button" class="btn" id="pUseGps"><i data-lucide="locate-fixed"></i> Use my location</button>
+        </div>
+        <div id="pMap" class="sl-location-map"></div>
+        <div id="pCoords" class="sl-location-coords">No location pinned yet.</div>
+
+        <div class="form-field" style="margin-top:14px"><label class="form-label">Description</label><textarea class="form-textarea" id="pDesc"></textarea></div>
         <div id="pError" class="form-error"></div>
       </div>
       <div class="modal-footer">
         <button class="btn" id="pCancel">Cancel</button>
         <button class="btn btn-primary" id="pSave"><i data-lucide="check"></i> Create Project</button>
       </div>
-    `);
-    overlay.querySelector("#pCancel").addEventListener("click", () => overlay.remove());
+    `, { size: "wide", onClose: () => _picker?.destroy() });
+
+    function setCoords(lat, lng) {
+      _lat = lat; _lng = lng;
+      overlay.querySelector("#pCoords").textContent = `Pinned at ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    }
+
+    _picker = mountLocationPicker(overlay.querySelector("#pMap"), {
+      onChange: ({ latitude, longitude }) => setCoords(latitude, longitude),
+    });
+
+    overlay.querySelector("#pLocateAddr").addEventListener("click", async () => {
+      const addressText = [
+        overlay.querySelector("#pAddr1").value, overlay.querySelector("#pCity").value,
+        overlay.querySelector("#pPostcode").value, overlay.querySelector("#pCountry").value,
+      ].filter(Boolean).join(", ");
+      if (!addressText.trim()) { toast("error", "Enter an address first"); return; }
+      const btn = overlay.querySelector("#pLocateAddr");
+      btn.disabled = true;
+      try {
+        const result = await geocodeAddress(addressText);
+        if (!result) { toast("error", "Couldn't find that address", "Try adjusting it, or drop the pin manually."); return; }
+        _picker.setPosition(result.latitude, result.longitude);
+        setCoords(result.latitude, result.longitude);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    overlay.querySelector("#pUseGps").addEventListener("click", async () => {
+      const btn = overlay.querySelector("#pUseGps");
+      btn.disabled = true;
+      try {
+        const pos = await getCurrentPosition();
+        if (!pos) { toast("error", "Couldn't get your location", "Check location permissions and try again."); return; }
+        _picker.setPosition(pos.latitude, pos.longitude);
+        setCoords(pos.latitude, pos.longitude);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    overlay.querySelector("#pCancel").addEventListener("click", () => overlay.close());
+
     overlay.querySelector("#pSave").addEventListener("click", async () => {
       const name = overlay.querySelector("#pName").value.trim();
       if (!name) { overlay.querySelector("#pError").textContent = "Project name is required."; return; }
@@ -151,10 +209,11 @@
           city: overlay.querySelector("#pCity").value.trim() || null,
           postcode: overlay.querySelector("#pPostcode").value.trim() || null,
           country: overlay.querySelector("#pCountry").value.trim() || null,
+          latitude: _lat, longitude: _lng,
           description: overlay.querySelector("#pDesc").value.trim() || null,
           created_by: _profile.id,
         });
-        overlay.remove();
+        overlay.close();
         toast("success", "Project created", name);
         window.location.href = `project-detail.html?id=${p.id}`;
       } catch (e) {
