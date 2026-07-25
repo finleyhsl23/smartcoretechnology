@@ -6,6 +6,7 @@
 import { onboarding } from "./api.js";
 import { getCurrentPosition } from "./geo.js";
 import { esc } from "./ui.js";
+import { isSupported as isNotificationsSupported } from "./notifications.js";
 
 const STEPS = [
   {
@@ -43,6 +44,14 @@ const STEPS = [
     cta: "Allow Camera",
   },
   {
+    phase: "permission",
+    type: "notifications",
+    icon: "bell",
+    title: "Allow Notifications",
+    body: "We'll ping you the moment a task gets assigned to you, so you don't have to keep checking back. Only while a SiteSnap tab is open — nothing runs when your browser's closed.",
+    cta: "Allow Notifications",
+  },
+  {
     phase: "demo",
     icon: "layout-dashboard",
     title: "Your Dashboard",
@@ -73,6 +82,36 @@ const STEPS = [
   },
 ];
 
+async function requestLocation() {
+  const pos = await getCurrentPosition({ timeout: 10000 });
+  return !!pos;
+}
+
+async function requestCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) return false;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    stream.getTracks().forEach(t => t.stop());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function requestNotifications() {
+  if (!isNotificationsSupported()) return false;
+  if (Notification.permission === "granted") return true;
+  if (Notification.permission === "denied") return false;
+  const result = await Notification.requestPermission();
+  return result === "granted";
+}
+
+const PERMISSION_HANDLERS = {
+  location: { resultKey: "locationPermission", request: requestLocation },
+  camera: { resultKey: "cameraPermission", request: requestCamera },
+  notifications: { resultKey: "notificationsPermission", request: requestNotifications },
+};
+
 /**
  * Runs the full onboarding tour and resolves once the user has completed
  * (or, from the demo phase onward, skipped) it. Always resolves — this is
@@ -81,7 +120,7 @@ const STEPS = [
 export function runOnboarding({ employeeId, companyId }) {
   return new Promise((resolve) => {
     let idx = 0;
-    const result = { locationPermission: null, cameraPermission: null, demoSkipped: false };
+    const result = { locationPermission: null, cameraPermission: null, notificationsPermission: null, demoSkipped: false };
 
     const overlay = document.createElement("div");
     overlay.className = "sl-onboard-overlay";
@@ -154,6 +193,7 @@ export function runOnboarding({ employeeId, companyId }) {
       const ctaBtn = card.querySelector("#onboardCta");
 
       if (step.phase === "permission") {
+        const { resultKey, request } = PERMISSION_HANDLERS[step.type];
         // .onclick (not addEventListener) so reassigning it below to advance()
         // fully replaces this handler instead of running alongside it — with
         // addEventListener, clicking "Continue" would also silently re-fire
@@ -161,10 +201,9 @@ export function runOnboarding({ employeeId, companyId }) {
         ctaBtn.onclick = async () => {
           ctaBtn.disabled = true;
           ctaBtn.textContent = "Requesting…";
-          const granted = step.type === "location" ? await requestLocation() : await requestCamera();
+          const granted = await request();
           const status = card.querySelector("#permStatus");
-          if (step.type === "location") result.locationPermission = granted ? "granted" : "denied";
-          else result.cameraPermission = granted ? "granted" : "denied";
+          result[resultKey] = granted ? "granted" : "denied";
           status.innerHTML = granted
             ? `<span class="sl-onboard-status-ok"><i data-lucide="check-circle"></i> Enabled</span>`
             : `<span class="sl-onboard-status-warn"><i data-lucide="alert-circle"></i> Not enabled — you can turn this on later in your browser settings.</span>`;
@@ -174,8 +213,7 @@ export function runOnboarding({ employeeId, companyId }) {
           ctaBtn.onclick = () => advance();
         };
         card.querySelector("#permNotNow")?.addEventListener("click", () => {
-          if (step.type === "location") result.locationPermission = "skipped";
-          else result.cameraPermission = "skipped";
+          result[resultKey] = "skipped";
           advance();
         });
       } else {
@@ -183,22 +221,6 @@ export function runOnboarding({ employeeId, companyId }) {
           if (step.final) finish();
           else advance();
         });
-      }
-    }
-
-    async function requestLocation() {
-      const pos = await getCurrentPosition({ timeout: 10000 });
-      return !!pos;
-    }
-
-    async function requestCamera() {
-      if (!navigator.mediaDevices?.getUserMedia) return false;
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        stream.getTracks().forEach(t => t.stop());
-        return true;
-      } catch {
-        return false;
       }
     }
 
@@ -213,6 +235,7 @@ export function runOnboarding({ employeeId, companyId }) {
         company_id: companyId,
         location_permission: result.locationPermission,
         camera_permission: result.cameraPermission,
+        notifications_permission: result.notificationsPermission,
         demo_skipped: result.demoSkipped,
       }).catch(() => {});
       overlay.classList.remove("visible");
