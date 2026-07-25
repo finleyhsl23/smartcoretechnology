@@ -1,6 +1,6 @@
-// Dark / light theme for SiteStamp (matches SmartCore convention)
+// Dark / light theme for SiteSnap (matches SmartCore convention)
 
-const STORAGE_KEY = "smartcore-sitestamp-theme";
+const STORAGE_KEY = "smartcore-sitesnap-theme";
 
 export function initTheme() {
   const saved = localStorage.getItem(STORAGE_KEY) || "dark";

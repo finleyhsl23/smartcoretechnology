@@ -4,13 +4,13 @@ import { sb } from "./supabase.js";
 import { hasPermission } from "./auth.js";
 
 const NAV_LINKS = [
-  { id: "dashboard",   icon: "layout-dashboard", label: "Dashboard",   href: "/systems/sitestamp/index.html" },
-  { id: "projects",    icon: "folder-kanban",    label: "Projects",    href: "/systems/sitestamp/projects.html", permission: "sitestamp.view_projects" },
-  { id: "capture",     icon: "camera",           label: "Capture",     href: "/systems/sitestamp/capture.html", permission: "sitestamp.capture_media" },
-  { id: "tasks",       icon: "check-square",     label: "Tasks",       href: "/systems/sitestamp/tasks.html", permission: "sitestamp.view_projects" },
-  { id: "checklists",  icon: "list-checks",      label: "Checklists",  href: "/systems/sitestamp/checklists.html", permission: "sitestamp.manage_checklists" },
-  { id: "team",        icon: "users",            label: "Team",        href: "/systems/sitestamp/team.html", permission: "sitestamp.manage_team" },
-  { id: "settings",    icon: "settings",         label: "Settings",    href: "/systems/sitestamp/settings.html", permission: "sitestamp.manage_settings" },
+  { id: "dashboard",   icon: "layout-dashboard", label: "Dashboard",   href: "/systems/sitesnap/index.html" },
+  { id: "projects",    icon: "folder-kanban",    label: "Projects",    href: "/systems/sitesnap/projects.html", permission: "sitesnap.view_projects" },
+  { id: "capture",     icon: "camera",           label: "Capture",     href: "/systems/sitesnap/capture.html", permission: "sitesnap.capture_media" },
+  { id: "tasks",       icon: "check-square",     label: "Tasks",       href: "/systems/sitesnap/tasks.html", permission: "sitesnap.view_projects" },
+  { id: "checklists",  icon: "list-checks",      label: "Checklists",  href: "/systems/sitesnap/checklists.html", permission: "sitesnap.manage_checklists" },
+  { id: "team",        icon: "users",            label: "Team",        href: "/systems/sitesnap/team.html", permission: "sitesnap.manage_team" },
+  { id: "settings",    icon: "settings",         label: "Settings",    href: "/systems/sitesnap/settings.html", permission: "sitesnap.manage_settings" },
 ];
 
 export function renderNav(currentPage, profile) {
@@ -26,7 +26,7 @@ export function renderNav(currentPage, profile) {
     <div class="sidebar-logo">
       <div class="logo-dot">SS</div>
       <div class="logo-text">
-        <strong>SiteStamp</strong>
+        <strong>SiteSnap</strong>
         <span>by SmartCore</span>
       </div>
     </div>

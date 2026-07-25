@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Checklist Templates — SiteStamp</title>
+  <title>Checklist Templates — SiteSnap</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/systems/sitestamp/shared/sitestamp.css"/>
+  <link rel="stylesheet" href="/systems/sitesnap/shared/sitesnap.css"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
 <body>
@@ -27,23 +27,23 @@
 <div id="toastwrap" aria-live="polite"></div>
 
 <script type="module">
-  import { requireSiteStampAccess, hasPermission } from "/systems/sitestamp/shared/auth.js";
-  import { checklistTemplates } from "/systems/sitestamp/shared/api.js";
-  import { renderNav, initMobileNav, initTopbar } from "/systems/sitestamp/shared/nav.js";
-  import { initTheme } from "/systems/sitestamp/shared/theme.js";
-  import { esc, loadingState, emptyState, errorState, permissionDeniedState, setInner, toast, modal, confirmDialog } from "/systems/sitestamp/shared/ui.js";
+  import { requireSiteSnapAccess, hasPermission } from "/systems/sitesnap/shared/auth.js";
+  import { checklistTemplates } from "/systems/sitesnap/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitesnap/shared/nav.js";
+  import { initTheme } from "/systems/sitesnap/shared/theme.js";
+  import { esc, loadingState, emptyState, errorState, permissionDeniedState, setInner, toast, modal, confirmDialog } from "/systems/sitesnap/shared/ui.js";
 
   initTheme();
   let _profile = null, _companyId = null;
 
   try {
-    const { profile } = await requireSiteStampAccess();
+    const { profile } = await requireSiteSnapAccess();
     _profile = profile; _companyId = profile.company_id;
     renderNav("checklists", profile);
     initMobileNav();
     initTopbar();
 
-    if (!hasPermission("sitestamp.manage_checklists")) {
+    if (!hasPermission("sitesnap.manage_checklists")) {
       setInner("body", permissionDeniedState("Only Owners, Admins and Managers can manage checklist templates."));
     } else {
       await load();
@@ -76,7 +76,7 @@
   }
 
   function templateCard(t) {
-    const items = t.sitestamp_checklist_template_items || [];
+    const items = t.sitesnap_checklist_template_items || [];
     return `
       <div class="card" style="margin-bottom:14px">
         <div class="card-header-row">
@@ -91,7 +91,7 @@
   }
 
   function openTemplateModal(existing) {
-    let items = existing ? [...(existing.sitestamp_checklist_template_items || [])] : [];
+    let items = existing ? [...(existing.sitesnap_checklist_template_items || [])] : [];
     const overlay = modal(`
       <div class="modal-header"><h3>${existing ? "Edit" : "New"} Template</h3><button class="modal-close">&times;</button></div>
       <div class="modal-body">
@@ -140,7 +140,7 @@
         let template = existing;
         if (existing) {
           await checklistTemplates.update(existing.id, { name, description: overlay.querySelector("#tDesc").value.trim() || null });
-          for (const old of existing.sitestamp_checklist_template_items || []) {
+          for (const old of existing.sitesnap_checklist_template_items || []) {
             if (!items.some(i => i.id === old.id)) await checklistTemplates.removeItem(old.id);
           }
         } else {

@@ -1,4 +1,4 @@
-// UI helpers for SmartCore SiteStamp
+// UI helpers for SmartCore SiteSnap
 
 export function esc(s) {
   return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
