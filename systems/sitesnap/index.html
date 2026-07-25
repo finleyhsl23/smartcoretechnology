@@ -34,9 +34,10 @@
 
 <script type="module">
   import { requireSiteSnapAccess, hasPermission } from "/systems/sitesnap/shared/auth.js";
-  import { projects, media, tasks } from "/systems/sitesnap/shared/api.js";
+  import { projects, media, tasks, onboarding } from "/systems/sitesnap/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/systems/sitesnap/shared/nav.js";
   import { initTheme } from "/systems/sitesnap/shared/theme.js";
+  import { runOnboarding } from "/systems/sitesnap/shared/onboarding.js";
   import {
     esc, timeAgo, initials,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -60,6 +61,11 @@
     wireOfflineBanner();
 
     document.getElementById("refreshBtn").addEventListener("click", () => loadDashboard());
+
+    const seenOnboarding = await onboarding.hasCompleted(profile.id).catch(() => true);
+    if (!seenOnboarding) {
+      await runOnboarding({ employeeId: profile.id, companyId: _companyId });
+    }
 
     await loadDashboard();
   } catch (e) {

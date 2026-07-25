@@ -417,3 +417,17 @@ export const audit = {
     } catch { /* audit logging is non-critical */ }
   },
 };
+
+// ── First-sign-in onboarding state ──────────────────────────────────────
+export const onboarding = {
+  async hasCompleted(employeeId) {
+    const { data, error } = await sb().from("sitesnap_onboarding_state")
+      .select("employee_id").eq("employee_id", employeeId).maybeSingle();
+    throwIfError(error);
+    return !!data;
+  },
+  async markComplete(row) {
+    const { error } = await sb().from("sitesnap_onboarding_state").insert(row);
+    throwIfError(error);
+  },
+};
