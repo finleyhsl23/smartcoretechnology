@@ -27,14 +27,16 @@
 <div id="toastwrap" aria-live="polite"></div>
 
 <script type="module">
-  import { requireSiteSnapAccess } from "/systems/sitesnap/shared/auth.js";
-  import { tasks } from "/systems/sitesnap/shared/api.js";
+  import { requireSiteSnapAccess, hasPermission } from "/systems/sitesnap/shared/auth.js";
+  import { tasks, projects, employees } from "/systems/sitesnap/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/systems/sitesnap/shared/nav.js";
   import { initTheme } from "/systems/sitesnap/shared/theme.js";
-  import { esc, fmtDate, loadingState, emptyState, errorState, setInner, toast } from "/systems/sitesnap/shared/ui.js";
+  import { esc, fmtDate, loadingState, emptyState, errorState, setInner, toast, modal } from "/systems/sitesnap/shared/ui.js";
+  import { sendPush } from "/systems/sitesnap/shared/notifications.js";
 
   initTheme();
   let _profile = null, _companyId = null, _scope = "mine", _statusFilter = "open";
+  let _activeProjects = [], _companyEmployees = [];
 
   try {
     const { profile } = await requireSiteSnapAccess();
@@ -42,6 +44,11 @@
     renderNav("tasks", profile);
     initMobileNav();
     initTopbar();
+    if (hasPermission("sitesnap.manage_tasks")) {
+      [_activeProjects, _companyEmployees] = await Promise.all([
+        projects.list(_companyId, { status: "active" }), employees.listForCompany(_companyId),
+      ]);
+    }
     await load();
   } catch (e) {
     setInner("body", errorState({ title: "Couldn't load Tasks", message: e.message || "" }));
@@ -61,8 +68,12 @@
   }
 
   function render(list) {
+    const canManage = hasPermission("sitesnap.manage_tasks");
     setInner("body", `
-      <div class="sl-page-head"><div><h2>Tasks</h2><p>Everything assigned across your SiteSnap projects.</p></div></div>
+      <div class="sl-page-head">
+        <div><h2>Tasks</h2><p>Everything assigned across your SiteSnap projects.</p></div>
+        ${canManage ? `<button class="btn btn-primary" id="newTaskBtn"><i data-lucide="plus"></i> New Task</button>` : ""}
+      </div>
       <div class="sl-toolbar">
         <select class="form-select" id="scopeSelect" style="max-width:160px">
           <option value="mine" ${_scope === "mine" ? "selected" : ""}>My Tasks</option>
@@ -75,15 +86,79 @@
           <option value="all" ${_statusFilter === "all" ? "selected" : ""}>All</option>
         </select>
       </div>
-      ${list.length === 0 ? emptyState({ icon: "check-square", title: "No tasks found" }) : list.map(taskRow).join("")}
+      ${list.length === 0 ? emptyState({
+        icon: "check-square", title: "No tasks found",
+        actionHtml: canManage ? `<button class="btn btn-primary" id="emptyNewTaskBtn"><i data-lucide="plus"></i> New Task</button>` : "",
+      }) : list.map(taskRow).join("")}
     `);
     document.getElementById("scopeSelect").addEventListener("change", (e) => { _scope = e.target.value; load(); });
     document.getElementById("statusSelect").addEventListener("change", (e) => { _statusFilter = e.target.value; load(); });
+    document.getElementById("newTaskBtn")?.addEventListener("click", openNewTaskModal);
+    document.getElementById("emptyNewTaskBtn")?.addEventListener("click", openNewTaskModal);
     document.querySelectorAll("[data-task-toggle]").forEach(cb => cb.addEventListener("change", async () => {
       await tasks.update(cb.dataset.taskToggle, { status: cb.checked ? "done" : "open" });
       toast("success", "Task updated");
       load();
     }));
+  }
+
+  function openNewTaskModal() {
+    if (!_activeProjects.length) {
+      toast("error", "No active projects", "Create a project before adding tasks.");
+      return;
+    }
+    const overlay = modal(`
+      <div class="modal-header"><h3>New Task</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Project *</label>
+          <select class="form-select" id="ntProject">${_activeProjects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select>
+        </div>
+        <div class="form-field"><label class="form-label">Title *</label><input class="form-input" id="ntTitle"/></div>
+        <div class="form-field"><label class="form-label">Description</label><textarea class="form-textarea" id="ntDesc"></textarea></div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Assignee</label>
+            <select class="form-select" id="ntAssignee"><option value="">Unassigned</option>${_companyEmployees.map(e => `<option value="${e.id}">${esc(e.full_name)}</option>`).join("")}</select>
+          </div>
+          <div class="form-field"><label class="form-label">Priority</label>
+            <select class="form-select" id="ntPriority"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option></select>
+          </div>
+        </div>
+        <div class="form-field"><label class="form-label">Due date</label><input type="date" class="form-input" id="ntDue"/></div>
+        <div id="ntError" class="form-error"></div>
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Add Task</button></div>
+    `);
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+    overlay.querySelector("#save").addEventListener("click", async () => {
+      const title = overlay.querySelector("#ntTitle").value.trim();
+      const projectId = overlay.querySelector("#ntProject").value;
+      if (!title) { overlay.querySelector("#ntError").textContent = "Title is required."; return; }
+      const assigneeId = overlay.querySelector("#ntAssignee").value || null;
+      const project = _activeProjects.find(p => p.id === projectId);
+      try {
+        await tasks.create({
+          project_id: projectId, company_id: _companyId, title,
+          description: overlay.querySelector("#ntDesc").value.trim() || null,
+          assignee_employee_id: assigneeId,
+          priority: overlay.querySelector("#ntPriority").value,
+          due_date: overlay.querySelector("#ntDue").value || null,
+          created_by: _profile.id,
+        });
+        overlay.remove();
+        toast("success", "Task added");
+        load();
+
+        if (assigneeId && assigneeId !== _profile.id) {
+          sendPush({
+            employeeId: assigneeId, companyId: _companyId,
+            title: "New task assigned to you", body: `${title} — ${project?.name || ""}`,
+            url: "/systems/sitesnap/tasks.html",
+          });
+        }
+      } catch (e) {
+        overlay.querySelector("#ntError").textContent = e.message || "Could not create task.";
+      }
+    });
   }
 
   function taskRow(t) {
