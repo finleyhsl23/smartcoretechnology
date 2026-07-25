@@ -6,7 +6,7 @@
 import { onboarding } from "./api.js";
 import { getCurrentPosition } from "./geo.js";
 import { esc } from "./ui.js";
-import { isSupported as isNotificationsSupported } from "./notifications.js";
+import { registerPush } from "./notifications.js";
 
 const STEPS = [
   {
@@ -99,11 +99,11 @@ async function requestCamera() {
 }
 
 async function requestNotifications() {
-  if (!isNotificationsSupported()) return false;
-  if (Notification.permission === "granted") return true;
-  if (Notification.permission === "denied") return false;
-  const result = await Notification.requestPermission();
-  return result === "granted";
+  // registerPush() both prompts for permission (via pushManager.subscribe)
+  // and, if granted, subscribes + saves the subscription server-side in one
+  // step — there's no separate "just ask" phase since a bare permission
+  // grant with no subscription behind it can't actually deliver anything.
+  return registerPush();
 }
 
 const PERMISSION_HANDLERS = {

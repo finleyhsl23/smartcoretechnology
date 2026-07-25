@@ -37,6 +37,7 @@
   import { esc, fmtDate, fmtDateTime, timeAgo, initials, fmtBytes, mapsUrl, loadingState, emptyState, errorState, setInner, toast, modal, confirmDialog } from "/systems/sitesnap/shared/ui.js";
   import { geocodeAddress, mountLocationPicker } from "/systems/sitesnap/shared/mapPicker.js";
   import { getCurrentPosition } from "/systems/sitesnap/shared/geo.js";
+  import { sendPush } from "/systems/sitesnap/shared/notifications.js";
 
   initTheme();
 
@@ -405,10 +406,11 @@
     overlay.querySelector("#save").addEventListener("click", async () => {
       const title = overlay.querySelector("#tTitle").value.trim();
       if (!title) { overlay.querySelector("#tError").textContent = "Title is required."; return; }
+      const assigneeId = overlay.querySelector("#tAssignee").value || null;
       await tasks.create({
         project_id: _project.id, company_id: _companyId, title,
         description: overlay.querySelector("#tDesc").value.trim() || null,
-        assignee_employee_id: overlay.querySelector("#tAssignee").value || null,
+        assignee_employee_id: assigneeId,
         priority: overlay.querySelector("#tPriority").value,
         due_date: overlay.querySelector("#tDue").value || null,
         created_by: _profile.id,
@@ -416,6 +418,15 @@
       overlay.remove();
       toast("success", "Task added");
       renderTasks();
+
+      // Don't notify yourself when self-assigning.
+      if (assigneeId && assigneeId !== _profile.id) {
+        sendPush({
+          employeeId: assigneeId, companyId: _companyId,
+          title: "New task assigned to you", body: `${title} — ${_project.name}`,
+          url: "/systems/sitesnap/tasks.html",
+        });
+      }
     });
   }
 
