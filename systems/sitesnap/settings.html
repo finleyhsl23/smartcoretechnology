@@ -127,35 +127,54 @@
         <div class="form-field"><label class="form-label">Name *</label><input class="form-input" id="tagName"/></div>
         <div class="form-field">
           <label class="form-label">Color</label>
-          <div class="sl-color-field">
-            <input type="color" class="sl-color-input" id="tagColor" value="#1e5cff"/>
-            <span class="sl-color-hex" id="tagColorHex">#1E5CFF</span>
-          </div>
-          <div class="sl-color-preview" id="tagColorPreview" style="background:#1e5cff" title="Click to change color"></div>
+          <input type="color" class="sl-color-input" id="tagColor" value="#1e5cff"/>
+          <div class="sl-color-hex" id="tagColorHex">#1E5CFF</div>
         </div>
         <div id="tagError" class="form-error"></div>
       </div>
-      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Add</button></div>
+      <div class="modal-footer">
+        <button class="btn" id="cancel">Cancel</button>
+        <button class="btn" id="saveAnother"><i data-lucide="plus"></i> Add Another</button>
+        <button class="btn btn-primary" id="save">Add</button>
+      </div>
     `);
+    window.lucide?.createIcons?.();
     const colorInput = overlay.querySelector("#tagColor");
-    const colorPreview = overlay.querySelector("#tagColorPreview");
     const colorHex = overlay.querySelector("#tagColorHex");
-    colorInput.addEventListener("input", () => {
-      colorPreview.style.background = colorInput.value;
-      colorHex.textContent = colorInput.value.toUpperCase();
-    });
-    colorPreview.addEventListener("click", () => colorInput.click());
+    const nameInput = overlay.querySelector("#tagName");
+    colorInput.addEventListener("input", () => { colorHex.textContent = colorInput.value.toUpperCase(); });
 
     overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
-    overlay.querySelector("#save").addEventListener("click", async () => {
-      const name = overlay.querySelector("#tagName").value.trim();
-      if (!name) { overlay.querySelector("#tagError").textContent = "Name is required."; return; }
+
+    async function saveTag() {
+      const name = nameInput.value.trim();
+      if (!name) { overlay.querySelector("#tagError").textContent = "Name is required."; return false; }
+      overlay.querySelector("#tagError").textContent = "";
       try {
         await tags.create({ company_id: _companyId, name, color: colorInput.value, created_by: _profile.id });
-        overlay.remove();
-        toast("success", "Tag added");
-        load();
-      } catch (e) { overlay.querySelector("#tagError").textContent = e.message || "Could not add tag."; }
+        return true;
+      } catch (e) {
+        overlay.querySelector("#tagError").textContent = e.message || "Could not add tag.";
+        return false;
+      }
+    }
+
+    overlay.querySelector("#save").addEventListener("click", async () => {
+      if (!(await saveTag())) return;
+      overlay.remove();
+      toast("success", "Tag added");
+      load();
+    });
+
+    // Saves the current tag but keeps the modal open, ready for the next
+    // one — quicker than reopening the modal each time when adding several.
+    overlay.querySelector("#saveAnother").addEventListener("click", async () => {
+      const name = nameInput.value.trim();
+      if (!(await saveTag())) return;
+      toast("success", `"${name}" added`);
+      load();
+      nameInput.value = "";
+      nameInput.focus();
     });
   }
 
