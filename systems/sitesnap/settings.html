@@ -127,7 +127,8 @@
         <div class="form-field"><label class="form-label">Name *</label><input class="form-input" id="tagName"/></div>
         <div class="form-field">
           <label class="form-label">Color</label>
-          <input type="color" class="sl-color-input" id="tagColor" value="#1e5cff"/>
+          <div class="sl-color-swatch" id="tagColorSwatch" style="background:#1e5cff" role="button" aria-label="Choose tag color"></div>
+          <input type="color" class="sl-color-input-hidden" id="tagColor" value="#1e5cff" tabindex="-1" aria-hidden="true"/>
           <div class="sl-color-hex" id="tagColorHex">#1E5CFF</div>
         </div>
         <div id="tagError" class="form-error"></div>
@@ -140,9 +141,19 @@
     `);
     window.lucide?.createIcons?.();
     const colorInput = overlay.querySelector("#tagColor");
+    const colorSwatch = overlay.querySelector("#tagColorSwatch");
     const colorHex = overlay.querySelector("#tagColorHex");
     const nameInput = overlay.querySelector("#tagName");
-    colorInput.addEventListener("input", () => { colorHex.textContent = colorInput.value.toUpperCase(); });
+    // The real <input type="color"> is visually hidden — iOS Safari ignores
+    // any CSS sizing/border-radius on it and always renders its own small
+    // fixed circular swatch, so a custom-styled div is the only way to get
+    // a big rectangle on every platform. The hidden input still supplies
+    // the native OS color picker and the resulting value.
+    colorSwatch.addEventListener("click", () => colorInput.click());
+    colorInput.addEventListener("input", () => {
+      colorSwatch.style.background = colorInput.value;
+      colorHex.textContent = colorInput.value.toUpperCase();
+    });
 
     overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
 
