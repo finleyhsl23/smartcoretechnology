@@ -79,8 +79,8 @@ export async function onRequestPost({ request, env }) {
     }
 
     const issuerName    = branding.company_name    || 'SmartCore Technology';
-    const primaryColor  = branding.primary_color   || '#1e5cff';
-    const secondaryColor = branding.secondary_color || '#0a0f1e';
+    const primaryColor  = branding.secondary_color || '#0a0f1e';
+    const secondaryColor = branding.primary_color  || '#1e5cff';
     const textColor     = branding.text_color       || '#374151';
     const logoUrl = branding.prefer_icon
       ? (branding.icon_url || branding.logo_url)
