@@ -5,7 +5,7 @@
 // unless a photo already references the task — so this is UX, not the only
 // gate.
 import { media, tasks } from "./api.js";
-import { modal, toast, esc } from "./ui.js";
+import { modal, toast, esc, confirmDialog } from "./ui.js";
 import { renderPhotoCaptureStep } from "./camera.js";
 import { getCurrentPosition } from "./geo.js";
 
@@ -69,6 +69,34 @@ export function completeTaskWithPhoto(task, { companyId, employeeId, onDone, onC
       host.innerHTML = `<p class="text-muted">Something went wrong. Close this and try again.</p>`;
     }
   }
+}
+
+/**
+ * Reverts a completed task back to open, deleting its proof photo(s) first
+ * (both the storage file and the sitesnap_media row) — confirmed since it's
+ * destructive. The task can only be marked done again by taking a new one.
+ *
+ * @param {object} task - a task row with its embedded sitesnap_media!task_id array
+ * @param {object} opts.onDone(updatedTask) - called after the task is reopened
+ */
+export function reopenTask(task, { onDone } = {}) {
+  const shots = task.sitesnap_media || [];
+  const message = shots.length
+    ? `This will delete the attached proof photo — you'll need to retake it to mark "${task.title}" done again.`
+    : `Mark "${task.title}" as not done?`;
+  confirmDialog("Undo completion?", message, async () => {
+    try {
+      for (const shot of shots) {
+        await media.removeFile(shot.storage_path).catch(() => {});
+        await media.remove(shot.id);
+      }
+      const updated = await tasks.update(task.id, { status: "open" });
+      toast("success", "Task reopened");
+      onDone?.(updated);
+    } catch (e) {
+      toast("error", "Couldn't reopen task", e.message || "");
+    }
+  }, { confirmLabel: "Undo" });
 }
 
 /**

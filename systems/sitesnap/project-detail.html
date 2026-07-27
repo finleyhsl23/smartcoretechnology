@@ -37,7 +37,7 @@
   import { getCurrentPosition } from "/systems/sitesnap/shared/geo.js";
   import { sendPush } from "/systems/sitesnap/shared/notifications.js";
   import { shifts } from "/systems/sitesnap/shared/shifts.js";
-  import { completeTaskWithPhoto, viewTaskPhoto } from "/systems/sitesnap/shared/taskPhoto.js";
+  import { completeTaskWithPhoto, viewTaskPhoto, reopenTask } from "/systems/sitesnap/shared/taskPhoto.js";
   import { startGeofenceWatch } from "/systems/sitesnap/shared/geofence.js";
 
   initTheme();
@@ -412,12 +412,12 @@
       document.getElementById("addTaskBtn")?.addEventListener("click", openTaskModal);
       document.querySelectorAll("[data-task-toggle]").forEach(cb => cb.addEventListener("change", async () => {
         const taskId = cb.dataset.taskToggle;
+        const task = list.find(t => t.id === taskId);
         if (!cb.checked) {
-          await tasks.update(taskId, { status: "open" });
-          renderTasks();
+          cb.checked = true; // revert until the undo is confirmed
+          reopenTask(task, { onDone: () => renderTasks() });
           return;
         }
-        const task = list.find(t => t.id === taskId);
         cb.checked = false; // revert until the photo is confirmed
         completeTaskWithPhoto(task, {
           companyId: _companyId, employeeId: _profile.id,
