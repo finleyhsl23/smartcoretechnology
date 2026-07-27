@@ -39,7 +39,7 @@
   import { getCurrentPosition } from "/systems/sitesnap/shared/geo.js";
   import { sendPush } from "/systems/sitesnap/shared/notifications.js";
   import { shifts } from "/systems/sitesnap/shared/shifts.js";
-  import { completeTaskWithPhoto } from "/systems/sitesnap/shared/taskPhoto.js";
+  import { completeTaskWithPhoto, viewTaskPhoto } from "/systems/sitesnap/shared/taskPhoto.js";
   import { startGeofenceWatch } from "/systems/sitesnap/shared/geofence.js";
 
   initTheme();
@@ -427,6 +427,9 @@
           onCancel: () => { cb.checked = false; },
         });
       }));
+      document.querySelectorAll("[data-view-photo]").forEach(btn => btn.addEventListener("click", () => {
+        viewTaskPhoto(list.find(t => t.id === btn.dataset.viewPhoto));
+      }));
     } catch (e) {
       setInner("tabBody", errorState({ title: "Couldn't load tasks", message: e.message || "" }));
     }
@@ -441,6 +444,7 @@
           <div class="sl-task-title">${esc(t.title)}</div>
           <div class="sl-task-meta"><span class="badge ${badge}">${esc(t.priority)}</span>${t.due_date ? `<span><i data-lucide="calendar" style="width:11px;height:11px;vertical-align:-1px"></i> ${esc(fmtDate(t.due_date))}</span>` : ""}${t["core_employees"] ? `<span>${esc(t.core_employees.full_name)}</span>` : ""}</div>
         </div>
+        ${t.status === "done" && t.sitesnap_media?.length ? `<button class="btn" data-view-photo="${esc(t.id)}"><i data-lucide="image"></i> See Photo</button>` : ""}
       </div>`;
   }
 

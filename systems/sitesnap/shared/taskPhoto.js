@@ -70,3 +70,25 @@ export function completeTaskWithPhoto(task, { companyId, employeeId, onDone, onC
     }
   }
 }
+
+/**
+ * @param {object} task - a task row with its embedded sitesnap_media!task_id array
+ */
+export async function viewTaskPhoto(task) {
+  const shot = (task.sitesnap_media || [])[0];
+  if (!shot) { toast("error", "No photo attached to this task."); return; }
+
+  const overlay = modal(`<div class="modal-body"><div class="sl-state"><div class="sl-spinner"></div></div></div>`, { size: "wide" });
+  try {
+    const url = await media.signedUrl(shot.storage_path);
+    overlay.querySelector(".modal").innerHTML = `
+      <div class="modal-header"><h3>Task Photo</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body sl-media-viewer">
+        <div class="sl-media-viewer-frame"><img src="${url}" alt="Task completion photo"/></div>
+      </div>`;
+    overlay.querySelectorAll(".modal-close").forEach(b => b.addEventListener("click", () => overlay.close()));
+  } catch (e) {
+    overlay.close();
+    toast("error", "Couldn't load photo", e.message || "");
+  }
+}
