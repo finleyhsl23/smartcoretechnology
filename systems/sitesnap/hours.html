@@ -35,6 +35,9 @@
 
   initTheme();
   let _profile = null, _companyId = null, _range = "week", _allShifts = [];
+  let _employeeRows = [], _projectRows = [];
+  let _view = "employee";
+  const _search = { employee: "", project: "", log: "" };
 
   try {
     const { profile, admin, shift } = await requireSiteSnapAccess();
@@ -88,7 +91,16 @@
     return Math.max(0, (end - start) / 3600000);
   }
 
-  function render() {
+  // "7.5" reads as an amount of money before it reads as a duration —
+  // "7h 30m" doesn't need a second of translation.
+  function fmtHours(h) {
+    const totalMinutes = Math.round(h * 60);
+    const hh = Math.floor(totalMinutes / 60);
+    const mm = totalMinutes % 60;
+    return mm === 0 ? `${hh}h` : `${hh}h ${mm}m`;
+  }
+
+  function computeAggregates() {
     const byEmployee = new Map();
     const byProject = new Map();
     for (const s of _allShifts) {
@@ -104,9 +116,13 @@
       p.hours += hrs; p.employees.add(empName);
       byProject.set(projName, p);
     }
-    const employeeRows = [...byEmployee.entries()].sort((a, b) => b[1].hours - a[1].hours);
-    const projectRows = [...byProject.entries()].sort((a, b) => b[1].hours - a[1].hours);
-    const totalHours = employeeRows.reduce((sum, [, v]) => sum + v.hours, 0);
+    _employeeRows = [...byEmployee.entries()].sort((a, b) => b[1].hours - a[1].hours);
+    _projectRows = [...byProject.entries()].sort((a, b) => b[1].hours - a[1].hours);
+  }
+
+  function render() {
+    computeAggregates();
+    const totalHours = _employeeRows.reduce((sum, [, v]) => sum + v.hours, 0);
 
     setInner("body", `
       <div class="sl-page-head">
@@ -125,39 +141,81 @@
       </div>` : ""}
 
       <div class="stat-grid" style="margin-bottom:16px">
-        <div class="stat-card"><div class="stat-value">${totalHours.toFixed(1)}</div><div class="stat-label">Total Hours</div></div>
+        <div class="stat-card"><div class="stat-value">${fmtHours(totalHours)}</div><div class="stat-label">Total Hours</div></div>
         <div class="stat-card"><div class="stat-value">${_allShifts.length}</div><div class="stat-label">Shifts</div></div>
-        <div class="stat-card"><div class="stat-value">${byEmployee.size}</div><div class="stat-label">Employees</div></div>
+        <div class="stat-card"><div class="stat-value">${_employeeRows.length}</div><div class="stat-label">Employees</div></div>
       </div>
 
-      <div class="card" style="margin-bottom:16px">
-        <h2 style="margin:0 0 12px;font-size:15px">Hours by Employee</h2>
-        ${employeeRows.length === 0 ? `<p class="text-muted">No shifts in this period.</p>` : `
-        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Shifts</th><th>Hours</th></tr></thead><tbody>
-          ${employeeRows.map(([name, v]) => `<tr><td>${esc(name)}</td><td>${v.shiftCount}</td><td>${v.hours.toFixed(1)}</td></tr>`).join("")}
-        </tbody></table></div>`}
+      <div class="sl-tabs" role="tablist">
+        <button class="sl-tab ${_view === "employee" ? "active" : ""}" data-view="employee" role="tab"><i data-lucide="users" style="width:14px;height:14px;vertical-align:-2px"></i> Hours by Employee</button>
+        <button class="sl-tab ${_view === "project" ? "active" : ""}" data-view="project" role="tab"><i data-lucide="folder-kanban" style="width:14px;height:14px;vertical-align:-2px"></i> Man-Hours by Project</button>
+        <button class="sl-tab ${_view === "log" ? "active" : ""}" data-view="log" role="tab"><i data-lucide="list" style="width:14px;height:14px;vertical-align:-2px"></i> Shift Log</button>
       </div>
-
-      <div class="card" style="margin-bottom:16px">
-        <h2 style="margin:0 0 4px;font-size:15px">Man-Hours by Project</h2>
-        <p class="text-muted" style="margin:0 0 12px">Combined hours across every employee on that project — 2 people working 5 hours counts as 10 man-hours.</p>
-        ${projectRows.length === 0 ? `<p class="text-muted">No shifts in this period.</p>` : `
-        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Project</th><th>Employees</th><th>Man-Hours</th></tr></thead><tbody>
-          ${projectRows.map(([name, v]) => `<tr><td>${esc(name)}</td><td>${v.employees.size}</td><td>${v.hours.toFixed(1)}</td></tr>`).join("")}
-        </tbody></table></div>`}
-      </div>
-
-      <div class="card">
-        <h2 style="margin:0 0 12px;font-size:15px">Shift Log</h2>
-        ${_allShifts.length === 0 ? emptyState({ icon: "clock", title: "No shifts in this period" }) : `
-        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Project</th><th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Status</th></tr></thead><tbody>
-          ${_allShifts.map(shiftRow).join("")}
-        </tbody></table></div>`}
-      </div>
+      <div id="viewBody"></div>
     `);
     window.lucide?.createIcons?.();
     document.querySelectorAll("[data-range]").forEach(btn => btn.addEventListener("click", () => { _range = btn.dataset.range; if (_range === "custom") render(); else load(); }));
     document.getElementById("applyCustom")?.addEventListener("click", load);
+    document.querySelectorAll(".sl-tab").forEach(btn => btn.addEventListener("click", () => { _view = btn.dataset.view; render(); }));
+    renderViewBody();
+  }
+
+  const VIEW_META = {
+    employee: { placeholder: "Search employees…" },
+    project: { placeholder: "Search projects…", intro: "Combined hours across every employee on that project — 2 people working 5 hours counts as 10 man-hours." },
+    log: { placeholder: "Search by employee or project…" },
+  };
+
+  // Renders the card + search box once per tab switch; typing only ever
+  // touches #viewResults below, so the search input itself is never
+  // destroyed/recreated and never loses focus or cursor position.
+  function renderViewBody() {
+    const meta = VIEW_META[_view];
+    const host = document.getElementById("viewBody");
+    host.innerHTML = `
+      <div class="card">
+        ${meta.intro ? `<p class="text-muted" style="margin:0 0 12px">${meta.intro}</p>` : ""}
+        <div class="sl-search-wrap" style="max-width:280px;margin-bottom:14px">
+          <i data-lucide="search" class="sl-search-icon"></i>
+          <input class="form-input" id="viewSearch" placeholder="${esc(meta.placeholder)}" value="${esc(_search[_view])}" autocomplete="off"/>
+        </div>
+        <div id="viewResults"></div>
+      </div>`;
+    window.lucide?.createIcons?.();
+    document.getElementById("viewSearch").addEventListener("input", (e) => {
+      _search[_view] = e.target.value;
+      renderViewResults();
+    });
+    renderViewResults();
+  }
+
+  function renderViewResults() {
+    const results = document.getElementById("viewResults");
+    const q = _search[_view].trim().toLowerCase();
+
+    if (_view === "employee") {
+      const rows = q ? _employeeRows.filter(([name]) => name.toLowerCase().includes(q)) : _employeeRows;
+      results.innerHTML = _employeeRows.length === 0 ? `<p class="text-muted">No shifts in this period.</p>`
+        : rows.length === 0 ? `<p class="text-muted">No employees match "${esc(_search.employee)}".</p>` : `
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Shifts</th><th>Hours</th></tr></thead><tbody>
+          ${rows.map(([name, v]) => `<tr><td>${esc(name)}</td><td>${v.shiftCount}</td><td>${fmtHours(v.hours)}</td></tr>`).join("")}
+        </tbody></table></div>`;
+    } else if (_view === "project") {
+      const rows = q ? _projectRows.filter(([name]) => name.toLowerCase().includes(q)) : _projectRows;
+      results.innerHTML = _projectRows.length === 0 ? `<p class="text-muted">No shifts in this period.</p>`
+        : rows.length === 0 ? `<p class="text-muted">No projects match "${esc(_search.project)}".</p>` : `
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Project</th><th>Employees</th><th>Man-Hours</th></tr></thead><tbody>
+          ${rows.map(([name, v]) => `<tr><td>${esc(name)}</td><td>${v.employees.size}</td><td>${fmtHours(v.hours)}</td></tr>`).join("")}
+        </tbody></table></div>`;
+    } else {
+      const rows = q ? _allShifts.filter(s => (s.core_employees?.full_name || "").toLowerCase().includes(q) || (s.sitesnap_projects?.name || "").toLowerCase().includes(q)) : _allShifts;
+      results.innerHTML = _allShifts.length === 0 ? emptyState({ icon: "clock", title: "No shifts in this period" })
+        : rows.length === 0 ? `<p class="text-muted">No shifts match "${esc(_search.log)}".</p>` : `
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Project</th><th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Status</th></tr></thead><tbody>
+          ${rows.map(shiftRow).join("")}
+        </tbody></table></div>`;
+    }
+    window.lucide?.createIcons?.();
   }
 
   function shiftRow(s) {
@@ -170,7 +228,7 @@
       <td>${esc(s.sitesnap_projects?.name || "Unknown")}</td>
       <td>${esc(fmtDateTime(s.clock_in_at))}</td>
       <td>${s.clock_out_at ? esc(fmtDateTime(s.clock_out_at)) : "—"}</td>
-      <td>${hrs.toFixed(2)}</td>
+      <td>${fmtHours(hrs)}</td>
       <td>${statusLabel}</td>
     </tr>`;
   }
