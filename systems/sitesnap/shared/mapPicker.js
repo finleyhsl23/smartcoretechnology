@@ -11,7 +11,7 @@ const PIN_ZOOM = 16;
 
 let _loadPromise = null;
 
-function loadGoogleMaps() {
+export function loadGoogleMaps() {
   if (window.google?.maps) return Promise.resolve();
   if (_loadPromise) return _loadPromise;
   _loadPromise = new Promise((resolve, reject) => {
