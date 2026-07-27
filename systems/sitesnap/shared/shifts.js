@@ -41,14 +41,17 @@ export const shifts = {
     return data;
   },
 
-  // Admin only (enforced by RLS) — every shift in the company within a
-  // window, for the Hours report and the live Map.
-  async listForCompany(companyId, { from = null, to = null } = {}) {
+  // Admins get every shift in the company (RLS); everyone else only ever
+  // gets their own regardless of employeeId. Passing employeeId explicitly
+  // (rather than relying on that RLS scoping) is what lets an admin also
+  // view just their own hours on My Hours, not everyone's.
+  async listForCompany(companyId, { from = null, to = null, employeeId = null } = {}) {
     let q = sb().from("sitesnap_shifts")
       .select("*, core_employees(full_name), sitesnap_projects(name)")
       .eq("company_id", companyId).order("clock_in_at", { ascending: false });
     if (from) q = q.gte("clock_in_at", from);
     if (to) q = q.lte("clock_in_at", to);
+    if (employeeId) q = q.eq("employee_id", employeeId);
     const { data, error } = await q;
     throwIfError(error);
     return data || [];

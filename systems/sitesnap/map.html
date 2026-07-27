@@ -38,6 +38,7 @@
   initTheme();
   const REFRESH_MS = 15000;
   let _profile = null, _companyId = null, _map = null, _infoWindow = null, _markers = new Map(), _pollTimer = null, _firstFit = true, _employeeSearch = "";
+  let _myMarker = null, _myWatchId = null, _firstFitMe = true;
 
   try {
     const { profile, admin, shift } = await requireSiteSnapAccess();
@@ -62,7 +63,8 @@
         await renderShell();
         await refresh();
         _pollTimer = setInterval(refresh, REFRESH_MS);
-        window.addEventListener("beforeunload", () => clearInterval(_pollTimer));
+        startMyLocationWatch();
+        window.addEventListener("beforeunload", () => { clearInterval(_pollTimer); if (_myWatchId != null) navigator.geolocation.clearWatch(_myWatchId); });
       }
     }
   } catch (e) {
@@ -206,13 +208,39 @@
 
   function fitToMarkers() {
     const visible = [..._markers.values()].filter(e => e.marker.getVisible());
-    if (!visible.length) return;
+    if (!visible.length && !_myMarker) return;
     const bounds = new google.maps.LatLngBounds();
     visible.forEach(e => bounds.extend(e.marker.getPosition()));
+    if (_myMarker) bounds.extend(_myMarker.getPosition());
     _map.fitBounds(bounds, 50);
     google.maps.event.addListenerOnce(_map, "bounds_changed", () => {
       if (_map.getZoom() > 16) _map.setZoom(16);
     });
+  }
+
+  // Shows where the admin viewing this map currently is, distinct from the
+  // employee markers — not tied to a shift, just "whoever's looking at this
+  // map right now". Best-effort: silently skipped if location is
+  // unavailable/denied, same as everywhere else location is optional.
+  function startMyLocationWatch() {
+    if (!navigator.geolocation) return;
+    _myWatchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const latlng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        if (_myMarker) {
+          _myMarker.setPosition(latlng);
+        } else {
+          _myMarker = new google.maps.Marker({
+            position: latlng, map: _map, zIndex: 999,
+            icon: { path: google.maps.SymbolPath.CIRCLE, scale: 9, fillColor: "#22c55e", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 3 },
+          });
+          _myMarker.addListener("click", () => { _infoWindow.setContent("<strong>You</strong>"); _infoWindow.open(_map, _myMarker); });
+          if (_firstFitMe) { _firstFitMe = false; fitToMarkers(); }
+        }
+      },
+      () => {}, // ignore errors — the map still works without your own position
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
+    );
   }
 </script>
 </body>

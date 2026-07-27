@@ -24,6 +24,7 @@ function lockedNavLinks(shift) {
   return [
     { id: "projects", icon: "folder-kanban", label: "My Project", href: `/systems/sitesnap/project-detail.html?id=${encodeURIComponent(shift.project_id)}` },
     { id: "capture",  icon: "camera",        label: "Capture",    href: "/systems/sitesnap/capture.html" },
+    { id: "my-hours", icon: "clock",         label: "My Hours",   href: "/systems/sitesnap/my-hours.html" },
   ];
 }
 
