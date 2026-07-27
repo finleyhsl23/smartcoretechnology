@@ -32,7 +32,7 @@ const STEPS = [
     type: "location",
     icon: "map-pin",
     title: "Allow Location Access",
-    body: "SiteSnap tags every photo and video with the exact GPS coordinates it was taken at, so there's indisputable proof of where the work happened. Your browser will ask you to confirm.",
+    body: "SiteSnap uses your location for two things: tagging every photo and video with exactly where it was taken, and confirming you're on site when you sign in and out of a job. Your browser will ask you to confirm.",
     cta: "Allow Location",
   },
   {
