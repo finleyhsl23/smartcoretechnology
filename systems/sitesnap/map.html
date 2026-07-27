@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Live Map — SiteSnap</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/sitesnap/shared/sitesnap.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Live Map</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireSiteSnapAccess } from "/systems/sitesnap/shared/auth.js";
+  import { shifts } from "/systems/sitesnap/shared/shifts.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitesnap/shared/nav.js";
+  import { initTheme } from "/systems/sitesnap/shared/theme.js";
+  import { esc, timeAgo, initials, loadingState, errorState, permissionDeniedState, setInner } from "/systems/sitesnap/shared/ui.js";
+
+  initTheme();
+  const REFRESH_MS = 15000;
+  let _profile = null, _companyId = null, _map = null, _markers = new Map(), _pollTimer = null, _firstFit = true;
+
+  try {
+    const { profile, admin, shift } = await requireSiteSnapAccess();
+    _profile = profile; _companyId = profile.company_id;
+    renderNav("map", profile, { admin, shift });
+    initMobileNav();
+    initTopbar();
+
+    if (!admin) {
+      setInner("body", permissionDeniedState("Only Owners and Admins can view the live Map."));
+    } else {
+      renderShell();
+      await refresh();
+      _pollTimer = setInterval(refresh, REFRESH_MS);
+      window.addEventListener("beforeunload", () => clearInterval(_pollTimer));
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Live Map", message: e.message || "" }));
+  }
+
+  function renderShell() {
+    setInner("body", `
+      <div class="sl-page-head">
+        <div><h2>Live Map</h2><p>Everyone currently signed into a job site. Only updates while a worker's app is open.</p></div>
+        <button class="btn" id="recenterBtn"><i data-lucide="locate-fixed"></i> Recenter</button>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div id="mapHost" style="height:65vh;min-height:420px"></div>
+      </div>
+      <p class="text-muted" id="mapEmptyNote" style="margin-top:10px"></p>
+    `);
+    window.lucide?.createIcons?.();
+    document.getElementById("recenterBtn").addEventListener("click", () => fitToMarkers(true));
+
+    _map = L.map("mapHost").setView([20, 0], 2);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }).addTo(_map);
+  }
+
+  async function refresh() {
+    try {
+      const active = await shifts.listActiveForCompany(_companyId);
+      updateMarkers(active);
+      const note = document.getElementById("mapEmptyNote");
+      if (note) note.textContent = active.length === 0 ? "No one is currently signed in." : "";
+    } catch (e) {
+      // Silent — a transient poll failure shouldn't disrupt the map view.
+    }
+  }
+
+  function updateMarkers(active) {
+    const seen = new Set();
+    for (const s of active) {
+      if (s.last_lat == null || s.last_lng == null) continue;
+      seen.add(s.id);
+      const latlng = [s.last_lat, s.last_lng];
+      const name = s.core_employees?.full_name || "Unknown";
+      const projectName = s.sitesnap_projects?.name || "Unknown";
+      const popup = `<strong>${esc(name)}</strong><br/>${esc(projectName)}<br/><span style="color:#888">Updated ${esc(timeAgo(s.last_ping_at || s.clock_in_at))}</span>`;
+
+      if (_markers.has(s.id)) {
+        const m = _markers.get(s.id);
+        m.setLatLng(latlng);
+        m.setPopupContent(popup);
+      } else {
+        const icon = L.divIcon({
+          className: "sl-map-marker",
+          html: `<div class="sl-map-marker-dot">${esc(initials(name))}</div>`,
+          iconSize: [32, 32], iconAnchor: [16, 16],
+        });
+        const m = L.marker(latlng, { icon }).addTo(_map).bindPopup(popup);
+        _markers.set(s.id, m);
+      }
+    }
+    // Remove markers for shifts no longer active.
+    for (const [id, m] of _markers) {
+      if (!seen.has(id)) { _map.removeLayer(m); _markers.delete(id); }
+    }
+    if (_firstFit && _markers.size) { _firstFit = false; fitToMarkers(); }
+  }
+
+  function fitToMarkers(force) {
+    if (!_markers.size) return;
+    const bounds = L.latLngBounds([..._markers.values()].map(m => m.getLatLng()));
+    _map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+  }
+</script>
+</body>
+</html>

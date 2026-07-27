@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Sign In — SiteSnap</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/sitesnap/shared/sitesnap.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-gate">
+  <div class="sl-gate-inner" id="gateBody"></div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireSiteSnapAccess, logout } from "/systems/sitesnap/shared/auth.js";
+  import { projects, onboarding } from "/systems/sitesnap/shared/api.js";
+  import { shifts, distanceMiles } from "/systems/sitesnap/shared/shifts.js";
+  import { getCurrentPosition, isGeoSupported } from "/systems/sitesnap/shared/geo.js";
+  import { runOnboarding } from "/systems/sitesnap/shared/onboarding.js";
+  import { esc, initials, setInner, toast } from "/systems/sitesnap/shared/ui.js";
+
+  let _profile = null, _companyId = null, _admin = false;
+  let _position = null, _nearbyProjects = [];
+
+  try {
+    const { profile, admin, shift } = await requireSiteSnapAccess({ skipShiftGate: true });
+    _profile = profile; _companyId = profile.company_id; _admin = admin;
+
+    if (shift) {
+      window.location.href = `/systems/sitesnap/project-detail.html?id=${encodeURIComponent(shift.project_id)}`;
+    } else {
+      const seenOnboarding = await onboarding.hasCompleted(profile.id).catch(() => true);
+      if (!seenOnboarding) {
+        await runOnboarding({ employeeId: profile.id, companyId: _companyId });
+      }
+      renderIntro();
+    }
+  } catch (e) {
+    setInner("gateBody", `
+      <div class="sl-gate-card">
+        <div class="sl-gate-icon">⚠️</div>
+        <h1>Couldn't load SiteSnap</h1>
+        <p>${esc(e.message || "Something went wrong.")}</p>
+        <button class="btn btn-primary" id="retryBtn">Try Again</button>
+      </div>`);
+    document.getElementById("retryBtn")?.addEventListener("click", () => window.location.reload());
+  }
+
+  function renderIntro() {
+    const userName = (_profile.full_name || "").split(" ")[0] || "there";
+    setInner("gateBody", `
+      <div class="sl-gate-card">
+        <div class="sl-gate-icon">📍</div>
+        <h1>Hey ${esc(userName)}, you're signed out</h1>
+        <p>You need to sign in to a job site to use SiteSnap. We'll list the projects closest to you — allow location access to continue.</p>
+        ${_admin ? `<button class="btn btn-primary sl-gate-admin-btn" id="adminEnterBtn"><i data-lucide="shield-check"></i> Enter as Administrator</button>` : ""}
+        <button class="btn btn-primary" id="allowLocationBtn"><i data-lucide="map-pin"></i> Allow Location & Continue</button>
+        <button class="btn sl-gate-signout" id="gateLogoutBtn">Sign out of SmartCore</button>
+      </div>`);
+    window.lucide?.createIcons?.();
+    document.getElementById("adminEnterBtn")?.addEventListener("click", () => { window.location.href = "/systems/sitesnap/index.html"; });
+    document.getElementById("allowLocationBtn").addEventListener("click", requestLocationAndList);
+    document.getElementById("gateLogoutBtn").addEventListener("click", () => logout());
+  }
+
+  async function requestLocationAndList() {
+    setInner("gateBody", `<div class="sl-gate-card"><div class="sl-spinner"></div><p>Getting your location…</p></div>`);
+
+    if (!isGeoSupported()) {
+      renderLocationDenied("Your browser doesn't support location access.");
+      return;
+    }
+    _position = await getCurrentPosition({ timeout: 10000 });
+    if (!_position) {
+      renderLocationDenied("We couldn't get your location. Make sure location access is allowed for this site in your browser or phone settings, then try again.");
+      return;
+    }
+
+    try {
+      const list = await projects.list(_companyId, { status: "active" });
+      _nearbyProjects = list
+        .map(p => ({ ...p, _distance: (p.latitude != null && p.longitude != null) ? distanceMiles(_position.latitude, _position.longitude, p.latitude, p.longitude) : null }))
+        .sort((a, b) => {
+          if (a._distance == null && b._distance == null) return 0;
+          if (a._distance == null) return 1;
+          if (b._distance == null) return -1;
+          return a._distance - b._distance;
+        });
+      renderProjectList();
+    } catch (e) {
+      setInner("gateBody", `<div class="sl-gate-card"><div class="sl-gate-icon">⚠️</div><h1>Couldn't load projects</h1><p>${esc(e.message || "")}</p><button class="btn btn-primary" id="retryBtn">Try Again</button></div>`);
+      document.getElementById("retryBtn").addEventListener("click", requestLocationAndList);
+    }
+  }
+
+  function renderLocationDenied(message) {
+    setInner("gateBody", `
+      <div class="sl-gate-card">
+        <div class="sl-gate-icon">🚫</div>
+        <h1>Location needed</h1>
+        <p>${esc(message)}</p>
+        <button class="btn btn-primary" id="retryLocationBtn"><i data-lucide="map-pin"></i> Try Again</button>
+        <button class="btn sl-gate-signout" id="gateLogoutBtn2">Sign out of SmartCore</button>
+      </div>`);
+    window.lucide?.createIcons?.();
+    document.getElementById("retryLocationBtn").addEventListener("click", requestLocationAndList);
+    document.getElementById("gateLogoutBtn2").addEventListener("click", () => logout());
+  }
+
+  function renderProjectList() {
+    setInner("gateBody", `
+      <div class="sl-gate-card sl-gate-card-wide">
+        <div class="sl-gate-icon">📍</div>
+        <h1>Sign in to a project</h1>
+        <p>Projects closest to you first.</p>
+        <div class="sl-gate-project-list" id="gateProjectList">
+          ${_nearbyProjects.length === 0
+            ? `<p class="text-muted">No active projects to sign into.</p>`
+            : _nearbyProjects.map(projectCard).join("")}
+        </div>
+        <button class="btn sl-gate-signout" id="gateLogoutBtn3">Sign out of SmartCore</button>
+      </div>`);
+    window.lucide?.createIcons?.();
+    document.querySelectorAll("[data-signin-project]").forEach(btn => {
+      btn.addEventListener("click", () => signIn(btn.dataset.signinProject, btn));
+    });
+    document.getElementById("gateLogoutBtn3").addEventListener("click", () => logout());
+  }
+
+  function projectCard(p) {
+    const distLabel = p._distance == null ? "No location set" : `${p._distance < 0.1 ? "< 0.1" : p._distance.toFixed(1)} mi away`;
+    return `
+      <div class="sl-gate-project-card">
+        <div class="avatar avatar-sm">${esc(initials(p.name))}</div>
+        <div class="sl-gate-project-info">
+          <div class="sl-gate-project-name">${esc(p.name)}</div>
+          <div class="sl-gate-project-dist">${esc(distLabel)}</div>
+        </div>
+        <button class="btn btn-primary" data-signin-project="${esc(p.id)}">Sign In</button>
+        <div class="form-error" data-error-for="${esc(p.id)}"></div>
+      </div>`;
+  }
+
+  async function signIn(projectId, btn) {
+    const card = btn.closest(".sl-gate-project-card");
+    const errEl = card.querySelector("[data-error-for]");
+    errEl.textContent = "";
+    btn.disabled = true;
+    btn.textContent = "Signing in…";
+    try {
+      const pos = await getCurrentPosition({ timeout: 10000 }) || _position;
+      if (!pos) throw new Error("Couldn't get your current location.");
+      const shift = await shifts.clockIn(projectId, pos.latitude, pos.longitude);
+      toast("success", "Signed in");
+      window.location.href = `/systems/sitesnap/project-detail.html?id=${encodeURIComponent(shift.project_id)}`;
+    } catch (e) {
+      errEl.textContent = e.message || "Couldn't sign in.";
+      btn.disabled = false;
+      btn.textContent = "Sign In";
+    }
+  }
+</script>
+</body>
+</html>

@@ -10,17 +10,35 @@ const NAV_LINKS = [
   { id: "tasks",       icon: "check-square",     label: "Tasks",       href: "/systems/sitesnap/tasks.html", permission: "sitesnap.view_projects" },
   { id: "checklists",  icon: "list-checks",      label: "Checklists",  href: "/systems/sitesnap/checklists.html", permission: "sitesnap.manage_checklists" },
   { id: "team",        icon: "users",            label: "Team",        href: "/systems/sitesnap/team.html", permission: "sitesnap.manage_team" },
+  { id: "hours",       icon: "clock",            label: "Hours",       href: "/systems/sitesnap/hours.html", adminOnly: true },
+  { id: "map",         icon: "map",              label: "Live Map",    href: "/systems/sitesnap/map.html", adminOnly: true },
   { id: "settings",    icon: "settings",         label: "Settings",    href: "/systems/sitesnap/settings.html", permission: "sitesnap.manage_settings" },
 ];
 
-export function renderNav(currentPage, profile) {
+const ADMIN_ROLES = ["owner", "admin", "administrator"];
+
+// Locked non-admin users (clocked into one project) only ever land on
+// project-detail.html and capture.html — everywhere else redirects them
+// there — so their nav is reduced to just those two, since Dashboard/
+// Projects/Tasks/etc. would just immediately bounce them straight back.
+function lockedNavLinks(shift) {
+  return [
+    { id: "projects", icon: "folder-kanban", label: "My Project", href: `/systems/sitesnap/project-detail.html?id=${encodeURIComponent(shift.project_id)}` },
+    { id: "capture",  icon: "camera",        label: "Capture",    href: "/systems/sitesnap/capture.html" },
+  ];
+}
+
+export function renderNav(currentPage, profile, { admin = false, shift = null } = {}) {
   const nav = document.getElementById("slNav");
   if (!nav) return;
 
   const userName = profile?.full_name || profile?.email || "User";
   const role = profile?.role || "employee";
+  const isAdminUser = admin || ADMIN_ROLES.includes(role);
 
-  const links = NAV_LINKS.filter(l => !l.permission || hasPermission(l.permission));
+  const links = (!isAdminUser && shift)
+    ? lockedNavLinks(shift)
+    : NAV_LINKS.filter(l => (l.adminOnly ? isAdminUser : (!l.permission || hasPermission(l.permission))));
 
   nav.innerHTML = `
     <div class="sidebar-logo">

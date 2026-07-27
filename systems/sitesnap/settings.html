@@ -38,9 +38,15 @@
   let _profile = null, _companyId = null;
 
   try {
-    const { profile } = await requireSiteSnapAccess();
+    const { profile, admin, shift } = await requireSiteSnapAccess();
     _profile = profile; _companyId = profile.company_id;
-    renderNav("settings", profile);
+
+    if (!admin && shift) {
+      window.location.href = `project-detail.html?id=${encodeURIComponent(shift.project_id)}`;
+      throw new Error("Redirecting to your project");
+    }
+
+    renderNav("settings", profile, { admin, shift });
     initMobileNav();
     initTopbar();
 
@@ -79,6 +85,16 @@
       </div>
 
       <div class="card" style="margin-bottom:16px">
+        <h2 style="margin:0 0 4px;font-size:15px">Sign-in Radius</h2>
+        <p class="text-muted" style="margin:0 0 12px">How close to a project's location employees must be to sign in, and to sign out. Leaving this radius while signed in automatically signs them out.</p>
+        <div class="form-field" style="max-width:220px;margin:0">
+          <label class="form-label">Radius (miles)</label>
+          <input type="number" step="0.1" min="0.1" class="form-input" id="radiusInput" value="${esc(companySettings?.geofence_radius_miles ?? 0.5)}"/>
+        </div>
+        <button class="btn btn-primary" id="saveRadiusBtn" style="margin-top:12px">Save</button>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
         <div class="card-header-row"><h2>Tags</h2><button class="btn" id="addTagBtn"><i data-lucide="plus"></i> Add Tag</button></div>
         <div id="tagList" style="display:flex;flex-wrap:wrap;gap:8px">
           ${tagList.map(t => `<span class="sl-tag-chip" style="background:${esc(t.color)}22;color:${esc(t.color)};border-color:${esc(t.color)}55">${esc(t.name)} <button data-remove-tag="${t.id}" style="background:none;border:none;color:inherit;cursor:pointer;margin-left:4px">&times;</button></span>`).join("") || `<span class="text-muted">No tags yet.</span>`}
@@ -106,6 +122,12 @@
 
     document.getElementById("notifyToggle").addEventListener("change", async (e) => {
       await settings.upsert({ company_id: _companyId, notify_on_upload: e.target.checked, updated_by: _profile.id });
+      toast("success", "Saved");
+    });
+    document.getElementById("saveRadiusBtn").addEventListener("click", async () => {
+      const radius = parseFloat(document.getElementById("radiusInput").value);
+      if (!(radius > 0)) { toast("error", "Enter a radius greater than 0"); return; }
+      await settings.upsert({ company_id: _companyId, geofence_radius_miles: radius, updated_by: _profile.id });
       toast("success", "Saved");
     });
     document.getElementById("addTagBtn").addEventListener("click", () => openTagModal());

@@ -38,12 +38,15 @@
   import { geocodeAddress, mountLocationPicker } from "/systems/sitesnap/shared/mapPicker.js";
   import { getCurrentPosition } from "/systems/sitesnap/shared/geo.js";
   import { sendPush } from "/systems/sitesnap/shared/notifications.js";
+  import { shifts } from "/systems/sitesnap/shared/shifts.js";
+  import { startGeofenceWatch } from "/systems/sitesnap/shared/geofence.js";
 
   initTheme();
 
   const projectId = new URLSearchParams(location.search).get("id");
   let _profile = null, _companyId = null, _project = null, _tab = "gallery";
   let _companyEmployees = [], _companyTags = [];
+  let _admin = false, _shift = null, _geofenceWatch = null;
 
   const TABS = [
     { id: "gallery", label: "Gallery", icon: "image" },
@@ -56,13 +59,29 @@
 
   try {
     if (!projectId) throw new Error("Missing project id.");
-    const { profile } = await requireSiteSnapAccess();
-    _profile = profile; _companyId = profile.company_id;
-    renderNav("projects", profile);
+    const { profile, admin, shift } = await requireSiteSnapAccess();
+    _profile = profile; _companyId = profile.company_id; _admin = admin; _shift = shift;
+
+    // Non-admins are locked to whichever project they're clocked into.
+    if (!_admin && _shift && _shift.project_id !== projectId) {
+      window.location.href = `project-detail.html?id=${encodeURIComponent(_shift.project_id)}`;
+      throw new Error("Wrong project");
+    }
+
+    renderNav("projects", profile, { admin, shift });
     initMobileNav();
     initTopbar();
 
     await loadProject();
+
+    if (!_admin && _shift) {
+      _geofenceWatch = startGeofenceWatch(_shift.id, {
+        onAutoSignOut: () => {
+          toast("error", "Signed out", "You left the project radius, so you've been signed out.");
+          window.location.href = "/systems/sitesnap/gate.html";
+        },
+      });
+    }
   } catch (e) {
     setInner("body", errorState({ title: "Couldn't load project", message: e.message || "" }));
   }
@@ -88,9 +107,15 @@
     const statusBadge = { active: "badge-green", completed: "badge-blue", archived: "badge-grey" }[_project.status] || "badge-grey";
     const canManage = hasPermission("sitesnap.manage_projects");
     const html = `
+      ${!_admin && _shift ? `
+      <div class="sl-shift-banner">
+        <div class="sl-shift-banner-dot"></div>
+        <div class="sl-shift-banner-text">Signed in to <strong>${esc(_project.name)}</strong> since ${esc(fmtDateTime(_shift.clock_in_at))}</div>
+        <button class="btn" id="shiftSignOutBtn"><i data-lucide="log-out"></i> Sign Out</button>
+      </div>` : ""}
       <div class="sl-page-head">
         <div>
-          <a href="projects.html" class="btn" style="margin-bottom:10px"><i data-lucide="arrow-left"></i> All Projects</a>
+          ${_admin ? `<a href="projects.html" class="btn" style="margin-bottom:10px"><i data-lucide="arrow-left"></i> All Projects</a>` : ""}
           <h2>${esc(_project.name)} <span class="badge ${statusBadge}">${esc(_project.status)}</span></h2>
           <p>${esc([_project.client_name, [_project.city, _project.postcode].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || "No client or location set")}</p>
         </div>
@@ -107,6 +132,7 @@
     `;
     setInner("body", html);
     document.querySelectorAll(".sl-tab").forEach(btn => btn.addEventListener("click", () => { _tab = btn.dataset.tab; renderShell(); }));
+    document.getElementById("shiftSignOutBtn")?.addEventListener("click", signOutOfShift);
     document.getElementById("editProjectBtn")?.addEventListener("click", openEditModal);
     document.getElementById("archiveBtn")?.addEventListener("click", () => {
       confirmDialog("Archive project?", "The project will be hidden from the active list but all photos, videos and data are kept.", async () => {
@@ -117,6 +143,25 @@
     });
 
     renderTab();
+  }
+
+  async function signOutOfShift() {
+    const btn = document.getElementById("shiftSignOutBtn");
+    btn.disabled = true;
+    btn.textContent = "Signing out…";
+    try {
+      const pos = await getCurrentPosition({ timeout: 10000 });
+      if (!pos) throw new Error("Couldn't get your current location.");
+      _geofenceWatch?.stop();
+      await shifts.clockOut(_shift.id, pos.latitude, pos.longitude);
+      toast("success", "Signed out");
+      window.location.href = "/systems/sitesnap/gate.html";
+    } catch (e) {
+      toast("error", "Couldn't sign out", e.message || "");
+      btn.disabled = false;
+      btn.innerHTML = `<i data-lucide="log-out"></i> Sign Out`;
+      window.lucide?.createIcons?.();
+    }
   }
 
   function renderTab() {

@@ -40,16 +40,23 @@
 
   let _profile = null, _companyId = null, _projectList = [], _companyTags = [], _selectedProjectId = new URLSearchParams(location.search).get("project") || "";
   let _mediaType = "photo", _captured = null; // {blob, width, height, name?, type?}
+  let _locked = false;
 
   try {
-    const { profile } = await requireSiteSnapAccess();
+    const { profile, admin, shift } = await requireSiteSnapAccess();
     _profile = profile; _companyId = profile.company_id;
-    renderNav("capture", profile);
+    renderNav("capture", profile, { admin, shift });
     initMobileNav();
     initTopbar();
 
     setInner("body", loadingState("Loading projects…"));
     [_projectList, _companyTags] = await Promise.all([projects.list(_companyId, { status: "active" }), tags.list(_companyId)]);
+
+    if (!admin && shift) {
+      _locked = true;
+      _projectList = _projectList.filter(p => p.id === shift.project_id);
+      _selectedProjectId = shift.project_id;
+    }
 
     if (!_projectList.length) {
       setInner("body", emptyState({ icon: "folder-kanban", title: "No active projects", message: "Create a project first before capturing photos.", actionHtml: `<a class="btn btn-primary" href="projects.html?new=1">New Project</a>` }));
@@ -66,7 +73,9 @@
       <div class="card" style="margin-bottom:16px">
         <div class="form-field" style="margin-bottom:10px">
           <label class="form-label">Project</label>
-          <select class="form-select" id="projectSelect">${_projectList.map(p => `<option value="${p.id}" ${p.id === _selectedProjectId ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
+          ${_locked
+            ? `<div class="form-input" style="cursor:default;color:var(--text2)">${esc(_projectList.find(p => p.id === _selectedProjectId)?.name || "")}</div>`
+            : `<select class="form-select" id="projectSelect">${_projectList.map(p => `<option value="${p.id}" ${p.id === _selectedProjectId ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>`}
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn ${_mediaType === "photo" ? "btn-primary" : ""}" id="modePhoto"><i data-lucide="image"></i> Photo</button>
@@ -75,7 +84,7 @@
       </div>
       <div class="card" id="captureArea"></div>
     `);
-    document.getElementById("projectSelect").addEventListener("change", (e) => { _selectedProjectId = e.target.value; });
+    document.getElementById("projectSelect")?.addEventListener("change", (e) => { _selectedProjectId = e.target.value; });
     document.getElementById("modePhoto").addEventListener("click", () => { _mediaType = "photo"; renderCaptureUI(); });
     document.getElementById("modeVideo").addEventListener("click", () => { _mediaType = "video"; renderCaptureUI(); });
 

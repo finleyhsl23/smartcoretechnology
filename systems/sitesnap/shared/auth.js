@@ -1,9 +1,15 @@
 import { sb } from "./supabase.js";
+import { shifts } from "./shifts.js";
 
 const MODULE_KEY = "sitesnap";
+const ADMIN_ROLES = ["owner", "admin", "administrator"];
 
 let _profile = null;
 let _permissions = null;
+
+export function isAdmin(profile) {
+  return ADMIN_ROLES.includes(profile?.role);
+}
 
 export async function requireAuth() {
   const { data, error } = await sb().auth.getSession();
@@ -73,8 +79,14 @@ function renderBlockScreen({ icon, title, message, actionHref, actionLabel }) {
  *  2. Employee is active  -> auth_user_id resolved
  *  3. Company entitlement -> company_modules.enabled for 'sitesnap'
  *  4. Caller holds at least one SiteSnap permission
+ *  5. Owners/admins/administrators bypass the clock-in gate entirely (full
+ *     access, exactly as before this feature existed). Everyone else must
+ *     hold an active geofenced shift or gets redirected to gate.html.
+ *
+ * Pass { skipShiftGate: true } from gate.html itself, which is the one page
+ * responsible for creating a shift in the first place.
  */
-export async function requireSiteSnapAccess() {
+export async function requireSiteSnapAccess({ skipShiftGate = false } = {}) {
   let profile;
   try {
     profile = await getProfile();
@@ -115,7 +127,17 @@ export async function requireSiteSnapAccess() {
     throw new Error("No permissions");
   }
 
-  return { profile, permissions };
+  const admin = isAdmin(profile);
+  let shift = null;
+  if (!admin) {
+    shift = await shifts.getActive(profile.company_id).catch(() => null);
+    if (!shift && !skipShiftGate) {
+      window.location.href = "/systems/sitesnap/gate.html";
+      throw new Error("Not clocked in");
+    }
+  }
+
+  return { profile, permissions, admin, shift };
 }
 
 export async function getMyPermissions(companyId) {
