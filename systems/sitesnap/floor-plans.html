@@ -39,6 +39,8 @@
   let _profile = null, _companyId = null, _admin = false;
   let _project = null, _floorPlan = null, _levels = [], _activeLevelId = null, _elements = [], _projectTasks = [];
   let _editor = null;
+  let _pickerProjects = [], _pickerSearch = "";
+  let _analyzeAbort = null;
 
   const projectId = new URLSearchParams(location.search).get("project");
 
@@ -66,8 +68,6 @@
   } catch (e) {
     setInner("body", errorState({ title: "Couldn't load Floor Plans", message: e.message || "" }));
   }
-
-  let _pickerProjects = [], _pickerSearch = "";
 
   async function renderProjectPicker() {
     setInner("body", loadingState("Loading projects…"));
@@ -323,21 +323,35 @@
   // what's on screen. This is a genuine best-effort AI read of a hand
   // sketch, not precise CAD extraction — review what it places and clean
   // up anything wrong with the normal delete/redraw tools.
+  function resetAutoConvertBtn() {
+    const btn = document.getElementById("fpAutoConvert");
+    if (!btn) return;
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="sparkles"></i> Auto-Convert with AI`;
+    window.lucide?.createIcons?.();
+  }
+
   async function handleAutoConvert() {
     const level = _levels.find(l => l.id === _activeLevelId);
     if (!level?.reference_image_path) return;
     const btn = document.getElementById("fpAutoConvert");
-    const canvasHost = document.getElementById("fpCanvasHost");
     btn.disabled = true;
     btn.textContent = "Analyzing…";
-    canvasHost.style.position = "relative";
+
+    _analyzeAbort = new AbortController();
     const overlay = document.createElement("div");
     overlay.className = "sl-fp-analyzing-overlay";
-    overlay.innerHTML = `<div class="sl-spinner"></div><p>Reading your sketch with AI — this can take a moment…</p>`;
-    canvasHost.appendChild(overlay);
+    overlay.innerHTML = `
+      <div class="sl-spinner"></div>
+      <p>Reading your sketch with AI — this can take a moment…</p>
+      <button type="button" class="btn btn-danger" id="fpAnalyzeCancel">Cancel</button>
+    `;
+    document.body.appendChild(overlay);
+    document.getElementById("fpAnalyzeCancel").addEventListener("click", () => _analyzeAbort?.abort());
+
     try {
       const url = await floorPlanLevels.signedUrl(level.reference_image_path);
-      const imgRes = await fetch(url);
+      const imgRes = await fetch(url, { signal: _analyzeAbort.signal });
       const blob = await imgRes.blob();
       const [imageBase64, { width, height }, { data: sessionData }] = await Promise.all([
         blobToBase64(blob), loadImageNaturalSize(url), sb().auth.getSession(),
@@ -348,14 +362,13 @@
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session.access_token}` },
         body: JSON.stringify({ companyId: _companyId, imageBase64, mimeType: blob.type || "image/jpeg" }),
+        signal: _analyzeAbort.signal,
       });
       const out = await res.json();
       if (!res.ok) throw new Error(out.error || "Could not analyze the sketch.");
       if (!out.elements?.length) {
         toast("error", "Nothing detected", "Try a clearer or higher-contrast sketch.");
-        btn.disabled = false;
-        btn.innerHTML = `<i data-lucide="sparkles"></i> Auto-Convert with AI`;
-        window.lucide?.createIcons?.();
+        resetAutoConvertBtn();
         return;
       }
 
@@ -366,16 +379,44 @@
           ? { x: rect.x + el.x * rect.width, y: rect.y + el.y * rect.height, width: el.width * rect.width, height: el.height * rect.height }
           : { x1: rect.x + el.x1 * rect.width, y1: rect.y + el.y1 * rect.height, x2: rect.x + el.x2 * rect.width, y2: rect.y + el.y2 * rect.height },
       }));
+
+      // If the sketch had legible measurements, calibrate this level's
+      // pixels-per-meter from them (averaged across every hint we got)
+      // instead of leaving whatever scale the level was created with.
+      const scaleSamples = [];
+      out.elements.forEach((el, i) => {
+        const geom = rows[i].geometry;
+        if (el.type === "room") {
+          if (el.real_width_m) scaleSamples.push(geom.width / el.real_width_m);
+          if (el.real_height_m) scaleSamples.push(geom.height / el.real_height_m);
+        } else if (el.real_length_m) {
+          const pxLen = Math.hypot(geom.x2 - geom.x1, geom.y2 - geom.y1);
+          scaleSamples.push(pxLen / el.real_length_m);
+        }
+      });
+
       await floorPlanElements.createMany(rows);
-      toast("success", `Added ${rows.length} elements`, "Check them over — AI reads of sketches aren't perfect.");
+
+      if (scaleSamples.length) {
+        const avgScale = Math.round(scaleSamples.reduce((a, b) => a + b, 0) / scaleSamples.length);
+        if (avgScale > 0) {
+          await floorPlanLevels.update(level.id, { pixels_per_meter: avgScale });
+          level.pixels_per_meter = avgScale;
+        }
+      }
+
+      toast("success", `Added ${rows.length} elements`, scaleSamples.length
+        ? "Scale calibrated from measurements on the sketch. Check the layout over — AI reads aren't perfect."
+        : "Check them over — AI reads of sketches aren't perfect.");
       await renderPlan();
     } catch (err) {
-      toast("error", "Couldn't auto-convert", err.message || "");
-      btn.disabled = false;
-      btn.innerHTML = `<i data-lucide="sparkles"></i> Auto-Convert with AI`;
-      window.lucide?.createIcons?.();
+      if (err.name !== "AbortError") {
+        toast("error", "Couldn't auto-convert", err.message || "");
+      }
+      resetAutoConvertBtn();
     } finally {
       overlay.remove();
+      _analyzeAbort = null;
     }
   }
 </script>

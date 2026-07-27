@@ -29,6 +29,21 @@ function svgEl(tag, attrs = {}) {
   return el;
 }
 
+// Shrinks a label's font size until it fits maxWidth (shared canvas context,
+// far cheaper than round-tripping through the DOM via getBBox()), then
+// truncates with an ellipsis if it still doesn't fit even at minSize.
+let _measureCtx = null;
+function fitLabel(text, maxWidth, { baseSize = 13, minSize = 7, weight = 700 } = {}) {
+  if (!_measureCtx) _measureCtx = document.createElement("canvas").getContext("2d");
+  const widthAt = (t, size) => { _measureCtx.font = `${weight} ${size}px Inter, sans-serif`; return _measureCtx.measureText(t).width; };
+  let size = baseSize;
+  while (size > minSize && widthAt(text, size) > maxWidth) size -= 0.5;
+  if (widthAt(text, size) <= maxWidth) return { text, size };
+  let truncated = text;
+  while (truncated.length > 1 && widthAt(truncated + "…", size) > maxWidth) truncated = truncated.slice(0, -1);
+  return { text: truncated.length < text.length ? truncated + "…" : truncated, size };
+}
+
 /**
  * @param {HTMLElement} containerEl
  * @param {object} opts
@@ -128,18 +143,36 @@ export function mountFloorPlanEditor(containerEl, opts) {
       const stats = roomStats?.(el.id);
       const color = ROOM_COLORS[stats?.color || "none"];
       g.appendChild(svgEl("rect", { x, y, width, height, fill: color.fill, stroke: color.stroke, "stroke-width": 2, rx: 4 }));
-      const label = el.label || "Room";
-      const subParts = [];
-      if (!hideMeasurements) subParts.push(`${(width / pixelsPerMeter).toFixed(1)}m × ${(height / pixelsPerMeter).toFixed(1)}m`);
-      if (stats) subParts.push(`${stats.done}/${stats.total} done`);
-      const text = svgEl("text", { x: x + width / 2, y: y + height / 2 - 6, "text-anchor": "middle", class: "sl-fp-room-label" });
-      text.textContent = label;
-      g.appendChild(text);
-      if (subParts.length) {
-        const sub = svgEl("text", { x: x + width / 2, y: y + height / 2 + 12, "text-anchor": "middle", class: "sl-fp-room-sub" });
-        sub.textContent = subParts.join(" · ");
-        g.appendChild(sub);
+
+      // Clip text to the room's own rectangle — a hard guarantee it can
+      // never visually spill into a neighbouring room, on top of (not
+      // instead of) shrinking the font to fit below.
+      const clipId = `fp-clip-${el.id}`;
+      const clip = svgEl("clipPath", { id: clipId });
+      clip.appendChild(svgEl("rect", { x, y, width, height }));
+      defs.appendChild(clip);
+      const textGroup = svgEl("g", { "clip-path": `url(#${clipId})` });
+
+      const pad = 8;
+      const maxTextWidth = Math.max(0, width - pad * 2);
+      if (maxTextWidth > 4) {
+        const label = fitLabel(el.label || "Room", maxTextWidth, { baseSize: 13, minSize: 7 });
+        const subParts = [];
+        if (!hideMeasurements) subParts.push(`${(width / pixelsPerMeter).toFixed(1)}m × ${(height / pixelsPerMeter).toFixed(1)}m`);
+        if (stats) subParts.push(`${stats.done}/${stats.total} done`);
+        const showSub = subParts.length && height >= 34;
+
+        const text = svgEl("text", { x: x + width / 2, y: y + height / 2 + (showSub ? -6 : 4), "text-anchor": "middle", class: "sl-fp-room-label", "font-size": label.size });
+        text.textContent = label.text;
+        textGroup.appendChild(text);
+        if (showSub) {
+          const sub = fitLabel(subParts.join(" · "), maxTextWidth, { baseSize: 10, minSize: 6, weight: 500 });
+          const subEl = svgEl("text", { x: x + width / 2, y: y + height / 2 + 12, "text-anchor": "middle", class: "sl-fp-room-sub", "font-size": sub.size });
+          subEl.textContent = sub.text;
+          textGroup.appendChild(subEl);
+        }
       }
+      g.appendChild(textGroup);
       g.style.cursor = "pointer";
       g.addEventListener("click", (e) => { e.stopPropagation(); if (_tool === "select") { onRoomClick?.(el); if (!readOnly) select(el.id); } });
     } else {
