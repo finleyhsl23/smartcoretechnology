@@ -37,7 +37,7 @@
 
   initTheme();
   const REFRESH_MS = 15000;
-  let _profile = null, _companyId = null, _map = null, _infoWindow = null, _markers = new Map(), _pollTimer = null, _firstFit = true;
+  let _profile = null, _companyId = null, _map = null, _infoWindow = null, _markers = new Map(), _pollTimer = null, _firstFit = true, _employeeSearch = "";
 
   try {
     const { profile, admin, shift } = await requireSiteSnapAccess();
@@ -75,6 +75,12 @@
         <div><h2>Live Map</h2><p>Everyone currently signed into a job site. Only updates while a worker's app is open.</p></div>
         <button class="btn" id="recenterBtn"><i data-lucide="locate-fixed"></i> Recenter</button>
       </div>
+      <div class="sl-toolbar">
+        <div class="sl-search-wrap" style="max-width:260px;width:100%">
+          <i data-lucide="search"></i>
+          <input class="form-input" id="employeeSearch" placeholder="Search by employee…"/>
+        </div>
+      </div>
       <div class="card" style="padding:0;overflow:hidden">
         <div id="mapHost" style="height:65vh;min-height:420px"></div>
       </div>
@@ -82,6 +88,10 @@
     `);
     window.lucide?.createIcons?.();
     document.getElementById("recenterBtn").addEventListener("click", () => fitToMarkers());
+    document.getElementById("employeeSearch").addEventListener("input", (e) => {
+      _employeeSearch = e.target.value;
+      applyEmployeeFilter();
+    });
 
     await loadGoogleMaps();
     _map = new google.maps.Map(document.getElementById("mapHost"), {
@@ -95,8 +105,7 @@
     try {
       const active = await shifts.listActiveForCompany(_companyId);
       updateMarkers(active);
-      const note = document.getElementById("mapEmptyNote");
-      if (note) note.textContent = active.length === 0 ? "No one is currently signed in." : "";
+      applyEmployeeFilter();
     } catch (e) {
       // Silent — a transient poll failure shouldn't disrupt the map view.
     }
@@ -116,13 +125,14 @@
         const entry = _markers.get(s.id);
         entry.marker.setPosition(pos);
         entry.content = content;
+        entry.name = name;
       } else {
         const marker = new google.maps.Marker({
           position: pos, map: _map,
           icon: { path: google.maps.SymbolPath.CIRCLE, scale: 16, fillColor: "#1e5cff", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2 },
           label: { text: initials(name), color: "#fff", fontSize: "11px", fontWeight: "700" },
         });
-        const entry = { marker, content };
+        const entry = { marker, content, name };
         marker.addListener("click", () => { _infoWindow.setContent(entry.content); _infoWindow.open(_map, marker); });
         _markers.set(s.id, entry);
       }
@@ -134,10 +144,29 @@
     if (_firstFit && _markers.size) { _firstFit = false; fitToMarkers(); }
   }
 
+  function applyEmployeeFilter() {
+    const q = _employeeSearch.trim().toLowerCase();
+    let anyVisible = false;
+    _markers.forEach((entry) => {
+      const match = !q || entry.name.toLowerCase().includes(q);
+      entry.marker.setVisible(match);
+      if (match) anyVisible = true;
+    });
+
+    const note = document.getElementById("mapEmptyNote");
+    if (note) {
+      if (_markers.size === 0) note.textContent = "No one is currently signed in.";
+      else if (q && !anyVisible) note.textContent = `No one matching "${_employeeSearch}" is currently signed in.`;
+      else note.textContent = "";
+    }
+    if (q && anyVisible) fitToMarkers();
+  }
+
   function fitToMarkers() {
-    if (!_markers.size) return;
+    const visible = [..._markers.values()].filter(e => e.marker.getVisible());
+    if (!visible.length) return;
     const bounds = new google.maps.LatLngBounds();
-    _markers.forEach(({ marker }) => bounds.extend(marker.getPosition()));
+    visible.forEach(e => bounds.extend(e.marker.getPosition()));
     _map.fitBounds(bounds, 50);
     google.maps.event.addListenerOnce(_map, "bounds_changed", () => {
       if (_map.getZoom() > 16) _map.setZoom(16);
