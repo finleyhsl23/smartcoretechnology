@@ -35,15 +35,31 @@ function svgEl(tag, attrs = {}) {
  *   opts.elements        - array of {id, element_type, geometry, label}
  *   opts.pixelsPerMeter
  *   opts.referenceImageUrl
+ *   opts.referenceImageRect - {x,y,width,height} in canvas space where the
+ *     image is drawn (letterboxed, not cropped) — see fitImageRect() below.
+ *     Required alongside referenceImageUrl so it displays at the exact
+ *     position/scale any AI-detected coordinates were mapped against.
  *   opts.readOnly         - employees: no toolbar, click a room only
  *   opts.roomStats(roomId) -> {done, total, color} | null - for room fill color
  *   opts.onCreate({element_type, geometry, label}) -> Promise<created element w/ id>
  *   opts.onDelete(id) -> Promise
  *   opts.onRoomClick(roomElement)
  */
+export const CANVAS_W = 900, CANVAS_H = 600;
+
+// Computes the letterboxed (not cropped) rect an image of naturalW x naturalH
+// occupies when fit inside the CANVAS_W x CANVAS_H canvas, centered. Exported
+// so callers can map AI-detected normalized (0-1) image coordinates into the
+// same canvas space the image is actually displayed in.
+export function fitImageRect(naturalW, naturalH) {
+  const scale = Math.min(CANVAS_W / naturalW, CANVAS_H / naturalH);
+  const width = naturalW * scale, height = naturalH * scale;
+  return { x: (CANVAS_W - width) / 2, y: (CANVAS_H - height) / 2, width, height };
+}
+
 export function mountFloorPlanEditor(containerEl, opts) {
-  const { pixelsPerMeter, referenceImageUrl, readOnly, roomStats, onCreate, onDelete, onRoomClick } = opts;
-  const W = 900, H = 600;
+  const { pixelsPerMeter, referenceImageUrl, referenceImageRect, readOnly, roomStats, onCreate, onDelete, onRoomClick } = opts;
+  const W = CANVAS_W, H = CANVAS_H;
   let _tool = "select";
   let _selectedId = null;
   let _drawing = null; // {type, startX, startY, previewEl}
@@ -75,8 +91,12 @@ export function mountFloorPlanEditor(containerEl, opts) {
   defs.appendChild(pattern);
   svg.appendChild(defs);
   svg.appendChild(svgEl("rect", { width: W, height: H, fill: "url(#fpGrid)" }));
-  if (referenceImageUrl) {
-    svg.appendChild(svgEl("image", { href: referenceImageUrl, x: 0, y: 0, width: W, height: H, opacity: 0.35, preserveAspectRatio: "xMidYMid slice" }));
+  if (referenceImageUrl && referenceImageRect) {
+    svg.appendChild(svgEl("image", {
+      href: referenceImageUrl, x: referenceImageRect.x, y: referenceImageRect.y,
+      width: referenceImageRect.width, height: referenceImageRect.height,
+      opacity: 0.35, preserveAspectRatio: "none",
+    }));
   }
   const roomsLayer = svgEl("g"); const wallsLayer = svgEl("g"); const doorsLayer = svgEl("g"); const windowsLayer = svgEl("g"); const previewLayer = svgEl("g");
   svg.appendChild(roomsLayer); svg.appendChild(wallsLayer); svg.appendChild(doorsLayer); svg.appendChild(windowsLayer); svg.appendChild(previewLayer);

@@ -503,6 +503,12 @@ export const floorPlanElements = {
     throwIfError(error);
     return data;
   },
+  async createMany(rows) {
+    if (!rows.length) return [];
+    const { data, error } = await sb().from("sitesnap_floor_plan_elements").insert(rows).select();
+    throwIfError(error);
+    return data || [];
+  },
   async update(id, patch) {
     const { data, error } = await sb().from("sitesnap_floor_plan_elements").update(patch).eq("id", id).select().single();
     throwIfError(error);

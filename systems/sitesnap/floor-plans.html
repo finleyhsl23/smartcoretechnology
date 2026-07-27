@@ -31,7 +31,8 @@
   import { settings, projects, tasks, floorPlans, floorPlanLevels, floorPlanElements } from "/systems/sitesnap/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/systems/sitesnap/shared/nav.js";
   import { initTheme } from "/systems/sitesnap/shared/theme.js";
-  import { mountFloorPlanEditor } from "/systems/sitesnap/shared/floorPlanEditor.js";
+  import { mountFloorPlanEditor, fitImageRect } from "/systems/sitesnap/shared/floorPlanEditor.js";
+  import { sb } from "/systems/sitesnap/shared/supabase.js";
   import { esc, loadingState, emptyState, errorState, setInner, toast, modal, confirmDialog } from "/systems/sitesnap/shared/ui.js";
 
   initTheme();
@@ -66,22 +67,46 @@
     setInner("body", errorState({ title: "Couldn't load Floor Plans", message: e.message || "" }));
   }
 
+  let _pickerProjects = [], _pickerSearch = "";
+
   async function renderProjectPicker() {
     setInner("body", loadingState("Loading projects…"));
-    const list = await projects.list(_companyId, { status: "active" });
+    _pickerProjects = await projects.list(_companyId, { status: "active" });
     setInner("body", `
       <div class="sl-page-head"><div><h2>Floor Plans</h2><p>Create floor plan for…</p></div></div>
       <div class="card">
-        ${list.length === 0 ? `<p class="text-muted">No active projects yet.</p>` : `
-        <div class="form-field"><label class="form-label">Project</label>
-          <select class="form-select" id="fpProjectPick">${list.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select>
+        ${_pickerProjects.length === 0 ? `<p class="text-muted">No active projects yet.</p>` : `
+        <div class="sl-search-wrap" style="max-width:340px;margin-bottom:14px">
+          <i data-lucide="search" class="sl-search-icon"></i>
+          <input class="form-input" id="fpProjectSearch" placeholder="Search projects…" autocomplete="off"/>
         </div>
-        <button class="btn btn-primary" id="fpProjectGo" style="margin-top:8px">Continue</button>`}
+        <div id="fpProjectList"></div>`}
       </div>`);
-    document.getElementById("fpProjectGo")?.addEventListener("click", () => {
-      const id = document.getElementById("fpProjectPick").value;
-      window.location.href = `floor-plans.html?project=${encodeURIComponent(id)}`;
+    window.lucide?.createIcons?.();
+    document.getElementById("fpProjectSearch")?.addEventListener("input", (e) => {
+      _pickerSearch = e.target.value;
+      renderProjectPickerList();
     });
+    renderProjectPickerList();
+  }
+
+  function renderProjectPickerList() {
+    const listEl = document.getElementById("fpProjectList");
+    if (!listEl) return;
+    const q = _pickerSearch.trim().toLowerCase();
+    const filtered = q ? _pickerProjects.filter(p => p.name.toLowerCase().includes(q)) : _pickerProjects;
+    listEl.innerHTML = filtered.length === 0
+      ? `<p class="text-muted">No projects match "${esc(_pickerSearch)}".</p>`
+      : `<div class="sl-gate-project-list">${filtered.map(p => `
+        <div class="sl-gate-project-card" data-project="${esc(p.id)}" style="cursor:pointer">
+          <div class="avatar avatar-sm">${esc(p.name.slice(0, 2).toUpperCase())}</div>
+          <div class="sl-gate-project-info"><div class="sl-gate-project-name">${esc(p.name)}</div></div>
+          <i data-lucide="chevron-right" style="width:16px;height:16px;color:var(--text3);flex-shrink:0"></i>
+        </div>`).join("")}</div>`;
+    window.lucide?.createIcons?.();
+    listEl.querySelectorAll("[data-project]").forEach(row => row.addEventListener("click", () => {
+      window.location.href = `floor-plans.html?project=${encodeURIComponent(row.dataset.project)}`;
+    }));
   }
 
   async function loadProjectPlan() {
@@ -153,7 +178,8 @@
           <input type="file" accept="image/*" id="fpRefUpload" style="display:none"/>
         </label>
         ${level?.reference_image_path ? `<button class="btn" id="fpRefRemove"><i data-lucide="x"></i> Remove Reference</button>` : ""}
-        <span class="text-muted" style="font-size:12px">Traces as a backdrop — draw your walls and rooms over it, it isn't converted automatically.</span>
+        ${level?.reference_image_path ? `<button class="btn btn-primary" id="fpAutoConvert"><i data-lucide="sparkles"></i> Auto-Convert with AI</button>` : ""}
+        <span class="text-muted" style="font-size:12px">Traces as a backdrop to draw over manually, or click Auto-Convert to have AI read the sketch and place walls/doors/windows/rooms for you — review and tidy up the result, it won't be perfect.</span>
         ${_levels.length > 1 ? `<button class="btn btn-danger" id="fpDeleteLevel" style="margin-left:auto"><i data-lucide="trash-2"></i> Delete This Level</button>` : ""}
       </div>` : ""}
       <div class="card" id="fpCanvasHost"></div>
@@ -168,16 +194,21 @@
     document.getElementById("fpDeleteLevel")?.addEventListener("click", deleteActiveLevel);
     document.getElementById("fpRefUpload")?.addEventListener("change", handleReferenceUpload);
     document.getElementById("fpRefRemove")?.addEventListener("click", removeReference);
+    document.getElementById("fpAutoConvert")?.addEventListener("click", handleAutoConvert);
 
     _elements = level ? await floorPlanElements.listForLevel(level.id) : [];
-    let referenceImageUrl = null;
-    if (level?.reference_image_path) referenceImageUrl = await floorPlanLevels.signedUrl(level.reference_image_path).catch(() => null);
+    let referenceImageUrl = null, referenceImageRect = null;
+    if (level?.reference_image_path) {
+      referenceImageUrl = await floorPlanLevels.signedUrl(level.reference_image_path).catch(() => null);
+      if (referenceImageUrl) referenceImageRect = await loadImageNaturalSize(referenceImageUrl).then(({ width, height }) => fitImageRect(width, height)).catch(() => null);
+    }
 
     _editor?.destroy?.();
     _editor = mountFloorPlanEditor(document.getElementById("fpCanvasHost"), {
       elements: _elements,
       pixelsPerMeter: level?.pixels_per_meter || 50,
       referenceImageUrl,
+      referenceImageRect,
       readOnly: !_admin,
       roomStats,
       onRoomClick: (room) => {
@@ -255,6 +286,74 @@
     Object.assign(level, updated);
     toast("success", "Reference removed");
     await renderPlan();
+  }
+
+  function loadImageNaturalSize(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  // Sends the level's reference sketch to Claude, which reads the drawing
+  // and returns walls/doors/windows/rooms as coordinates normalized 0-1
+  // against the image itself. Mapped here into the exact canvas rect the
+  // image is displayed at (see fitImageRect) so the result lines up with
+  // what's on screen. This is a genuine best-effort AI read of a hand
+  // sketch, not precise CAD extraction — review what it places and clean
+  // up anything wrong with the normal delete/redraw tools.
+  async function handleAutoConvert() {
+    const level = _levels.find(l => l.id === _activeLevelId);
+    if (!level?.reference_image_path) return;
+    const btn = document.getElementById("fpAutoConvert");
+    btn.disabled = true;
+    btn.innerHTML = `<i data-lucide="loader"></i> Analyzing sketch…`;
+    window.lucide?.createIcons?.();
+    try {
+      const url = await floorPlanLevels.signedUrl(level.reference_image_path);
+      const imgRes = await fetch(url);
+      const blob = await imgRes.blob();
+      const [imageBase64, { width, height }, { data: sessionData }] = await Promise.all([
+        blobToBase64(blob), loadImageNaturalSize(url), sb().auth.getSession(),
+      ]);
+      const rect = fitImageRect(width, height);
+
+      const res = await fetch("/api/sitesnap/analyze-floorplan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session.access_token}` },
+        body: JSON.stringify({ companyId: _companyId, imageBase64, mimeType: blob.type || "image/jpeg" }),
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error || "Could not analyze the sketch.");
+      if (!out.elements?.length) { toast("error", "Nothing detected", "Try a clearer or higher-contrast sketch."); return; }
+
+      const rows = out.elements.map(el => ({
+        level_id: level.id, company_id: _companyId, project_id: projectId,
+        element_type: el.type, label: el.label || null,
+        geometry: el.type === "room"
+          ? { x: rect.x + el.x * rect.width, y: rect.y + el.y * rect.height, width: el.width * rect.width, height: el.height * rect.height }
+          : { x1: rect.x + el.x1 * rect.width, y1: rect.y + el.y1 * rect.height, x2: rect.x + el.x2 * rect.width, y2: rect.y + el.y2 * rect.height },
+      }));
+      await floorPlanElements.createMany(rows);
+      toast("success", `Added ${rows.length} elements`, "Check them over — AI reads of sketches aren't perfect.");
+      await renderPlan();
+    } catch (err) {
+      toast("error", "Couldn't auto-convert", err.message || "");
+      btn.disabled = false;
+      btn.innerHTML = `<i data-lucide="sparkles"></i> Auto-Convert with AI`;
+      window.lucide?.createIcons?.();
+    }
   }
 </script>
 </body>
