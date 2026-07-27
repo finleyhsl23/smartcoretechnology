@@ -39,6 +39,7 @@
   import { getCurrentPosition } from "/systems/sitesnap/shared/geo.js";
   import { sendPush } from "/systems/sitesnap/shared/notifications.js";
   import { shifts } from "/systems/sitesnap/shared/shifts.js";
+  import { completeTaskWithPhoto } from "/systems/sitesnap/shared/taskPhoto.js";
   import { startGeofenceWatch } from "/systems/sitesnap/shared/geofence.js";
 
   initTheme();
@@ -412,8 +413,19 @@
       `);
       document.getElementById("addTaskBtn")?.addEventListener("click", openTaskModal);
       document.querySelectorAll("[data-task-toggle]").forEach(cb => cb.addEventListener("change", async () => {
-        await tasks.update(cb.dataset.taskToggle, { status: cb.checked ? "done" : "open" });
-        renderTasks();
+        const taskId = cb.dataset.taskToggle;
+        if (!cb.checked) {
+          await tasks.update(taskId, { status: "open" });
+          renderTasks();
+          return;
+        }
+        const task = list.find(t => t.id === taskId);
+        cb.checked = false; // revert until the photo is confirmed
+        completeTaskWithPhoto(task, {
+          companyId: _companyId, employeeId: _profile.id,
+          onDone: () => renderTasks(),
+          onCancel: () => { cb.checked = false; },
+        });
       }));
     } catch (e) {
       setInner("tabBody", errorState({ title: "Couldn't load tasks", message: e.message || "" }));

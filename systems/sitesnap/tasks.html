@@ -33,6 +33,7 @@
   import { initTheme } from "/systems/sitesnap/shared/theme.js";
   import { esc, fmtDate, loadingState, emptyState, errorState, setInner, toast, modal } from "/systems/sitesnap/shared/ui.js";
   import { sendPush } from "/systems/sitesnap/shared/notifications.js";
+  import { completeTaskWithPhoto } from "/systems/sitesnap/shared/taskPhoto.js";
 
   initTheme();
   let _profile = null, _companyId = null, _scope = "mine", _statusFilter = "open";
@@ -102,9 +103,20 @@
     document.getElementById("newTaskBtn")?.addEventListener("click", openNewTaskModal);
     document.getElementById("emptyNewTaskBtn")?.addEventListener("click", openNewTaskModal);
     document.querySelectorAll("[data-task-toggle]").forEach(cb => cb.addEventListener("change", async () => {
-      await tasks.update(cb.dataset.taskToggle, { status: cb.checked ? "done" : "open" });
-      toast("success", "Task updated");
-      load();
+      const taskId = cb.dataset.taskToggle;
+      if (!cb.checked) {
+        await tasks.update(taskId, { status: "open" });
+        toast("success", "Task updated");
+        load();
+        return;
+      }
+      const task = list.find(t => t.id === taskId);
+      cb.checked = false; // revert until the photo is confirmed
+      completeTaskWithPhoto(task, {
+        companyId: _companyId, employeeId: _profile.id,
+        onDone: () => load(),
+        onCancel: () => { cb.checked = false; },
+      });
     }));
   }
 
