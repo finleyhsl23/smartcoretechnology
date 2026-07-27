@@ -22,7 +22,7 @@
   import { shifts, distanceMiles } from "/systems/sitesnap/shared/shifts.js";
   import { getCurrentPosition, isGeoSupported } from "/systems/sitesnap/shared/geo.js";
   import { runOnboarding } from "/systems/sitesnap/shared/onboarding.js";
-  import { esc, initials, setInner, toast } from "/systems/sitesnap/shared/ui.js";
+  import { esc, initials, openDirectionsPicker, setInner, toast } from "/systems/sitesnap/shared/ui.js";
 
   let _profile = null, _companyId = null, _admin = false;
   let _position = null, _nearbyProjects = [], _projectSearch = "";
@@ -147,6 +147,12 @@
     listEl.querySelectorAll("[data-signin-project]").forEach(btn => {
       btn.addEventListener("click", () => signIn(btn.dataset.signinProject, btn));
     });
+    listEl.querySelectorAll("[data-directions-project]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const p = _nearbyProjects.find(pr => pr.id === btn.dataset.directionsProject);
+        if (p) openDirectionsPicker(p.latitude, p.longitude, p.name);
+      });
+    });
   }
 
   function projectCard(p) {
@@ -158,6 +164,7 @@
           <div class="sl-gate-project-name">${esc(p.name)}</div>
           <div class="sl-gate-project-dist">${esc(distLabel)}</div>
         </div>
+        ${p.latitude != null ? `<button class="btn" data-directions-project="${esc(p.id)}" aria-label="Get directions"><i data-lucide="navigation"></i></button>` : ""}
         <button class="btn btn-primary" data-signin-project="${esc(p.id)}">Sign In</button>
         <div class="form-error" data-error-for="${esc(p.id)}"></div>
       </div>`;

@@ -95,6 +95,17 @@ export function mapsUrl(lat, lng) {
   return `https://www.google.com/maps?q=${lat},${lng}`;
 }
 
+export function openDirectionsPicker(lat, lng, label) {
+  if (lat == null || lng == null) return;
+  modal(`
+    <div class="modal-header"><h3>Get Directions${label ? ` — ${esc(label)}` : ""}</h3><button class="modal-close" aria-label="Close">&times;</button></div>
+    <div class="modal-body sl-directions-options">
+      <a class="btn btn-primary" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank" rel="noopener"><i data-lucide="map"></i> Open in Google Maps</a>
+      <a class="btn btn-primary" href="https://maps.apple.com/?daddr=${lat},${lng}&dirflg=d" target="_blank" rel="noopener"><i data-lucide="map-pin"></i> Open in Apple Maps</a>
+    </div>
+  `);
+}
+
 // ── Required page states (loading / empty / error / permission-denied /
 //    module-disabled / offline) ─────────────────────────────────────────────
 
