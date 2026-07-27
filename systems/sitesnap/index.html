@@ -80,7 +80,7 @@
     try {
       const [projectList, recentMedia, myTasks] = await Promise.all([
         projects.list(_companyId, { status: "active" }),
-        media.listRecentForCompany(_companyId, 12),
+        media.listRecentForCompany(_companyId, 6),
         tasks.listForCompany(_companyId, { assigneeId: _profile.id }).catch(() => []),
       ]);
       _lastRefreshed = new Date();
@@ -136,7 +136,7 @@
         </div>
         ${recentMedia.length === 0
           ? emptyState({ icon: "camera", title: "No photos or videos yet", message: "Captures from every project will show up here.", actionHtml: hasPermission("sitesnap.capture_media") ? `<a class="btn btn-primary" href="capture.html">Capture your first photo</a>` : "" })
-          : `<div class="sl-gallery">${recentMedia.map(mediaTile).join("")}</div>`}
+          : `<div class="sl-gallery" id="recentGallery">${recentMedia.map(mediaTile).join("")}</div>`}
       </div>
 
       <div class="card">
@@ -151,16 +151,27 @@
     `;
 
     setInner("dashboardBody", html);
+
+    if (recentMedia.length) {
+      for (const m of recentMedia) {
+        media.signedUrl(m.storage_path).then(url => {
+          const tile = document.querySelector(`.sl-media-tile[data-id="${m.id}"]`);
+          if (!tile || !url) return;
+          const el = m.media_type === "video" ? `<video src="${url}" preload="metadata" muted></video>` : `<img src="${url}" alt="${esc(m.caption || 'Job site photo')}" loading="lazy"/>`;
+          tile.insertAdjacentHTML("afterbegin", el);
+        }).catch(() => {});
+      }
+      document.querySelectorAll("#recentGallery .sl-media-tile").forEach(tile => {
+        tile.addEventListener("click", () => { window.location.href = `project-detail.html?id=${encodeURIComponent(tile.dataset.projectId)}`; });
+      });
+    }
   }
 
   function mediaTile(m) {
     return `
-      <div class="sl-media-tile" style="cursor:default">
+      <div class="sl-media-tile" data-id="${esc(m.id)}" data-project-id="${esc(m.project_id)}">
         <div class="sl-media-type-badge"><i data-lucide="${m.media_type === 'video' ? 'video' : 'image'}"></i>${esc(m.media_type)}</div>
-        <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-size:11px;text-align:center;padding:8px">
-          ${esc(m.sitesnap_projects?.name || "Project")}
-        </div>
-        <div class="sl-media-caption">${esc(timeAgo(m.taken_at))}</div>
+        <div class="sl-media-caption">${esc(m.sitesnap_projects?.name || "Project")} · ${esc(timeAgo(m.taken_at))}</div>
       </div>`;
   }
 
