@@ -316,6 +316,20 @@ export const tasks = {
     throwIfError(error);
     return data;
   },
+  // Dedicated RPCs (rather than a raw RLS-filtered update) so an
+  // unauthorized attempt raises a clear message instead of PostgREST's
+  // opaque "Cannot coerce the result to a single JSON object" when the
+  // update quietly matches zero rows.
+  async complete(id) {
+    const { data, error } = await sb().rpc("sitesnap_complete_task", { p_task_id: id });
+    throwIfError(error);
+    return data;
+  },
+  async reopen(id) {
+    const { data, error } = await sb().rpc("sitesnap_reopen_task", { p_task_id: id });
+    throwIfError(error);
+    return { task: data.task, deletedPaths: data.deleted_paths || [] };
+  },
   async remove(id) {
     const { error } = await sb().from("sitesnap_tasks").delete().eq("id", id);
     throwIfError(error);

@@ -59,7 +59,7 @@ export function completeTaskWithPhoto(task, { companyId, employeeId, onDone, onC
         latitude: position?.latitude ?? null, longitude: position?.longitude ?? null,
         uploaded_by: employeeId, file_size_bytes: blob.size, width: width || null, height: height || null,
       });
-      const updated = await tasks.update(task.id, { status: "done" });
+      const updated = await tasks.complete(task.id);
       completed = true;
       overlay.close();
       toast("success", "Task completed");
@@ -73,8 +73,11 @@ export function completeTaskWithPhoto(task, { companyId, employeeId, onDone, onC
 
 /**
  * Reverts a completed task back to open, deleting its proof photo(s) first
- * (both the storage file and the sitesnap_media row) — confirmed since it's
+ * (both the sitesnap_media row and the storage file) — confirmed since it's
  * destructive. The task can only be marked done again by taking a new one.
+ * The status flip + row deletion happen atomically server-side (RPC), so a
+ * failure never leaves a 'done' task with no photo; only the storage file
+ * cleanup (which Postgres can't do directly) happens as a client follow-up.
  *
  * @param {object} task - a task row with its embedded sitesnap_media!task_id array
  * @param {object} opts.onDone(updatedTask) - called after the task is reopened
@@ -86,11 +89,10 @@ export function reopenTask(task, { onDone } = {}) {
     : `Mark "${task.title}" as not done?`;
   confirmDialog("Undo completion?", message, async () => {
     try {
-      for (const shot of shots) {
-        await media.removeFile(shot.storage_path).catch(() => {});
-        await media.remove(shot.id);
+      const { task: updated, deletedPaths } = await tasks.reopen(task.id);
+      for (const path of deletedPaths) {
+        await media.removeFile(path).catch(() => {});
       }
-      const updated = await tasks.update(task.id, { status: "open" });
       toast("success", "Task reopened");
       onDone?.(updated);
     } catch (e) {
