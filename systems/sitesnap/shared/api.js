@@ -442,6 +442,11 @@ export const floorPlans = {
     throwIfError(error);
     return data;
   },
+  async update(id, patch) {
+    const { data, error } = await sb().from("sitesnap_floor_plans").update(patch).eq("id", id).select().single();
+    throwIfError(error);
+    return data;
+  },
   async remove(id) {
     const { error } = await sb().from("sitesnap_floor_plans").delete().eq("id", id);
     throwIfError(error);

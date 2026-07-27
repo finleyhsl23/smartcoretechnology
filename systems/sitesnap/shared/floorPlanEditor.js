@@ -40,6 +40,8 @@ function svgEl(tag, attrs = {}) {
  *     Required alongside referenceImageUrl so it displays at the exact
  *     position/scale any AI-detected coordinates were mapped against.
  *   opts.readOnly         - employees: no toolbar, click a room only
+ *   opts.hideMeasurements - hides wall/door/window length labels and room
+ *     dimensions entirely (room name + task-completion count still shows)
  *   opts.roomStats(roomId) -> {done, total, color} | null - for room fill color
  *   opts.onCreate({element_type, geometry, label}) -> Promise<created element w/ id>
  *   opts.onDelete(id) -> Promise
@@ -58,7 +60,7 @@ export function fitImageRect(naturalW, naturalH) {
 }
 
 export function mountFloorPlanEditor(containerEl, opts) {
-  const { pixelsPerMeter, referenceImageUrl, referenceImageRect, readOnly, roomStats, onCreate, onDelete, onRoomClick } = opts;
+  const { pixelsPerMeter, referenceImageUrl, referenceImageRect, readOnly, hideMeasurements, roomStats, onCreate, onDelete, onRoomClick } = opts;
   const W = CANVAS_W, H = CANVAS_H;
   let _tool = "select";
   let _selectedId = null;
@@ -127,13 +129,17 @@ export function mountFloorPlanEditor(containerEl, opts) {
       const color = ROOM_COLORS[stats?.color || "none"];
       g.appendChild(svgEl("rect", { x, y, width, height, fill: color.fill, stroke: color.stroke, "stroke-width": 2, rx: 4 }));
       const label = el.label || "Room";
-      const dims = `${(width / pixelsPerMeter).toFixed(1)}m × ${(height / pixelsPerMeter).toFixed(1)}m`;
-      const statsText = stats ? ` · ${stats.done}/${stats.total} done` : "";
+      const subParts = [];
+      if (!hideMeasurements) subParts.push(`${(width / pixelsPerMeter).toFixed(1)}m × ${(height / pixelsPerMeter).toFixed(1)}m`);
+      if (stats) subParts.push(`${stats.done}/${stats.total} done`);
       const text = svgEl("text", { x: x + width / 2, y: y + height / 2 - 6, "text-anchor": "middle", class: "sl-fp-room-label" });
       text.textContent = label;
-      const sub = svgEl("text", { x: x + width / 2, y: y + height / 2 + 12, "text-anchor": "middle", class: "sl-fp-room-sub" });
-      sub.textContent = dims + statsText;
-      g.appendChild(text); g.appendChild(sub);
+      g.appendChild(text);
+      if (subParts.length) {
+        const sub = svgEl("text", { x: x + width / 2, y: y + height / 2 + 12, "text-anchor": "middle", class: "sl-fp-room-sub" });
+        sub.textContent = subParts.join(" · ");
+        g.appendChild(sub);
+      }
       g.style.cursor = "pointer";
       g.addEventListener("click", (e) => { e.stopPropagation(); if (_tool === "select") { onRoomClick?.(el); if (!readOnly) select(el.id); } });
     } else {
@@ -143,10 +149,12 @@ export function mountFloorPlanEditor(containerEl, opts) {
       const line = svgEl("line", { x1, y1, x2, y2, stroke: style.stroke, "stroke-width": style.width, "stroke-linecap": "round" });
       if (style.dash) line.setAttribute("stroke-dasharray", style.dash);
       g.appendChild(hit); g.appendChild(line);
-      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-      const dimText = svgEl("text", { x: mx, y: my - 8, "text-anchor": "middle", class: "sl-fp-dim-label" });
-      dimText.textContent = `${distanceMeters(x1, y1, x2, y2)}m`;
-      g.appendChild(dimText);
+      if (!hideMeasurements) {
+        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+        const dimText = svgEl("text", { x: mx, y: my - 8, "text-anchor": "middle", class: "sl-fp-dim-label" });
+        dimText.textContent = `${distanceMeters(x1, y1, x2, y2)}m`;
+        g.appendChild(dimText);
+      }
       g.style.cursor = "pointer";
       g.addEventListener("click", (e) => { e.stopPropagation(); if (_tool === "select" && !readOnly) select(el.id); });
     }

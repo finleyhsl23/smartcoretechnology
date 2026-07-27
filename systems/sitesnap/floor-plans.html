@@ -159,7 +159,10 @@
     setInner("body", `
       <div class="sl-page-head">
         <div><h2>${esc(_floorPlan.name)}</h2><p>${esc(_project.name)}</p></div>
-        <a class="btn" href="floor-plans.html">Choose a different project</a>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          ${_admin ? `<button class="btn" id="fpToggleMeasurements"><i data-lucide="${_floorPlan.hide_measurements ? "eye" : "eye-off"}"></i> ${_floorPlan.hide_measurements ? "Show Measurements" : "Hide Measurements"}</button>` : ""}
+          <a class="btn" href="floor-plans.html">Choose a different project</a>
+        </div>
       </div>
       <div class="sl-fp-levels" id="fpLevels">
         ${_levels.map(l => `<button class="sl-fp-level-tab ${l.id === _activeLevelId ? "active" : ""}" data-level="${esc(l.id)}">${esc(l.name)}</button>`).join("")}
@@ -195,6 +198,12 @@
     document.getElementById("fpRefUpload")?.addEventListener("change", handleReferenceUpload);
     document.getElementById("fpRefRemove")?.addEventListener("click", removeReference);
     document.getElementById("fpAutoConvert")?.addEventListener("click", handleAutoConvert);
+    document.getElementById("fpToggleMeasurements")?.addEventListener("click", async () => {
+      const updated = await floorPlans.update(_floorPlan.id, { hide_measurements: !_floorPlan.hide_measurements });
+      _floorPlan.hide_measurements = updated.hide_measurements;
+      toast("success", _floorPlan.hide_measurements ? "Measurements hidden" : "Measurements shown");
+      await renderPlan();
+    });
 
     _elements = level ? await floorPlanElements.listForLevel(level.id) : [];
     let referenceImageUrl = null, referenceImageRect = null;
@@ -210,6 +219,7 @@
       referenceImageUrl,
       referenceImageRect,
       readOnly: !_admin,
+      hideMeasurements: !!_floorPlan.hide_measurements,
       roomStats,
       onRoomClick: (room) => {
         const stats = roomStats(room.id);
@@ -317,9 +327,14 @@
     const level = _levels.find(l => l.id === _activeLevelId);
     if (!level?.reference_image_path) return;
     const btn = document.getElementById("fpAutoConvert");
+    const canvasHost = document.getElementById("fpCanvasHost");
     btn.disabled = true;
-    btn.innerHTML = `<i data-lucide="loader"></i> Analyzing sketch…`;
-    window.lucide?.createIcons?.();
+    btn.textContent = "Analyzing…";
+    canvasHost.style.position = "relative";
+    const overlay = document.createElement("div");
+    overlay.className = "sl-fp-analyzing-overlay";
+    overlay.innerHTML = `<div class="sl-spinner"></div><p>Reading your sketch with AI — this can take a moment…</p>`;
+    canvasHost.appendChild(overlay);
     try {
       const url = await floorPlanLevels.signedUrl(level.reference_image_path);
       const imgRes = await fetch(url);
@@ -336,7 +351,13 @@
       });
       const out = await res.json();
       if (!res.ok) throw new Error(out.error || "Could not analyze the sketch.");
-      if (!out.elements?.length) { toast("error", "Nothing detected", "Try a clearer or higher-contrast sketch."); return; }
+      if (!out.elements?.length) {
+        toast("error", "Nothing detected", "Try a clearer or higher-contrast sketch.");
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="sparkles"></i> Auto-Convert with AI`;
+        window.lucide?.createIcons?.();
+        return;
+      }
 
       const rows = out.elements.map(el => ({
         level_id: level.id, company_id: _companyId, project_id: projectId,
@@ -353,6 +374,8 @@
       btn.disabled = false;
       btn.innerHTML = `<i data-lucide="sparkles"></i> Auto-Convert with AI`;
       window.lucide?.createIcons?.();
+    } finally {
+      overlay.remove();
     }
   }
 </script>
