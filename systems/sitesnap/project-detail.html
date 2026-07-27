@@ -29,7 +29,7 @@
 
 <script type="module">
   import { requireSiteSnapAccess, hasPermission } from "/systems/sitesnap/shared/auth.js";
-  import { projects, members, media, tags, comments, checklistTemplates, projectChecklists, dailyLogs, tasks, employees } from "/systems/sitesnap/shared/api.js";
+  import { projects, members, media, tags, comments, checklistTemplates, projectChecklists, dailyLogs, tasks, employees, settings, floorPlanElements } from "/systems/sitesnap/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/systems/sitesnap/shared/nav.js";
   import { initTheme } from "/systems/sitesnap/shared/theme.js";
   import { esc, fmtDate, fmtDateTime, timeAgo, initials, fmtBytes, mapsUrl, openDirectionsPicker, loadingState, emptyState, errorState, setInner, toast, modal, confirmDialog } from "/systems/sitesnap/shared/ui.js";
@@ -44,8 +44,8 @@
 
   const projectId = new URLSearchParams(location.search).get("id");
   let _profile = null, _companyId = null, _project = null, _tab = "gallery";
-  let _companyEmployees = [], _companyTags = [];
-  let _admin = false, _shift = null, _geofenceWatch = null;
+  let _companyEmployees = [], _companyTags = [], _projectRooms = [];
+  let _admin = false, _shift = null, _geofenceWatch = null, _floorPlansEnabled = false;
 
   const TABS = [
     { id: "gallery", label: "Gallery", icon: "image" },
@@ -88,12 +88,16 @@
   async function loadProject() {
     setInner("body", loadingState("Loading project…"));
     try {
-      [_project, _companyEmployees, _companyTags] = await Promise.all([
+      let companySettings;
+      [_project, _companyEmployees, _companyTags, companySettings] = await Promise.all([
         projects.get(projectId),
         employees.listForCompany(_companyId),
         tags.list(_companyId),
+        settings.get(_companyId),
       ]);
       if (!_project) throw new Error("Project not found, or you don't have access to it.");
+      _floorPlansEnabled = companySettings?.floor_plans_enabled === true;
+      _projectRooms = _floorPlansEnabled ? await floorPlanElements.listRoomsForProject(projectId).catch(() => []) : [];
       document.getElementById("pageTitle").textContent = _project.name;
       renderShell();
     } catch (e) {
@@ -120,6 +124,7 @@
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           ${hasPermission("sitesnap.capture_media") ? `<a class="btn btn-primary" href="capture.html?project=${esc(_project.id)}"><i data-lucide="camera"></i> Capture</a>` : ""}
+          ${_floorPlansEnabled ? `<a class="btn" href="floor-plans.html?project=${esc(_project.id)}"><i data-lucide="layout"></i> Floor Plan</a>` : ""}
           ${canManage ? `<button class="btn" id="editProjectBtn"><i data-lucide="pencil"></i> Edit</button>` : ""}
           ${canManage && _project.status !== "archived" ? `<button class="btn" id="archiveBtn"><i data-lucide="archive"></i> Archive</button>` : ""}
         </div>
@@ -461,6 +466,10 @@
           </div>
         </div>
         <div class="form-field"><label class="form-label">Due date</label><input type="date" class="form-input" id="tDue"/></div>
+        ${_projectRooms.length ? `
+        <div class="form-field"><label class="form-label">Room</label>
+          <select class="form-select" id="tRoom"><option value="">No room</option>${_projectRooms.map(r => `<option value="${esc(r.id)}">${esc(r.label || "Room")} (${esc(r.sitesnap_floor_plan_levels?.name || "")})</option>`).join("")}</select>
+        </div>` : ""}
         <div id="tError" class="form-error"></div>
       </div>
       <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Add Task</button></div>
@@ -476,6 +485,7 @@
         assignee_employee_id: assigneeId,
         priority: overlay.querySelector("#tPriority").value,
         due_date: overlay.querySelector("#tDue").value || null,
+        room_element_id: overlay.querySelector("#tRoom")?.value || null,
         created_by: _profile.id,
       });
       overlay.remove();

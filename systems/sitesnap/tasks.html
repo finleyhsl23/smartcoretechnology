@@ -28,7 +28,7 @@
 
 <script type="module">
   import { requireSiteSnapAccess, hasPermission } from "/systems/sitesnap/shared/auth.js";
-  import { tasks, projects, employees } from "/systems/sitesnap/shared/api.js";
+  import { tasks, projects, employees, settings, floorPlanElements } from "/systems/sitesnap/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/systems/sitesnap/shared/nav.js";
   import { initTheme } from "/systems/sitesnap/shared/theme.js";
   import { esc, fmtDate, loadingState, emptyState, errorState, setInner, toast, modal } from "/systems/sitesnap/shared/ui.js";
@@ -37,7 +37,7 @@
 
   initTheme();
   let _profile = null, _companyId = null, _scope = "mine", _statusFilter = "open";
-  let _activeProjects = [], _companyEmployees = [];
+  let _activeProjects = [], _companyEmployees = [], _floorPlansEnabled = false;
 
   try {
     const { profile, admin, shift } = await requireSiteSnapAccess();
@@ -52,9 +52,11 @@
     initMobileNav();
     initTopbar();
     if (hasPermission("sitesnap.manage_tasks")) {
-      [_activeProjects, _companyEmployees] = await Promise.all([
-        projects.list(_companyId, { status: "active" }), employees.listForCompany(_companyId),
+      let companySettings;
+      [_activeProjects, _companyEmployees, companySettings] = await Promise.all([
+        projects.list(_companyId, { status: "active" }), employees.listForCompany(_companyId), settings.get(_companyId),
       ]);
+      _floorPlansEnabled = companySettings?.floor_plans_enabled === true;
     }
     await load();
   } catch (e) {
@@ -144,11 +146,30 @@
           </div>
         </div>
         <div class="form-field"><label class="form-label">Due date</label><input type="date" class="form-input" id="ntDue"/></div>
+        ${_floorPlansEnabled ? `<div class="form-field"><label class="form-label">Room</label><select class="form-select" id="ntRoom"><option value="">No room</option></select></div>` : ""}
         <div id="ntError" class="form-error"></div>
       </div>
       <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Add Task</button></div>
     `);
     overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.remove()));
+
+    async function refreshRoomOptions(projectId) {
+      const roomSelect = overlay.querySelector("#ntRoom");
+      if (!roomSelect) return;
+      roomSelect.innerHTML = `<option value="">No room</option>`;
+      const rooms = await floorPlanElements.listRoomsForProject(projectId).catch(() => []);
+      for (const r of rooms) {
+        const opt = document.createElement("option");
+        opt.value = r.id;
+        opt.textContent = `${r.label || "Room"} (${r.sitesnap_floor_plan_levels?.name || ""})`;
+        roomSelect.appendChild(opt);
+      }
+    }
+    if (_floorPlansEnabled) {
+      refreshRoomOptions(overlay.querySelector("#ntProject").value);
+      overlay.querySelector("#ntProject").addEventListener("change", (e) => refreshRoomOptions(e.target.value));
+    }
+
     overlay.querySelector("#save").addEventListener("click", async () => {
       const title = overlay.querySelector("#ntTitle").value.trim();
       const projectId = overlay.querySelector("#ntProject").value;
@@ -162,6 +183,7 @@
           assignee_employee_id: assigneeId,
           priority: overlay.querySelector("#ntPriority").value,
           due_date: overlay.querySelector("#ntDue").value || null,
+          room_element_id: overlay.querySelector("#ntRoom")?.value || null,
           created_by: _profile.id,
         });
         overlay.remove();

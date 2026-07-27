@@ -9,6 +9,7 @@ const NAV_LINKS = [
   { id: "capture",     icon: "camera",           label: "Capture",     href: "/systems/sitesnap/capture.html", permission: "sitesnap.capture_media" },
   { id: "tasks",       icon: "check-square",     label: "Tasks",       href: "/systems/sitesnap/tasks.html", permission: "sitesnap.view_projects" },
   { id: "checklists",  icon: "list-checks",      label: "Checklists",  href: "/systems/sitesnap/checklists.html", permission: "sitesnap.manage_checklists" },
+  { id: "floor-plans", icon: "layout",           label: "Floor Plans", href: "/systems/sitesnap/floor-plans.html", adminOnly: true },
   { id: "hours",       icon: "clock",            label: "Hours",       href: "/systems/sitesnap/hours.html", adminOnly: true },
   { id: "map",         icon: "map",              label: "Live Map",    href: "/systems/sitesnap/map.html", adminOnly: true },
   { id: "settings",    icon: "settings",         label: "Settings",    href: "/systems/sitesnap/settings.html", permission: "sitesnap.manage_settings" },
@@ -22,9 +23,10 @@ const ADMIN_ROLES = ["owner", "admin", "administrator"];
 // Projects/Tasks/etc. would just immediately bounce them straight back.
 function lockedNavLinks(shift) {
   return [
-    { id: "projects", icon: "folder-kanban", label: "My Project", href: `/systems/sitesnap/project-detail.html?id=${encodeURIComponent(shift.project_id)}` },
-    { id: "capture",  icon: "camera",        label: "Capture",    href: "/systems/sitesnap/capture.html" },
-    { id: "my-hours", icon: "clock",         label: "My Hours",   href: "/systems/sitesnap/my-hours.html" },
+    { id: "projects",    icon: "folder-kanban", label: "My Project",  href: `/systems/sitesnap/project-detail.html?id=${encodeURIComponent(shift.project_id)}` },
+    { id: "capture",     icon: "camera",        label: "Capture",     href: "/systems/sitesnap/capture.html" },
+    { id: "floor-plans", icon: "layout",        label: "Floor Plan",  href: `/systems/sitesnap/floor-plans.html?project=${encodeURIComponent(shift.project_id)}` },
+    { id: "my-hours",    icon: "clock",         label: "My Hours",    href: "/systems/sitesnap/my-hours.html" },
   ];
 }
 

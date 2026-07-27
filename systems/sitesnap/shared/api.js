@@ -427,3 +427,89 @@ export const onboarding = {
     throwIfError(error);
   },
 };
+
+// ── Floor plans ──────────────────────────────────────────────────────────
+const FLOORPLAN_BUCKET = "sitesnap-floorplans";
+
+export const floorPlans = {
+  async getForProject(projectId) {
+    const { data, error } = await sb().from("sitesnap_floor_plans").select("*").eq("project_id", projectId).maybeSingle();
+    throwIfError(error);
+    return data;
+  },
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_floor_plans").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_floor_plans").delete().eq("id", id);
+    throwIfError(error);
+  },
+};
+
+export const floorPlanLevels = {
+  async listForPlan(floorPlanId) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_levels")
+      .select("*").eq("floor_plan_id", floorPlanId).order("sort_order");
+    throwIfError(error);
+    return data || [];
+  },
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_levels").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async update(id, patch) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_levels").update(patch).eq("id", id).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_floor_plan_levels").delete().eq("id", id);
+    throwIfError(error);
+  },
+  async uploadReference(path, file) {
+    const { error } = await sb().storage.from(FLOORPLAN_BUCKET).upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
+    throwIfError(error);
+    return path;
+  },
+  async removeReference(path) {
+    const { error } = await sb().storage.from(FLOORPLAN_BUCKET).remove([path]);
+    throwIfError(error);
+  },
+  async signedUrl(path, expiresIn = 3600) {
+    const { data, error } = await sb().storage.from(FLOORPLAN_BUCKET).createSignedUrl(path, expiresIn);
+    throwIfError(error);
+    return data?.signedUrl || null;
+  },
+};
+
+export const floorPlanElements = {
+  async listForLevel(levelId) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_elements").select("*").eq("level_id", levelId).order("created_at");
+    throwIfError(error);
+    return data || [];
+  },
+  async listRoomsForProject(projectId) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_elements")
+      .select("id, label, level_id, sitesnap_floor_plan_levels(name)")
+      .eq("project_id", projectId).eq("element_type", "room").order("created_at");
+    throwIfError(error);
+    return data || [];
+  },
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_elements").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async update(id, patch) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_elements").update(patch).eq("id", id).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_floor_plan_elements").delete().eq("id", id);
+    throwIfError(error);
+  },
+};

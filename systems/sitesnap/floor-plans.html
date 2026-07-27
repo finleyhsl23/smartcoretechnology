@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Floor Plans — SiteSnap</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/sitesnap/shared/sitesnap.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Floor Plans</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireSiteSnapAccess } from "/systems/sitesnap/shared/auth.js";
+  import { settings, projects, tasks, floorPlans, floorPlanLevels, floorPlanElements } from "/systems/sitesnap/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitesnap/shared/nav.js";
+  import { initTheme } from "/systems/sitesnap/shared/theme.js";
+  import { mountFloorPlanEditor } from "/systems/sitesnap/shared/floorPlanEditor.js";
+  import { esc, loadingState, emptyState, errorState, setInner, toast, modal, confirmDialog } from "/systems/sitesnap/shared/ui.js";
+
+  initTheme();
+  let _profile = null, _companyId = null, _admin = false;
+  let _project = null, _floorPlan = null, _levels = [], _activeLevelId = null, _elements = [], _projectTasks = [];
+  let _editor = null;
+
+  const projectId = new URLSearchParams(location.search).get("project");
+
+  try {
+    const { profile, admin, shift } = await requireSiteSnapAccess();
+    _profile = profile; _companyId = profile.company_id; _admin = admin;
+    renderNav("floor-plans", profile, { admin, shift });
+    initMobileNav();
+    initTopbar();
+
+    const companySettings = await settings.get(_companyId);
+    if (companySettings?.floor_plans_enabled !== true) {
+      setInner("body", `
+        <div class="sl-page-head"><div><h2>Floor Plans</h2></div></div>
+        ${emptyState({
+          icon: "layout", title: "Floor Plans is turned off",
+          message: "An Owner or Admin needs to turn this on in Settings before it can be used.",
+          actionHtml: _admin ? `<a class="btn btn-primary" href="settings.html">Go to Settings →</a>` : "",
+        })}`);
+    } else if (!projectId) {
+      await renderProjectPicker();
+    } else {
+      await loadProjectPlan();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Floor Plans", message: e.message || "" }));
+  }
+
+  async function renderProjectPicker() {
+    setInner("body", loadingState("Loading projects…"));
+    const list = await projects.list(_companyId, { status: "active" });
+    setInner("body", `
+      <div class="sl-page-head"><div><h2>Floor Plans</h2><p>Create floor plan for…</p></div></div>
+      <div class="card">
+        ${list.length === 0 ? `<p class="text-muted">No active projects yet.</p>` : `
+        <div class="form-field"><label class="form-label">Project</label>
+          <select class="form-select" id="fpProjectPick">${list.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select>
+        </div>
+        <button class="btn btn-primary" id="fpProjectGo" style="margin-top:8px">Continue</button>`}
+      </div>`);
+    document.getElementById("fpProjectGo")?.addEventListener("click", () => {
+      const id = document.getElementById("fpProjectPick").value;
+      window.location.href = `floor-plans.html?project=${encodeURIComponent(id)}`;
+    });
+  }
+
+  async function loadProjectPlan() {
+    setInner("body", loadingState("Loading floor plan…"));
+    try {
+      [_project, _floorPlan] = await Promise.all([projects.get(projectId), floorPlans.getForProject(projectId)]);
+      if (!_project) { setInner("body", errorState({ title: "Project not found" })); return; }
+      if (!_floorPlan) { renderNoPlan(); return; }
+      _levels = await floorPlanLevels.listForPlan(_floorPlan.id);
+      if (!_levels.length && _admin) {
+        const level = await floorPlanLevels.create({ floor_plan_id: _floorPlan.id, company_id: _companyId, project_id: projectId, name: "Ground Floor", sort_order: 0 });
+        _levels = [level];
+      }
+      _activeLevelId = _levels[0]?.id || null;
+      _projectTasks = await tasks.listForProject(projectId);
+      await renderPlan();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load floor plan", message: e.message || "" }));
+    }
+  }
+
+  function renderNoPlan() {
+    setInner("body", `
+      <div class="sl-page-head"><div><h2>Floor Plans</h2><a class="btn" href="floor-plans.html">Choose a different project</a></div></div>
+      ${emptyState({
+        icon: "layout", title: `No floor plan for ${esc(_project.name)}`,
+        message: _admin ? "Create one to start adding levels, walls, rooms and more." : "An Owner or Admin hasn't created one for this project yet.",
+        actionHtml: _admin ? `<button class="btn btn-primary" id="fpCreateBtn"><i data-lucide="plus"></i> Create Floor Plan</button>` : "",
+      })}`);
+    document.getElementById("fpCreateBtn")?.addEventListener("click", async () => {
+      _floorPlan = await floorPlans.create({ company_id: _companyId, project_id: projectId, name: _project.name, created_by: _profile.id });
+      const level = await floorPlanLevels.create({ floor_plan_id: _floorPlan.id, company_id: _companyId, project_id: projectId, name: "Ground Floor", sort_order: 0 });
+      _levels = [level];
+      _activeLevelId = level.id;
+      _projectTasks = await tasks.listForProject(projectId);
+      await renderPlan();
+    });
+  }
+
+  function roomStats(roomId) {
+    const roomTasks = _projectTasks.filter(t => t.room_element_id === roomId);
+    if (!roomTasks.length) return null;
+    const done = roomTasks.filter(t => t.status === "done").length;
+    const total = roomTasks.length;
+    return { done, total, color: done === 0 ? "red" : done === total ? "green" : "amber" };
+  }
+
+  async function renderPlan() {
+    const level = _levels.find(l => l.id === _activeLevelId);
+    setInner("body", `
+      <div class="sl-page-head">
+        <div><h2>${esc(_floorPlan.name)}</h2><p>${esc(_project.name)}</p></div>
+        <a class="btn" href="floor-plans.html">Choose a different project</a>
+      </div>
+      <div class="sl-fp-levels" id="fpLevels">
+        ${_levels.map(l => `<button class="sl-fp-level-tab ${l.id === _activeLevelId ? "active" : ""}" data-level="${esc(l.id)}">${esc(l.name)}</button>`).join("")}
+        ${_admin ? `<button class="sl-fp-level-tab" id="fpAddLevel"><i data-lucide="plus" style="width:12px;height:12px;vertical-align:-2px"></i> Add Level</button>` : ""}
+      </div>
+      <div class="sl-fp-legend">
+        <span><i style="background:#ef4444"></i> 0 done</span>
+        <span><i style="background:#f59e0b"></i> In progress</span>
+        <span><i style="background:#22c55e"></i> All done</span>
+        <span><i style="background:rgba(255,255,255,.2)"></i> No tasks assigned</span>
+      </div>
+      ${_admin ? `
+      <div class="card" style="margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <label class="btn" style="cursor:pointer;margin:0">
+          <i data-lucide="image"></i> ${level?.reference_image_path ? "Replace" : "Upload"} Reference Sketch
+          <input type="file" accept="image/*" id="fpRefUpload" style="display:none"/>
+        </label>
+        ${level?.reference_image_path ? `<button class="btn" id="fpRefRemove"><i data-lucide="x"></i> Remove Reference</button>` : ""}
+        <span class="text-muted" style="font-size:12px">Traces as a backdrop — draw your walls and rooms over it, it isn't converted automatically.</span>
+        ${_levels.length > 1 ? `<button class="btn btn-danger" id="fpDeleteLevel" style="margin-left:auto"><i data-lucide="trash-2"></i> Delete This Level</button>` : ""}
+      </div>` : ""}
+      <div class="card" id="fpCanvasHost"></div>
+    `);
+    window.lucide?.createIcons?.();
+
+    document.querySelectorAll("[data-level]").forEach(btn => btn.addEventListener("click", async () => {
+      _activeLevelId = btn.dataset.level;
+      await renderPlan();
+    }));
+    document.getElementById("fpAddLevel")?.addEventListener("click", openAddLevelModal);
+    document.getElementById("fpDeleteLevel")?.addEventListener("click", deleteActiveLevel);
+    document.getElementById("fpRefUpload")?.addEventListener("change", handleReferenceUpload);
+    document.getElementById("fpRefRemove")?.addEventListener("click", removeReference);
+
+    _elements = level ? await floorPlanElements.listForLevel(level.id) : [];
+    let referenceImageUrl = null;
+    if (level?.reference_image_path) referenceImageUrl = await floorPlanLevels.signedUrl(level.reference_image_path).catch(() => null);
+
+    _editor?.destroy?.();
+    _editor = mountFloorPlanEditor(document.getElementById("fpCanvasHost"), {
+      elements: _elements,
+      pixelsPerMeter: level?.pixels_per_meter || 50,
+      referenceImageUrl,
+      readOnly: !_admin,
+      roomStats,
+      onRoomClick: (room) => {
+        const stats = roomStats(room.id);
+        toast("info", room.label || "Room", stats ? `${stats.done}/${stats.total} tasks done` : "No tasks assigned to this room yet.");
+      },
+      onCreate: async ({ element_type, geometry, label }) => {
+        return floorPlanElements.create({ level_id: level.id, company_id: _companyId, project_id: projectId, element_type, geometry, label });
+      },
+      onDelete: async (id) => {
+        await floorPlanElements.remove(id);
+      },
+    });
+  }
+
+  function openAddLevelModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Add Level</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Level name *</label><input class="form-input" id="lvlName" placeholder="e.g. First Floor"/></div>
+        <div class="form-field"><label class="form-label">Scale (pixels per metre)</label><input type="number" min="1" class="form-input" id="lvlScale" value="50"/></div>
+        <div id="lvlError" class="form-error"></div>
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Add</button></div>
+    `);
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.close()));
+    overlay.querySelector("#save").addEventListener("click", async () => {
+      const name = overlay.querySelector("#lvlName").value.trim();
+      if (!name) { overlay.querySelector("#lvlError").textContent = "Level name is required."; return; }
+      const scale = parseFloat(overlay.querySelector("#lvlScale").value) || 50;
+      const level = await floorPlanLevels.create({
+        floor_plan_id: _floorPlan.id, company_id: _companyId, project_id: projectId,
+        name, sort_order: _levels.length, pixels_per_meter: scale,
+      });
+      _levels.push(level);
+      _activeLevelId = level.id;
+      overlay.close();
+      await renderPlan();
+    });
+  }
+
+  function deleteActiveLevel() {
+    const level = _levels.find(l => l.id === _activeLevelId);
+    if (!level) return;
+    confirmDialog("Delete this level?", "This removes every wall, door, window and room drawn on it — this can't be undone.", async () => {
+      await floorPlanLevels.remove(level.id);
+      _levels = _levels.filter(l => l.id !== level.id);
+      _activeLevelId = _levels[0]?.id || null;
+      await renderPlan();
+    });
+  }
+
+  async function handleReferenceUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const level = _levels.find(l => l.id === _activeLevelId);
+    const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const path = `${_companyId}/${projectId}/${_floorPlan.id}/${level.id}.${ext}`;
+    try {
+      await floorPlanLevels.uploadReference(path, file);
+      const updated = await floorPlanLevels.update(level.id, { reference_image_path: path });
+      Object.assign(level, updated);
+      toast("success", "Reference image uploaded");
+      await renderPlan();
+    } catch (err) {
+      toast("error", "Couldn't upload image", err.message || "");
+    }
+  }
+
+  async function removeReference() {
+    const level = _levels.find(l => l.id === _activeLevelId);
+    if (!level?.reference_image_path) return;
+    await floorPlanLevels.removeReference(level.reference_image_path).catch(() => {});
+    const updated = await floorPlanLevels.update(level.id, { reference_image_path: null });
+    Object.assign(level, updated);
+    toast("success", "Reference removed");
+    await renderPlan();
+  }
+</script>
+</body>
+</html>
