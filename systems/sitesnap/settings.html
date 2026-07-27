@@ -95,6 +95,15 @@
       </div>
 
       <div class="card" style="margin-bottom:16px">
+        <h2 style="margin:0 0 4px;font-size:15px">Live Map</h2>
+        <p class="text-muted" style="margin:0 0 12px">Lets Owners and Admins see everyone currently signed in on a live map. Turning this off hides the Live Map for everyone — it doesn't affect the geofenced sign-in/sign-out itself.</p>
+        <label style="display:flex;align-items:center;gap:10px;font-size:13.5px">
+          <input type="checkbox" id="liveMapToggle" ${companySettings?.live_map_enabled !== false ? "checked" : ""} style="width:18px;height:18px;accent-color:var(--accent)"/>
+          Enable Live Map
+        </label>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
         <div class="card-header-row"><h2>Tags</h2><button class="btn" id="addTagBtn"><i data-lucide="plus"></i> Add Tag</button></div>
         <div id="tagList" style="display:flex;flex-wrap:wrap;gap:8px">
           ${tagList.map(t => `<span class="sl-tag-chip" style="background:${esc(t.color)}22;color:${esc(t.color)};border-color:${esc(t.color)}55">${esc(t.name)} <button data-remove-tag="${t.id}" style="background:none;border:none;color:inherit;cursor:pointer;margin-left:4px">&times;</button></span>`).join("") || `<span class="text-muted">No tags yet.</span>`}
@@ -128,6 +137,10 @@
       const radius = parseFloat(document.getElementById("radiusInput").value);
       if (!(radius > 0)) { toast("error", "Enter a radius greater than 0"); return; }
       await settings.upsert({ company_id: _companyId, geofence_radius_miles: radius, updated_by: _profile.id });
+      toast("success", "Saved");
+    });
+    document.getElementById("liveMapToggle").addEventListener("change", async (e) => {
+      await settings.upsert({ company_id: _companyId, live_map_enabled: e.target.checked, updated_by: _profile.id });
       toast("success", "Saved");
     });
     document.getElementById("addTagBtn").addEventListener("click", () => openTagModal());

@@ -29,10 +29,11 @@
 <script type="module">
   import { requireSiteSnapAccess } from "/systems/sitesnap/shared/auth.js";
   import { shifts } from "/systems/sitesnap/shared/shifts.js";
+  import { settings } from "/systems/sitesnap/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/systems/sitesnap/shared/nav.js";
   import { initTheme } from "/systems/sitesnap/shared/theme.js";
   import { loadGoogleMaps } from "/systems/sitesnap/shared/mapPicker.js";
-  import { esc, timeAgo, initials, loadingState, errorState, permissionDeniedState, setInner } from "/systems/sitesnap/shared/ui.js";
+  import { esc, timeAgo, initials, loadingState, emptyState, errorState, permissionDeniedState, setInner } from "/systems/sitesnap/shared/ui.js";
 
   initTheme();
   const REFRESH_MS = 15000;
@@ -48,10 +49,21 @@
     if (!admin) {
       setInner("body", permissionDeniedState("Only Owners and Admins can view the live Map."));
     } else {
-      await renderShell();
-      await refresh();
-      _pollTimer = setInterval(refresh, REFRESH_MS);
-      window.addEventListener("beforeunload", () => clearInterval(_pollTimer));
+      const companySettings = await settings.get(_companyId);
+      if (companySettings?.live_map_enabled === false) {
+        setInner("body", `
+          <div class="sl-page-head"><div><h2>Live Map</h2></div></div>
+          ${emptyState({
+            icon: "map-off", title: "Live Map is turned off",
+            message: "An Owner or Admin has disabled the Live Map for your company.",
+            actionHtml: `<a class="btn btn-primary" href="settings.html">Go to Settings →</a>`,
+          })}`);
+      } else {
+        await renderShell();
+        await refresh();
+        _pollTimer = setInterval(refresh, REFRESH_MS);
+        window.addEventListener("beforeunload", () => clearInterval(_pollTimer));
+      }
     }
   } catch (e) {
     setInner("body", errorState({ title: "Couldn't load Live Map", message: e.message || "" }));
