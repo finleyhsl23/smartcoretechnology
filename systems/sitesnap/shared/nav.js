@@ -9,7 +9,6 @@ const NAV_LINKS = [
   { id: "capture",     icon: "camera",           label: "Capture",     href: "/systems/sitesnap/capture.html", permission: "sitesnap.capture_media" },
   { id: "tasks",       icon: "check-square",     label: "Tasks",       href: "/systems/sitesnap/tasks.html", permission: "sitesnap.view_projects" },
   { id: "checklists",  icon: "list-checks",      label: "Checklists",  href: "/systems/sitesnap/checklists.html", permission: "sitesnap.manage_checklists" },
-  { id: "team",        icon: "users",            label: "Team",        href: "/systems/sitesnap/team.html", permission: "sitesnap.manage_team" },
   { id: "hours",       icon: "clock",            label: "Hours",       href: "/systems/sitesnap/hours.html", adminOnly: true },
   { id: "map",         icon: "map",              label: "Live Map",    href: "/systems/sitesnap/map.html", adminOnly: true },
   { id: "settings",    icon: "settings",         label: "Settings",    href: "/systems/sitesnap/settings.html", permission: "sitesnap.manage_settings" },

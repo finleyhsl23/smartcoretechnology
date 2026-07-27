@@ -331,25 +331,6 @@ export const employees = {
   },
 };
 
-// ── Permission grants ────────────────────────────────────────────────────
-export const permissionGrants = {
-  async listForCompany(companyId) {
-    const { data, error } = await sb().from("sitesnap_permission_grants")
-      .select("*, core_employees!employee_id(full_name, work_email, role)").eq("company_id", companyId).order("granted_at", { ascending: false });
-    throwIfError(error);
-    return data || [];
-  },
-  async grant(row) {
-    const { data, error } = await sb().from("sitesnap_permission_grants").insert(row).select().single();
-    throwIfError(error);
-    return data;
-  },
-  async revoke(id) {
-    const { error } = await sb().from("sitesnap_permission_grants").delete().eq("id", id);
-    throwIfError(error);
-  },
-};
-
 // ── Settings ─────────────────────────────────────────────────────────────
 export const settings = {
   async get(companyId) {
