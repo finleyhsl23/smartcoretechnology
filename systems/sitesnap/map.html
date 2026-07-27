@@ -77,8 +77,9 @@
       </div>
       <div class="sl-toolbar">
         <div class="sl-search-wrap" style="max-width:260px;width:100%">
-          <i data-lucide="search"></i>
-          <input class="form-input" id="employeeSearch" placeholder="Search by employee…"/>
+          <i data-lucide="search" class="sl-search-icon"></i>
+          <input class="form-input" id="employeeSearch" placeholder="Search by employee…" autocomplete="off"/>
+          <div class="sl-search-results" id="employeeResults"></div>
         </div>
       </div>
       <div class="card" style="padding:0;overflow:hidden">
@@ -88,10 +89,14 @@
     `);
     window.lucide?.createIcons?.();
     document.getElementById("recenterBtn").addEventListener("click", () => fitToMarkers());
-    document.getElementById("employeeSearch").addEventListener("input", (e) => {
+    const searchInput = document.getElementById("employeeSearch");
+    searchInput.addEventListener("input", (e) => {
       _employeeSearch = e.target.value;
       applyEmployeeFilter();
+      renderSearchResults();
     });
+    searchInput.addEventListener("focus", () => renderSearchResults());
+    searchInput.addEventListener("blur", () => setTimeout(() => { document.getElementById("employeeResults").style.display = "none"; }, 150));
 
     await loadGoogleMaps();
     _map = new google.maps.Map(document.getElementById("mapHost"), {
@@ -106,6 +111,7 @@
       const active = await shifts.listActiveForCompany(_companyId);
       updateMarkers(active);
       applyEmployeeFilter();
+      renderSearchResults();
     } catch (e) {
       // Silent — a transient poll failure shouldn't disrupt the map view.
     }
@@ -126,13 +132,14 @@
         entry.marker.setPosition(pos);
         entry.content = content;
         entry.name = name;
+        entry.projectName = projectName;
       } else {
         const marker = new google.maps.Marker({
           position: pos, map: _map,
           icon: { path: google.maps.SymbolPath.CIRCLE, scale: 16, fillColor: "#1e5cff", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2 },
           label: { text: initials(name), color: "#fff", fontSize: "11px", fontWeight: "700" },
         });
-        const entry = { marker, content, name };
+        const entry = { marker, content, name, projectName };
         marker.addListener("click", () => { _infoWindow.setContent(entry.content); _infoWindow.open(_map, marker); });
         _markers.set(s.id, entry);
       }
@@ -159,7 +166,42 @@
       else if (q && !anyVisible) note.textContent = `No one matching "${_employeeSearch}" is currently signed in.`;
       else note.textContent = "";
     }
-    if (q && anyVisible) fitToMarkers();
+  }
+
+  function renderSearchResults() {
+    const resultsEl = document.getElementById("employeeResults");
+    if (!resultsEl) return;
+    const q = _employeeSearch.trim().toLowerCase();
+    const matches = q ? [..._markers.entries()].filter(([, entry]) => entry.name.toLowerCase().includes(q)) : [];
+    if (!matches.length) {
+      resultsEl.style.display = "none";
+      resultsEl.innerHTML = "";
+      return;
+    }
+    resultsEl.style.display = "";
+    resultsEl.innerHTML = matches.map(([id, entry]) => `
+      <div class="sl-search-result-row" data-select-employee="${esc(id)}" tabindex="0">
+        <div class="sl-search-result-name">${esc(entry.name)}</div>
+        <div class="sl-search-result-meta">${esc(entry.projectName)}</div>
+      </div>`).join("");
+    resultsEl.querySelectorAll("[data-select-employee]").forEach(row => {
+      row.addEventListener("mousedown", (e) => e.preventDefault()); // survive the input's blur
+      row.addEventListener("click", () => selectEmployee(row.dataset.selectEmployee));
+    });
+  }
+
+  function selectEmployee(id) {
+    const entry = _markers.get(id);
+    if (!entry) return;
+    _employeeSearch = "";
+    document.getElementById("employeeSearch").value = entry.name;
+    document.getElementById("employeeResults").style.display = "none";
+    applyEmployeeFilter(); // clears the filter — everyone stays visible
+
+    _map.panTo(entry.marker.getPosition());
+    _map.setZoom(16);
+    _infoWindow.setContent(entry.content);
+    _infoWindow.open(_map, entry.marker);
   }
 
   function fitToMarkers() {
