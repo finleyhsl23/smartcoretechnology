@@ -291,14 +291,14 @@ export const dailyLogs = {
 export const tasks = {
   async listForProject(projectId) {
     const { data, error } = await sb().from("sitesnap_tasks")
-      .select("*, core_employees!sitesnap_tasks_assignee_employee_id_fkey(full_name), creator:core_employees!sitesnap_tasks_created_by_fkey(full_name), sitesnap_media!task_id(id, storage_path, taken_at)")
+      .select("*, core_employees!sitesnap_tasks_assignee_employee_id_fkey(full_name), creator:core_employees!sitesnap_tasks_created_by_fkey(full_name), completer:core_employees!sitesnap_tasks_completed_by_fkey(full_name), sitesnap_media!task_id(id, storage_path, taken_at)")
       .eq("project_id", projectId).order("created_at", { ascending: false });
     throwIfError(error);
     return data || [];
   },
   async listForCompany(companyId, { assigneeId = null, status = null } = {}) {
     let q = sb().from("sitesnap_tasks")
-      .select("*, sitesnap_projects(name), core_employees!sitesnap_tasks_assignee_employee_id_fkey(full_name), creator:core_employees!sitesnap_tasks_created_by_fkey(full_name), sitesnap_media!task_id(id, storage_path, taken_at)")
+      .select("*, sitesnap_projects(name), core_employees!sitesnap_tasks_assignee_employee_id_fkey(full_name), creator:core_employees!sitesnap_tasks_created_by_fkey(full_name), completer:core_employees!sitesnap_tasks_completed_by_fkey(full_name), sitesnap_media!task_id(id, storage_path, taken_at)")
       .eq("company_id", companyId).order("due_date", { ascending: true, nullsFirst: false });
     if (assigneeId) q = q.eq("assignee_employee_id", assigneeId);
     if (status) q = q.eq("status", status);
