@@ -1,30 +1,48 @@
 // Interactive location picker for job/project creation: geocodes a typed
 // address or the device's current position to an initial pin, then lets the
 // user drag the pin (or click elsewhere on the map) to fine-tune it before
-// saving. Uses Leaflet + OpenStreetMap tiles and Nominatim geocoding —
-// both free and keyless, unlike Google Maps. Nominatim's usage policy
-// (https://operations.osmfoundation.org/policies/nominatim/) expects
-// light, non-bulk client use, which a one-off geocode per project create
-// comfortably fits; the browser's own Referer header satisfies its
-// identification requirement, so no extra headers are needed.
+// saving. Uses the Google Maps JavaScript API + Geocoding API — same key
+// already used for shop/onboarding.html's address autocomplete.
 
-const DEFAULT_CENTER = [54.5, -3]; // Great Britain — shown until a real location is picked
+const GOOGLE_MAPS_KEY = "AIzaSyBTz0ra1eZdfopIzTMbnzpailHzgJqxts8";
+const DEFAULT_CENTER = { lat: 54.5, lng: -3 }; // Great Britain — shown until a real location is picked
 const DEFAULT_ZOOM = 5;
 const PIN_ZOOM = 16;
+
+let _loadPromise = null;
+
+function loadGoogleMaps() {
+  if (window.google?.maps) return Promise.resolve();
+  if (_loadPromise) return _loadPromise;
+  _loadPromise = new Promise((resolve, reject) => {
+    const cbName = "__sitesnapGoogleMapsReady";
+    window[cbName] = () => { resolve(); delete window[cbName]; };
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&callback=${cbName}`;
+    script.async = true;
+    script.onerror = () => reject(new Error("Could not load Google Maps."));
+    document.head.appendChild(script);
+  });
+  return _loadPromise;
+}
 
 export async function geocodeAddress(query) {
   const q = (query || "").trim();
   if (!q) return null;
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
-  const res = await fetch(url, { headers: { "Accept-Language": "en" } });
-  if (!res.ok) return null;
-  const results = await res.json();
-  if (!results.length) return null;
-  return { latitude: parseFloat(results[0].lat), longitude: parseFloat(results[0].lon) };
+  await loadGoogleMaps();
+  return new Promise((resolve) => {
+    new google.maps.Geocoder().geocode({ address: q }, (results, status) => {
+      if (status !== "OK" || !results?.length) return resolve(null);
+      const loc = results[0].geometry.location;
+      resolve({ latitude: loc.lat(), longitude: loc.lng() });
+    });
+  });
 }
 
 /**
- * Mounts a draggable-pin map into `containerEl`.
+ * Mounts a draggable-pin map into `containerEl`. Async because the Google
+ * Maps script loads lazily on first use — callers should `await` this
+ * before wiring up any buttons that touch the returned controller.
  *
  * @param {HTMLElement} containerEl
  * @param {object} opts
@@ -32,45 +50,49 @@ export async function geocodeAddress(query) {
  *     starts zoomed out with no pin until setPosition() is called)
  *   opts.onChange({latitude, longitude}) - fired on drag or map click
  */
-export function mountLocationPicker(containerEl, { latitude, longitude, onChange } = {}) {
+export async function mountLocationPicker(containerEl, { latitude, longitude, onChange } = {}) {
+  await loadGoogleMaps();
+
   const hasStart = latitude != null && longitude != null;
-  const start = hasStart ? [latitude, longitude] : DEFAULT_CENTER;
+  const start = hasStart ? { lat: latitude, lng: longitude } : DEFAULT_CENTER;
 
-  const map = L.map(containerEl).setView(start, hasStart ? PIN_ZOOM : DEFAULT_ZOOM);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
-  }).addTo(map);
+  const map = new google.maps.Map(containerEl, {
+    center: start, zoom: hasStart ? PIN_ZOOM : DEFAULT_ZOOM,
+    streetViewControl: false, mapTypeControl: false, fullscreenControl: false,
+  });
 
-  let marker = hasStart ? L.marker(start, { draggable: true }).addTo(map) : null;
-  if (marker) marker.on("dragend", () => emitChange(marker.getLatLng()));
+  let marker = hasStart ? new google.maps.Marker({ position: start, map, draggable: true }) : null;
+  if (marker) marker.addListener("dragend", () => emitChange(marker.getPosition()));
 
   function emitChange(latlng) {
-    onChange?.({ latitude: latlng.lat, longitude: latlng.lng });
+    onChange?.({ latitude: latlng.lat(), longitude: latlng.lng() });
   }
 
-  map.on("click", (e) => {
+  map.addListener("click", (e) => {
     if (!marker) {
-      marker = L.marker(e.latlng, { draggable: true }).addTo(map);
-      marker.on("dragend", () => emitChange(marker.getLatLng()));
+      marker = new google.maps.Marker({ position: e.latLng, map, draggable: true });
+      marker.addListener("dragend", () => emitChange(marker.getPosition()));
     } else {
-      marker.setLatLng(e.latlng);
+      marker.setPosition(e.latLng);
     }
-    emitChange(e.latlng);
+    emitChange(e.latLng);
   });
 
   return {
     setPosition(lat, lng, { recenter = true } = {}) {
-      const latlng = L.latLng(lat, lng);
+      const pos = { lat, lng };
       if (!marker) {
-        marker = L.marker(latlng, { draggable: true }).addTo(map);
-        marker.on("dragend", () => emitChange(marker.getLatLng()));
+        marker = new google.maps.Marker({ position: pos, map, draggable: true });
+        marker.addListener("dragend", () => emitChange(marker.getPosition()));
       } else {
-        marker.setLatLng(latlng);
+        marker.setPosition(pos);
       }
-      if (recenter) map.setView(latlng, Math.max(map.getZoom(), PIN_ZOOM));
+      if (recenter) {
+        map.setCenter(pos);
+        if (map.getZoom() < PIN_ZOOM) map.setZoom(PIN_ZOOM);
+      }
     },
-    invalidateSize() { map.invalidateSize(); },
-    destroy() { map.remove(); },
+    invalidateSize() { google.maps.event.trigger(map, "resize"); },
+    destroy() { marker?.setMap(null); },
   };
 }

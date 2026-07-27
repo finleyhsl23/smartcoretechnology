@@ -8,9 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/systems/sitesnap/shared/sitesnap.css"/>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 <div class="sl-shell">
@@ -549,6 +547,10 @@
           <div><p class="form-label">Status</p><p>${esc(p.status)}</p></div>
         </div>
         <div class="form-row">
+          <div><p class="form-label">Client phone</p><p>${p.client_phone ? `<a href="tel:${esc(p.client_phone)}">${esc(p.client_phone)}</a>` : "—"}</p></div>
+          <div><p class="form-label">Client email</p><p>${p.client_email ? `<a href="mailto:${esc(p.client_email)}">${esc(p.client_email)}</a>` : "—"}</p></div>
+        </div>
+        <div class="form-row">
           <div><p class="form-label">Address</p><p>${esc([p.address_line_1, p.address_line_2, p.city, p.county, p.postcode, p.country].filter(Boolean).join(", ") || "—")}</p></div>
           <div><p class="form-label">Coordinates</p><p>${p.latitude != null ? `<a href="${mapsUrl(p.latitude, p.longitude)}" target="_blank" rel="noopener">${p.latitude}, ${p.longitude} →</a>` : "—"}</p></div>
         </div>
@@ -561,7 +563,7 @@
     `);
   }
 
-  function openEditModal() {
+  async function openEditModal() {
     const p = _project;
     let _lat = p.latitude ?? null, _lng = p.longitude ?? null, _picker = null;
 
@@ -570,6 +572,10 @@
       <div class="modal-body">
         <div class="form-field"><label class="form-label">Project name *</label><input class="form-input" id="eName" value="${esc(p.name)}"/></div>
         <div class="form-field"><label class="form-label">Client name</label><input class="form-input" id="eClient" value="${esc(p.client_name || "")}"/></div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Client phone</label><input type="tel" class="form-input" id="ePhone" value="${esc(p.client_phone || "")}"/></div>
+          <div class="form-field"><label class="form-label">Client email</label><input type="email" class="form-input" id="eEmail" value="${esc(p.client_email || "")}"/></div>
+        </div>
         <div class="form-row">
           <div class="form-field"><label class="form-label">Address line 1</label><input class="form-input" id="eAddr1" value="${esc(p.address_line_1 || "")}"/></div>
           <div class="form-field"><label class="form-label">City</label><input class="form-input" id="eCity" value="${esc(p.city || "")}"/></div>
@@ -601,7 +607,7 @@
       overlay.querySelector("#eCoords").textContent = `Pinned at ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     }
 
-    _picker = mountLocationPicker(overlay.querySelector("#eMap"), {
+    _picker = await mountLocationPicker(overlay.querySelector("#eMap"), {
       latitude: p.latitude ?? null, longitude: p.longitude ?? null,
       onChange: ({ latitude, longitude }) => setCoords(latitude, longitude),
     });
@@ -644,6 +650,8 @@
       try {
         await projects.update(p.id, {
           name, client_name: overlay.querySelector("#eClient").value.trim() || null,
+          client_phone: overlay.querySelector("#ePhone").value.trim() || null,
+          client_email: overlay.querySelector("#eEmail").value.trim() || null,
           address_line_1: overlay.querySelector("#eAddr1").value.trim() || null,
           city: overlay.querySelector("#eCity").value.trim() || null,
           postcode: overlay.querySelector("#ePostcode").value.trim() || null,

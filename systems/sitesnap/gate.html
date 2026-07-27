@@ -25,7 +25,7 @@
   import { esc, initials, setInner, toast } from "/systems/sitesnap/shared/ui.js";
 
   let _profile = null, _companyId = null, _admin = false;
-  let _position = null, _nearbyProjects = [];
+  let _position = null, _nearbyProjects = [], _projectSearch = "";
 
   try {
     const { profile, admin, shift } = await requireSiteSnapAccess({ skipShiftGate: true });
@@ -118,18 +118,34 @@
         <div class="sl-gate-icon">📍</div>
         <h1>Sign in to a project</h1>
         <p>Projects closest to you first.</p>
-        <div class="sl-gate-project-list" id="gateProjectList">
-          ${_nearbyProjects.length === 0
-            ? `<p class="text-muted">No active projects to sign into.</p>`
-            : _nearbyProjects.map(projectCard).join("")}
-        </div>
+        ${_nearbyProjects.length > 1 ? `
+        <div class="form-field" style="text-align:left;margin-bottom:12px">
+          <input class="form-input" id="gateProjectSearch" placeholder="Search projects…" value="${esc(_projectSearch)}"/>
+        </div>` : ""}
+        <div class="sl-gate-project-list" id="gateProjectList"></div>
         <button class="btn sl-gate-signout" id="gateLogoutBtn3">Sign out of SmartCore</button>
       </div>`);
-    window.lucide?.createIcons?.();
-    document.querySelectorAll("[data-signin-project]").forEach(btn => {
-      btn.addEventListener("click", () => signIn(btn.dataset.signinProject, btn));
+    renderGateProjectListOnly();
+    document.getElementById("gateProjectSearch")?.addEventListener("input", (e) => {
+      _projectSearch = e.target.value;
+      renderGateProjectListOnly();
     });
     document.getElementById("gateLogoutBtn3").addEventListener("click", () => logout());
+  }
+
+  function renderGateProjectListOnly() {
+    const q = _projectSearch.trim().toLowerCase();
+    const filtered = q ? _nearbyProjects.filter(p => p.name.toLowerCase().includes(q)) : _nearbyProjects;
+    const listEl = document.getElementById("gateProjectList");
+    listEl.innerHTML = _nearbyProjects.length === 0
+      ? `<p class="text-muted">No active projects to sign into.</p>`
+      : filtered.length === 0
+        ? `<p class="text-muted">No projects match "${esc(_projectSearch)}".</p>`
+        : filtered.map(projectCard).join("");
+    window.lucide?.createIcons?.();
+    listEl.querySelectorAll("[data-signin-project]").forEach(btn => {
+      btn.addEventListener("click", () => signIn(btn.dataset.signinProject, btn));
+    });
   }
 
   function projectCard(p) {
