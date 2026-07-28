@@ -379,7 +379,7 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
   SELECT i.client_id, i.company_id, i.email, c.full_name,
-         COALESCE(s.business_name, comp.name), (i.expires_at < now()), (i.used_at IS NOT NULL)
+         COALESCE(s.business_name, comp.company_name), (i.expires_at < now()), (i.used_at IS NOT NULL)
   FROM public.smartcore_flexi_client_invites i
   JOIN public.smartcore_flexi_clients c ON c.id = i.client_id
   LEFT JOIN public.smartcore_flexi_settings s ON s.company_id = i.company_id
