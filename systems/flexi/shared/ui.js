@@ -34,6 +34,24 @@ export function fmtTime(d) {
   return date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
+// Deterministic gradient palette for .fx-tile thumbnail cards (program /
+// exercise / package cards) — same seed always resolves to the same
+// gradient so a card doesn't change colour on re-render.
+const TILE_GRADIENTS = [
+  "linear-gradient(135deg,#ff7a45,#ff3d7f)",
+  "linear-gradient(135deg,#6366f1,#a855f7)",
+  "linear-gradient(135deg,#0ea5b7,#2563eb)",
+  "linear-gradient(135deg,#16a34a,#0d9488)",
+  "linear-gradient(135deg,#f59e0b,#ef4444)",
+  "linear-gradient(135deg,#8b5cf6,#ec4899)",
+];
+export function tileGradient(seed) {
+  const str = String(seed ?? "");
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+  return TILE_GRADIENTS[hash % TILE_GRADIENTS.length];
+}
+
 export function initials(name) {
   if (!name) return "?";
   return name.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() || "").join("");

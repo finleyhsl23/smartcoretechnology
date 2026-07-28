@@ -53,7 +53,7 @@
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
-import { revealApp, setupThemeToggle, escapeHtml, fmtMoney, fmtDate, setLoading, showMessage, openModal, closeModal, toast, emptyState } from "./shared/ui.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtMoney, fmtDate, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient } from "./shared/ui.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "packages" });
 renderNav({ activeKey: "packages", profile, tier });
@@ -78,14 +78,19 @@ async function loadPackages() {
   const { data } = await sb().from("smartcore_flexi_packages").select("*").order("created_at", { ascending: false });
   const grid = document.getElementById("pkgGrid");
   grid.innerHTML = !data?.length ? emptyState("◈", "No packages yet", "Create your first package above.") : data.map(p => `
-    <div class="fx-card">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <strong>${escapeHtml(p.name)}</strong>
-        <span class="fx-badge ${p.active ? "fx-badge-green" : "fx-badge-grey"}">${p.active ? "active" : "inactive"}</span>
+    <div class="fx-card fx-card-flush">
+      <div class="fx-tile" style="background:${tileGradient(p.id)};border-radius:0;min-height:96px">
+        <div class="fx-tile-eyebrow">${p.billing_type === "recurring" ? "Recurring" : "One-off"}</div>
+        <div class="fx-tile-title">${escapeHtml(p.name)}</div>
+        <div style="font-size:20px;font-weight:800;margin-top:6px;position:relative;z-index:1">${fmtMoney(p.price_pence, p.currency)}</div>
       </div>
-      <div class="fx-stat-val" style="margin:10px 0 4px">${fmtMoney(p.price_pence, p.currency)}</div>
-      <div style="color:var(--fx-text3);font-size:12.5px">${p.session_count ? p.session_count + " sessions" : "Unlimited sessions"} · ${p.billing_type === "recurring" ? "Recurring" : "One-off"}${p.validity_days ? " · " + p.validity_days + " day validity" : ""}</div>
-      <button class="fx-btn fx-btn-sm" style="margin-top:12px" data-toggle="${p.id}" data-active="${p.active}">${p.active ? "Deactivate" : "Reactivate"}</button>
+      <div style="padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="color:var(--fx-text3);font-size:12.5px">${p.session_count ? p.session_count + " sessions" : "Unlimited sessions"}${p.validity_days ? " · " + p.validity_days + "d validity" : ""}</span>
+          <span class="fx-badge ${p.active ? "fx-badge-green" : "fx-badge-grey"}">${p.active ? "active" : "inactive"}</span>
+        </div>
+        <button class="fx-btn fx-btn-sm fx-btn-block" data-toggle="${p.id}" data-active="${p.active}">${p.active ? "Deactivate" : "Reactivate"}</button>
+      </div>
     </div>
   `).join("");
   grid.querySelectorAll("[data-toggle]").forEach(btn => btn.addEventListener("click", async () => {

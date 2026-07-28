@@ -53,7 +53,7 @@
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
-import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState } from "./shared/ui.js";
+import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient } from "./shared/ui.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "exercises" });
 renderNav({ activeKey: "exercises", profile, tier });
@@ -74,15 +74,17 @@ function render() {
   document.getElementById("countLabel").textContent = `${all.length} exercises in your library`;
   const grid = document.getElementById("exGrid");
   grid.innerHTML = !rows.length ? emptyState("◒", "No exercises found", "") : rows.map(x => `
-    <div class="fx-card">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <strong style="font-size:14px">${escapeHtml(x.name)}</strong>
-        <span class="fx-badge fx-badge-grey">${escapeHtml(x.category)}</span>
+    <div class="fx-card fx-card-flush">
+      <div class="fx-tile" style="background:${tileGradient(x.id)};border-radius:0">
+        <div class="fx-tile-eyebrow">${escapeHtml(x.category)}</div>
+        <div class="fx-tile-title">${escapeHtml(x.name)}</div>
       </div>
-      <div style="color:var(--fx-text3);font-size:12.5px;margin-bottom:8px">${escapeHtml(x.muscle_group || "")}${x.equipment ? " · " + escapeHtml(x.equipment) : ""}</div>
-      <div style="font-size:12.5px;color:var(--fx-text2)">${escapeHtml(x.instructions || "")}</div>
-      ${x.video_url ? `<a href="${escapeHtml(x.video_url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font-size:12px;color:var(--fx-accent);font-weight:700">▶ Watch demo</a>` : ""}
-      ${x.company_id ? `<button class="fx-btn fx-btn-sm fx-btn-danger" style="margin-top:10px" data-del="${x.id}">Delete</button>` : `<div style="margin-top:10px"><span class="fx-badge fx-badge-blue">Built-in</span></div>`}
+      <div style="padding:16px">
+        <div style="color:var(--fx-text3);font-size:12.5px;margin-bottom:8px">${escapeHtml(x.muscle_group || "")}${x.equipment ? " · " + escapeHtml(x.equipment) : ""}</div>
+        <div style="font-size:12.5px;color:var(--fx-text2)">${escapeHtml(x.instructions || "")}</div>
+        ${x.video_url ? `<a href="${escapeHtml(x.video_url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font-size:12px;color:var(--fx-accent);font-weight:700">▶ Watch demo</a>` : ""}
+        ${x.company_id ? `<button class="fx-btn fx-btn-sm fx-btn-danger" style="margin-top:10px" data-del="${x.id}">Delete</button>` : `<div style="margin-top:10px"><span class="fx-badge fx-badge-blue">Built-in</span></div>`}
+      </div>
     </div>
   `).join("");
   grid.querySelectorAll("[data-del]").forEach(btn => btn.addEventListener("click", async () => {

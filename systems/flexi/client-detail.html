@@ -75,7 +75,7 @@
           <div class="fx-field" style="margin:0"><label>New program name</label><input class="fx-input" id="newProgramName" placeholder="e.g. 8-Week Strength Base"/></div>
           <button class="fx-btn fx-btn-primary" id="addProgramBtn">+ Create Program</button>
         </div>
-        <div id="programsList"></div>
+        <div id="programsList" class="fx-grid fx-grid-3"></div>
       </div>
 
       <!-- Progress -->
@@ -185,7 +185,7 @@
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
-import { revealApp, setupThemeToggle, escapeHtml, fmtDate, fmtMoney, fmtDateTime, setLoading, showMessage, toast, openModal, closeModal, emptyState } from "./shared/ui.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDate, fmtMoney, fmtDateTime, setLoading, showMessage, toast, openModal, closeModal, emptyState, tileGradient } from "./shared/ui.js";
 import { logAudit } from "./shared/audit.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "clients" });
@@ -272,11 +272,13 @@ async function loadPrograms() {
   const { data } = await sb().from("smartcore_flexi_programs").select("*").eq("client_id", clientId).order("created_at", { ascending: false });
   const el = document.getElementById("programsList");
   if (!data?.length) { el.innerHTML = emptyState("🏋️", "No programs yet", "Create one above to start building workouts."); return; }
-  const statusBadge = { draft: "fx-badge-grey", active: "fx-badge-green", completed: "fx-badge-blue", archived: "fx-badge-grey" };
   el.innerHTML = data.map(p => `
-    <a href="program-detail.html?id=${p.id}" class="fx-card" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div><strong>${escapeHtml(p.name)}</strong><div style="color:var(--fx-text3);font-size:12px;margin-top:2px">${escapeHtml(p.description || "")}</div></div>
-      <span class="fx-badge ${statusBadge[p.status]}">${p.status}</span>
+    <a href="program-detail.html?id=${p.id}" class="fx-card fx-card-flush" data-clickable>
+      <div class="fx-tile" style="background:${tileGradient(p.id)};border-radius:0">
+        <div class="fx-tile-eyebrow">${p.status}</div>
+        <div class="fx-tile-title">${escapeHtml(p.name)}</div>
+      </div>
+      ${p.description ? `<div style="padding:12px 16px;font-size:12px;color:var(--fx-text3)">${escapeHtml(p.description)}</div>` : `<div style="padding:8px"></div>`}
     </a>
   `).join("");
 }
