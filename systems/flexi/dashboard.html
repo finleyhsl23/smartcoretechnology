@@ -67,7 +67,7 @@
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
-import { revealApp, setupThemeToggle, fmtMoney, fmtTime, fmtDateTime, escapeHtml, emptyState } from "./shared/ui.js";
+import { revealApp, setupThemeToggle, fmtMoney, fmtTime, fmtDateTime, escapeHtml, emptyState, animateNumber } from "./shared/ui.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "dashboard" });
 renderNav({ activeKey: "dashboard", profile, tier });
@@ -91,10 +91,11 @@ const [{ count: clientCount }, { data: bookings }, { count: unread }, { data: pa
   sb().from("smartcore_flexi_payments").select("amount_pence").eq("status", "paid").gte("created_at", monthStart.toISOString()),
 ]);
 
-document.getElementById("statClients").textContent = clientCount ?? 0;
-document.getElementById("statSessions").textContent = (bookings || []).length;
-document.getElementById("statMessages").textContent = unread ?? 0;
-document.getElementById("statRevenue").textContent = fmtMoney((payments || []).reduce((s, p) => s + (p.amount_pence || 0), 0));
+animateNumber(document.getElementById("statClients"), clientCount ?? 0);
+animateNumber(document.getElementById("statSessions"), (bookings || []).length);
+animateNumber(document.getElementById("statMessages"), unread ?? 0);
+const revenuePence = (payments || []).reduce((s, p) => s + (p.amount_pence || 0), 0);
+animateNumber(document.getElementById("statRevenue"), revenuePence / 100, { format: n => fmtMoney(n * 100) });
 
 const scheduleBody = document.getElementById("scheduleBody");
 if (!bookings?.length) {

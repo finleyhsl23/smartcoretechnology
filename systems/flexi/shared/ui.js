@@ -52,6 +52,26 @@ export function tileGradient(seed) {
   return TILE_GRADIENTS[hash % TILE_GRADIENTS.length];
 }
 
+// Animates a stat element's text from 0 up to `target`. Pass a `format`
+// function to control how each intermediate frame is rendered (defaults to
+// a plain integer). Respects prefers-reduced-motion by jumping straight
+// to the final value.
+export function animateNumber(el, target, { duration = 700, format } = {}) {
+  if (!el) return;
+  const fmt = format || (n => Math.round(n).toLocaleString("en-GB"));
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduceMotion || !target) { el.textContent = fmt(target || 0); return; }
+  const t0 = performance.now();
+  function tick(now) {
+    const p = Math.min(1, (now - t0) / duration);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmt(target * eased);
+    if (p < 1) requestAnimationFrame(tick);
+    else el.textContent = fmt(target);
+  }
+  requestAnimationFrame(tick);
+}
+
 export function initials(name) {
   if (!name) return "?";
   return name.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() || "").join("");
