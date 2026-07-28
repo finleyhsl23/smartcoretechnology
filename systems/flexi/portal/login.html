@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Sign In — Flexi</title>
+<link rel="stylesheet" href="../shared/flexi.css"/>
+</head>
+<body>
+<div style="max-width:380px;margin:0 auto;padding:80px 20px">
+  <div style="text-align:center;margin-bottom:28px">
+    <div style="width:44px;height:44px;border-radius:12px;background:var(--fx-accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;margin:0 auto 12px">F</div>
+    <h1 style="font-size:20px">Sign in to Flexi</h1>
+    <p style="color:var(--fx-text3);font-size:13px;margin-top:6px">Your training, in your pocket.</p>
+  </div>
+  <div class="fx-card">
+    <div class="fx-field"><label>Email</label><input class="fx-input" id="email" type="email"/></div>
+    <div class="fx-field"><label>Password</label><input class="fx-input" id="password" type="password"/></div>
+    <div class="fx-form-msg" id="msg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="loginBtn">Sign In</button>
+  </div>
+  <p style="text-align:center;font-size:12.5px;color:var(--fx-text3);margin-top:16px">No account? Ask your trainer for an invite link.</p>
+</div>
+<script type="module">
+import { sb } from "../shared/supabase.js";
+import { setLoading, showMessage } from "../shared/ui.js";
+
+const { data } = await sb().auth.getSession();
+if (data?.session) window.location.replace("dashboard.html");
+
+document.getElementById("loginBtn").addEventListener("click", async (e) => {
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  if (!email || !password) { showMessage("msg", "Enter your email and password.", "error"); return; }
+  setLoading(e.target, true, "Signing in…");
+  const { error } = await sb().auth.signInWithPassword({ email, password });
+  setLoading(e.target, false);
+  if (error) { showMessage("msg", error.message, "error"); return; }
+  window.location.href = "dashboard.html";
+});
+document.getElementById("password").addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("loginBtn").click(); });
+</script>
+</body>
+</html>

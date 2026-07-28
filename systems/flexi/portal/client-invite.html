@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Set Up Your Account — Flexi</title>
+<link rel="stylesheet" href="../shared/flexi.css"/>
+</head>
+<body>
+<div style="max-width:400px;margin:0 auto;padding:60px 20px" id="app">
+  <div style="text-align:center;margin-bottom:28px">
+    <div style="width:44px;height:44px;border-radius:12px;background:var(--fx-accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;margin:0 auto 12px">F</div>
+    <h1 style="font-size:20px" id="welcomeTitle">Welcome to Flexi</h1>
+    <p style="color:var(--fx-text3);font-size:13px;margin-top:6px" id="welcomeSub">Loading your invite…</p>
+  </div>
+
+  <div class="fx-card" id="formCard" style="display:none">
+    <div class="fx-field"><label>Email</label><input class="fx-input" id="email" disabled/></div>
+    <div class="fx-field"><label>Create a password</label><input class="fx-input" id="password" type="password" placeholder="At least 8 characters"/></div>
+    <div class="fx-field"><label>Confirm password</label><input class="fx-input" id="password2" type="password"/></div>
+    <div class="fx-form-msg" id="msg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="submitBtn">Set Password &amp; Continue</button>
+  </div>
+</div>
+
+<script type="module">
+import { sb } from "../shared/supabase.js";
+import { setLoading, showMessage } from "../shared/ui.js";
+
+const token = new URLSearchParams(location.search).get("token");
+if (!token) {
+  document.getElementById("welcomeSub").textContent = "This invite link is invalid.";
+  throw new Error("no token");
+}
+
+const { data, error } = await sb().rpc("flexi_get_invite", { p_token: token });
+const invite = data?.[0];
+
+if (error || !invite) {
+  document.getElementById("welcomeSub").textContent = "This invite link is invalid.";
+} else if (invite.expired) {
+  document.getElementById("welcomeSub").textContent = "This invite has expired. Ask your trainer to send a new one.";
+} else if (invite.used) {
+  document.getElementById("welcomeSub").textContent = "This invite has already been used — sign in instead.";
+  document.getElementById("welcomeSub").innerHTML += ` <a href="login.html" style="color:var(--fx-accent)">Sign In →</a>`;
+} else {
+  document.getElementById("welcomeTitle").textContent = `Welcome, ${invite.full_name}`;
+  document.getElementById("welcomeSub").textContent = `${invite.business_name || "Your trainer"} has invited you to Flexi. Set a password to get started.`;
+  document.getElementById("email").value = invite.email;
+  document.getElementById("formCard").style.display = "";
+}
+
+document.getElementById("submitBtn")?.addEventListener("click", async (e) => {
+  const password = document.getElementById("password").value;
+  const password2 = document.getElementById("password2").value;
+  if (password.length < 8) { showMessage("msg", "Password must be at least 8 characters.", "error"); return; }
+  if (password !== password2) { showMessage("msg", "Passwords do not match.", "error"); return; }
+
+  setLoading(e.target, true, "Setting up…");
+  const { error: signUpError } = await sb().auth.signUp({ email: invite.email, password });
+  if (signUpError) { setLoading(e.target, false); showMessage("msg", signUpError.message, "error"); return; }
+
+  // signUp() may or may not create an active session depending on project
+  // email-confirmation settings — sign in explicitly to guarantee one before
+  // calling the SECURITY DEFINER accept-invite RPC below.
+  let { data: sessionData } = await sb().auth.getSession();
+  if (!sessionData?.session) {
+    const { error: signInError } = await sb().auth.signInWithPassword({ email: invite.email, password });
+    if (signInError) {
+      setLoading(e.target, false);
+      showMessage("msg", "Account created — check your email to confirm, then sign in.", "success");
+      return;
+    }
+  }
+
+  const { error: acceptError } = await sb().rpc("flexi_accept_invite", { p_token: token });
+  setLoading(e.target, false);
+  if (acceptError) { showMessage("msg", acceptError.message, "error"); return; }
+
+  window.location.href = "dashboard.html";
+});
+</script>
+</body>
+</html>

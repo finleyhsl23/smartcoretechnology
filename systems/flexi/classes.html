@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Classes — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Group Classes</h1><div class="fx-topbar-sub">Scheduled classes &amp; booked seats</div></div>
+      <div class="fx-topbar-spacer"></div>
+      <button class="fx-btn fx-btn-primary" id="addBtn">+ Schedule Class</button>
+    </header>
+    <main class="fx-content">
+      <div class="fx-grid fx-grid-3" id="classGrid"></div>
+    </main>
+  </div>
+</div>
+
+<div class="fx-modal" id="addModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>Schedule Class</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div class="fx-field"><label>Class name</label><input class="fx-input" id="clsName" placeholder="e.g. Saturday Bootcamp"/></div>
+    <div class="fx-form-row">
+      <div class="fx-field"><label>Starts</label><input class="fx-input" id="clsStart" type="datetime-local"/></div>
+      <div class="fx-field"><label>Duration (min)</label><input class="fx-input" id="clsDuration" type="number" value="45"/></div>
+    </div>
+    <div class="fx-field"><label>Capacity</label><input class="fx-input" id="clsCapacity" type="number" value="12"/></div>
+    <div class="fx-form-msg" id="clsMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="saveClsBtn">Schedule</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, setLoading, showMessage, openModal, closeModal, toast, emptyState } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "classes" });
+renderNav({ activeKey: "classes", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+async function load() {
+  const { data: sessions } = await sb().from("smartcore_flexi_class_sessions").select("*").gte("starts_at", new Date(Date.now() - 86400000).toISOString()).order("starts_at");
+  const grid = document.getElementById("classGrid");
+  if (!sessions?.length) { grid.innerHTML = emptyState("◫", "No classes scheduled", "Schedule your first class above."); return; }
+
+  const counts = {};
+  for (const s of sessions) {
+    const { count } = await sb().from("smartcore_flexi_bookings").select("id", { count: "exact", head: true }).eq("class_session_id", s.id).eq("status", "confirmed");
+    counts[s.id] = count || 0;
+  }
+
+  grid.innerHTML = sessions.map(s => `
+    <div class="fx-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+        <strong>${escapeHtml(s.name)}</strong>
+        <span class="fx-badge ${s.status === "cancelled" ? "fx-badge-red" : "fx-badge-accent"}">${s.status}</span>
+      </div>
+      <div style="color:var(--fx-text3);font-size:12.5px;margin-bottom:10px">${fmtDateTime(s.starts_at)}</div>
+      <div class="fx-progress-track" style="margin-bottom:6px"><div class="fx-progress-fill" style="width:${Math.min(100, (counts[s.id]/s.capacity)*100)}%"></div></div>
+      <div class="fx-tabular" style="font-size:12.5px;color:var(--fx-text2)">${counts[s.id]} / ${s.capacity} booked</div>
+      ${s.status === "scheduled" ? `<button class="fx-btn fx-btn-sm fx-btn-danger" style="margin-top:10px" data-cancel="${s.id}">Cancel Class</button>` : ""}
+    </div>
+  `).join("");
+
+  grid.querySelectorAll("[data-cancel]").forEach(btn => btn.addEventListener("click", async () => {
+    if (!confirm("Cancel this class?")) return;
+    await sb().from("smartcore_flexi_class_sessions").update({ status: "cancelled" }).eq("id", btn.dataset.cancel);
+    load();
+  }));
+}
+
+document.getElementById("addBtn").addEventListener("click", () => { document.getElementById("clsMsg").textContent = ""; openModal("addModal"); });
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));
+document.getElementById("saveClsBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("clsName").value.trim();
+  const start = document.getElementById("clsStart").value;
+  if (!name || !start) { showMessage("clsMsg", "Name and start time are required.", "error"); return; }
+  const starts_at = new Date(start);
+  const ends_at = new Date(starts_at.getTime() + (parseInt(document.getElementById("clsDuration").value) || 45) * 60000);
+  setLoading(e.target, true, "Scheduling…");
+  const { error } = await sb().from("smartcore_flexi_class_sessions").insert({
+    company_id: profile.company_id, trainer_id: profile.id, name,
+    starts_at: starts_at.toISOString(), ends_at: ends_at.toISOString(),
+    capacity: parseInt(document.getElementById("clsCapacity").value) || 12,
+  });
+  setLoading(e.target, false);
+  if (error) { showMessage("clsMsg", error.message, "error"); return; }
+  closeModal("addModal");
+  toast("Class scheduled", "success");
+  load();
+});
+
+load();
+</script>
+</body>
+</html>

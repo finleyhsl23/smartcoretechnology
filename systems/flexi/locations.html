@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Locations — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Locations</h1><div class="fx-topbar-sub">Sites your business trains clients from</div></div>
+      <div class="fx-topbar-spacer"></div>
+      <button class="fx-btn fx-btn-primary" id="addBtn">+ Add Location</button>
+    </header>
+    <main class="fx-content">
+      <div class="fx-grid fx-grid-3" id="grid"></div>
+    </main>
+  </div>
+</div>
+
+<div class="fx-modal" id="addModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>Add Location</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div class="fx-field"><label>Name</label><input class="fx-input" id="locName" placeholder="e.g. City Centre Studio"/></div>
+    <div class="fx-field"><label>Address line 1</label><input class="fx-input" id="locAddr1"/></div>
+    <div class="fx-form-row">
+      <div class="fx-field"><label>City</label><input class="fx-input" id="locCity"/></div>
+      <div class="fx-field"><label>Postcode</label><input class="fx-input" id="locPostcode"/></div>
+    </div>
+    <label class="fx-checkbox-row" style="margin-bottom:14px"><input type="checkbox" id="locPrimary"/> Set as primary location</label>
+    <div class="fx-form-msg" id="locMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="saveLocBtn">Add Location</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "locations" });
+renderNav({ activeKey: "locations", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+async function load() {
+  const { data } = await sb().from("smartcore_flexi_locations").select("*").order("is_primary", { ascending: false });
+  const grid = document.getElementById("grid");
+  grid.innerHTML = !data?.length ? emptyState("◇", "No locations yet", "Add your first site above.") : data.map(l => `
+    <div class="fx-card">
+      <div style="display:flex;justify-content:space-between"><strong>${escapeHtml(l.name)}</strong>${l.is_primary ? '<span class="fx-badge fx-badge-accent">Primary</span>' : ""}</div>
+      <div style="color:var(--fx-text3);font-size:12.5px;margin-top:8px">${escapeHtml([l.address_line_1, l.city, l.postcode].filter(Boolean).join(", ") || "No address set")}</div>
+    </div>
+  `).join("");
+}
+
+document.getElementById("addBtn").addEventListener("click", () => { document.getElementById("locMsg").textContent = ""; openModal("addModal"); });
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));
+document.getElementById("saveLocBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("locName").value.trim();
+  if (!name) { showMessage("locMsg", "Name is required.", "error"); return; }
+  setLoading(e.target, true, "Adding…");
+  const { error } = await sb().from("smartcore_flexi_locations").insert({
+    company_id: profile.company_id, name,
+    address_line_1: document.getElementById("locAddr1").value.trim() || null,
+    city: document.getElementById("locCity").value.trim() || null,
+    postcode: document.getElementById("locPostcode").value.trim() || null,
+    is_primary: document.getElementById("locPrimary").checked,
+  });
+  setLoading(e.target, false);
+  if (error) { showMessage("locMsg", error.message, "error"); return; }
+  closeModal("addModal");
+  toast("Location added", "success");
+  load();
+});
+
+load();
+</script>
+</body>
+</html>

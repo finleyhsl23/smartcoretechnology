@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Client — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+<style>
+.fx-tabs{display:flex;gap:4px;border-bottom:1px solid var(--fx-line);margin-bottom:20px;overflow-x:auto}
+.fx-tab{padding:10px 14px;font-size:13px;font-weight:700;color:var(--fx-text3);border-bottom:2px solid transparent;white-space:nowrap;cursor:pointer}
+.fx-tab.active{color:var(--fx-accent-d);border-color:var(--fx-accent)}
+.fx-tabpanel{display:none}
+.fx-tabpanel.active{display:block}
+.fx-inline-form{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+</style>
+</head>
+<body>
+
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div>
+        <h1 id="clientName">Client</h1>
+        <div class="fx-topbar-sub"><span class="fx-badge" id="clientStatusBadge"></span></div>
+      </div>
+      <div class="fx-topbar-spacer"></div>
+      <button class="fx-btn fx-btn-sm" id="inviteBtn">Portal Invite</button>
+      <a href="clients.html" class="fx-btn fx-btn-sm">← All Clients</a>
+    </header>
+    <main class="fx-content">
+
+      <div class="fx-tabs">
+        <div class="fx-tab active" data-tab="overview">Overview</div>
+        <div class="fx-tab" data-tab="programs">Programs</div>
+        <div class="fx-tab" data-tab="progress">Progress</div>
+        <div class="fx-tab" data-tab="nutrition">Nutrition</div>
+        <div class="fx-tab" data-tab="messages">Messages</div>
+        <div class="fx-tab" data-tab="bookings">Bookings</div>
+        <div class="fx-tab" data-tab="packages">Packages &amp; Payments</div>
+        <div class="fx-tab" data-tab="waivers">Waivers</div>
+      </div>
+
+      <!-- Overview -->
+      <div class="fx-tabpanel active" id="tab-overview">
+        <div class="fx-grid fx-grid-3">
+          <div class="fx-card fx-stat"><div class="fx-stat-label">Current Weight</div><div class="fx-stat-val" id="ovWeight">—</div></div>
+          <div class="fx-card fx-stat"><div class="fx-stat-label">Workouts Logged</div><div class="fx-stat-val" id="ovWorkouts">—</div></div>
+          <div class="fx-card fx-stat"><div class="fx-stat-label">Client Since</div><div class="fx-stat-val" id="ovSince" style="font-size:16px">—</div></div>
+        </div>
+        <div class="fx-section-head"><h2>Details</h2></div>
+        <div class="fx-card">
+          <div class="fx-form-row">
+            <div class="fx-field"><label>Full name</label><input class="fx-input" id="editName"/></div>
+            <div class="fx-field"><label>Status</label>
+              <select class="fx-select" id="editStatus"><option value="active">Active</option><option value="paused">Paused</option><option value="archived">Archived</option></select>
+            </div>
+          </div>
+          <div class="fx-form-row">
+            <div class="fx-field"><label>Email</label><input class="fx-input" id="editEmail" type="email"/></div>
+            <div class="fx-field"><label>Phone</label><input class="fx-input" id="editPhone"/></div>
+          </div>
+          <div class="fx-field"><label>Goals</label><textarea class="fx-textarea" id="editGoals"></textarea></div>
+          <div class="fx-field"><label>Medical notes / injuries</label><textarea class="fx-textarea" id="editMedical"></textarea></div>
+          <div class="fx-form-msg" id="overviewMsg"></div>
+          <button class="fx-btn fx-btn-primary" id="saveOverviewBtn">Save Changes</button>
+        </div>
+      </div>
+
+      <!-- Programs -->
+      <div class="fx-tabpanel" id="tab-programs">
+        <div class="fx-inline-form" style="margin-bottom:16px">
+          <div class="fx-field" style="margin:0"><label>New program name</label><input class="fx-input" id="newProgramName" placeholder="e.g. 8-Week Strength Base"/></div>
+          <button class="fx-btn fx-btn-primary" id="addProgramBtn">+ Create Program</button>
+        </div>
+        <div id="programsList"></div>
+      </div>
+
+      <!-- Progress -->
+      <div class="fx-tabpanel" id="tab-progress">
+        <div class="fx-card" style="margin-bottom:16px">
+          <div class="fx-form-row">
+            <div class="fx-field"><label>Weight (kg)</label><input class="fx-input" id="progWeight" type="number" step="0.1"/></div>
+            <div class="fx-field"><label>Body fat %</label><input class="fx-input" id="progBodyFat" type="number" step="0.1"/></div>
+          </div>
+          <div class="fx-field"><label>Notes</label><input class="fx-input" id="progNotes"/></div>
+          <button class="fx-btn fx-btn-primary" id="addProgressBtn">+ Log Entry</button>
+        </div>
+        <div class="fx-table-wrap">
+          <table class="fx-table"><thead><tr><th>Date</th><th>Weight</th><th>Body Fat %</th><th>Notes</th><th>Logged By</th></tr></thead><tbody id="progressBody"></tbody></table>
+        </div>
+      </div>
+
+      <!-- Nutrition -->
+      <div class="fx-tabpanel" id="tab-nutrition">
+        <div class="fx-card" style="margin-bottom:16px">
+          <h3 style="margin-bottom:12px;font-size:14px">New Nutrition Plan</h3>
+          <div class="fx-field"><label>Plan name</label><input class="fx-input" id="nutName" placeholder="e.g. Cutting Phase"/></div>
+          <div class="fx-form-row">
+            <div class="fx-field"><label>Daily calories</label><input class="fx-input" id="nutCals" type="number"/></div>
+            <div class="fx-field"><label>Protein (g)</label><input class="fx-input" id="nutProtein" type="number"/></div>
+          </div>
+          <div class="fx-form-row">
+            <div class="fx-field"><label>Carbs (g)</label><input class="fx-input" id="nutCarbs" type="number"/></div>
+            <div class="fx-field"><label>Fat (g)</label><input class="fx-input" id="nutFat" type="number"/></div>
+          </div>
+          <button class="fx-btn fx-btn-primary" id="addNutritionBtn">+ Create Plan</button>
+        </div>
+        <div id="nutritionList"></div>
+        <div class="fx-section-head"><h2>Recent Food Log</h2></div>
+        <div class="fx-table-wrap">
+          <table class="fx-table"><thead><tr><th>Date</th><th>Meal</th><th>Description</th><th>Calories</th></tr></thead><tbody id="foodLogBody"></tbody></table>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div class="fx-tabpanel" id="tab-messages">
+        <div class="fx-card fx-card-flush">
+          <div class="fx-chat" id="chatMessages"></div>
+          <div class="fx-chat-input">
+            <input class="fx-input" id="chatInput" placeholder="Write a message…"/>
+            <button class="fx-btn fx-btn-primary" id="sendChatBtn">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bookings -->
+      <div class="fx-tabpanel" id="tab-bookings">
+        <div class="fx-inline-form" style="margin-bottom:16px">
+          <div class="fx-field" style="margin:0"><label>Date &amp; time</label><input class="fx-input" id="bookStart" type="datetime-local"/></div>
+          <div class="fx-field" style="margin:0"><label>Duration (min)</label><input class="fx-input" id="bookDuration" type="number" value="60" style="max-width:100px"/></div>
+          <button class="fx-btn fx-btn-primary" id="addBookingBtn">+ Book 1:1 Session</button>
+        </div>
+        <div class="fx-table-wrap">
+          <table class="fx-table"><thead><tr><th>Date</th><th>Type</th><th>Status</th><th></th></tr></thead><tbody id="bookingsBody"></tbody></table>
+        </div>
+      </div>
+
+      <!-- Packages & Payments -->
+      <div class="fx-tabpanel" id="tab-packages">
+        <div class="fx-section-head"><h2>Active Packages</h2></div>
+        <div id="clientPackagesList" style="margin-bottom:8px"></div>
+        <div class="fx-inline-form" style="margin-bottom:24px">
+          <div class="fx-field" style="margin:0"><label>Sell package</label><select class="fx-select" id="sellPackageSelect"></select></div>
+          <button class="fx-btn fx-btn-sm" id="sellPackageBtn">Assign</button>
+        </div>
+
+        <div class="fx-section-head"><h2>Payments</h2></div>
+        <div class="fx-inline-form" style="margin-bottom:16px">
+          <div class="fx-field" style="margin:0"><label>Amount (£)</label><input class="fx-input" id="payAmount" type="number" step="0.01" style="max-width:120px"/></div>
+          <div class="fx-field" style="margin:0"><label>Method</label>
+            <select class="fx-select" id="payMethod"><option value="card">Card</option><option value="cash">Cash</option><option value="bank_transfer">Bank Transfer</option><option value="other">Other</option></select>
+          </div>
+          <div class="fx-field" style="margin:0"><label>Note</label><input class="fx-input" id="payNote"/></div>
+          <button class="fx-btn fx-btn-primary" id="recordPaymentBtn">Record Payment</button>
+        </div>
+        <div class="fx-table-wrap">
+          <table class="fx-table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Status</th><th>Note</th></tr></thead><tbody id="paymentsBody"></tbody></table>
+        </div>
+      </div>
+
+      <!-- Waivers -->
+      <div class="fx-tabpanel" id="tab-waivers">
+        <div class="fx-table-wrap">
+          <table class="fx-table"><thead><tr><th>Waiver</th><th>Status</th><th>Signed</th></tr></thead><tbody id="waiversBody"></tbody></table>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div class="fx-modal" id="inviteModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>Portal Invite</h3><button class="fx-modal-close" data-close-invite>✕</button></div>
+    <p style="font-size:13px;color:var(--fx-text2);margin-bottom:14px">Send this link to your client so they can set a password and access the Flexi client app.</p>
+    <div class="fx-field"><label>Invite link</label><input class="fx-input" id="inviteLink" readonly/></div>
+    <button class="fx-btn fx-btn-block" id="copyInviteBtn">Copy Link</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDate, fmtMoney, fmtDateTime, setLoading, showMessage, toast, openModal, closeModal, emptyState } from "./shared/ui.js";
+import { logAudit } from "./shared/audit.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "clients" });
+renderNav({ activeKey: "clients", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+
+const clientId = new URLSearchParams(location.search).get("id");
+if (!clientId) { document.body.innerHTML = "<p style='padding:40px'>No client specified.</p>"; throw new Error("no id"); }
+
+let client = null;
+
+async function loadClient() {
+  const { data, error } = await sb().from("smartcore_flexi_clients").select("*").eq("id", clientId).single();
+  if (error || !data) { toast("Client not found", "error"); return; }
+  client = data;
+  document.getElementById("clientName").textContent = client.full_name;
+  const statusBadge = { active: "fx-badge-green", paused: "fx-badge-amber", archived: "fx-badge-grey" }[client.status] || "fx-badge-grey";
+  document.getElementById("clientStatusBadge").className = `fx-badge ${statusBadge}`;
+  document.getElementById("clientStatusBadge").textContent = client.status;
+  document.getElementById("editName").value = client.full_name || "";
+  document.getElementById("editStatus").value = client.status || "active";
+  document.getElementById("editEmail").value = client.email || "";
+  document.getElementById("editPhone").value = client.phone || "";
+  document.getElementById("editGoals").value = client.goals || "";
+  document.getElementById("editMedical").value = client.medical_notes || "";
+  document.getElementById("ovSince").textContent = fmtDate(client.created_at);
+}
+await loadClient();
+revealApp();
+
+// ---- Tabs ----
+document.querySelectorAll(".fx-tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".fx-tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".fx-tabpanel").forEach(p => p.classList.remove("active"));
+    tab.classList.add("active");
+    document.getElementById(`tab-${tab.dataset.tab}`).classList.add("active");
+    loadTab(tab.dataset.tab);
+  });
+});
+
+const loaded = new Set();
+function loadTab(name) {
+  if (loaded.has(name)) return;
+  loaded.add(name);
+  const map = { overview: loadOverview, programs: loadPrograms, progress: loadProgress, nutrition: loadNutrition, messages: loadMessages, bookings: loadBookings, packages: loadPackages, waivers: loadWaivers };
+  map[name]?.();
+}
+const requestedTab = new URLSearchParams(location.search).get("tab");
+const requestedTabEl = requestedTab && document.querySelector(`.fx-tab[data-tab="${requestedTab}"]`);
+if (requestedTabEl) requestedTabEl.click(); else loadTab("overview");
+
+// ---- Overview ----
+async function loadOverview() {
+  const [{ count: workoutCount }, { data: latestProgress }] = await Promise.all([
+    sb().from("smartcore_flexi_workout_logs").select("id", { count: "exact", head: true }).eq("client_id", clientId),
+    sb().from("smartcore_flexi_progress_entries").select("weight_kg").eq("client_id", clientId).order("logged_at", { ascending: false }).limit(1),
+  ]);
+  document.getElementById("ovWorkouts").textContent = workoutCount ?? 0;
+  document.getElementById("ovWeight").textContent = latestProgress?.[0]?.weight_kg ? `${latestProgress[0].weight_kg} kg` : "—";
+}
+
+document.getElementById("saveOverviewBtn").addEventListener("click", async (e) => {
+  setLoading(e.target, true, "Saving…");
+  const { error } = await sb().from("smartcore_flexi_clients").update({
+    full_name: document.getElementById("editName").value.trim(),
+    status: document.getElementById("editStatus").value,
+    email: document.getElementById("editEmail").value.trim() || null,
+    phone: document.getElementById("editPhone").value.trim() || null,
+    goals: document.getElementById("editGoals").value.trim() || null,
+    medical_notes: document.getElementById("editMedical").value.trim() || null,
+    updated_at: new Date().toISOString(),
+  }).eq("id", clientId);
+  setLoading(e.target, false);
+  if (error) { showMessage("overviewMsg", error.message, "error"); return; }
+  showMessage("overviewMsg", "Saved.", "success");
+  logAudit(profile.company_id, profile.id, "client.updated", "client", clientId, { status: document.getElementById("editStatus").value });
+  loadClient();
+});
+
+// ---- Programs ----
+async function loadPrograms() {
+  const { data } = await sb().from("smartcore_flexi_programs").select("*").eq("client_id", clientId).order("created_at", { ascending: false });
+  const el = document.getElementById("programsList");
+  if (!data?.length) { el.innerHTML = emptyState("🏋️", "No programs yet", "Create one above to start building workouts."); return; }
+  const statusBadge = { draft: "fx-badge-grey", active: "fx-badge-green", completed: "fx-badge-blue", archived: "fx-badge-grey" };
+  el.innerHTML = data.map(p => `
+    <a href="program-detail.html?id=${p.id}" class="fx-card" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div><strong>${escapeHtml(p.name)}</strong><div style="color:var(--fx-text3);font-size:12px;margin-top:2px">${escapeHtml(p.description || "")}</div></div>
+      <span class="fx-badge ${statusBadge[p.status]}">${p.status}</span>
+    </a>
+  `).join("");
+}
+document.getElementById("addProgramBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("newProgramName").value.trim();
+  if (!name) return;
+  setLoading(e.target, true, "Creating…");
+  const { data, error } = await sb().from("smartcore_flexi_programs").insert({
+    company_id: profile.company_id, client_id: clientId, trainer_id: profile.id, name, status: "draft",
+  }).select().single();
+  setLoading(e.target, false);
+  if (error) { toast(error.message, "error"); return; }
+  location.href = `program-detail.html?id=${data.id}`;
+});
+
+// ---- Progress ----
+async function loadProgress() {
+  const { data } = await sb().from("smartcore_flexi_progress_entries").select("*").eq("client_id", clientId).order("logged_at", { ascending: false });
+  const body = document.getElementById("progressBody");
+  if (!data?.length) { body.innerHTML = `<tr><td colspan="5">${emptyState("📈", "No entries logged", "")}</td></tr>`; return; }
+  body.innerHTML = data.map(p => `
+    <tr><td>${fmtDate(p.logged_at)}</td><td>${p.weight_kg ? p.weight_kg + " kg" : "—"}</td><td>${p.body_fat_pct ? p.body_fat_pct + "%" : "—"}</td><td>${escapeHtml(p.notes || "—")}</td><td>${escapeHtml(p.logged_by)}</td></tr>
+  `).join("");
+}
+document.getElementById("addProgressBtn").addEventListener("click", async (e) => {
+  const weight_kg = parseFloat(document.getElementById("progWeight").value) || null;
+  const body_fat_pct = parseFloat(document.getElementById("progBodyFat").value) || null;
+  const notes = document.getElementById("progNotes").value.trim() || null;
+  if (!weight_kg && !body_fat_pct && !notes) return;
+  setLoading(e.target, true, "Saving…");
+  const { error } = await sb().from("smartcore_flexi_progress_entries").insert({
+    company_id: profile.company_id, client_id: clientId, weight_kg, body_fat_pct, notes, logged_by: "trainer",
+  });
+  setLoading(e.target, false);
+  if (error) { toast(error.message, "error"); return; }
+  ["progWeight","progBodyFat","progNotes"].forEach(id => document.getElementById(id).value = "");
+  loaded.delete("progress"); loadTab("progress");
+  toast("Entry logged", "success");
+});
+
+// ---- Nutrition ----
+async function loadNutrition() {
+  const [{ data: plans }, { data: logs }] = await Promise.all([
+    sb().from("smartcore_flexi_nutrition_plans").select("*").eq("client_id", clientId).order("created_at", { ascending: false }),
+    sb().from("smartcore_flexi_food_logs").select("*").eq("client_id", clientId).order("logged_at", { ascending: false }).limit(15),
+  ]);
+  const el = document.getElementById("nutritionList");
+  el.innerHTML = !plans?.length ? emptyState("🥗", "No nutrition plans yet", "") : plans.map(p => `
+    <div class="fx-card" style="margin-bottom:10px">
+      <strong>${escapeHtml(p.name)}</strong> ${p.active ? '<span class="fx-badge fx-badge-green">active</span>' : ""}
+      <div style="color:var(--fx-text3);font-size:12.5px;margin-top:6px">${p.daily_calories || "—"} kcal · P ${p.protein_g || 0}g · C ${p.carbs_g || 0}g · F ${p.fat_g || 0}g</div>
+    </div>
+  `).join("");
+  const body = document.getElementById("foodLogBody");
+  body.innerHTML = !logs?.length ? `<tr><td colspan="4">${emptyState("🍽️", "No food logged yet", "")}</td></tr>` : logs.map(l => `
+    <tr><td>${fmtDate(l.logged_at)}</td><td>${escapeHtml(l.meal)}</td><td>${escapeHtml(l.description)}</td><td>${l.calories || "—"}</td></tr>
+  `).join("");
+}
+document.getElementById("addNutritionBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("nutName").value.trim();
+  if (!name) return;
+  setLoading(e.target, true, "Creating…");
+  const { error } = await sb().from("smartcore_flexi_nutrition_plans").insert({
+    company_id: profile.company_id, client_id: clientId, trainer_id: profile.id, name,
+    daily_calories: parseInt(document.getElementById("nutCals").value) || null,
+    protein_g: parseInt(document.getElementById("nutProtein").value) || null,
+    carbs_g: parseInt(document.getElementById("nutCarbs").value) || null,
+    fat_g: parseInt(document.getElementById("nutFat").value) || null,
+  });
+  setLoading(e.target, false);
+  if (error) { toast(error.message, "error"); return; }
+  ["nutName","nutCals","nutProtein","nutCarbs","nutFat"].forEach(id => document.getElementById(id).value = "");
+  loaded.delete("nutrition"); loadTab("nutrition");
+  toast("Plan created", "success");
+});
+
+// ---- Messages ----
+async function loadMessages() {
+  const { data } = await sb().from("smartcore_flexi_messages").select("*").eq("client_id", clientId).order("created_at");
+  const el = document.getElementById("chatMessages");
+  el.innerHTML = !data?.length ? `<div style="padding:20px">${emptyState("💬", "No messages yet", "")}</div>` : data.map(m => `
+    <div class="fx-bubble ${m.sender_type === "trainer" ? "fx-bubble-mine" : "fx-bubble-theirs"}">
+      ${escapeHtml(m.body)}<div class="fx-bubble-meta">${fmtDateTime(m.created_at)}</div>
+    </div>
+  `).join("");
+  el.scrollTop = el.scrollHeight;
+  await sb().from("smartcore_flexi_messages").update({ read_at: new Date().toISOString() }).eq("client_id", clientId).eq("sender_type", "client").is("read_at", null);
+}
+document.getElementById("sendChatBtn").addEventListener("click", sendMessage);
+document.getElementById("chatInput").addEventListener("keydown", e => { if (e.key === "Enter") sendMessage(); });
+async function sendMessage() {
+  const input = document.getElementById("chatInput");
+  const body = input.value.trim();
+  if (!body) return;
+  input.value = "";
+  const { error } = await sb().from("smartcore_flexi_messages").insert({
+    company_id: profile.company_id, client_id: clientId, sender_type: "trainer", sender_employee_id: profile.id, body,
+  });
+  if (error) { toast(error.message, "error"); return; }
+  loaded.delete("messages"); loadTab("messages");
+}
+
+// ---- Bookings ----
+async function loadBookings() {
+  const { data } = await sb().from("smartcore_flexi_bookings").select("*").eq("client_id", clientId).order("starts_at", { ascending: false });
+  const body = document.getElementById("bookingsBody");
+  body.innerHTML = !data?.length ? `<tr><td colspan="4">${emptyState("📅", "No bookings yet", "")}</td></tr>` : data.map(b => `
+    <tr>
+      <td>${fmtDateTime(b.starts_at)}</td>
+      <td>${b.session_type === "class" ? "Class" : "1:1"}</td>
+      <td><span class="fx-badge ${b.status === "cancelled" ? "fx-badge-red" : b.status === "completed" ? "fx-badge-green" : "fx-badge-accent"}">${b.status}</span></td>
+      <td>${b.status === "confirmed" ? `<button class="fx-btn fx-btn-sm" data-cancel="${b.id}">Cancel</button>` : ""}</td>
+    </tr>
+  `).join("");
+  body.querySelectorAll("[data-cancel]").forEach(btn => btn.addEventListener("click", async () => {
+    await sb().from("smartcore_flexi_bookings").update({ status: "cancelled" }).eq("id", btn.dataset.cancel);
+    loaded.delete("bookings"); loadTab("bookings");
+  }));
+}
+document.getElementById("addBookingBtn").addEventListener("click", async (e) => {
+  const start = document.getElementById("bookStart").value;
+  const duration = parseInt(document.getElementById("bookDuration").value) || 60;
+  if (!start) { toast("Pick a date & time", "error"); return; }
+  const starts_at = new Date(start);
+  const ends_at = new Date(starts_at.getTime() + duration * 60000);
+  setLoading(e.target, true, "Booking…");
+  const { error } = await sb().from("smartcore_flexi_bookings").insert({
+    company_id: profile.company_id, client_id: clientId, trainer_id: profile.id,
+    starts_at: starts_at.toISOString(), ends_at: ends_at.toISOString(), session_type: "1:1", created_by: profile.id,
+  });
+  setLoading(e.target, false);
+  if (error) { toast(error.message, "error"); return; }
+  toast("Session booked", "success");
+  loaded.delete("bookings"); loadTab("bookings");
+});
+
+// ---- Packages & Payments ----
+async function loadPackages() {
+  const [{ data: clientPkgs }, { data: allPkgs }, { data: payments }] = await Promise.all([
+    sb().from("smartcore_flexi_client_packages").select("*, smartcore_flexi_packages(name, session_count)").eq("client_id", clientId).order("purchased_at", { ascending: false }),
+    sb().from("smartcore_flexi_packages").select("*").eq("active", true),
+    sb().from("smartcore_flexi_payments").select("*").eq("client_id", clientId).order("created_at", { ascending: false }),
+  ]);
+  const listEl = document.getElementById("clientPackagesList");
+  listEl.innerHTML = !clientPkgs?.length ? emptyState("📦", "No packages assigned", "") : clientPkgs.map(cp => `
+    <div class="fx-card" style="margin-bottom:8px;display:flex;justify-content:space-between">
+      <span>${escapeHtml(cp.smartcore_flexi_packages?.name || "Package")}</span>
+      <span class="fx-tabular">${cp.sessions_remaining ?? "—"} sessions left · <span class="fx-badge ${cp.status === "active" ? "fx-badge-green" : "fx-badge-grey"}">${cp.status}</span></span>
+    </div>
+  `).join("");
+  const sel = document.getElementById("sellPackageSelect");
+  sel.innerHTML = (allPkgs || []).map(p => `<option value="${p.id}" data-sessions="${p.session_count || ""}" data-validity="${p.validity_days || ""}">${escapeHtml(p.name)} — ${fmtMoney(p.price_pence, p.currency)}</option>`).join("") || `<option value="">No packages configured</option>`;
+
+  const payBody = document.getElementById("paymentsBody");
+  payBody.innerHTML = !payments?.length ? `<tr><td colspan="5">${emptyState("💳", "No payments recorded", "")}</td></tr>` : payments.map(p => `
+    <tr><td>${fmtDate(p.created_at)}</td><td>${fmtMoney(p.amount_pence, p.currency)}</td><td>${escapeHtml(p.method)}</td><td><span class="fx-badge fx-badge-green">${p.status}</span></td><td>${escapeHtml(p.note || "—")}</td></tr>
+  `).join("");
+}
+document.getElementById("sellPackageBtn").addEventListener("click", async () => {
+  const sel = document.getElementById("sellPackageSelect");
+  const opt = sel.selectedOptions[0];
+  if (!opt || !opt.value) return;
+  const sessions = opt.dataset.sessions ? parseInt(opt.dataset.sessions) : null;
+  const validity = opt.dataset.validity ? parseInt(opt.dataset.validity) : null;
+  const expires_at = validity ? new Date(Date.now() + validity * 86400000).toISOString() : null;
+  const { error } = await sb().from("smartcore_flexi_client_packages").insert({
+    company_id: profile.company_id, client_id: clientId, package_id: opt.value, sessions_remaining: sessions, expires_at,
+  });
+  if (error) { toast(error.message, "error"); return; }
+  toast("Package assigned", "success");
+  loaded.delete("packages"); loadTab("packages");
+});
+document.getElementById("recordPaymentBtn").addEventListener("click", async (e) => {
+  const amount = parseFloat(document.getElementById("payAmount").value);
+  if (!amount) { toast("Enter an amount", "error"); return; }
+  setLoading(e.target, true, "Saving…");
+  const { error } = await sb().from("smartcore_flexi_payments").insert({
+    company_id: profile.company_id, client_id: clientId,
+    amount_pence: Math.round(amount * 100),
+    method: document.getElementById("payMethod").value,
+    note: document.getElementById("payNote").value.trim() || null,
+    recorded_by: profile.id,
+  });
+  setLoading(e.target, false);
+  if (error) { toast(error.message, "error"); return; }
+  logAudit(profile.company_id, profile.id, "payment.recorded", "payment", null, { amount_pence: Math.round(amount * 100), client_id: clientId });
+  ["payAmount","payNote"].forEach(id => document.getElementById(id).value = "");
+  toast("Payment recorded", "success");
+  loaded.delete("packages"); loadTab("packages");
+});
+
+// ---- Waivers ----
+async function loadWaivers() {
+  const [{ data: waivers }, { data: sigs }] = await Promise.all([
+    sb().from("smartcore_flexi_waivers").select("*").eq("active", true),
+    sb().from("smartcore_flexi_waiver_signatures").select("*").eq("client_id", clientId),
+  ]);
+  const signedIds = new Set((sigs || []).map(s => s.waiver_id));
+  const body = document.getElementById("waiversBody");
+  body.innerHTML = !waivers?.length ? `<tr><td colspan="3">${emptyState("📝", "No waivers configured", "Add waivers from the Waivers page.")}</td></tr>` : waivers.map(w => {
+    const sig = (sigs || []).find(s => s.waiver_id === w.id);
+    return `<tr><td>${escapeHtml(w.title)}</td><td><span class="fx-badge ${signedIds.has(w.id) ? "fx-badge-green" : "fx-badge-amber"}">${signedIds.has(w.id) ? "Signed" : "Pending"}</span></td><td>${sig ? fmtDateTime(sig.signed_at) : "—"}</td></tr>`;
+  }).join("");
+}
+
+// ---- Invite ----
+document.getElementById("inviteBtn").addEventListener("click", async () => {
+  let token = crypto.randomUUID();
+  const { error } = await sb().from("smartcore_flexi_client_invites").insert({
+    company_id: profile.company_id, client_id: clientId, token, email: client.email || "client@example.com", created_by: profile.id,
+  });
+  if (error) { toast(error.message, "error"); return; }
+  const link = `${location.origin}/systems/flexi/portal/client-invite.html?token=${token}`;
+  document.getElementById("inviteLink").value = link;
+  openModal("inviteModal");
+});
+document.querySelectorAll("[data-close-invite]").forEach(b => b.addEventListener("click", () => closeModal("inviteModal")));
+document.getElementById("copyInviteBtn").addEventListener("click", () => {
+  navigator.clipboard.writeText(document.getElementById("inviteLink").value);
+  toast("Link copied", "success");
+});
+</script>
+</body>
+</html>

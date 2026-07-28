@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Chat — Flexi</title>
+<link rel="stylesheet" href="../shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-portal">
+  <div class="fx-portal-top"><div style="flex:1"><h1>Chat</h1></div><button class="fx-icon-btn" id="themeToggle">🌙</button></div>
+  <div style="display:flex;flex-direction:column;height:calc(100vh - 200px)">
+    <div class="fx-chat" id="chatMessages" style="flex:1;padding:0 18px"></div>
+    <div class="fx-chat-input">
+      <input class="fx-input" id="chatInput" placeholder="Message your trainer…"/>
+      <button class="fx-btn fx-btn-primary" id="sendBtn">Send</button>
+    </div>
+  </div>
+  <nav class="fx-portal-tabs">
+    <a class="fx-portal-tab" href="dashboard.html"><span class="fx-portal-tab-icon">🏠</span>Home</a>
+    <a class="fx-portal-tab" href="train.html"><span class="fx-portal-tab-icon">🏋️</span>Train</a>
+    <a class="fx-portal-tab" href="book.html"><span class="fx-portal-tab-icon">📅</span>Book</a>
+    <a class="fx-portal-tab" href="progress.html"><span class="fx-portal-tab-icon">📈</span>Progress</a>
+    <a class="fx-portal-tab active" href="chat.html"><span class="fx-portal-tab-icon">💬</span>Chat</a>
+  </nav>
+</div>
+
+<script type="module">
+import { requireClientAccess } from "../shared/client-auth.js";
+import { sb } from "../shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, toast, emptyState } from "../shared/ui.js";
+
+const client = await requireClientAccess();
+setupThemeToggle();
+revealApp();
+
+async function load() {
+  const { data } = await sb().from("smartcore_flexi_messages").select("*").eq("client_id", client.id).order("created_at");
+  const el = document.getElementById("chatMessages");
+  el.innerHTML = !data?.length ? emptyState("💬", "Say hello to your trainer", "") : data.map(m => `
+    <div class="fx-bubble ${m.sender_type === "client" ? "fx-bubble-mine" : "fx-bubble-theirs"}">
+      ${escapeHtml(m.body)}<div class="fx-bubble-meta">${fmtDateTime(m.created_at)}</div>
+    </div>
+  `).join("");
+  el.scrollTop = el.scrollHeight;
+}
+
+document.getElementById("sendBtn").addEventListener("click", send);
+document.getElementById("chatInput").addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+async function send() {
+  const input = document.getElementById("chatInput");
+  const body = input.value.trim();
+  if (!body) return;
+  input.value = "";
+  const { error } = await sb().from("smartcore_flexi_messages").insert({
+    company_id: client.company_id, client_id: client.id, sender_type: "client", body,
+  });
+  if (error) { toast(error.message, "error"); return; }
+  load();
+}
+
+load();
+</script>
+</body>
+</html>

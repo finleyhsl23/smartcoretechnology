@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Waivers — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Waivers &amp; PAR-Q</h1><div class="fx-topbar-sub">Digital liability &amp; health-screening forms</div></div>
+      <div class="fx-topbar-spacer"></div>
+      <button class="fx-btn fx-btn-primary" id="addBtn">+ New Waiver</button>
+    </header>
+    <main class="fx-content">
+      <div id="list"></div>
+    </main>
+  </div>
+</div>
+
+<div class="fx-modal" id="addModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>New Waiver</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div class="fx-field"><label>Title</label><input class="fx-input" id="wTitle" placeholder="e.g. PAR-Q Health Screening"/></div>
+    <div class="fx-field"><label>Body text</label><textarea class="fx-textarea" id="wBody" style="min-height:140px" placeholder="Paste your waiver/liability/PAR-Q text here…"></textarea></div>
+    <div class="fx-form-msg" id="wMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="saveWBtn">Create Waiver</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "waivers" });
+renderNav({ activeKey: "waivers", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+async function load() {
+  const { data: waivers } = await sb().from("smartcore_flexi_waivers").select("*").order("created_at", { ascending: false });
+  const { count: totalClients } = await sb().from("smartcore_flexi_clients").select("id", { count: "exact", head: true }).eq("status", "active");
+
+  const list = document.getElementById("list");
+  if (!waivers?.length) { list.innerHTML = emptyState("📝", "No waivers yet", "Create your first waiver above."); return; }
+
+  const cards = await Promise.all(waivers.map(async w => {
+    const { count: signed } = await sb().from("smartcore_flexi_waiver_signatures").select("id", { count: "exact", head: true }).eq("waiver_id", w.id);
+    return `
+      <div class="fx-card" style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+          <div>
+            <strong>${escapeHtml(w.title)}</strong>
+            <p style="color:var(--fx-text3);font-size:12.5px;margin-top:6px;max-width:60ch">${escapeHtml((w.body || "").slice(0, 160))}${w.body?.length > 160 ? "…" : ""}</p>
+          </div>
+          <span class="fx-badge ${w.active ? "fx-badge-green" : "fx-badge-grey"}">${w.active ? "active" : "inactive"}</span>
+        </div>
+        <div style="margin-top:12px;font-size:12.5px;color:var(--fx-text2)">${signed || 0} of ${totalClients || 0} active clients signed</div>
+        <button class="fx-btn fx-btn-sm" style="margin-top:10px" data-toggle="${w.id}" data-active="${w.active}">${w.active ? "Deactivate" : "Reactivate"}</button>
+      </div>
+    `;
+  }));
+  list.innerHTML = cards.join("");
+  list.querySelectorAll("[data-toggle]").forEach(btn => btn.addEventListener("click", async () => {
+    await sb().from("smartcore_flexi_waivers").update({ active: btn.dataset.active !== "true" }).eq("id", btn.dataset.toggle);
+    load();
+  }));
+}
+
+document.getElementById("addBtn").addEventListener("click", () => { document.getElementById("wMsg").textContent = ""; openModal("addModal"); });
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));
+document.getElementById("saveWBtn").addEventListener("click", async (e) => {
+  const title = document.getElementById("wTitle").value.trim();
+  const body = document.getElementById("wBody").value.trim();
+  if (!title || !body) { showMessage("wMsg", "Title and body are required.", "error"); return; }
+  setLoading(e.target, true, "Creating…");
+  const { error } = await sb().from("smartcore_flexi_waivers").insert({ company_id: profile.company_id, title, body });
+  setLoading(e.target, false);
+  if (error) { showMessage("wMsg", error.message, "error"); return; }
+  closeModal("addModal");
+  toast("Waiver created", "success");
+  load();
+});
+
+load();
+</script>
+</body>
+</html>

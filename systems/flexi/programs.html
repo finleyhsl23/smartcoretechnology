@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Programs — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Programs</h1><div class="fx-topbar-sub">Every training program across your clients</div></div>
+      <div class="fx-topbar-spacer"></div>
+      <select class="fx-select" id="statusFilter" style="max-width:160px">
+        <option value="">All statuses</option>
+        <option value="active">Active</option><option value="draft">Draft</option><option value="completed">Completed</option><option value="archived">Archived</option>
+      </select>
+    </header>
+    <main class="fx-content">
+      <div class="fx-table-wrap">
+        <table class="fx-table">
+          <thead><tr><th>Program</th><th>Client</th><th>Status</th><th>Start</th><th>End</th></tr></thead>
+          <tbody id="programsBody"><tr><td colspan="5" style="text-align:center;padding:24px;color:var(--fx-text3)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDate, emptyState } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "programs" });
+renderNav({ activeKey: "programs", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+let all = [];
+async function load() {
+  const { data } = await sb().from("smartcore_flexi_programs").select("*, smartcore_flexi_clients(full_name)").order("created_at", { ascending: false });
+  all = data || [];
+  render();
+}
+function render() {
+  const status = document.getElementById("statusFilter").value;
+  const rows = all.filter(p => !status || p.status === status);
+  const body = document.getElementById("programsBody");
+  const badge = { draft: "fx-badge-grey", active: "fx-badge-green", completed: "fx-badge-blue", archived: "fx-badge-grey" };
+  body.innerHTML = !rows.length ? `<tr><td colspan="5">${emptyState("🏋️", "No programs found", "Create programs from a client's page.")}</td></tr>` : rows.map(p => `
+    <tr onclick="location.href='program-detail.html?id=${p.id}'">
+      <td><strong>${escapeHtml(p.name)}</strong></td>
+      <td>${escapeHtml(p.smartcore_flexi_clients?.full_name || "—")}</td>
+      <td><span class="fx-badge ${badge[p.status]}">${p.status}</span></td>
+      <td>${fmtDate(p.start_date)}</td>
+      <td>${fmtDate(p.end_date)}</td>
+    </tr>
+  `).join("");
+}
+document.getElementById("statusFilter").addEventListener("change", render);
+load();
+</script>
+</body>
+</html>

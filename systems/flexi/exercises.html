@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Exercise Library — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Exercise Library</h1><div class="fx-topbar-sub" id="countLabel"></div></div>
+      <div class="fx-topbar-spacer"></div>
+      <input class="fx-input" id="searchInput" placeholder="Search exercises…" style="max-width:200px"/>
+      <select class="fx-select" id="categoryFilter" style="max-width:140px">
+        <option value="">All categories</option>
+        <option value="strength">Strength</option><option value="cardio">Cardio</option><option value="core">Core</option>
+        <option value="mobility">Mobility</option><option value="plyometric">Plyometric</option><option value="other">Other</option>
+      </select>
+      <button class="fx-btn fx-btn-primary" id="addBtn">+ Add Exercise</button>
+    </header>
+    <main class="fx-content">
+      <div class="fx-grid fx-grid-3" id="exGrid"></div>
+    </main>
+  </div>
+</div>
+
+<div class="fx-modal" id="addModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>Add Exercise</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div class="fx-field"><label>Name</label><input class="fx-input" id="exName"/></div>
+    <div class="fx-form-row">
+      <div class="fx-field"><label>Category</label>
+        <select class="fx-select" id="exCategory"><option value="strength">Strength</option><option value="cardio">Cardio</option><option value="core">Core</option><option value="mobility">Mobility</option><option value="plyometric">Plyometric</option><option value="other">Other</option></select>
+      </div>
+      <div class="fx-field"><label>Muscle group</label><input class="fx-input" id="exMuscle"/></div>
+    </div>
+    <div class="fx-form-row">
+      <div class="fx-field"><label>Equipment</label><input class="fx-input" id="exEquipment"/></div>
+      <div class="fx-field"><label>Video URL</label><input class="fx-input" id="exVideo" placeholder="YouTube link, optional"/></div>
+    </div>
+    <div class="fx-field"><label>Instructions</label><textarea class="fx-textarea" id="exInstructions"></textarea></div>
+    <div class="fx-form-msg" id="exMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="saveExBtn">Add Exercise</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "exercises" });
+renderNav({ activeKey: "exercises", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+let all = [];
+async function load() {
+  const { data } = await sb().from("smartcore_flexi_exercises").select("*").order("name");
+  all = data || [];
+  render();
+}
+function render() {
+  const q = document.getElementById("searchInput").value.toLowerCase();
+  const cat = document.getElementById("categoryFilter").value;
+  const rows = all.filter(x => (!cat || x.category === cat) && (!q || x.name.toLowerCase().includes(q)));
+  document.getElementById("countLabel").textContent = `${all.length} exercises in your library`;
+  const grid = document.getElementById("exGrid");
+  grid.innerHTML = !rows.length ? emptyState("◒", "No exercises found", "") : rows.map(x => `
+    <div class="fx-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <strong style="font-size:14px">${escapeHtml(x.name)}</strong>
+        <span class="fx-badge fx-badge-grey">${escapeHtml(x.category)}</span>
+      </div>
+      <div style="color:var(--fx-text3);font-size:12.5px;margin-bottom:8px">${escapeHtml(x.muscle_group || "")}${x.equipment ? " · " + escapeHtml(x.equipment) : ""}</div>
+      <div style="font-size:12.5px;color:var(--fx-text2)">${escapeHtml(x.instructions || "")}</div>
+      ${x.video_url ? `<a href="${escapeHtml(x.video_url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font-size:12px;color:var(--fx-accent);font-weight:700">▶ Watch demo</a>` : ""}
+      ${x.company_id ? `<button class="fx-btn fx-btn-sm fx-btn-danger" style="margin-top:10px" data-del="${x.id}">Delete</button>` : `<div style="margin-top:10px"><span class="fx-badge fx-badge-blue">Built-in</span></div>`}
+    </div>
+  `).join("");
+  grid.querySelectorAll("[data-del]").forEach(btn => btn.addEventListener("click", async () => {
+    if (!confirm("Delete this exercise?")) return;
+    await sb().from("smartcore_flexi_exercises").delete().eq("id", btn.dataset.del);
+    load();
+  }));
+}
+document.getElementById("searchInput").addEventListener("input", render);
+document.getElementById("categoryFilter").addEventListener("change", render);
+document.getElementById("addBtn").addEventListener("click", () => openModal("addModal"));
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));
+document.getElementById("saveExBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("exName").value.trim();
+  if (!name) { showMessage("exMsg", "Name is required.", "error"); return; }
+  setLoading(e.target, true, "Adding…");
+  const { error } = await sb().from("smartcore_flexi_exercises").insert({
+    company_id: profile.company_id, name,
+    category: document.getElementById("exCategory").value,
+    muscle_group: document.getElementById("exMuscle").value.trim() || null,
+    equipment: document.getElementById("exEquipment").value.trim() || null,
+    video_url: document.getElementById("exVideo").value.trim() || null,
+    instructions: document.getElementById("exInstructions").value.trim() || null,
+    created_by: profile.id,
+  });
+  setLoading(e.target, false);
+  if (error) { showMessage("exMsg", error.message, "error"); return; }
+  closeModal("addModal");
+  toast("Exercise added", "success");
+  ["exName","exMuscle","exEquipment","exVideo","exInstructions"].forEach(id => document.getElementById(id).value = "");
+  load();
+});
+load();
+</script>
+</body>
+</html>

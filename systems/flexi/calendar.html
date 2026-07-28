@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Calendar — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+<style>
+.cal-day{margin-bottom:18px}
+.cal-day-label{font-size:12px;font-weight:700;color:var(--fx-text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+.cal-slot{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--fx-line);border-radius:10px;background:var(--fx-card);margin-bottom:6px}
+.cal-slot-time{font-weight:700;font-size:13px;width:56px;flex-shrink:0}
+.cal-slot-body{flex:1;font-size:13px}
+</style>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Calendar</h1><div class="fx-topbar-sub" id="weekLabel"></div></div>
+      <div class="fx-topbar-spacer"></div>
+      <button class="fx-btn fx-btn-sm" id="prevBtn">← Prev</button>
+      <button class="fx-btn fx-btn-sm" id="nextBtn">Next →</button>
+      <button class="fx-btn fx-btn-primary" id="bookBtn">+ Book Session</button>
+    </header>
+    <main class="fx-content" id="weekContent"></main>
+  </div>
+</div>
+
+<div class="fx-modal" id="bookModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>Book 1:1 Session</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div class="fx-field"><label>Client</label><select class="fx-select" id="bookClient"></select></div>
+    <div class="fx-form-row">
+      <div class="fx-field"><label>Date &amp; time</label><input class="fx-input" id="bookStart" type="datetime-local"/></div>
+      <div class="fx-field"><label>Duration (min)</label><input class="fx-input" id="bookDuration" type="number" value="60"/></div>
+    </div>
+    <div class="fx-form-msg" id="bookMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="confirmBookBtn">Confirm Booking</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtTime, setLoading, showMessage, openModal, closeModal, toast, emptyState } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "bookings" });
+renderNav({ activeKey: "calendar", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+let weekOffset = 0;
+function weekBounds() {
+  const now = new Date();
+  const day = now.getDay();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((day + 6) % 7) + weekOffset * 7);
+  monday.setHours(0,0,0,0);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23,59,59,999);
+  return { monday, sunday };
+}
+
+async function load() {
+  const { monday, sunday } = weekBounds();
+  document.getElementById("weekLabel").textContent = `${monday.toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – ${sunday.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}`;
+
+  const { data: bookings } = await sb().from("smartcore_flexi_bookings")
+    .select("*, smartcore_flexi_clients(full_name)")
+    .gte("starts_at", monday.toISOString()).lte("starts_at", sunday.toISOString())
+    .neq("status", "cancelled").order("starts_at");
+
+  const days = [];
+  for (let i = 0; i < 7; i++) { const d = new Date(monday); d.setDate(monday.getDate() + i); days.push(d); }
+
+  const content = document.getElementById("weekContent");
+  content.innerHTML = days.map(d => {
+    const dayBookings = (bookings || []).filter(b => new Date(b.starts_at).toDateString() === d.toDateString());
+    return `
+      <div class="cal-day">
+        <div class="cal-day-label">${d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"})}</div>
+        ${!dayBookings.length ? `<div style="color:var(--fx-text3);font-size:12.5px;padding:6px 0">No sessions</div>` : dayBookings.map(b => `
+          <div class="cal-slot">
+            <div class="cal-slot-time fx-tabular">${fmtTime(b.starts_at)}</div>
+            <div class="cal-slot-body"><strong>${escapeHtml(b.smartcore_flexi_clients?.full_name || "Class")}</strong> ${b.session_type === "class" ? '<span class="fx-badge fx-badge-blue">class</span>' : ""}</div>
+            <span class="fx-badge ${b.status === "completed" ? "fx-badge-green" : "fx-badge-accent"}">${b.status}</span>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }).join("");
+}
+
+document.getElementById("prevBtn").addEventListener("click", () => { weekOffset--; load(); });
+document.getElementById("nextBtn").addEventListener("click", () => { weekOffset++; load(); });
+
+document.getElementById("bookBtn").addEventListener("click", async () => {
+  const { data: clients } = await sb().from("smartcore_flexi_clients").select("id, full_name").eq("status", "active").order("full_name");
+  document.getElementById("bookClient").innerHTML = (clients || []).map(c => `<option value="${c.id}">${escapeHtml(c.full_name)}</option>`).join("") || `<option value="">No active clients</option>`;
+  document.getElementById("bookMsg").textContent = "";
+  openModal("bookModal");
+});
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("bookModal")));
+document.getElementById("confirmBookBtn").addEventListener("click", async (e) => {
+  const client_id = document.getElementById("bookClient").value;
+  const start = document.getElementById("bookStart").value;
+  const duration = parseInt(document.getElementById("bookDuration").value) || 60;
+  if (!client_id || !start) { showMessage("bookMsg", "Choose a client and time.", "error"); return; }
+  const starts_at = new Date(start);
+  const ends_at = new Date(starts_at.getTime() + duration * 60000);
+  setLoading(e.target, true, "Booking…");
+  const { error } = await sb().from("smartcore_flexi_bookings").insert({
+    company_id: profile.company_id, client_id, trainer_id: profile.id,
+    starts_at: starts_at.toISOString(), ends_at: ends_at.toISOString(), session_type: "1:1", created_by: profile.id,
+  });
+  setLoading(e.target, false);
+  if (error) { showMessage("bookMsg", error.message, "error"); return; }
+  closeModal("bookModal");
+  toast("Session booked", "success");
+  load();
+});
+
+load();
+</script>
+</body>
+</html>

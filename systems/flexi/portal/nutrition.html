@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Nutrition — Flexi</title>
+<link rel="stylesheet" href="../shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-portal">
+  <div class="fx-portal-top">
+    <a href="dashboard.html" class="fx-icon-btn" style="display:flex;align-items:center;justify-content:center;text-decoration:none">←</a>
+    <div style="flex:1"><h1>Nutrition</h1></div>
+    <button class="fx-icon-btn" id="themeToggle">🌙</button>
+  </div>
+  <div class="fx-portal-content">
+    <div id="planCard" style="margin-bottom:20px"></div>
+
+    <div class="fx-card" style="margin-bottom:20px">
+      <h3 style="font-size:13.5px;margin-bottom:10px">Log Food</h3>
+      <div class="fx-form-row">
+        <div class="fx-field"><label>Meal</label>
+          <select class="fx-select" id="meal"><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select>
+        </div>
+        <div class="fx-field"><label>Calories</label><input class="fx-input" id="calories" type="number"/></div>
+      </div>
+      <div class="fx-field"><label>Description</label><input class="fx-input" id="description" placeholder="e.g. Chicken, rice & broccoli"/></div>
+      <button class="fx-btn fx-btn-primary fx-btn-block" id="logBtn">Add to Diary</button>
+    </div>
+
+    <div class="fx-section-head" style="margin-top:0"><h2 style="font-size:14px">Today's Diary</h2></div>
+    <div id="foodList"></div>
+  </div>
+  <nav class="fx-portal-tabs">
+    <a class="fx-portal-tab" href="dashboard.html"><span class="fx-portal-tab-icon">🏠</span>Home</a>
+    <a class="fx-portal-tab" href="train.html"><span class="fx-portal-tab-icon">🏋️</span>Train</a>
+    <a class="fx-portal-tab" href="book.html"><span class="fx-portal-tab-icon">📅</span>Book</a>
+    <a class="fx-portal-tab" href="progress.html"><span class="fx-portal-tab-icon">📈</span>Progress</a>
+    <a class="fx-portal-tab" href="chat.html"><span class="fx-portal-tab-icon">💬</span>Chat</a>
+  </nav>
+</div>
+
+<script type="module">
+import { requireClientAccess } from "../shared/client-auth.js";
+import { sb } from "../shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, toast, emptyState } from "../shared/ui.js";
+
+const client = await requireClientAccess();
+setupThemeToggle();
+revealApp();
+
+const { data: plan } = await sb().from("smartcore_flexi_nutrition_plans").select("*").eq("client_id", client.id).eq("active", true).order("created_at", { ascending: false }).limit(1);
+document.getElementById("planCard").innerHTML = plan?.[0] ? `
+  <div class="fx-card">
+    <strong>${escapeHtml(plan[0].name)}</strong>
+    <div class="fx-grid fx-grid-4" style="margin-top:12px">
+      <div><div style="font-size:10.5px;color:var(--fx-text3);text-transform:uppercase">Kcal</div><div style="font-weight:700">${plan[0].daily_calories || "—"}</div></div>
+      <div><div style="font-size:10.5px;color:var(--fx-text3);text-transform:uppercase">Protein</div><div style="font-weight:700">${plan[0].protein_g || 0}g</div></div>
+      <div><div style="font-size:10.5px;color:var(--fx-text3);text-transform:uppercase">Carbs</div><div style="font-weight:700">${plan[0].carbs_g || 0}g</div></div>
+      <div><div style="font-size:10.5px;color:var(--fx-text3);text-transform:uppercase">Fat</div><div style="font-weight:700">${plan[0].fat_g || 0}g</div></div>
+    </div>
+  </div>
+` : emptyState("🥗", "No active nutrition plan", "Your trainer hasn't set one up yet.");
+
+async function loadFood() {
+  const today = new Date().toISOString().slice(0,10);
+  const { data } = await sb().from("smartcore_flexi_food_logs").select("*").eq("client_id", client.id).eq("logged_at", today).order("created_at");
+  const el = document.getElementById("foodList");
+  el.innerHTML = !data?.length ? emptyState("🍽️", "Nothing logged today", "") : data.map(f => `
+    <div class="fx-card" style="margin-bottom:8px;display:flex;justify-content:space-between">
+      <div><span class="fx-badge fx-badge-grey" style="text-transform:capitalize">${f.meal}</span> <span style="font-size:13px">${escapeHtml(f.description)}</span></div>
+      <span class="fx-tabular">${f.calories ? f.calories + " kcal" : ""}</span>
+    </div>
+  `).join("");
+}
+
+document.getElementById("logBtn").addEventListener("click", async () => {
+  const description = document.getElementById("description").value.trim();
+  if (!description) { toast("Add a description", "error"); return; }
+  const { error } = await sb().from("smartcore_flexi_food_logs").insert({
+    company_id: client.company_id, client_id: client.id,
+    meal: document.getElementById("meal").value,
+    description,
+    calories: parseInt(document.getElementById("calories").value) || null,
+  });
+  if (error) { toast(error.message, "error"); return; }
+  document.getElementById("description").value = "";
+  document.getElementById("calories").value = "";
+  toast("Logged", "success");
+  loadFood();
+});
+
+loadFood();
+</script>
+</body>
+</html>

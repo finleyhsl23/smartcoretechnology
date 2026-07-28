@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Audit Log — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Audit Log</h1><div class="fx-topbar-sub">Who did what, and when — Enterprise plan</div></div>
+    </header>
+    <main class="fx-content">
+      <div class="fx-table-wrap">
+        <table class="fx-table">
+          <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Entity</th><th>Detail</th></tr></thead>
+          <tbody id="body"><tr><td colspan="5" style="text-align:center;padding:24px;color:var(--fx-text3)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, emptyState } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "audit_log" });
+renderNav({ activeKey: "audit", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+const { data } = await sb().from("smartcore_flexi_audit_logs").select("*, core_employees(full_name)").order("created_at", { ascending: false }).limit(200);
+const body = document.getElementById("body");
+body.innerHTML = !data?.length ? `<tr><td colspan="5">${emptyState("▨", "No audit events yet", "Actions like client updates and payments will appear here.")}</td></tr>` : data.map(l => `
+  <tr>
+    <td>${fmtDateTime(l.created_at)}</td>
+    <td>${escapeHtml(l.core_employees?.full_name || "System")}</td>
+    <td><span class="fx-badge fx-badge-grey">${escapeHtml(l.action)}</span></td>
+    <td>${escapeHtml(l.entity_type)}</td>
+    <td style="max-width:320px;font-size:12px;color:var(--fx-text3)">${l.meta ? escapeHtml(JSON.stringify(l.meta)) : "—"}</td>
+  </tr>
+`).join("");
+</script>
+</body>
+</html>

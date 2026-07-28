@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Program Builder — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+<style>
+.wk-card{margin-bottom:16px}
+.wk-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.wk-head h3{font-size:14.5px;flex:1}
+.ex-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--fx-line);font-size:13px}
+.ex-row:last-child{border-bottom:none}
+.ex-add-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:center;margin-top:10px}
+@media(max-width:760px){.ex-row,.ex-add-row{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1 id="programName">Program</h1><div class="fx-topbar-sub" id="programClientLink"></div></div>
+      <div class="fx-topbar-spacer"></div>
+      <select class="fx-select" id="statusSelect" style="max-width:140px">
+        <option value="draft">Draft</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option>
+      </select>
+    </header>
+    <main class="fx-content">
+      <div class="fx-field" style="max-width:420px"><label>Description</label><textarea class="fx-textarea" id="programDesc" style="min-height:50px"></textarea></div>
+      <button class="fx-btn fx-btn-sm" id="saveProgramBtn" style="margin-bottom:24px">Save Details</button>
+
+      <div class="fx-section-head"><h2>Workouts</h2></div>
+      <div id="workoutsList"></div>
+
+      <div class="fx-card" style="max-width:420px">
+        <div class="fx-field"><label>New workout day name</label><input class="fx-input" id="newWorkoutName" placeholder="e.g. Day 1 — Push"/></div>
+        <button class="fx-btn fx-btn-primary" id="addWorkoutBtn">+ Add Workout</button>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, setLoading, toast, emptyState } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "programs" });
+renderNav({ activeKey: "clients", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+
+const programId = new URLSearchParams(location.search).get("id");
+if (!programId) { document.body.innerHTML = "<p style='padding:40px'>No program specified.</p>"; throw new Error("no id"); }
+
+let exerciseLibrary = [];
+const { data: exData } = await sb().from("smartcore_flexi_exercises").select("id, name, category").order("name");
+exerciseLibrary = exData || [];
+
+let program = null;
+async function loadProgram() {
+  const { data, error } = await sb().from("smartcore_flexi_programs").select("*, smartcore_flexi_clients(id, full_name)").eq("id", programId).single();
+  if (error || !data) { toast("Program not found", "error"); return; }
+  program = data;
+  document.getElementById("programName").textContent = program.name;
+  document.getElementById("programClientLink").innerHTML = `<a href="client-detail.html?id=${program.client_id}" style="color:var(--fx-accent)">${escapeHtml(program.smartcore_flexi_clients?.full_name || "")}</a>`;
+  document.getElementById("statusSelect").value = program.status;
+  document.getElementById("programDesc").value = program.description || "";
+}
+await loadProgram();
+revealApp();
+
+document.getElementById("statusSelect").addEventListener("change", async (e) => {
+  await sb().from("smartcore_flexi_programs").update({ status: e.target.value, updated_at: new Date().toISOString() }).eq("id", programId);
+  toast("Status updated", "success");
+});
+document.getElementById("saveProgramBtn").addEventListener("click", async (e) => {
+  setLoading(e.target, true, "Saving…");
+  await sb().from("smartcore_flexi_programs").update({ description: document.getElementById("programDesc").value.trim() || null, updated_at: new Date().toISOString() }).eq("id", programId);
+  setLoading(e.target, false);
+  toast("Saved", "success");
+});
+
+async function loadWorkouts() {
+  const { data: workouts } = await sb().from("smartcore_flexi_workouts").select("*").eq("program_id", programId).order("order_index");
+  const el = document.getElementById("workoutsList");
+  if (!workouts?.length) { el.innerHTML = emptyState("🗓️", "No workouts yet", "Add your first training day below."); return; }
+
+  const workoutExercises = {};
+  for (const w of workouts) {
+    const { data } = await sb().from("smartcore_flexi_workout_exercises").select("*, smartcore_flexi_exercises(name, category)").eq("workout_id", w.id).order("order_index");
+    workoutExercises[w.id] = data || [];
+  }
+
+  el.innerHTML = workouts.map(w => `
+    <div class="fx-card wk-card" data-workout="${w.id}">
+      <div class="wk-head">
+        <h3>${escapeHtml(w.name)}</h3>
+        <button class="fx-btn fx-btn-sm fx-btn-danger" data-del-workout="${w.id}">Delete Day</button>
+      </div>
+      ${workoutExercises[w.id].length ? `
+        <div class="ex-row" style="font-weight:700;color:var(--fx-text3);font-size:11px;text-transform:uppercase">
+          <div>Exercise</div><div>Sets</div><div>Reps</div><div>Weight</div><div>Rest</div><div></div>
+        </div>
+        ${workoutExercises[w.id].map(we => `
+          <div class="ex-row">
+            <div>${escapeHtml(we.smartcore_flexi_exercises?.name || "—")}</div>
+            <div>${we.target_sets ?? "—"}</div>
+            <div>${escapeHtml(we.target_reps || "—")}</div>
+            <div>${we.target_weight_kg ? we.target_weight_kg + "kg" : "—"}</div>
+            <div>${we.rest_seconds ? we.rest_seconds + "s" : "—"}</div>
+            <div><button class="fx-btn fx-btn-sm fx-btn-danger" data-del-ex="${we.id}">✕</button></div>
+          </div>
+        `).join("")}
+      ` : `<p style="color:var(--fx-text3);font-size:12.5px;margin-bottom:10px">No exercises added yet.</p>`}
+      <div class="ex-add-row">
+        <select class="fx-select" data-ex-select="${w.id}">
+          <option value="">Select exercise…</option>
+          ${exerciseLibrary.map(ex => `<option value="${ex.id}">${escapeHtml(ex.name)}</option>`).join("")}
+        </select>
+        <input class="fx-input" type="number" placeholder="Sets" data-ex-sets="${w.id}"/>
+        <input class="fx-input" placeholder="Reps e.g. 8-10" data-ex-reps="${w.id}"/>
+        <input class="fx-input" type="number" placeholder="Weight kg" data-ex-weight="${w.id}"/>
+        <input class="fx-input" type="number" placeholder="Rest sec" data-ex-rest="${w.id}"/>
+        <button class="fx-btn fx-btn-sm fx-btn-primary" data-add-ex="${w.id}">Add</button>
+      </div>
+    </div>
+  `).join("");
+
+  el.querySelectorAll("[data-add-ex]").forEach(btn => btn.addEventListener("click", async () => {
+    const wid = btn.dataset.addEx;
+    const exercise_id = el.querySelector(`[data-ex-select="${wid}"]`).value;
+    if (!exercise_id) { toast("Choose an exercise", "error"); return; }
+    const { error } = await sb().from("smartcore_flexi_workout_exercises").insert({
+      workout_id: wid, exercise_id,
+      target_sets: parseInt(el.querySelector(`[data-ex-sets="${wid}"]`).value) || null,
+      target_reps: el.querySelector(`[data-ex-reps="${wid}"]`).value.trim() || null,
+      target_weight_kg: parseFloat(el.querySelector(`[data-ex-weight="${wid}"]`).value) || null,
+      rest_seconds: parseInt(el.querySelector(`[data-ex-rest="${wid}"]`).value) || null,
+    });
+    if (error) { toast(error.message, "error"); return; }
+    loadWorkouts();
+  }));
+  el.querySelectorAll("[data-del-ex]").forEach(btn => btn.addEventListener("click", async () => {
+    await sb().from("smartcore_flexi_workout_exercises").delete().eq("id", btn.dataset.delEx);
+    loadWorkouts();
+  }));
+  el.querySelectorAll("[data-del-workout]").forEach(btn => btn.addEventListener("click", async () => {
+    if (!confirm("Delete this workout day and all its exercises?")) return;
+    await sb().from("smartcore_flexi_workouts").delete().eq("id", btn.dataset.delWorkout);
+    loadWorkouts();
+  }));
+}
+await loadWorkouts();
+
+document.getElementById("addWorkoutBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("newWorkoutName").value.trim();
+  if (!name) return;
+  setLoading(e.target, true, "Adding…");
+  const { count } = await sb().from("smartcore_flexi_workouts").select("id", { count: "exact", head: true }).eq("program_id", programId);
+  const { error } = await sb().from("smartcore_flexi_workouts").insert({ program_id: programId, name, order_index: count || 0 });
+  setLoading(e.target, false);
+  if (error) { toast(error.message, "error"); return; }
+  document.getElementById("newWorkoutName").value = "";
+  loadWorkouts();
+});
+</script>
+</body>
+</html>

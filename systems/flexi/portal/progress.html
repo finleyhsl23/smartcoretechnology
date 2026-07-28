@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Progress — Flexi</title>
+<link rel="stylesheet" href="../shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-portal">
+  <div class="fx-portal-top"><div style="flex:1"><h1>Progress</h1></div><button class="fx-icon-btn" id="themeToggle">🌙</button></div>
+  <div class="fx-portal-content">
+    <div class="fx-card" style="margin-bottom:20px">
+      <div class="fx-form-row">
+        <div class="fx-field"><label>Weight (kg)</label><input class="fx-input" id="weight" type="number" step="0.1"/></div>
+        <div class="fx-field"><label>Body fat %</label><input class="fx-input" id="bodyFat" type="number" step="0.1"/></div>
+      </div>
+      <div class="fx-field"><label>Notes</label><input class="fx-input" id="notes"/></div>
+      <div class="fx-field"><label>Progress photo (optional)</label><input class="fx-input" id="photo" type="file" accept="image/*"/></div>
+      <div class="fx-form-msg" id="msg"></div>
+      <button class="fx-btn fx-btn-primary fx-btn-block" id="logBtn">Log Entry</button>
+    </div>
+    <div class="fx-section-head" style="margin-top:0"><h2 style="font-size:14px">History</h2></div>
+    <div id="history"></div>
+  </div>
+  <nav class="fx-portal-tabs">
+    <a class="fx-portal-tab" href="dashboard.html"><span class="fx-portal-tab-icon">🏠</span>Home</a>
+    <a class="fx-portal-tab" href="train.html"><span class="fx-portal-tab-icon">🏋️</span>Train</a>
+    <a class="fx-portal-tab" href="book.html"><span class="fx-portal-tab-icon">📅</span>Book</a>
+    <a class="fx-portal-tab active" href="progress.html"><span class="fx-portal-tab-icon">📈</span>Progress</a>
+    <a class="fx-portal-tab" href="chat.html"><span class="fx-portal-tab-icon">💬</span>Chat</a>
+  </nav>
+</div>
+
+<script type="module">
+import { requireClientAccess } from "../shared/client-auth.js";
+import { sb } from "../shared/supabase.js";
+import { revealApp, setupThemeToggle, fmtDate, setLoading, showMessage, toast, emptyState } from "../shared/ui.js";
+
+const client = await requireClientAccess();
+setupThemeToggle();
+revealApp();
+
+async function loadHistory() {
+  const { data } = await sb().from("smartcore_flexi_progress_entries").select("*").eq("client_id", client.id).order("logged_at", { ascending: false });
+  const el = document.getElementById("history");
+  el.innerHTML = !data?.length ? emptyState("📈", "No entries yet", "Log your first one above.") : data.map(p => `
+    <div class="fx-card" style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between"><strong>${fmtDate(p.logged_at)}</strong><span>${p.weight_kg ? p.weight_kg + " kg" : ""}</span></div>
+      ${p.notes ? `<div style="color:var(--fx-text3);font-size:12.5px;margin-top:4px">${p.notes}</div>` : ""}
+      ${p.photo_urls?.length ? `<div style="display:flex;gap:6px;margin-top:8px">${p.photo_urls.map(u => `<div style="width:56px;height:56px;border-radius:8px;background:var(--fx-card2);overflow:hidden"><img src="${u}" style="width:100%;height:100%;object-fit:cover"/></div>`).join("")}</div>` : ""}
+    </div>
+  `).join("");
+}
+
+document.getElementById("logBtn").addEventListener("click", async (e) => {
+  const weight_kg = parseFloat(document.getElementById("weight").value) || null;
+  const body_fat_pct = parseFloat(document.getElementById("bodyFat").value) || null;
+  const notes = document.getElementById("notes").value.trim() || null;
+  const file = document.getElementById("photo").files[0];
+  if (!weight_kg && !body_fat_pct && !notes && !file) { showMessage("msg", "Add at least one field.", "error"); return; }
+
+  setLoading(e.target, true, "Saving…");
+  let photo_urls = [];
+  if (file) {
+    const path = `${client.company_id}/${client.id}/progress/${Date.now()}-${file.name}`;
+    const { error: upErr } = await sb().storage.from("flexi-media").upload(path, file);
+    if (upErr) { setLoading(e.target, false); showMessage("msg", upErr.message, "error"); return; }
+    const { data: signed } = await sb().storage.from("flexi-media").createSignedUrl(path, 60 * 60 * 24 * 365);
+    if (signed?.signedUrl) photo_urls.push(signed.signedUrl);
+  }
+
+  const { error } = await sb().from("smartcore_flexi_progress_entries").insert({
+    company_id: client.company_id, client_id: client.id, weight_kg, body_fat_pct, notes, photo_urls, logged_by: "client",
+  });
+  setLoading(e.target, false);
+  if (error) { showMessage("msg", error.message, "error"); return; }
+  ["weight","bodyFat","notes","photo"].forEach(id => document.getElementById(id).value = "");
+  toast("Progress logged", "success");
+  loadHistory();
+});
+
+loadHistory();
+</script>
+</body>
+</html>

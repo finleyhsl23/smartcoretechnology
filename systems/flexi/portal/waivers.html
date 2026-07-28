@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Waivers — Flexi</title>
+<link rel="stylesheet" href="../shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-portal">
+  <div class="fx-portal-top">
+    <a href="dashboard.html" class="fx-icon-btn" style="display:flex;align-items:center;justify-content:center;text-decoration:none">←</a>
+    <div style="flex:1"><h1>Waivers</h1></div>
+    <button class="fx-icon-btn" id="themeToggle">🌙</button>
+  </div>
+  <div class="fx-portal-content" id="list"></div>
+  <nav class="fx-portal-tabs">
+    <a class="fx-portal-tab" href="dashboard.html"><span class="fx-portal-tab-icon">🏠</span>Home</a>
+    <a class="fx-portal-tab" href="train.html"><span class="fx-portal-tab-icon">🏋️</span>Train</a>
+    <a class="fx-portal-tab" href="book.html"><span class="fx-portal-tab-icon">📅</span>Book</a>
+    <a class="fx-portal-tab" href="progress.html"><span class="fx-portal-tab-icon">📈</span>Progress</a>
+    <a class="fx-portal-tab" href="chat.html"><span class="fx-portal-tab-icon">💬</span>Chat</a>
+  </nav>
+</div>
+
+<div class="fx-modal" id="signModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3 id="signTitle">Waiver</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div id="signBody" style="font-size:13px;color:var(--fx-text2);max-height:220px;overflow-y:auto;margin-bottom:14px;white-space:pre-wrap"></div>
+    <div class="fx-field"><label>Type your full name to sign</label><input class="fx-input" id="signName"/></div>
+    <div class="fx-form-msg" id="signMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="confirmSignBtn">Sign &amp; Accept</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireClientAccess } from "../shared/client-auth.js";
+import { sb } from "../shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, showMessage, openModal, closeModal, toast, emptyState } from "../shared/ui.js";
+
+const client = await requireClientAccess();
+setupThemeToggle();
+revealApp();
+
+async function load() {
+  const [{ data: waivers }, { data: sigs }] = await Promise.all([
+    sb().from("smartcore_flexi_waivers").select("*").eq("active", true),
+    sb().from("smartcore_flexi_waiver_signatures").select("*").eq("client_id", client.id),
+  ]);
+  const signedMap = new Map((sigs || []).map(s => [s.waiver_id, s]));
+  const el = document.getElementById("list");
+  el.innerHTML = !waivers?.length ? emptyState("📝", "No waivers to sign", "") : waivers.map(w => {
+    const sig = signedMap.get(w.id);
+    return `
+      <div class="fx-card" style="margin-bottom:10px;${sig ? "" : "cursor:pointer"}" ${sig ? "" : `data-sign="${w.id}" data-title="${escapeHtml(w.title)}"`}>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <strong>${escapeHtml(w.title)}</strong>
+          <span class="fx-badge ${sig ? "fx-badge-green" : "fx-badge-amber"}">${sig ? "Signed" : "Tap to sign"}</span>
+        </div>
+        ${sig ? `<div style="color:var(--fx-text3);font-size:12px;margin-top:4px">Signed ${fmtDateTime(sig.signed_at)}</div>` : ""}
+      </div>
+    `;
+  }).join("");
+  el.querySelectorAll("[data-sign]").forEach(card => card.addEventListener("click", () => openSign(card.dataset.sign, card.dataset.title, waivers.find(w => w.id === card.dataset.sign).body)));
+}
+
+function openSign(id, title, body) {
+  document.getElementById("signTitle").textContent = title;
+  document.getElementById("signBody").textContent = body;
+  document.getElementById("signName").value = client.full_name || "";
+  document.getElementById("signMsg").textContent = "";
+  document.getElementById("confirmSignBtn").dataset.waiver = id;
+  openModal("signModal");
+}
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("signModal")));
+document.getElementById("confirmSignBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("signName").value.trim();
+  if (!name) { showMessage("signMsg", "Type your name to sign.", "error"); return; }
+  const { error } = await sb().from("smartcore_flexi_waiver_signatures").insert({
+    waiver_id: e.target.dataset.waiver, client_id: client.id, company_id: client.company_id, signature_name: name,
+  });
+  if (error) { showMessage("signMsg", error.message, "error"); return; }
+  closeModal("signModal");
+  toast("Signed — thank you", "success");
+  load();
+});
+
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Nutrition — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Nutrition</h1><div class="fx-topbar-sub">Active plans across all clients</div></div>
+    </header>
+    <main class="fx-content">
+      <div class="fx-table-wrap">
+        <table class="fx-table">
+          <thead><tr><th>Client</th><th>Plan</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th></tr></thead>
+          <tbody id="body"><tr><td colspan="6" style="text-align:center;padding:24px;color:var(--fx-text3)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, emptyState } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "nutrition" });
+renderNav({ activeKey: "nutrition", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+const { data } = await sb().from("smartcore_flexi_nutrition_plans").select("*, smartcore_flexi_clients(id, full_name)").eq("active", true).order("created_at", { ascending: false });
+const body = document.getElementById("body");
+body.innerHTML = !data?.length ? `<tr><td colspan="6">${emptyState("🥗", "No active nutrition plans", "Create one from a client's page.")}</td></tr>` : data.map(p => `
+  <tr onclick="location.href='client-detail.html?id=${p.smartcore_flexi_clients?.id}&tab=nutrition'">
+    <td><strong>${escapeHtml(p.smartcore_flexi_clients?.full_name || "—")}</strong></td>
+    <td>${escapeHtml(p.name)}</td>
+    <td class="fx-tabular">${p.daily_calories || "—"}</td>
+    <td class="fx-tabular">${p.protein_g || 0}g</td>
+    <td class="fx-tabular">${p.carbs_g || 0}g</td>
+    <td class="fx-tabular">${p.fat_g || 0}g</td>
+  </tr>
+`).join("");
+</script>
+</body>
+</html>

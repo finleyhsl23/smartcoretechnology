@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Home — Flexi</title>
+<link rel="stylesheet" href="../shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-portal">
+  <div class="fx-portal-top">
+    <div style="flex:1"><h1 id="greeting">Hey</h1><div class="fx-topbar-sub" id="todayLabel"></div></div>
+    <button class="fx-icon-btn" id="themeToggle">🌙</button>
+  </div>
+  <div class="fx-portal-content">
+
+    <div class="fx-card" style="margin-bottom:16px" id="nextSessionCard"></div>
+
+    <div class="fx-grid fx-grid-2" style="margin-bottom:20px">
+      <div class="fx-card fx-stat"><div class="fx-stat-label">Weight</div><div class="fx-stat-val" id="statWeight" style="font-size:20px">—</div></div>
+      <div class="fx-card fx-stat"><div class="fx-stat-label">Workouts Done</div><div class="fx-stat-val" id="statWorkouts" style="font-size:20px">—</div></div>
+    </div>
+
+    <div id="checkinBanner"></div>
+
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <a href="nutrition.html" class="fx-card" style="display:flex;justify-content:space-between;align-items:center">🥗 Nutrition &amp; Food Log <span>→</span></a>
+      <a href="checkins.html" class="fx-card" style="display:flex;justify-content:space-between;align-items:center">☑ Check-Ins &amp; Habits <span>→</span></a>
+      <a href="waivers.html" class="fx-card" style="display:flex;justify-content:space-between;align-items:center">📝 Waivers <span>→</span></a>
+      <a href="community.html" class="fx-card" style="display:flex;justify-content:space-between;align-items:center">🏆 Community &amp; Challenges <span>→</span></a>
+    </div>
+
+  </div>
+  <nav class="fx-portal-tabs">
+    <a class="fx-portal-tab active" href="dashboard.html"><span class="fx-portal-tab-icon">🏠</span>Home</a>
+    <a class="fx-portal-tab" href="train.html"><span class="fx-portal-tab-icon">🏋️</span>Train</a>
+    <a class="fx-portal-tab" href="book.html"><span class="fx-portal-tab-icon">📅</span>Book</a>
+    <a class="fx-portal-tab" href="progress.html"><span class="fx-portal-tab-icon">📈</span>Progress</a>
+    <a class="fx-portal-tab" href="chat.html"><span class="fx-portal-tab-icon">💬</span>Chat</a>
+  </nav>
+</div>
+
+<script type="module">
+import { requireClientAccess } from "../shared/client-auth.js";
+import { sb } from "../shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime } from "../shared/ui.js";
+
+const client = await requireClientAccess();
+setupThemeToggle();
+revealApp();
+
+document.getElementById("greeting").textContent = `Hey ${(client.full_name || "").split(" ")[0] || ""}`;
+document.getElementById("todayLabel").textContent = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+
+const [{ data: nextBooking }, { data: latestProgress }, { count: workoutCount }, { data: dueCheckins }] = await Promise.all([
+  sb().from("smartcore_flexi_bookings").select("*").eq("client_id", client.id).gte("starts_at", new Date().toISOString()).eq("status", "confirmed").order("starts_at").limit(1),
+  sb().from("smartcore_flexi_progress_entries").select("weight_kg").eq("client_id", client.id).order("logged_at", { ascending: false }).limit(1),
+  sb().from("smartcore_flexi_workout_logs").select("id", { count: "exact", head: true }).eq("client_id", client.id),
+  sb().from("smartcore_flexi_checkins").select("id").eq("client_id", client.id).is("submitted_at", null),
+]);
+
+document.getElementById("nextSessionCard").innerHTML = nextBooking?.[0]
+  ? `<div style="font-size:11px;color:var(--fx-text3);font-weight:700;text-transform:uppercase;margin-bottom:4px">Next Session</div><div style="font-size:15px;font-weight:700">${fmtDateTime(nextBooking[0].starts_at)}</div>`
+  : `<div style="font-size:11px;color:var(--fx-text3);font-weight:700;text-transform:uppercase;margin-bottom:4px">Next Session</div><div style="font-size:13.5px;color:var(--fx-text3)">Nothing booked — head to Book to grab a slot.</div>`;
+
+document.getElementById("statWeight").textContent = latestProgress?.[0]?.weight_kg ? `${latestProgress[0].weight_kg} kg` : "—";
+document.getElementById("statWorkouts").textContent = workoutCount ?? 0;
+
+if (dueCheckins?.length) {
+  document.getElementById("checkinBanner").innerHTML = `
+    <a href="checkins.html" class="fx-card" style="display:block;margin-bottom:16px;border-color:var(--fx-accent)">
+      <strong>☑ You have ${dueCheckins.length} check-in${dueCheckins.length > 1 ? "s" : ""} due</strong>
+      <div style="color:var(--fx-text3);font-size:12.5px;margin-top:4px">Tap to complete it now →</div>
+    </a>`;
+}
+</script>
+</body>
+</html>
