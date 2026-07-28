@@ -336,8 +336,12 @@ export async function getDashboardLeaveBreakdown(companyId) {
   next7.setDate(next7.getDate() + 7);
   const next7Iso = next7.toISOString().slice(0, 10);
 
-  const approved = await getApprovedLeaveInRange(companyId, todayIso, next7Iso);
+  const approvedAll = await getApprovedLeaveInRange(companyId, todayIso, next7Iso);
   const employees = await getEmployeesByCompany();
+
+  // This window only ever looks at today/future dates, so a leaver's
+  // booked leave should never appear here once they're no longer active.
+  const approved = approvedAll.filter((request) => request.employee?.employment_status === 'active');
 
   const annualToday = approved.filter((request) =>
     request.leave_type === 'annual' &&
