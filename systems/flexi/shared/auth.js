@@ -49,7 +49,7 @@ export async function getProfile() {
   return _profile;
 }
 
-function wireEscapeButtons() {
+export function wireEscapeButtons() {
   const logoutBtn = document.getElementById("logoutBtn");
   if (logoutBtn && !logoutBtn._wired) {
     logoutBtn._wired = true;

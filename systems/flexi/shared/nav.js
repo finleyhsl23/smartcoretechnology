@@ -1,4 +1,4 @@
-import { tierHasFeature, hasPermission, isAdmin, logout } from "./auth.js";
+import { tierHasFeature, hasPermission, isAdmin, logout, wireEscapeButtons } from "./auth.js";
 import { initials } from "./ui.js";
 import { sb } from "./supabase.js";
 
@@ -77,16 +77,15 @@ export function renderNav({ activeKey, profile, tier }) {
           <div class="fx-side-user-name">${profile.full_name || profile.email}</div>
           <div class="fx-side-user-role">${isAdmin(profile) ? "Admin" : "Trainer"}</div>
         </div>
-        <button class="fx-icon-btn fx-theme-btn" title="Toggle theme">🌙</button>
-      </div>
-      <div class="fx-side-actions">
-        <a href="/modules/" class="fx-side-back">${ICONS.modules} Modules</a>
-        <button id="logoutBtn" class="fx-side-logout">Sign out</button>
+        <a href="https://smartcoretechnology.co.uk/systems/core/" class="fx-icon-btn" title="Open SmartCore Core">
+          <svg ${ICON_ATTRS} style="width:14px;height:14px"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+        </a>
       </div>
     </div>
   `;
 
   if (items.some(item => item.key === "messages")) refreshUnreadBadge();
+  wireEscapeButtons();
 }
 
 // Total unread client-sent messages across every conversation this trainer
@@ -118,7 +117,10 @@ function renderUtilityBar() {
   bar.className = "fx-utility-bar";
   bar.innerHTML = `
     <a href="/modules/" class="fx-utility-back"><svg ${ICON_ATTRS}><path d="M14.5 5 8 12l6.5 7"/></svg><span>Modules</span></a>
-    <button class="fx-icon-btn fx-theme-btn" title="Toggle theme">🌙</button>
+    <div style="display:flex;align-items:center;gap:8px">
+      <button class="fx-icon-btn fx-theme-btn" title="Toggle theme">🌙</button>
+      <button id="logoutBtn" class="fx-btn fx-btn-sm" title="Sign out">Sign out</button>
+    </div>
   `;
   main.prepend(bar);
 }
