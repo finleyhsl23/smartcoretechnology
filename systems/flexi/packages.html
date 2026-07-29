@@ -53,7 +53,7 @@
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
-import { revealApp, setupThemeToggle, escapeHtml, fmtMoney, fmtDate, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient } from "./shared/ui.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtMoney, fmtDate, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient, initials } from "./shared/ui.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "packages" });
 renderNav({ activeKey: "packages", profile, tier });
@@ -105,7 +105,12 @@ async function loadPayments() {
   body.innerHTML = !data?.length ? `<tr><td colspan="5">${emptyState("💳", "No payments recorded yet", "")}</td></tr>` : data.map(p => `
     <tr onclick="location.href='client-detail.html?id=${p.client_id}&tab=packages'">
       <td>${fmtDate(p.created_at)}</td>
-      <td>${escapeHtml(p.smartcore_flexi_clients?.full_name || "—")}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="fx-avatar" style="width:26px;height:26px;font-size:10.5px;background:${tileGradient(p.client_id)}">${initials(p.smartcore_flexi_clients?.full_name)}</div>
+          ${escapeHtml(p.smartcore_flexi_clients?.full_name || "—")}
+        </div>
+      </td>
       <td class="fx-tabular">${fmtMoney(p.amount_pence, p.currency)}</td>
       <td>${escapeHtml(p.method)}</td>
       <td><span class="fx-badge fx-badge-green">${p.status}</span></td>

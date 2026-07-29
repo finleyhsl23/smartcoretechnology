@@ -48,7 +48,7 @@
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
-import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, setLoading, showMessage, openModal, closeModal, toast, emptyState } from "./shared/ui.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient } from "./shared/ui.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "classes" });
 renderNav({ activeKey: "classes", profile, tier });
@@ -68,17 +68,22 @@ async function load() {
   }
 
   grid.innerHTML = sessions.map(s => `
-    <div class="fx-card">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
-        <strong>${escapeHtml(s.name)}</strong>
-        <span class="fx-badge ${s.status === "cancelled" ? "fx-badge-red" : "fx-badge-accent"}">${s.status}</span>
+    <div class="fx-card fx-card-flush">
+      <div class="fx-tile" style="background:${tileGradient(s.id)};border-radius:0">
+        <svg class="fx-tile-icon" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="3"/><circle cx="16" cy="9" r="2.6"/><path d="M2.8 20.2c0-3.3 2.6-5.9 5.7-5.9s5.7 2.6 5.7 5.9"/><path d="M14.6 15c2.4.4 4.2 2.5 4.2 5"/></svg>
+        <div class="fx-tile-eyebrow">${fmtDateTime(s.starts_at)}</div>
+        <div class="fx-tile-title">${escapeHtml(s.name)}</div>
       </div>
-      <div style="color:var(--fx-text3);font-size:12.5px;margin-bottom:10px">${fmtDateTime(s.starts_at)}</div>
-      <div class="fx-progress-track" style="margin-bottom:6px"><div class="fx-progress-fill" style="width:${Math.min(100, (counts[s.id]/s.capacity)*100)}%"></div></div>
-      <div class="fx-tabular" style="font-size:12.5px;color:var(--fx-text2)">${counts[s.id]} / ${s.capacity} booked</div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button class="fx-btn fx-btn-sm fx-btn-primary" data-attend="${s.id}" data-name="${escapeHtml(s.name)}">Take Attendance</button>
-        ${s.status === "scheduled" ? `<button class="fx-btn fx-btn-sm fx-btn-danger" data-cancel="${s.id}">Cancel Class</button>` : ""}
+      <div style="padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <span class="fx-badge ${s.status === "cancelled" ? "fx-badge-red" : "fx-badge-accent"}">${s.status}</span>
+          <span class="fx-tabular" style="font-size:12.5px;color:var(--fx-text2)">${counts[s.id]} / ${s.capacity} booked</span>
+        </div>
+        <div class="fx-progress-track"><div class="fx-progress-fill" style="width:${Math.min(100, (counts[s.id]/s.capacity)*100)}%"></div></div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="fx-btn fx-btn-sm fx-btn-primary" data-attend="${s.id}" data-name="${escapeHtml(s.name)}">Take Attendance</button>
+          ${s.status === "scheduled" ? `<button class="fx-btn fx-btn-sm fx-btn-danger" data-cancel="${s.id}">Cancel Class</button>` : ""}
+        </div>
       </div>
     </div>
   `).join("");

@@ -73,7 +73,7 @@
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
-import { revealApp, setupThemeToggle, escapeHtml, fmtDate, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient, enhanceSelect } from "./shared/ui.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDate, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient, enhanceSelect, initials } from "./shared/ui.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "programs" });
 renderNav({ activeKey: "programs", profile, tier });
@@ -217,7 +217,14 @@ function renderPrograms() {
   body.innerHTML = !rows.length ? `<tr><td colspan="5">${emptyState("🏋️", "No assigned programs yet", "Assign a template above, or create one from a client's page.")}</td></tr>` : rows.map(p => `
     <tr onclick="location.href='program-detail.html?id=${p.id}'">
       <td><strong>${escapeHtml(p.name)}</strong></td>
-      <td>${escapeHtml(p.smartcore_flexi_clients?.full_name || "—")}</td>
+      <td>
+        ${p.client_id ? `
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="fx-avatar" style="width:26px;height:26px;font-size:10.5px;background:${tileGradient(p.client_id)}">${initials(p.smartcore_flexi_clients?.full_name)}</div>
+            ${escapeHtml(p.smartcore_flexi_clients?.full_name || "—")}
+          </div>
+        ` : "—"}
+      </td>
       <td><span class="fx-badge ${badge[p.status]}">${p.status}</span></td>
       <td>${fmtDate(p.start_date)}</td>
       <td>${fmtDate(p.end_date)}</td>
