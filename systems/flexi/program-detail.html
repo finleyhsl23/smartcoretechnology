@@ -6,12 +6,22 @@
 <title>Program Builder — Flexi</title>
 <link rel="stylesheet" href="shared/flexi.css"/>
 <style>
-.wk-card{margin-bottom:16px}
-.wk-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-.wk-head h3{font-size:14.5px;flex:1}
-.ex-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--fx-line);font-size:13px}
+.wk-card{margin-bottom:16px;transition:box-shadow .15s}
+.wk-head{display:flex;align-items:center;gap:12px;margin-bottom:4px}
+.wk-daybadge{width:34px;height:34px;border-radius:10px;background:var(--fx-grad);color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--fx-glow)}
+.wk-card.is-rest .wk-daybadge{background:var(--fx-card2);color:var(--fx-text3);box-shadow:none;border:1px solid var(--fx-line)}
+.wk-head input.wk-name{border:none;background:none;font-size:15px;font-weight:800;color:var(--fx-text);flex:1;padding:4px 2px;border-radius:6px}
+.wk-head input.wk-name:focus{outline:none;background:var(--fx-card2)}
+.wk-rest-toggle{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--fx-text3);cursor:pointer;user-select:none;flex-shrink:0}
+.wk-switch{position:relative;width:36px;height:20px;border-radius:99px;background:var(--fx-line-hi);transition:background .15s;flex-shrink:0}
+.wk-switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.wk-rest-toggle.on .wk-switch{background:var(--fx-accent)}
+.wk-rest-toggle.on .wk-switch::after{transform:translateX(16px)}
+.wk-rest-body{display:flex;align-items:center;gap:8px;padding:14px 0 6px;color:var(--fx-text3);font-size:13px}
+.ex-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--fx-line);font-size:13px}
 .ex-row:last-child{border-bottom:none}
-.ex-add-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:center;margin-top:10px}
+.ex-row strong{font-weight:700}
+.ex-add-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px dashed var(--fx-line)}
 @media(max-width:760px){.ex-row,.ex-add-row{grid-template-columns:1fr 1fr}}
 </style>
 </head>
@@ -33,12 +43,12 @@
       <div class="fx-field" style="max-width:420px"><label>Description</label><textarea class="fx-textarea" id="programDesc" style="min-height:50px"></textarea></div>
       <button class="fx-btn fx-btn-sm" id="saveProgramBtn" style="margin-bottom:24px">Save Details</button>
 
-      <div class="fx-section-head"><h2>Workouts</h2></div>
+      <div class="fx-section-head"><h2>Weekly Plan</h2></div>
       <div id="workoutsList"></div>
 
       <div class="fx-card" style="max-width:420px">
-        <div class="fx-field"><label>New workout day name</label><input class="fx-input" id="newWorkoutName" placeholder="e.g. Day 1 — Push"/></div>
-        <button class="fx-btn fx-btn-primary" id="addWorkoutBtn">+ Add Workout</button>
+        <div class="fx-field"><label>Add another day</label><input class="fx-input" id="newWorkoutName" placeholder="e.g. Day 8 — Bonus"/></div>
+        <button class="fx-btn fx-btn-primary" id="addWorkoutBtn">+ Add Day</button>
       </div>
     </main>
   </div>
@@ -51,7 +61,7 @@ import { sb } from "./shared/supabase.js";
 import { revealApp, setupThemeToggle, escapeHtml, setLoading, toast, emptyState, enhanceSelect } from "./shared/ui.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "programs" });
-renderNav({ activeKey: "clients", profile, tier });
+renderNav({ activeKey: "programs", profile, tier });
 wireMobileNavToggle();
 setupThemeToggle();
 
@@ -68,7 +78,9 @@ async function loadProgram() {
   if (error || !data) { toast("Program not found", "error"); return; }
   program = data;
   document.getElementById("programName").textContent = program.name;
-  document.getElementById("programClientLink").innerHTML = `<a href="client-detail.html?id=${program.client_id}" style="color:var(--fx-accent)">${escapeHtml(program.smartcore_flexi_clients?.full_name || "")}</a>`;
+  document.getElementById("programClientLink").innerHTML = program.is_template
+    ? `<span class="fx-badge fx-badge-accent">Generic Program Template</span>`
+    : `<a href="client-detail.html?id=${program.client_id}" style="color:var(--fx-accent)">${escapeHtml(program.smartcore_flexi_clients?.full_name || "")}</a>`;
   document.getElementById("statusSelect").value = program.status;
   document.getElementById("programDesc").value = program.description || "";
 }
@@ -89,49 +101,72 @@ document.getElementById("saveProgramBtn").addEventListener("click", async (e) =>
 async function loadWorkouts() {
   const { data: workouts } = await sb().from("smartcore_flexi_workouts").select("*").eq("program_id", programId).order("order_index");
   const el = document.getElementById("workoutsList");
-  if (!workouts?.length) { el.innerHTML = emptyState("🗓️", "No workouts yet", "Add your first training day below."); return; }
+  if (!workouts?.length) { el.innerHTML = emptyState("🗓️", "No days yet", "Add your first training day below."); return; }
 
   const workoutExercises = {};
   for (const w of workouts) {
+    if (w.is_rest_day) continue;
     const { data } = await sb().from("smartcore_flexi_workout_exercises").select("*, smartcore_flexi_exercises(name, category)").eq("workout_id", w.id).order("order_index");
     workoutExercises[w.id] = data || [];
   }
 
-  el.innerHTML = workouts.map(w => `
-    <div class="fx-card wk-card" data-workout="${w.id}">
+  el.innerHTML = workouts.map((w, i) => `
+    <div class="fx-card wk-card ${w.is_rest_day ? "is-rest" : ""}" data-workout="${w.id}">
       <div class="wk-head">
-        <h3>${escapeHtml(w.name)}</h3>
-        <button class="fx-btn fx-btn-sm fx-btn-danger" data-del-workout="${w.id}">Delete Day</button>
+        <div class="wk-daybadge">${i + 1}</div>
+        <input class="wk-name" data-name="${w.id}" value="${escapeHtml(w.name)}"/>
+        <label class="wk-rest-toggle ${w.is_rest_day ? "on" : ""}" data-rest-toggle="${w.id}">
+          <span class="wk-switch"></span>Rest day
+        </label>
+        <button class="fx-btn fx-btn-sm fx-btn-danger" data-del-workout="${w.id}">Delete</button>
       </div>
-      ${workoutExercises[w.id].length ? `
-        <div class="ex-row" style="font-weight:700;color:var(--fx-text3);font-size:11px;text-transform:uppercase">
-          <div>Exercise</div><div>Sets</div><div>Reps</div><div>Weight</div><div>Rest</div><div></div>
-        </div>
-        ${workoutExercises[w.id].map(we => `
-          <div class="ex-row">
-            <div>${escapeHtml(we.smartcore_flexi_exercises?.name || "—")}</div>
-            <div>${we.target_sets ?? "—"}</div>
-            <div>${escapeHtml(we.target_reps || "—")}</div>
-            <div>${we.target_weight_kg ? we.target_weight_kg + "kg" : "—"}</div>
-            <div>${we.rest_seconds ? we.rest_seconds + "s" : "—"}</div>
-            <div><button class="fx-btn fx-btn-sm fx-btn-danger" data-del-ex="${we.id}">✕</button></div>
+      ${w.is_rest_day ? `
+        <div class="wk-rest-body">😴 Rest day — no training scheduled.</div>
+      ` : `
+        ${workoutExercises[w.id]?.length ? `
+          <div class="ex-row" style="font-weight:700;color:var(--fx-text3);font-size:11px;text-transform:uppercase">
+            <div>Exercise</div><div>Sets</div><div>Reps</div><div>Weight</div><div>Rest</div><div></div>
           </div>
-        `).join("")}
-      ` : `<p style="color:var(--fx-text3);font-size:12.5px;margin-bottom:10px">No exercises added yet.</p>`}
-      <div class="ex-add-row">
-        <select class="fx-select" data-ex-select="${w.id}">
-          <option value="">Select exercise…</option>
-          ${exerciseLibrary.map(ex => `<option value="${ex.id}">${escapeHtml(ex.name)}</option>`).join("")}
-        </select>
-        <input class="fx-input" type="number" placeholder="Sets" data-ex-sets="${w.id}"/>
-        <input class="fx-input" placeholder="Reps e.g. 8-10" data-ex-reps="${w.id}"/>
-        <input class="fx-input" type="number" placeholder="Weight kg" data-ex-weight="${w.id}"/>
-        <input class="fx-input" type="number" placeholder="Rest sec" data-ex-rest="${w.id}"/>
-        <button class="fx-btn fx-btn-sm fx-btn-primary" data-add-ex="${w.id}">Add</button>
-      </div>
+          ${workoutExercises[w.id].map(we => `
+            <div class="ex-row">
+              <strong>${escapeHtml(we.smartcore_flexi_exercises?.name || "—")}</strong>
+              <div>${we.target_sets ?? "—"}</div>
+              <div>${escapeHtml(we.target_reps || "—")}</div>
+              <div>${we.target_weight_kg ? we.target_weight_kg + "kg" : "—"}</div>
+              <div>${we.rest_seconds ? we.rest_seconds + "s" : "—"}</div>
+              <div><button class="fx-btn fx-btn-sm fx-btn-danger" data-del-ex="${we.id}">✕</button></div>
+            </div>
+          `).join("")}
+        ` : `<p style="color:var(--fx-text3);font-size:12.5px;margin:6px 0 0">No exercises added yet.</p>`}
+        <div class="ex-add-row">
+          <select class="fx-select" data-ex-select="${w.id}">
+            <option value="">Select exercise…</option>
+            ${exerciseLibrary.map(ex => `<option value="${ex.id}">${escapeHtml(ex.name)}</option>`).join("")}
+          </select>
+          <input class="fx-input" type="number" placeholder="Sets" data-ex-sets="${w.id}"/>
+          <input class="fx-input" placeholder="Reps e.g. 8-10" data-ex-reps="${w.id}"/>
+          <input class="fx-input" type="number" placeholder="Weight kg" data-ex-weight="${w.id}"/>
+          <input class="fx-input" type="number" placeholder="Rest sec" data-ex-rest="${w.id}"/>
+          <button class="fx-btn fx-btn-sm fx-btn-primary" data-add-ex="${w.id}">Add</button>
+        </div>
+      `}
     </div>
   `).join("");
   el.querySelectorAll("[data-ex-select]").forEach(sel => enhanceSelect(sel, { placeholder: "Search exercises…" }));
+
+  el.querySelectorAll("[data-name]").forEach(input => input.addEventListener("change", async () => {
+    const name = input.value.trim() || "Untitled day";
+    input.value = name;
+    await sb().from("smartcore_flexi_workouts").update({ name }).eq("id", input.dataset.name);
+  }));
+
+  el.querySelectorAll("[data-rest-toggle]").forEach(toggle => toggle.addEventListener("click", async () => {
+    const wid = toggle.dataset.restToggle;
+    const goingRest = !toggle.classList.contains("on");
+    if (goingRest && workoutExercises[wid]?.length && !confirm("This day has exercises — mark it as a rest day anyway? The exercises stay saved but won't be shown.")) return;
+    await sb().from("smartcore_flexi_workouts").update({ is_rest_day: goingRest }).eq("id", wid);
+    loadWorkouts();
+  }));
 
   el.querySelectorAll("[data-add-ex]").forEach(btn => btn.addEventListener("click", async () => {
     const wid = btn.dataset.addEx;
@@ -152,7 +187,7 @@ async function loadWorkouts() {
     loadWorkouts();
   }));
   el.querySelectorAll("[data-del-workout]").forEach(btn => btn.addEventListener("click", async () => {
-    if (!confirm("Delete this workout day and all its exercises?")) return;
+    if (!confirm("Delete this day and all its exercises?")) return;
     await sb().from("smartcore_flexi_workouts").delete().eq("id", btn.dataset.delWorkout);
     loadWorkouts();
   }));

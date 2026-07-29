@@ -1,8 +1,8 @@
 import { tierHasFeature, hasPermission, isAdmin, logout } from "./auth.js";
 import { initials } from "./ui.js";
 
-const ICON_ATTRS = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
-const ICONS = {
+export const ICON_ATTRS = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
+export const ICONS = {
   dashboard: `<svg ${ICON_ATTRS}><rect x="3" y="3" width="7" height="10" rx="1.6"/><rect x="14" y="3" width="7" height="6" rx="1.6"/><rect x="14" y="12.5" width="7" height="8.5" rx="1.6"/><rect x="3" y="16.5" width="7" height="4.5" rx="1.6"/></svg>`,
   clients: `<svg ${ICON_ATTRS}><circle cx="9" cy="8" r="3.4"/><path d="M2.8 20c0-3.5 2.8-6.3 6.2-6.3s6.2 2.8 6.2 6.3"/><circle cx="17.5" cy="8.5" r="2.5"/><path d="M15.6 13.9c2.5.5 4.4 2.7 4.4 5.4"/></svg>`,
   programs: `<svg ${ICON_ATTRS}><rect x="4.5" y="3.5" width="15" height="17" rx="2"/><path d="M9 3.5v1.6a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V3.5"/><line x1="8" y1="11.5" x2="16" y2="11.5"/><line x1="8" y1="15" x2="13.5" y2="15"/></svg>`,
