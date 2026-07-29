@@ -244,9 +244,14 @@ async function handleAction({ request, env }) {
 
   if (action === 'sign_waiver') {
     if (!body.signature_name?.trim()) return json({ error: 'Type your name to sign.' }, 400);
+    let signature_image_url = null;
+    if (body.signature_base64) {
+      const path = `${companyId}/${cid}/signatures/${body.waiver_id}-${Date.now()}.png`;
+      signature_image_url = await uploadToStorage(env, path, body.signature_base64, 'image/png');
+    }
     await sb(env, `/smartcore_flexi_waiver_signatures`, {
       method: 'POST',
-      body: { waiver_id: body.waiver_id, client_id: cid, company_id: companyId, signature_name: body.signature_name.trim() },
+      body: { waiver_id: body.waiver_id, client_id: cid, company_id: companyId, signature_name: body.signature_name.trim(), signature_image_url },
     });
     return json({ success: true });
   }

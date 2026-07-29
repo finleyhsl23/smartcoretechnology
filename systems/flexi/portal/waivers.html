@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Waivers — Flexi</title>
 <link rel="stylesheet" href="../shared/flexi.css"/>
+<style>
+.sig-pad{width:100%;height:150px;border:1px solid var(--fx-line);border-radius:10px;background:#fff;touch-action:none;cursor:crosshair;display:block}
+.sig-row{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
+.sig-hint{font-size:11.5px;color:var(--fx-text3)}
+</style>
 </head>
 <body>
 <div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
@@ -27,8 +32,13 @@
 <div class="fx-modal" id="signModal">
   <div class="fx-modal-box">
     <div class="fx-modal-head"><h3 id="signTitle">Waiver</h3><button class="fx-modal-close" data-close>✕</button></div>
-    <div id="signBody" style="font-size:13px;color:var(--fx-text2);max-height:220px;overflow-y:auto;margin-bottom:14px;white-space:pre-wrap"></div>
+    <div id="signBody" style="font-size:13px;color:var(--fx-text2);max-height:180px;overflow-y:auto;margin-bottom:14px;white-space:pre-wrap"></div>
     <div class="fx-field"><label>Type your full name to sign</label><input class="fx-input" id="signName"/></div>
+    <div class="fx-field">
+      <label>Sign below with your finger or mouse</label>
+      <canvas class="sig-pad" id="sigCanvas"></canvas>
+      <div class="sig-row"><span class="sig-hint">This becomes part of the signed record.</span><button type="button" class="fx-btn fx-btn-sm" id="clearSigBtn">Clear</button></div>
+    </div>
     <div class="fx-form-msg" id="signMsg"></div>
     <button class="fx-btn fx-btn-primary fx-btn-block" id="confirmSignBtn">Sign &amp; Accept</button>
   </div>
@@ -36,11 +46,53 @@
 
 <script type="module">
 import { requireClientAccess, api } from "../shared/client-auth.js";
-import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, showMessage, openModal, closeModal, toast, emptyState } from "../shared/ui.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, showMessage, setLoading, openModal, closeModal, toast, emptyState } from "../shared/ui.js";
 
 const client = await requireClientAccess();
 setupThemeToggle();
 revealApp();
+
+// ---- Signature pad ----
+const canvas = document.getElementById("sigCanvas");
+const ctx = canvas.getContext("2d");
+let hasSignature = false;
+let drawing = false;
+
+function resetCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = rect.width * ratio;
+  canvas.height = rect.height * ratio;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(ratio, ratio);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, rect.width, rect.height);
+  ctx.strokeStyle = "#1a1a2e";
+  ctx.lineWidth = 2.4;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  hasSignature = false;
+}
+function pointerPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+canvas.addEventListener("pointerdown", (e) => {
+  drawing = true; hasSignature = true;
+  const p = pointerPos(e);
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener("pointermove", (e) => {
+  if (!drawing) return;
+  const p = pointerPos(e);
+  ctx.lineTo(p.x, p.y);
+  ctx.stroke();
+});
+canvas.addEventListener("pointerup", () => { drawing = false; });
+canvas.addEventListener("pointerleave", () => { drawing = false; });
+document.getElementById("clearSigBtn").addEventListener("click", resetCanvas);
 
 async function load() {
   const { waivers, signatures: sigs } = await api("waivers_list");
@@ -68,13 +120,18 @@ function openSign(id, title, body) {
   document.getElementById("signMsg").textContent = "";
   document.getElementById("confirmSignBtn").dataset.waiver = id;
   openModal("signModal");
+  requestAnimationFrame(resetCanvas);
 }
 document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("signModal")));
 document.getElementById("confirmSignBtn").addEventListener("click", async (e) => {
   const name = document.getElementById("signName").value.trim();
   if (!name) { showMessage("signMsg", "Type your name to sign.", "error"); return; }
-  try { await api("sign_waiver", { waiver_id: e.target.dataset.waiver, signature_name: name }); }
-  catch (err) { showMessage("signMsg", err.message, "error"); return; }
+  if (!hasSignature) { showMessage("signMsg", "Please sign using your finger or mouse.", "error"); return; }
+  setLoading(e.target, true, "Signing…");
+  const signature_base64 = canvas.toDataURL("image/png").split(",")[1];
+  try { await api("sign_waiver", { waiver_id: e.target.dataset.waiver, signature_name: name, signature_base64 }); }
+  catch (err) { setLoading(e.target, false); showMessage("signMsg", err.message, "error"); return; }
+  setLoading(e.target, false);
   closeModal("signModal");
   toast("Signed — thank you", "success");
   load();

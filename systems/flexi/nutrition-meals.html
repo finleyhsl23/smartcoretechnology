@@ -9,8 +9,21 @@
 .nut-subnav{display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--fx-line)}
 .nut-subnav a{padding:10px 4px;font-size:13px;font-weight:700;color:var(--fx-text3);text-decoration:none;border-bottom:2px solid transparent;margin-right:18px}
 .nut-subnav a.active{color:var(--fx-accent-d);border-color:var(--fx-accent)}
+.mini-stat{display:flex;align-items:center;gap:12px}
+.mini-stat-icon{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.mini-stat-icon svg{width:18px;height:18px}
 .plan-item-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--fx-line);font-size:13px}
 .plan-item-row:last-child{border-bottom:none}
+.plan-card{position:relative;overflow:hidden;padding-top:6px}
+.plan-goal-strip{position:absolute;top:0;left:0;right:0;height:5px}
+.plan-goal-strip.lose{background:linear-gradient(90deg,#f59e0b,#ef4444)}
+.plan-goal-strip.maintain{background:linear-gradient(90deg,#0ea5b7,#2563eb)}
+.plan-goal-strip.gain{background:linear-gradient(90deg,#16a34a,#0d9488)}
+.plan-goal-strip.none{background:var(--fx-line-hi)}
+.meal-pick-list{max-height:220px;overflow-y:auto;border:1px solid var(--fx-line);border-radius:12px;padding:8px;margin-top:8px}
+.meal-pick-row{display:flex;align-items:center;gap:10px;padding:7px 6px;border-radius:8px;font-size:13px;cursor:pointer}
+.meal-pick-row:hover{background:var(--fx-card2)}
+.meal-pick-row .mp-meta{margin-left:auto;color:var(--fx-text3);font-size:11.5px}
 </style>
 </head>
 <body>
@@ -28,10 +41,31 @@
         <a href="nutrition-meals.html" class="active">Meal Library</a>
       </div>
 
-      <div class="fx-section-head" style="margin-top:0"><h2>Meals</h2><button class="fx-btn fx-btn-sm fx-btn-primary" id="addMealBtn">+ Add Meal</button></div>
+      <div class="fx-grid fx-grid-3" style="margin-bottom:28px">
+        <div class="fx-card mini-stat">
+          <div class="mini-stat-icon" style="background:linear-gradient(135deg,#16a34a,#0d9488)"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c1.2 2 1.2 4-.3 5.6"/><path d="M12 8.4c4 0 7 3 7 7a5.6 5.6 0 0 1-11.2 0M5 15.4A5.6 5.6 0 0 1 12 8.4"/></svg></div>
+          <div><div class="fx-stat-label">Meals in Library</div><div class="fx-stat-val" id="statMeals">—</div></div>
+        </div>
+        <div class="fx-card mini-stat">
+          <div class="mini-stat-icon" style="background:linear-gradient(135deg,#6366f1,#a855f7)"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="3.5" width="15" height="17" rx="2"/><line x1="8" y1="11.5" x2="16" y2="11.5"/><line x1="8" y1="15" x2="13.5" y2="15"/></svg></div>
+          <div><div class="fx-stat-label">Meal Plans</div><div class="fx-stat-val" id="statPlans">—</div></div>
+        </div>
+      </div>
+
+      <div class="fx-section-head" style="margin-top:0">
+        <h2>Meals</h2>
+        <div class="fx-section-head-spacer"></div>
+        <input class="fx-input" id="mealSearch" placeholder="Search meals…" style="max-width:200px"/>
+        <button class="fx-btn fx-btn-sm fx-btn-primary" id="addMealBtn">+ Add Meal</button>
+      </div>
       <div class="fx-grid fx-grid-3" id="mealsGrid" style="margin-bottom:32px"></div>
 
-      <div class="fx-section-head"><h2>Meal Plans</h2><button class="fx-btn fx-btn-sm fx-btn-primary" id="addPlanBtn">+ Add Meal Plan</button></div>
+      <div class="fx-section-head">
+        <h2>Meal Plans</h2>
+        <div class="fx-section-head-spacer"></div>
+        <input class="fx-input" id="planSearch" placeholder="Search meal plans…" style="max-width:200px"/>
+        <button class="fx-btn fx-btn-sm fx-btn-primary" id="addPlanBtn">+ Add Meal Plan</button>
+      </div>
       <div id="plansList"></div>
     </main>
   </div>
@@ -60,13 +94,18 @@
 </div>
 
 <div class="fx-modal" id="planModal">
-  <div class="fx-modal-box">
+  <div class="fx-modal-box" style="max-width:560px">
     <div class="fx-modal-head"><h3>Add Meal Plan</h3><button class="fx-modal-close" data-close-plan>✕</button></div>
     <div class="fx-field"><label>Name</label><input class="fx-input" id="planName" placeholder="e.g. Fat Loss — 2000kcal"/></div>
     <div class="fx-field"><label>Goal</label>
       <select class="fx-select" id="planGoal"><option value="">—</option><option value="lose">Lose weight</option><option value="maintain">Maintain / recomposition</option><option value="gain">Build muscle</option></select>
     </div>
-    <div class="fx-field"><label>Description</label><textarea class="fx-textarea" id="planDesc" style="min-height:60px"></textarea></div>
+    <div class="fx-field"><label>Description</label><textarea class="fx-textarea" id="planDesc" style="min-height:50px"></textarea></div>
+    <div class="fx-field">
+      <label>Include meals (optional — you can add more later)</label>
+      <input class="fx-input" id="planMealSearch" placeholder="Search your meal library…"/>
+      <div class="meal-pick-list" id="planMealPick"></div>
+    </div>
     <div class="fx-form-msg" id="planMsg"></div>
     <button class="fx-btn fx-btn-primary fx-btn-block" id="savePlanBtn">Save Meal Plan</button>
   </div>
@@ -86,12 +125,11 @@ revealApp();
 
 const SLOTS = ["breakfast","lunch","dinner","snack","meal"];
 let allMeals = [];
+let allPlans = [];
 
-async function loadMeals() {
-  const { data } = await sb().from("smartcore_flexi_meals").select("*").order("name");
-  allMeals = data || [];
+function renderMealsGrid(list) {
   const grid = document.getElementById("mealsGrid");
-  grid.innerHTML = !allMeals.length ? emptyState("🍽️", "No meals yet", "Add your first recommended meal above.") : allMeals.map(m => `
+  grid.innerHTML = !list.length ? emptyState("🍽️", "No meals found", "Add your first recommended meal above.") : list.map(m => `
     <div class="fx-card fx-card-flush">
       <div class="fx-tile" style="background:${tileGradient(m.id)};border-radius:0">
         <div class="fx-tile-eyebrow">${escapeHtml(m.meal_type)}</div>
@@ -110,6 +148,17 @@ async function loadMeals() {
     loadMeals(); loadPlans();
   }));
 }
+
+async function loadMeals() {
+  const { data } = await sb().from("smartcore_flexi_meals").select("*").order("name");
+  allMeals = data || [];
+  document.getElementById("statMeals").textContent = allMeals.length;
+  renderMealsGrid(allMeals);
+}
+document.getElementById("mealSearch").addEventListener("input", (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  renderMealsGrid(!q ? allMeals : allMeals.filter(m => m.name.toLowerCase().includes(q)));
+});
 
 document.getElementById("addMealBtn").addEventListener("click", () => {
   ["mealName","mealCals","mealProtein","mealCarbs","mealFat","mealIngredients","mealInstructions"].forEach(id => document.getElementById(id).value = "");
@@ -141,10 +190,32 @@ document.getElementById("saveMealBtn").addEventListener("click", async (e) => {
 });
 
 // ---- Meal plans ----
+function renderPlanMealPicker(query) {
+  const q = (query || "").trim().toLowerCase();
+  const list = !q ? allMeals : allMeals.filter(m => m.name.toLowerCase().includes(q));
+  const el = document.getElementById("planMealPick");
+  el.innerHTML = !list.length ? `<p style="color:var(--fx-text3);font-size:12.5px;padding:6px">No meals match.</p>` : list.map(m => `
+    <label class="meal-pick-row">
+      <input type="checkbox" value="${m.id}" data-pick-meal/>
+      <span>${escapeHtml(m.name)}</span>
+      <span class="mp-meta">${escapeHtml(m.meal_type)} · ${m.calories || "—"} kcal</span>
+    </label>
+  `).join("");
+}
+document.getElementById("planMealSearch").addEventListener("input", (e) => renderPlanMealPicker(e.target.value));
+
 async function loadPlans() {
   const { data: plans } = await sb().from("smartcore_flexi_meal_plans").select("*").order("created_at", { ascending: false });
+  allPlans = plans || [];
+  document.getElementById("statPlans").textContent = allPlans.length;
+  renderPlans(document.getElementById("planSearch").value);
+}
+async function renderPlans(query) {
+  const q = (query || "").trim().toLowerCase();
+  const plans = !q ? allPlans : allPlans.filter(p => p.name.toLowerCase().includes(q));
   const el = document.getElementById("plansList");
-  if (!plans?.length) { el.innerHTML = emptyState("📋", "No meal plans yet", "Group meals into a reusable plan above."); return; }
+  if (!allPlans.length) { el.innerHTML = emptyState("📋", "No meal plans yet", "Group meals into a reusable plan above."); return; }
+  if (!plans.length) { el.innerHTML = emptyState("📋", "No meal plans match", ""); return; }
 
   const itemsByPlan = {};
   for (const p of plans) {
@@ -153,7 +224,8 @@ async function loadPlans() {
   }
 
   el.innerHTML = plans.map(p => `
-    <div class="fx-card" style="margin-bottom:14px">
+    <div class="fx-card plan-card" style="margin-bottom:14px">
+      <div class="plan-goal-strip ${p.goal || "none"}"></div>
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div>
           <strong>${escapeHtml(p.name)}</strong> ${p.goal ? `<span class="fx-badge fx-badge-grey" style="text-transform:capitalize">${escapeHtml(p.goal)}</span>` : ""}
@@ -199,11 +271,13 @@ async function loadPlans() {
     loadPlans();
   }));
 }
+document.getElementById("planSearch").addEventListener("input", (e) => renderPlans(e.target.value));
 
 document.getElementById("addPlanBtn").addEventListener("click", () => {
-  ["planName","planDesc"].forEach(id => document.getElementById(id).value = "");
+  ["planName","planDesc","planMealSearch"].forEach(id => document.getElementById(id).value = "");
   document.getElementById("planGoal").value = "";
   document.getElementById("planMsg").textContent = "";
+  renderPlanMealPicker("");
   openModal("planModal");
 });
 document.querySelectorAll("[data-close-plan]").forEach(b => b.addEventListener("click", () => closeModal("planModal")));
@@ -211,14 +285,22 @@ document.getElementById("savePlanBtn").addEventListener("click", async (e) => {
   const name = document.getElementById("planName").value.trim();
   if (!name) { showMessage("planMsg", "Name is required.", "error"); return; }
   setLoading(e.target, true, "Saving…");
-  const { error } = await sb().from("smartcore_flexi_meal_plans").insert({
+  const { data: plan, error } = await sb().from("smartcore_flexi_meal_plans").insert({
     company_id: profile.company_id, name,
     goal: document.getElementById("planGoal").value || null,
     description: document.getElementById("planDesc").value.trim() || null,
     created_by: profile.id,
-  });
+  }).select().single();
+  if (error) { setLoading(e.target, false); showMessage("planMsg", error.message, "error"); return; }
+
+  const pickedMeals = [...document.querySelectorAll("[data-pick-meal]:checked")].map(cb => cb.value);
+  if (pickedMeals.length) {
+    const { error: itemErr } = await sb().from("smartcore_flexi_meal_plan_items").insert(
+      pickedMeals.map((meal_id, i) => ({ meal_plan_id: plan.id, meal_id, meal_slot: "meal", order_index: i }))
+    );
+    if (itemErr) { setLoading(e.target, false); showMessage("planMsg", itemErr.message, "error"); return; }
+  }
   setLoading(e.target, false);
-  if (error) { showMessage("planMsg", error.message, "error"); return; }
   closeModal("planModal");
   toast("Meal plan added", "success");
   loadPlans();

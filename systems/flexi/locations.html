@@ -13,8 +13,9 @@
   <div class="fx-main">
     <header class="fx-topbar">
       <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
-      <div><h1>Locations</h1><div class="fx-topbar-sub">Sites your business trains clients from</div></div>
+      <div><h1>Locations</h1><div class="fx-topbar-sub" id="countLabel">Sites your business trains clients from</div></div>
       <div class="fx-topbar-spacer"></div>
+      <input class="fx-input" id="searchInput" placeholder="Search locations…" style="max-width:200px"/>
       <button class="fx-btn fx-btn-primary" id="addBtn">+ Add Location</button>
     </header>
     <main class="fx-content">
@@ -42,7 +43,7 @@
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
-import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState } from "./shared/ui.js";
+import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient } from "./shared/ui.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "locations" });
 renderNav({ activeKey: "locations", profile, tier });
@@ -50,16 +51,31 @@ wireMobileNavToggle();
 setupThemeToggle();
 revealApp();
 
-async function load() {
-  const { data } = await sb().from("smartcore_flexi_locations").select("*").order("is_primary", { ascending: false });
+let all = [];
+function render() {
+  const q = document.getElementById("searchInput").value.trim().toLowerCase();
+  const rows = all.filter(l => !q || l.name.toLowerCase().includes(q) || (l.city || "").toLowerCase().includes(q));
+  document.getElementById("countLabel").textContent = `${all.length} location${all.length === 1 ? "" : "s"}`;
   const grid = document.getElementById("grid");
-  grid.innerHTML = !data?.length ? emptyState("◇", "No locations yet", "Add your first site above.") : data.map(l => `
-    <div class="fx-card">
-      <div style="display:flex;justify-content:space-between"><strong>${escapeHtml(l.name)}</strong>${l.is_primary ? '<span class="fx-badge fx-badge-accent">Primary</span>' : ""}</div>
-      <div style="color:var(--fx-text3);font-size:12.5px;margin-top:8px">${escapeHtml([l.address_line_1, l.city, l.postcode].filter(Boolean).join(", ") || "No address set")}</div>
+  grid.innerHTML = !rows.length ? emptyState("◇", "No locations found", "Add your first site above.") : rows.map(l => `
+    <div class="fx-card fx-card-flush">
+      <div class="fx-tile" style="background:${tileGradient(l.id)};border-radius:0">
+        <svg class="fx-tile-icon" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.9 7-11.4a7 7 0 1 0-14 0C5 15.1 12 21 12 21Z"/><circle cx="12" cy="9.7" r="2.5"/></svg>
+        <div class="fx-tile-eyebrow">${l.is_primary ? "Primary site" : "Location"}</div>
+        <div class="fx-tile-title">${escapeHtml(l.name)}</div>
+      </div>
+      <div style="padding:16px">
+        <div style="color:var(--fx-text3);font-size:12.5px">${escapeHtml([l.address_line_1, l.city, l.postcode].filter(Boolean).join(", ") || "No address set")}</div>
+      </div>
     </div>
   `).join("");
 }
+async function load() {
+  const { data } = await sb().from("smartcore_flexi_locations").select("*").order("is_primary", { ascending: false });
+  all = data || [];
+  render();
+}
+document.getElementById("searchInput").addEventListener("input", render);
 
 document.getElementById("addBtn").addEventListener("click", () => { document.getElementById("locMsg").textContent = ""; openModal("addModal"); });
 document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));

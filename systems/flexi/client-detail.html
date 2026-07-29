@@ -202,7 +202,7 @@
       <!-- Waivers -->
       <div class="fx-tabpanel" id="tab-waivers">
         <div class="fx-table-wrap">
-          <table class="fx-table"><thead><tr><th>Waiver</th><th>Status</th><th>Signed</th></tr></thead><tbody id="waiversBody"></tbody></table>
+          <table class="fx-table"><thead><tr><th>Waiver</th><th>Status</th><th>Signed</th><th>Signature</th></tr></thead><tbody id="waiversBody"></tbody></table>
         </div>
       </div>
 
@@ -556,9 +556,16 @@ async function loadWaivers() {
   ]);
   const signedIds = new Set((sigs || []).map(s => s.waiver_id));
   const body = document.getElementById("waiversBody");
-  body.innerHTML = !waivers?.length ? `<tr><td colspan="3">${emptyState("📝", "No waivers configured", "Add waivers from the Waivers page.")}</td></tr>` : waivers.map(w => {
+  body.innerHTML = !waivers?.length ? `<tr><td colspan="4">${emptyState("📝", "No waivers configured", "Add waivers from the Waivers page.")}</td></tr>` : waivers.map(w => {
     const sig = (sigs || []).find(s => s.waiver_id === w.id);
-    return `<tr><td>${escapeHtml(w.title)}</td><td><span class="fx-badge ${signedIds.has(w.id) ? "fx-badge-green" : "fx-badge-amber"}">${signedIds.has(w.id) ? "Signed" : "Pending"}</span></td><td>${sig ? fmtDateTime(sig.signed_at) : "—"}</td></tr>`;
+    return `<tr>
+      <td>${escapeHtml(w.title)}</td>
+      <td><span class="fx-badge ${signedIds.has(w.id) ? "fx-badge-green" : "fx-badge-amber"}">${signedIds.has(w.id) ? "Signed" : "Pending"}</span></td>
+      <td>${sig ? fmtDateTime(sig.signed_at) : "—"}</td>
+      <td>${sig?.signature_image_url
+        ? `<img src="${sig.signature_image_url}" alt="Signature" style="height:32px;background:#fff;border-radius:4px;border:1px solid var(--fx-line)"/> <span style="color:var(--fx-text3);font-size:11.5px">${escapeHtml(sig.signature_name)}</span>`
+        : (sig ? escapeHtml(sig.signature_name) : "—")}</td>
+    </tr>`;
   }).join("");
 }
 

@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Waivers — Flexi</title>
 <link rel="stylesheet" href="shared/flexi.css"/>
+<style>
+.waiver-card{position:relative;overflow:hidden;padding-top:6px}
+.waiver-strip{position:absolute;top:0;left:0;right:0;height:5px}
+.waiver-strip.active{background:linear-gradient(90deg,#16a34a,#0d9488)}
+.waiver-strip.inactive{background:var(--fx-line-hi)}
+</style>
 </head>
 <body>
 <div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
@@ -15,6 +21,7 @@
       <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
       <div><h1>Waivers &amp; PAR-Q</h1><div class="fx-topbar-sub">Digital liability &amp; health-screening forms</div></div>
       <div class="fx-topbar-spacer"></div>
+      <input class="fx-input" id="searchInput" placeholder="Search waivers…" style="max-width:200px"/>
       <button class="fx-btn fx-btn-primary" id="addBtn">+ New Waiver</button>
     </header>
     <main class="fx-content">
@@ -45,17 +52,27 @@ wireMobileNavToggle();
 setupThemeToggle();
 revealApp();
 
+let allWaivers = [];
 async function load() {
   const { data: waivers } = await sb().from("smartcore_flexi_waivers").select("*").order("created_at", { ascending: false });
+  allWaivers = waivers || [];
+  render();
+}
+async function render() {
+  const q = document.getElementById("searchInput").value.trim().toLowerCase();
+  const waivers = !q ? allWaivers : allWaivers.filter(w => w.title.toLowerCase().includes(q));
   const { count: totalClients } = await sb().from("smartcore_flexi_clients").select("id", { count: "exact", head: true }).eq("status", "active");
 
   const list = document.getElementById("list");
-  if (!waivers?.length) { list.innerHTML = emptyState("📝", "No waivers yet", "Create your first waiver above."); return; }
+  if (!allWaivers.length) { list.innerHTML = emptyState("📝", "No waivers yet", "Create your first waiver above."); return; }
+  if (!waivers.length) { list.innerHTML = emptyState("📝", "No waivers match", ""); return; }
 
   const cards = await Promise.all(waivers.map(async w => {
     const { count: signed } = await sb().from("smartcore_flexi_waiver_signatures").select("id", { count: "exact", head: true }).eq("waiver_id", w.id);
+    const pct = totalClients ? Math.min(100, Math.round(((signed || 0) / totalClients) * 100)) : 0;
     return `
-      <div class="fx-card" style="margin-bottom:14px">
+      <div class="fx-card waiver-card" style="margin-bottom:14px">
+        <div class="waiver-strip ${w.active ? "active" : "inactive"}"></div>
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
           <div>
             <strong>${escapeHtml(w.title)}</strong>
@@ -63,7 +80,8 @@ async function load() {
           </div>
           <span class="fx-badge ${w.active ? "fx-badge-green" : "fx-badge-grey"}">${w.active ? "active" : "inactive"}</span>
         </div>
-        <div style="margin-top:12px;font-size:12.5px;color:var(--fx-text2)">${signed || 0} of ${totalClients || 0} active clients signed</div>
+        <div class="fx-progress-track" style="margin-top:12px"><div class="fx-progress-fill" style="width:${pct}%"></div></div>
+        <div style="margin-top:6px;font-size:12.5px;color:var(--fx-text2)">${signed || 0} of ${totalClients || 0} active clients signed</div>
         <button class="fx-btn fx-btn-sm" style="margin-top:10px" data-toggle="${w.id}" data-active="${w.active}">${w.active ? "Deactivate" : "Reactivate"}</button>
       </div>
     `;
@@ -74,6 +92,7 @@ async function load() {
     load();
   }));
 }
+document.getElementById("searchInput").addEventListener("input", render);
 
 document.getElementById("addBtn").addEventListener("click", () => { document.getElementById("wMsg").textContent = ""; openModal("addModal"); });
 document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));
