@@ -91,41 +91,63 @@ export async function verifyClientSession(request, env) {
 
 export function welcomeEmailHtml({ businessName, primaryColor, fullName, trainerCode, email, passcode, portalUrl }) {
   const color = primaryColor || '#ff5a36';
+  const grad = `linear-gradient(128deg, #ff7a45 0%, ${color} 45%, #ff3d7f 100%)`;
+  const font = `-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',Roboto,Arial,sans-serif`;
+  const feature = (emoji, label) => `
+    <td align="center" style="padding:0 6px">
+      <table cellpadding="0" cellspacing="0"><tr><td align="center" style="width:52px;height:52px;border-radius:14px;background:#f6f7fc;border:1px solid #ecedf6;font-size:20px;line-height:52px">${emoji}</td></tr></table>
+      <div style="font-size:11px;font-weight:700;color:#6b6f8f;margin-top:8px">${label}</div>
+    </td>`;
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:#f4f5fb;font-family:'Segoe UI',Arial,sans-serif">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5fb;padding:32px 16px">
+<body style="margin:0;padding:0;background:#eaecf6;font-family:${font}">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#eaecf6;padding:40px 16px">
     <tr><td align="center">
-      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:560px;width:100%">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 20px 48px rgba(23,25,50,.14);max-width:560px;width:100%">
         <tr>
-          <td style="background:linear-gradient(135deg,#ff7a45,${color},#ff3d7f);padding:28px 36px;text-align:center">
-            <div style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.5px">${businessName}</div>
-            <div style="color:rgba(255,255,255,0.8);font-size:13px;margin-top:6px">Powered by Flexi</div>
+          <td style="background:${grad};padding:40px 36px 32px;text-align:center">
+            <table cellpadding="0" cellspacing="0" style="margin:0 auto 18px"><tr><td style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.35);font-size:20px;font-weight:800;color:#ffffff;text-align:center;line-height:46px">F</td></tr></table>
+            <div style="font-size:23px;font-weight:800;color:#ffffff;letter-spacing:-0.5px">${businessName}</div>
+            <div style="color:rgba(255,255,255,0.85);font-size:12.5px;margin-top:6px;font-weight:600;letter-spacing:.3px">POWERED BY FLEXI</div>
           </td>
         </tr>
         <tr>
-          <td style="padding:36px 36px 24px">
-            <h2 style="margin:0 0 8px;font-size:22px;font-weight:800;color:#0a0f2e">Welcome, ${fullName}! 💪</h2>
-            <p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.6">${businessName} has set you up on Flexi — your programs, bookings, nutrition and progress tracking, all in one app.</p>
-            <div style="background:#f8f9fc;border-radius:12px;padding:20px 24px;margin-bottom:24px;border:1px solid #e5e7eb">
-              <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#9ca3af;margin-bottom:14px">Your login details</div>
+          <td style="padding:36px 36px 8px">
+            <h2 style="margin:0 0 8px;font-size:23px;font-weight:800;color:#13141f;letter-spacing:-.02em">Welcome, ${fullName}! 💪</h2>
+            <p style="margin:0 0 26px;font-size:14.5px;color:#4a4d68;line-height:1.65">${businessName} has set you up on Flexi — your programs, bookings, nutrition and progress tracking, all in one place.</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 26px 28px">
+            <table cellpadding="0" cellspacing="0" width="100%"><tr>
+              ${feature('🏋️', 'Train')}
+              ${feature('📅', 'Book')}
+              ${feature('🥗', 'Nutrition')}
+              ${feature('📈', 'Progress')}
+            </tr></table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 36px">
+            <div style="background:#f8f9fc;border-radius:16px;padding:22px 24px;margin-bottom:26px;border:1px solid #ecedf6">
+              <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#888ba6;margin-bottom:14px">Your login details</div>
               <table cellpadding="0" cellspacing="0" width="100%">
-                <tr><td style="font-size:13px;color:#6b7280;padding:5px 0;width:110px">Trainer code</td><td style="font-size:16px;font-weight:800;letter-spacing:2px;color:${color};padding:5px 0">${trainerCode}</td></tr>
-                <tr><td style="font-size:13px;color:#6b7280;padding:5px 0">Email</td><td style="font-size:14px;font-weight:600;color:#1a1a2e;padding:5px 0">${email}</td></tr>
-                <tr><td style="font-size:13px;color:#6b7280;padding:5px 0">Passcode</td><td style="font-size:16px;font-weight:800;letter-spacing:2px;color:#1a1a2e;padding:5px 0">${passcode}</td></tr>
+                <tr><td style="font-size:13px;color:#6b6f8f;padding:6px 0;width:112px">Trainer code</td><td style="font-size:17px;font-weight:800;letter-spacing:2.5px;color:${color};padding:6px 0">${trainerCode}</td></tr>
+                <tr><td style="font-size:13px;color:#6b6f8f;padding:6px 0;border-top:1px solid #ecedf6">Email</td><td style="font-size:14px;font-weight:600;color:#13141f;padding:6px 0;border-top:1px solid #ecedf6">${email}</td></tr>
+                <tr><td style="font-size:13px;color:#6b6f8f;padding:6px 0;border-top:1px solid #ecedf6">Passcode</td><td style="font-size:17px;font-weight:800;letter-spacing:2.5px;color:#13141f;padding:6px 0;border-top:1px solid #ecedf6">${passcode}</td></tr>
               </table>
             </div>
             <table cellpadding="0" cellspacing="0" width="100%"><tr><td align="center">
-              <a href="${portalUrl}" style="display:inline-block;background:${color};color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:99px;letter-spacing:.2px">Open Flexi →</a>
+              <a href="${portalUrl}" style="display:inline-block;background:${grad};color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;padding:15px 40px;border-radius:99px;letter-spacing:.2px;box-shadow:0 8px 24px rgba(255,90,54,.32)">Open Flexi →</a>
             </td></tr></table>
-            <p style="margin:10px 0 0;font-size:12px;color:#9ca3af;text-align:center">Or paste this link into your browser:<br/><span style="color:#6b7280">${portalUrl}</span></p>
-            <p style="margin:20px 0 0;font-size:13px;color:#9ca3af;text-align:center">Keep your passcode private — it's how you sign in.</p>
+            <p style="margin:14px 0 0;font-size:12px;color:#9698b3;text-align:center">Or paste this link into your browser:<br/><span style="color:#6b6f8f">${portalUrl}</span></p>
+            <p style="margin:22px 0 32px;font-size:12.5px;color:#9698b3;text-align:center">Keep your passcode private — it's how you sign in.</p>
           </td>
         </tr>
         <tr>
-          <td style="background:#f8f9fc;border-top:1px solid #e5e7eb;padding:18px 36px;text-align:center">
-            <p style="margin:0;font-size:12px;color:#9ca3af">${businessName} · Powered by <a href="https://smartcoretechnology.co.uk" style="color:${color};text-decoration:none">SmartCore Flexi</a></p>
+          <td style="background:#f8f9fc;border-top:1px solid #ecedf6;padding:20px 36px;text-align:center">
+            <p style="margin:0;font-size:12px;color:#9698b3">${businessName} · Powered by <a href="https://smartcoretechnology.co.uk" style="color:${color};text-decoration:none;font-weight:600">SmartCore Flexi</a></p>
           </td>
         </tr>
       </table>
