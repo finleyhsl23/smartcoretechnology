@@ -5,6 +5,25 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Nutrition — Flexi</title>
 <link rel="stylesheet" href="../shared/flexi.css"/>
+<style>
+.slot-rec{border:1px solid var(--fx-line);border-radius:14px;padding:12px;margin-bottom:10px;background:var(--fx-card2)}
+.slot-rec-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.slot-rec-head strong{font-size:13px;text-transform:capitalize}
+.slot-rec-target{font-size:11.5px;color:var(--fx-text3)}
+.rec-meal-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--fx-line);font-size:13px}
+.rec-meal-row:last-child{border-bottom:none}
+.rec-meal-row .rm-meta{margin-left:auto;color:var(--fx-text3);font-size:11px;text-align:right}
+.log-tabs{display:flex;gap:6px;margin-bottom:14px}
+.log-tabs button{flex:1;padding:9px;border-radius:9px;border:1px solid var(--fx-line);background:var(--fx-card2);color:var(--fx-text2);font-size:12.5px;font-weight:700;cursor:pointer}
+.log-tabs button.active{background:var(--fx-grad);border-color:transparent;color:#fff}
+.log-tabs button:hover:not(.active){border-color:var(--fx-line-hi);color:var(--fx-text)}
+.lib-search-row{max-height:260px;overflow-y:auto;border:1px solid var(--fx-line);border-radius:12px;padding:6px;margin-top:10px}
+.lib-meal-row{display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:9px;font-size:13px}
+.lib-meal-row:hover{background:var(--fx-card2)}
+.lib-meal-row .lm-meta{margin-left:auto;color:var(--fx-text3);font-size:11px}
+.recipe-block ul,.recipe-block ol{padding-left:20px;margin:6px 0 14px}
+.recipe-block li{font-size:13px;color:var(--fx-text2);margin-bottom:4px}
+</style>
 </head>
 <body>
 <div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
@@ -15,18 +34,36 @@
     <button class="fx-icon-btn" id="themeToggle">🌙</button>
   </div>
   <div class="fx-portal-content">
-    <div id="planCard" style="margin-bottom:20px"></div>
+    <div id="planCard" style="margin-bottom:16px"></div>
+    <div id="recommendedWrap" style="margin-bottom:20px"></div>
 
     <div class="fx-card" style="margin-bottom:20px">
       <h3 style="font-size:13.5px;margin-bottom:10px">Log Food</h3>
-      <div class="fx-form-row">
-        <div class="fx-field"><label>Meal</label>
-          <select class="fx-select" id="meal"><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select>
-        </div>
-        <div class="fx-field"><label>Calories</label><input class="fx-input" id="calories" type="number"/></div>
+      <div class="log-tabs">
+        <button type="button" class="active" id="tabLibrary">From My Meal Library</button>
+        <button type="button" id="tabCustom">Add My Own</button>
       </div>
-      <div class="fx-field"><label>Description</label><input class="fx-input" id="description" placeholder="e.g. Chicken, rice & broccoli"/></div>
-      <button class="fx-btn fx-btn-primary fx-btn-block" id="logBtn">Add to Diary</button>
+
+      <div id="libraryPane">
+        <input class="fx-input" id="libSearch" placeholder="Search meals…"/>
+        <div class="lib-search-row" id="libList"></div>
+      </div>
+
+      <div id="customPane" style="display:none">
+        <div class="fx-form-row">
+          <div class="fx-field"><label>Meal</label>
+            <select class="fx-select" id="meal"><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select>
+          </div>
+          <div class="fx-field"><label>Calories</label><input class="fx-input" id="calories" type="number"/></div>
+        </div>
+        <div class="fx-field"><label>Description</label><input class="fx-input" id="description" placeholder="e.g. Chicken, rice & broccoli"/></div>
+        <div class="fx-form-row">
+          <div class="fx-field"><label>Protein (g)</label><input class="fx-input" id="customProtein" type="number"/></div>
+          <div class="fx-field"><label>Carbs (g)</label><input class="fx-input" id="customCarbs" type="number"/></div>
+        </div>
+        <div class="fx-field" style="max-width:calc(50% - 7px)"><label>Fat (g)</label><input class="fx-input" id="customFat" type="number"/></div>
+        <button class="fx-btn fx-btn-primary fx-btn-block" id="logBtn">Add to Diary</button>
+      </div>
     </div>
 
     <div class="fx-section-head" style="margin-top:0"><h2 style="font-size:14px">Today's Diary</h2></div>
@@ -41,15 +78,25 @@
   </nav>
 </div>
 
+<div class="fx-modal" id="recipeModal">
+  <div class="fx-modal-box" style="max-width:480px">
+    <div class="fx-modal-head"><h3 id="recipeTitle">Meal</h3><button class="fx-modal-close" data-close-recipe>✕</button></div>
+    <div id="recipeBody" class="recipe-block"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="recipeLogBtn">Log This Meal</button>
+  </div>
+</div>
+
 <script type="module">
 import { requireClientAccess, api } from "../shared/client-auth.js";
-import { revealApp, setupThemeToggle, escapeHtml, toast, emptyState } from "../shared/ui.js";
+import { revealApp, setupThemeToggle, escapeHtml, toast, showMessage, setLoading, openModal, closeModal, emptyState } from "../shared/ui.js";
 
 const client = await requireClientAccess();
 setupThemeToggle();
 revealApp();
 
-const { plan } = await api("nutrition_plan");
+let allLibraryMeals = [];
+
+const { plan, meal_plan } = await api("nutrition_plan");
 document.getElementById("planCard").innerHTML = plan ? `
   <div class="fx-card">
     <strong>${escapeHtml(plan.name)}</strong>
@@ -62,29 +109,123 @@ document.getElementById("planCard").innerHTML = plan ? `
   </div>
 ` : emptyState("🥗", "No active nutrition plan", "Your trainer hasn't set one up yet.");
 
+if (meal_plan) {
+  const SLOT_LABELS = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner", snack: "Snack" };
+  const bySlot = {};
+  (meal_plan.items || []).forEach(it => { (bySlot[it.meal_slot] = bySlot[it.meal_slot] || []).push(it); });
+  const targetBySlot = {};
+  (meal_plan.slot_targets || []).forEach(t => { targetBySlot[t.slot] = t; });
+
+  const slots = Object.keys(SLOT_LABELS).filter(s => bySlot[s]?.length || targetBySlot[s]);
+  const wrap = document.getElementById("recommendedWrap");
+  if (slots.length) {
+    wrap.innerHTML = `<div class="fx-section-head" style="margin-top:0"><h2 style="font-size:14px">Recommended — ${escapeHtml(meal_plan.name)}</h2></div>` +
+      slots.map(slot => {
+        const t = targetBySlot[slot];
+        const targetText = t ? [t.target_calories && `${t.target_calories} kcal`, t.target_protein_g && `${t.target_protein_g}g protein`].filter(Boolean).join(" · ") : "";
+        return `
+        <div class="slot-rec">
+          <div class="slot-rec-head"><strong>${SLOT_LABELS[slot]}</strong>${targetText ? `<span class="slot-rec-target">Target: ${escapeHtml(targetText)}</span>` : ""}</div>
+          ${(bySlot[slot] || []).map(it => {
+            const m = it.smartcore_flexi_meals;
+            if (!m) return "";
+            return `
+            <div class="rec-meal-row">
+              <span>${escapeHtml(m.name)}</span>
+              <span class="rm-meta">${m.calories || "—"} kcal<br/>P${m.protein_g || 0}g</span>
+              <button class="fx-btn fx-btn-sm" data-view-rec data-meal='${JSON.stringify(m).replace(/'/g, "&#39;")}' data-slot="${slot}">View</button>
+            </div>
+          `;
+          }).join("") || `<p style="color:var(--fx-text3);font-size:12px">No options set for this meal yet.</p>`}
+        </div>
+      `;
+      }).join("");
+    wrap.querySelectorAll("[data-view-rec]").forEach(btn => btn.addEventListener("click", () => openRecipe(JSON.parse(btn.dataset.meal), btn.dataset.slot)));
+  }
+}
+
+function openRecipe(m, slot) {
+  document.getElementById("recipeTitle").textContent = m.name;
+  const ingredients = (m.ingredients || "").split("\n").filter(Boolean);
+  const steps = (m.instructions || "").split("\n").filter(Boolean);
+  document.getElementById("recipeBody").innerHTML = `
+    <div class="fx-tabular" style="font-size:13.5px;font-weight:700;margin-bottom:14px">${m.calories || "—"} kcal · P ${m.protein_g || 0}g · C ${m.carbs_g || 0}g · F ${m.fat_g || 0}g</div>
+    ${ingredients.length ? `<h4 style="font-size:12.5px;margin-bottom:4px">Ingredients</h4><ul>${ingredients.map(i => `<li>${escapeHtml(i)}</li>`).join("")}</ul>` : ""}
+    ${steps.length ? `<h4 style="font-size:12.5px;margin-bottom:4px">Instructions</h4><ol>${steps.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ol>` : ""}
+    ${!ingredients.length && !steps.length ? `<p style="color:var(--fx-text3);font-size:12.5px">No recipe details added.</p>` : ""}
+  `;
+  document.getElementById("recipeLogBtn").dataset.mealId = m.id;
+  document.getElementById("recipeLogBtn").dataset.slot = slot || "snack";
+  openModal("recipeModal");
+}
+document.querySelectorAll("[data-close-recipe]").forEach(b => b.addEventListener("click", () => closeModal("recipeModal")));
+document.getElementById("recipeLogBtn").addEventListener("click", async (e) => {
+  try { await api("log_food", { meal_id: e.target.dataset.mealId, meal: e.target.dataset.slot }); }
+  catch (err) { toast(err.message, "error"); return; }
+  closeModal("recipeModal");
+  toast("Logged", "success");
+  loadFood();
+});
+
+// ---- Log tabs ----
+document.getElementById("tabLibrary").addEventListener("click", () => setTab("library"));
+document.getElementById("tabCustom").addEventListener("click", () => setTab("custom"));
+function setTab(tab) {
+  document.getElementById("tabLibrary").classList.toggle("active", tab === "library");
+  document.getElementById("tabCustom").classList.toggle("active", tab === "custom");
+  document.getElementById("libraryPane").style.display = tab === "library" ? "" : "none";
+  document.getElementById("customPane").style.display = tab === "custom" ? "" : "none";
+}
+
+async function loadLibrary() {
+  const { meals } = await api("meal_library_list");
+  allLibraryMeals = meals || [];
+  renderLibraryList(allLibraryMeals);
+}
+function renderLibraryList(list) {
+  const el = document.getElementById("libList");
+  el.innerHTML = !list.length ? `<p style="color:var(--fx-text3);font-size:12.5px;padding:8px">No meals in the library yet.</p>` : list.map(m => `
+    <div class="lib-meal-row">
+      <span>${escapeHtml(m.name)}</span>
+      <span class="lm-meta">${m.calories || "—"} kcal</span>
+      <button class="fx-btn fx-btn-sm" data-lib-view data-meal='${JSON.stringify(m).replace(/'/g, "&#39;")}'>View &amp; Log</button>
+    </div>
+  `).join("");
+  el.querySelectorAll("[data-lib-view]").forEach(btn => btn.addEventListener("click", () => openRecipe(JSON.parse(btn.dataset.meal), "snack")));
+}
+document.getElementById("libSearch").addEventListener("input", (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  renderLibraryList(!q ? allLibraryMeals : allLibraryMeals.filter(m => m.name.toLowerCase().includes(q)));
+});
+loadLibrary();
+
 async function loadFood() {
   const { logs } = await api("food_logs_today");
   const el = document.getElementById("foodList");
   el.innerHTML = !logs?.length ? emptyState("🍽️", "Nothing logged today", "") : logs.map(f => `
-    <div class="fx-card" style="margin-bottom:8px;display:flex;justify-content:space-between">
-      <div><span class="fx-badge fx-badge-grey" style="text-transform:capitalize">${f.meal}</span> <span style="font-size:13px">${escapeHtml(f.description)}</span></div>
-      <span class="fx-tabular">${f.calories ? f.calories + " kcal" : ""}</span>
+    <div class="fx-card" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+      <div><span class="fx-badge fx-badge-grey" style="text-transform:capitalize">${escapeHtml(f.meal)}</span> <span style="font-size:13px">${escapeHtml(f.description)}</span></div>
+      <span class="fx-tabular" style="font-size:11.5px;color:var(--fx-text3)">${f.calories ? f.calories + " kcal" : ""}${f.protein_g ? " · P" + f.protein_g + "g" : ""}</span>
     </div>
   `).join("");
 }
 
-document.getElementById("logBtn").addEventListener("click", async () => {
+document.getElementById("logBtn").addEventListener("click", async (e) => {
   const description = document.getElementById("description").value.trim();
   if (!description) { toast("Add a description", "error"); return; }
+  setLoading(e.target, true, "Logging…");
   try {
     await api("log_food", {
       meal: document.getElementById("meal").value,
       description,
       calories: parseInt(document.getElementById("calories").value) || null,
+      protein_g: parseInt(document.getElementById("customProtein").value) || null,
+      carbs_g: parseInt(document.getElementById("customCarbs").value) || null,
+      fat_g: parseInt(document.getElementById("customFat").value) || null,
     });
-  } catch (e) { toast(e.message, "error"); return; }
-  document.getElementById("description").value = "";
-  document.getElementById("calories").value = "";
+  } catch (e) { setLoading(document.getElementById("logBtn"), false); toast(e.message, "error"); return; }
+  setLoading(document.getElementById("logBtn"), false);
+  ["description","calories","customProtein","customCarbs","customFat"].forEach(id => document.getElementById(id).value = "");
   toast("Logged", "success");
   loadFood();
 });

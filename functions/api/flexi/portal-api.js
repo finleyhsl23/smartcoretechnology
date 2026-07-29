@@ -163,7 +163,22 @@ async function handleAction({ request, env }) {
   // ── Nutrition ───────────────────────────────────────────────────────────
   if (action === 'nutrition_plan') {
     const rows = await sb(env, `/smartcore_flexi_nutrition_plans?client_id=eq.${cid}&active=eq.true&order=created_at.desc&limit=1&select=*`);
-    return json({ plan: rows?.[0] || null });
+    const plan = rows?.[0] || null;
+    let meal_plan = null;
+    if (plan?.meal_plan_id) {
+      const [mpRows, slotTargets, items] = await Promise.all([
+        sb(env, `/smartcore_flexi_meal_plans?id=eq.${plan.meal_plan_id}&select=*`),
+        sb(env, `/smartcore_flexi_meal_plan_slot_targets?meal_plan_id=eq.${plan.meal_plan_id}&select=*`),
+        sb(env, `/smartcore_flexi_meal_plan_items?meal_plan_id=eq.${plan.meal_plan_id}&select=*,smartcore_flexi_meals(*)&order=order_index.asc`),
+      ]);
+      if (mpRows?.[0]) meal_plan = { ...mpRows[0], slot_targets: slotTargets || [], items: items || [] };
+    }
+    return json({ plan, meal_plan });
+  }
+
+  if (action === 'meal_library_list') {
+    const meals = await sb(env, `/smartcore_flexi_meals?company_id=eq.${companyId}&order=name.asc&select=*`);
+    return json({ meals: meals || [] });
   }
 
   if (action === 'food_logs_today') {
@@ -173,10 +188,25 @@ async function handleAction({ request, env }) {
   }
 
   if (action === 'log_food') {
+    if (body.meal_id) {
+      const [meal] = await sb(env, `/smartcore_flexi_meals?id=eq.${body.meal_id}&company_id=eq.${companyId}&select=*`);
+      if (!meal) return json({ error: 'Meal not found.' }, 404);
+      await sb(env, `/smartcore_flexi_food_logs`, {
+        method: 'POST',
+        body: {
+          company_id: companyId, client_id: cid, meal: body.meal || 'snack', description: meal.name,
+          calories: meal.calories, protein_g: meal.protein_g, carbs_g: meal.carbs_g, fat_g: meal.fat_g, meal_id: meal.id,
+        },
+      });
+      return json({ success: true });
+    }
     if (!body.description?.trim()) return json({ error: 'Description required.' }, 400);
     await sb(env, `/smartcore_flexi_food_logs`, {
       method: 'POST',
-      body: { company_id: companyId, client_id: cid, meal: body.meal || 'snack', description: body.description.trim(), calories: body.calories ?? null },
+      body: {
+        company_id: companyId, client_id: cid, meal: body.meal || 'snack', description: body.description.trim(),
+        calories: body.calories ?? null, protein_g: body.protein_g ?? null, carbs_g: body.carbs_g ?? null, fat_g: body.fat_g ?? null,
+      },
     });
     return json({ success: true });
   }
