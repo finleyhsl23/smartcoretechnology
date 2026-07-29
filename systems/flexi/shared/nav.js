@@ -45,7 +45,7 @@ const NAV_ITEMS = [
 ];
 
 export function renderNav({ activeKey, profile, tier }) {
-  renderUtilityBar();
+  renderUtilityBar(activeKey);
 
   const container = document.getElementById("fxSidebar");
   if (!container) return;
@@ -108,7 +108,8 @@ export async function refreshUnreadBadge() {
 // A slim bar pinned above every trainer page's header — a quick way back to
 // the SmartCore module grid and a theme toggle, without needing to open the
 // (often-collapsed-on-mobile) sidebar first.
-function renderUtilityBar() {
+function renderUtilityBar(activeKey) {
+  const pageLabel = NAV_ITEMS.find(item => item.key === activeKey)?.label || "";
   if (document.getElementById("fxUtilityBar")) return;
   const main = document.querySelector(".fx-main");
   if (!main) return;
@@ -116,13 +117,25 @@ function renderUtilityBar() {
   bar.id = "fxUtilityBar";
   bar.className = "fx-utility-bar";
   bar.innerHTML = `
-    <a href="/modules/" class="fx-utility-back"><svg ${ICON_ATTRS}><path d="M14.5 5 8 12l6.5 7"/></svg><span>Modules</span></a>
+    <div style="display:flex;align-items:center;gap:8px;min-width:0">
+      <a href="/modules/" class="fx-utility-back"><svg ${ICON_ATTRS}><path d="M14.5 5 8 12l6.5 7"/></svg><span>Modules</span></a>
+      ${pageLabel ? `<span class="fx-utility-crumb-sep">/</span><span class="fx-utility-crumb">${pageLabel}</span>` : ""}
+    </div>
     <div style="display:flex;align-items:center;gap:8px">
+      <input class="fx-input fx-utility-search" id="fxGlobalSearch" placeholder="Search clients…"/>
       <button class="fx-icon-btn fx-theme-btn" title="Toggle theme">🌙</button>
       <button id="logoutBtn" class="fx-btn fx-btn-sm" title="Sign out">Sign out</button>
     </div>
   `;
   main.prepend(bar);
+
+  const search = document.getElementById("fxGlobalSearch");
+  search.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const q = search.value.trim();
+    if (!q) return;
+    window.location.href = `clients.html?q=${encodeURIComponent(q)}`;
+  });
 }
 
 export function wireMobileNavToggle() {
