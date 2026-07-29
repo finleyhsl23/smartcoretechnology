@@ -122,20 +122,11 @@ function renderUtilityBar(activeKey) {
       ${pageLabel ? `<span class="fx-utility-crumb-sep">/</span><span class="fx-utility-crumb">${pageLabel}</span>` : ""}
     </div>
     <div style="display:flex;align-items:center;gap:8px">
-      <input class="fx-input fx-utility-search" id="fxGlobalSearch" placeholder="Search clients…"/>
       <button class="fx-icon-btn fx-theme-btn" title="Toggle theme">🌙</button>
       <button id="logoutBtn" class="fx-btn fx-btn-sm" title="Sign out">Sign out</button>
     </div>
   `;
   main.prepend(bar);
-
-  const search = document.getElementById("fxGlobalSearch");
-  search.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    const q = search.value.trim();
-    if (!q) return;
-    window.location.href = `clients.html?q=${encodeURIComponent(q)}`;
-  });
 }
 
 export function wireMobileNavToggle() {
