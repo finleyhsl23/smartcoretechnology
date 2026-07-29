@@ -196,23 +196,26 @@ export function enhanceSelect(select, { placeholder } = {}) {
   input.addEventListener("keydown", (e) => { if (e.key === "Escape") input.blur(); });
 }
 
+// Wires every theme-toggle button on the page (there may be more than one —
+// e.g. a top utility bar and a sidebar footer both offering the control) so
+// they all stay in sync, clicking any of them flips the theme for all.
 export function setupThemeToggle(storageKey = "flexiTheme") {
   const saved = localStorage.getItem(storageKey);
   if (saved) document.documentElement.setAttribute("data-theme", saved);
-  const btn = document.getElementById("themeToggle");
-  if (!btn) return;
+  const btns = document.querySelectorAll("#themeToggle, .fx-theme-btn");
+  if (!btns.length) return;
   const sync = () => {
     const cur = document.documentElement.getAttribute("data-theme") ||
       (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    btn.textContent = cur === "dark" ? "☀️" : "🌙";
+    btns.forEach(btn => { btn.textContent = cur === "dark" ? "☀️" : "🌙"; });
   };
   sync();
-  btn.addEventListener("click", () => {
+  btns.forEach(btn => btn.addEventListener("click", () => {
     const cur = document.documentElement.getAttribute("data-theme") ||
       (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     const next = cur === "dark" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", next);
     localStorage.setItem(storageKey, next);
     sync();
-  });
+  }));
 }

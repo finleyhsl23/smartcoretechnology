@@ -49,7 +49,7 @@
 </div>
 <script type="module">
 import { requireFlexiAccess } from "./shared/auth.js";
-import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { renderNav, wireMobileNavToggle, refreshUnreadBadge } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
 import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, initials, toast, emptyState } from "./shared/ui.js";
 
@@ -119,7 +119,13 @@ async function selectClient(clientId) {
     </div>
   `).join("");
   el.scrollTop = el.scrollHeight;
+  const hadUnread = unreadCounts[clientId] > 0;
   await sb().from("smartcore_flexi_messages").update({ read_at: new Date().toISOString() }).eq("client_id", clientId).eq("sender_type", "client").is("read_at", null);
+  if (hadUnread) {
+    unreadCounts[clientId] = 0;
+    renderList();
+    refreshUnreadBadge();
+  }
 }
 
 document.getElementById("sendBtn").addEventListener("click", send);

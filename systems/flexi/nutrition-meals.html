@@ -12,12 +12,10 @@
 .mini-stat{display:flex;align-items:center;gap:12px}
 .mini-stat-icon{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .mini-stat-icon svg{width:18px;height:18px}
-.plan-card{position:relative;overflow:hidden;padding-top:6px}
-.plan-goal-strip{position:absolute;top:0;left:0;right:0;height:5px}
-.plan-goal-strip.lose{background:linear-gradient(90deg,#f59e0b,#ef4444)}
-.plan-goal-strip.maintain{background:linear-gradient(90deg,#0ea5b7,#2563eb)}
-.plan-goal-strip.gain{background:linear-gradient(90deg,#16a34a,#0d9488)}
-.plan-goal-strip.none{background:var(--fx-line-hi)}
+.plan-card{position:relative;transition:box-shadow .2s}
+.plan-card.glow-lose{box-shadow:0 0 0 1px rgba(245,158,11,.55),0 0 14px rgba(239,68,68,.22)}
+.plan-card.glow-maintain{box-shadow:0 0 0 1px rgba(14,165,183,.55),0 0 14px rgba(37,99,235,.22)}
+.plan-card.glow-gain{box-shadow:0 0 0 1px rgba(22,163,74,.55),0 0 14px rgba(13,148,136,.22)}
 .meal-pick-list{max-height:220px;overflow-y:auto;border:1px solid var(--fx-line);border-radius:12px;padding:8px;margin-top:8px}
 .meal-pick-row{display:flex;align-items:center;gap:10px;padding:7px 6px;border-radius:8px;font-size:13px;cursor:pointer}
 .meal-pick-row:hover{background:var(--fx-card2)}
@@ -29,6 +27,17 @@
 .dyn-input{flex:1}
 .dyn-remove{width:28px;height:28px;flex-shrink:0}
 .dyn-add-btn{margin-top:2px}
+.ing-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.ing-qty{width:66px;flex-shrink:0}
+.ing-unit{width:84px;flex-shrink:0}
+.ing-name{flex:1}
+.ing-remove{width:28px;height:28px;flex-shrink:0}
+
+/* compact / expanded plan rows */
+.plan-row-compact{display:flex;align-items:center;gap:14px;padding:14px 16px}
+.plan-row-compact strong{font-size:13.5px}
+.plan-row-meta{font-size:11.5px;color:var(--fx-text3);margin-top:2px}
+.plan-row-actions{display:flex;gap:6px;flex-shrink:0}
 
 /* custom multi-select */
 .ms-wrap{position:relative}
@@ -159,6 +168,16 @@
   </div>
 </div>
 
+<div class="fx-modal" id="assignPlanModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>Assign Meal Plan</h3><button class="fx-modal-close" data-close-assign>✕</button></div>
+    <p style="font-size:12.5px;color:var(--fx-text3);margin-bottom:14px" id="assignPlanSub"></p>
+    <div class="fx-field"><label>Client</label><select class="fx-select" id="assignPlanClient"></select></div>
+    <div class="fx-form-msg" id="assignPlanMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="confirmAssignPlanBtn">Assign</button>
+  </div>
+</div>
+
 <script type="module">
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
@@ -210,10 +229,62 @@ function addDynRow(containerEl, numbered) {
 function collectDynValues(containerEl) {
   return [...containerEl.querySelectorAll(".dyn-input")].map(i => i.value.trim()).filter(Boolean);
 }
-const ingredientsEl = document.getElementById("ingredientsList");
 const stepsEl = document.getElementById("stepsList");
-document.getElementById("addIngredientBtn").addEventListener("click", () => addDynRow(ingredientsEl, false));
 document.getElementById("addStepBtn").addEventListener("click", () => addDynRow(stepsEl, true));
+
+// ---- Structured ingredient rows (qty + unit + name) ----
+const UNITS = ["g","kg","ml","l","tsp","tbsp","cup","oz","piece","slice"];
+const ingredientsEl = document.getElementById("ingredientsList");
+function ingredientRowHTML(ing) {
+  const { qty = "", unit = "g", name = "" } = ing || {};
+  return `<div class="ing-row">
+    <input class="fx-input ing-qty" type="number" step="0.1" placeholder="Qty" value="${qty ?? ""}"/>
+    <select class="fx-select ing-unit">${UNITS.map(u => `<option value="${u}" ${u === unit ? "selected" : ""}>${u}</option>`).join("")}</select>
+    <input class="fx-input ing-name" placeholder="Ingredient name" value="${escapeHtml(name)}"/>
+    <button type="button" class="fx-icon-btn ing-remove">✕</button>
+  </div>`;
+}
+function wireIngredientRow(row) {
+  enhanceSelect(row.querySelector(".ing-unit"), { placeholder: "Unit…" });
+  row.querySelector(".ing-remove").addEventListener("click", () => {
+    if (ingredientsEl.querySelectorAll(".ing-row").length <= 1) {
+      row.querySelector(".ing-qty").value = ""; row.querySelector(".ing-name").value = "";
+      return;
+    }
+    row.remove();
+  });
+}
+function setIngredientRows(items) {
+  const list = items?.length ? items : [{}];
+  ingredientsEl.innerHTML = list.map(ingredientRowHTML).join("");
+  ingredientsEl.querySelectorAll(".ing-row").forEach(wireIngredientRow);
+}
+function addIngredientRow() {
+  const div = document.createElement("div");
+  div.innerHTML = ingredientRowHTML({});
+  const row = div.firstElementChild;
+  ingredientsEl.appendChild(row);
+  wireIngredientRow(row);
+  row.querySelector(".ing-name").focus();
+}
+function collectIngredientRows() {
+  return [...ingredientsEl.querySelectorAll(".ing-row")].map(row => ({
+    qty: parseFloat(row.querySelector(".ing-qty").value) || null,
+    unit: row.querySelector(".ing-unit").value,
+    name: row.querySelector(".ing-name").value.trim(),
+  })).filter(i => i.name);
+}
+function formatIngredient(ing) {
+  const parts = [];
+  if (ing.qty) parts.push(ing.qty + (ing.unit ? ing.unit : ""));
+  parts.push(ing.name);
+  return parts.join(" ");
+}
+function ingredientLines(m) {
+  if (m.ingredients_structured?.length) return m.ingredients_structured.map(formatIngredient);
+  return (m.ingredients || "").split("\n").filter(Boolean);
+}
+document.getElementById("addIngredientBtn").addEventListener("click", addIngredientRow);
 
 // ---- Meal type multi-select ----
 let selectedMealTypes = [];
@@ -252,7 +323,7 @@ function renderMealsGrid(list) {
       </div>
       <div style="padding:14px">
         <div class="fx-tabular" style="font-size:12.5px;color:var(--fx-text2);margin-bottom:6px">${m.calories || "—"} kcal · P ${m.protein_g || 0}g · C ${m.carbs_g || 0}g · F ${m.fat_g || 0}g</div>
-        ${m.ingredients ? `<div style="font-size:11.5px;color:var(--fx-text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(m.ingredients.split("\n")[0])}${m.ingredients.includes("\n") ? "…" : ""}</div>` : ""}
+        ${ingredientLines(m).length ? `<div style="font-size:11.5px;color:var(--fx-text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(ingredientLines(m)[0])}${ingredientLines(m).length > 1 ? "…" : ""}</div>` : ""}
         <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
           <button class="fx-btn fx-btn-sm" data-view-meal="${m.id}">View</button>
           <button class="fx-btn fx-btn-sm" data-edit-meal="${m.id}">Edit</button>
@@ -285,7 +356,7 @@ function resetMealForm() {
   ["mealName","mealCals","mealProtein","mealCarbs","mealFat"].forEach(id => document.getElementById(id).value = "");
   selectedMealTypes = ["meal"];
   renderMealTypesPanel(); syncMealTypesTrigger();
-  setDynList(ingredientsEl, [], false);
+  setIngredientRows([]);
   setDynList(stepsEl, [], true);
   document.getElementById("mealMsg").textContent = "";
 }
@@ -307,7 +378,7 @@ function openEdit(id) {
   document.getElementById("mealFat").value = m.fat_g || "";
   selectedMealTypes = m.meal_types?.length ? [...m.meal_types] : ["meal"];
   renderMealTypesPanel(); syncMealTypesTrigger();
-  setDynList(ingredientsEl, (m.ingredients || "").split("\n").filter(Boolean), false);
+  setIngredientRows(m.ingredients_structured?.length ? m.ingredients_structured : (m.ingredients || "").split("\n").filter(Boolean).map(name => ({ name })));
   setDynList(stepsEl, (m.instructions || "").split("\n").filter(Boolean), true);
   document.getElementById("mealMsg").textContent = "";
   document.getElementById("mealModalTitle").textContent = "Edit Meal";
@@ -327,7 +398,7 @@ document.getElementById("saveMealBtn").addEventListener("click", async (e) => {
     protein_g: parseInt(document.getElementById("mealProtein").value) || null,
     carbs_g: parseInt(document.getElementById("mealCarbs").value) || null,
     fat_g: parseInt(document.getElementById("mealFat").value) || null,
-    ingredients: collectDynValues(ingredientsEl).join("\n") || null,
+    ingredients_structured: collectIngredientRows(),
     instructions: collectDynValues(stepsEl).join("\n") || null,
   };
   const { error } = editingMealId
@@ -344,7 +415,7 @@ function openView(id) {
   const m = allMeals.find(x => x.id === id);
   if (!m) return;
   document.getElementById("viewMealTitle").textContent = m.name;
-  const ingredients = (m.ingredients || "").split("\n").filter(Boolean);
+  const ingredients = ingredientLines(m);
   const steps = (m.instructions || "").split("\n").filter(Boolean);
   document.getElementById("viewMealBody").innerHTML = `
     <div style="margin-bottom:10px">${mealTypeChips(m.meal_types, true)}</div>
@@ -374,6 +445,10 @@ function renderPlanMealPicker(query) {
 }
 document.getElementById("planMealSearch").addEventListener("input", (e) => renderPlanMealPicker(e.target.value));
 
+let expandedPlanId = null;
+let itemsByPlan = {};
+let targetsByPlan = {};
+
 async function loadPlans() {
   const { data: plans } = await sb().from("smartcore_flexi_meal_plans").select("*").order("created_at", { ascending: false });
   allPlans = plans || [];
@@ -387,31 +462,49 @@ async function renderPlans(query) {
   if (!allPlans.length) { el.innerHTML = emptyState("📋", "No meal plans yet", "Group meals into a reusable plan above."); return; }
   if (!plans.length) { el.innerHTML = emptyState("📋", "No meal plans match", ""); return; }
 
-  const itemsByPlan = {};
-  const targetsByPlan = {};
-  for (const p of plans) {
+  if (expandedPlanId && !itemsByPlan[expandedPlanId]) {
     const [{ data: items }, { data: targets }] = await Promise.all([
-      sb().from("smartcore_flexi_meal_plan_items").select("*, smartcore_flexi_meals(name, calories, protein_g, carbs_g, fat_g)").eq("meal_plan_id", p.id).order("order_index"),
-      sb().from("smartcore_flexi_meal_plan_slot_targets").select("*").eq("meal_plan_id", p.id),
+      sb().from("smartcore_flexi_meal_plan_items").select("*, smartcore_flexi_meals(name, calories, protein_g, carbs_g, fat_g)").eq("meal_plan_id", expandedPlanId).order("order_index"),
+      sb().from("smartcore_flexi_meal_plan_slot_targets").select("*").eq("meal_plan_id", expandedPlanId),
     ]);
-    itemsByPlan[p.id] = items || [];
-    targetsByPlan[p.id] = {};
-    (targets || []).forEach(t => { targetsByPlan[p.id][t.slot] = t; });
+    itemsByPlan[expandedPlanId] = items || [];
+    targetsByPlan[expandedPlanId] = {};
+    (targets || []).forEach(t => { targetsByPlan[expandedPlanId][t.slot] = t; });
   }
 
   el.innerHTML = plans.map(p => {
-    const items = itemsByPlan[p.id];
-    const targets = targetsByPlan[p.id];
+    if (p.id !== expandedPlanId) {
+      const itemCount = itemsByPlan[p.id]?.length;
+      return `
+      <div class="fx-card plan-card ${p.goal ? "glow-" + p.goal : ""}" style="margin-bottom:10px;padding:0">
+        <div class="plan-row-compact">
+          <div style="flex:1;min-width:0">
+            <strong>${escapeHtml(p.name)}</strong> ${p.goal ? `<span class="fx-badge fx-badge-grey" style="text-transform:capitalize">${escapeHtml(p.goal)}</span>` : ""}
+            <div class="plan-row-meta">${p.description ? escapeHtml(p.description) + " · " : ""}${itemCount != null ? `${itemCount} meal option${itemCount === 1 ? "" : "s"}` : "Click Edit to see options"}</div>
+          </div>
+          <div class="plan-row-actions">
+            <button class="fx-btn fx-btn-sm" data-edit-plan="${p.id}">Edit</button>
+            <button class="fx-btn fx-btn-sm fx-btn-primary" data-assign-plan="${p.id}" data-name="${escapeHtml(p.name)}">Assign</button>
+            <button class="fx-btn fx-btn-sm fx-btn-danger" data-del-plan="${p.id}">Delete</button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    const items = itemsByPlan[p.id] || [];
+    const targets = targetsByPlan[p.id] || {};
     const otherItems = items.filter(it => !GROUPED_SLOTS.includes(it.meal_slot));
     return `
-    <div class="fx-card plan-card" style="margin-bottom:16px" data-plan-card="${p.id}">
-      <div class="plan-goal-strip ${p.goal || "none"}"></div>
+    <div class="fx-card plan-card ${p.goal ? "glow-" + p.goal : ""}" style="margin-bottom:16px" data-plan-card="${p.id}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
         <div>
           <strong>${escapeHtml(p.name)}</strong> ${p.goal ? `<span class="fx-badge fx-badge-grey" style="text-transform:capitalize">${escapeHtml(p.goal)}</span>` : ""}
           ${p.description ? `<div style="color:var(--fx-text3);font-size:12px;margin-top:4px">${escapeHtml(p.description)}</div>` : ""}
         </div>
-        <button class="fx-btn fx-btn-sm fx-btn-danger" data-del-plan="${p.id}">Delete Plan</button>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="fx-btn fx-btn-sm" data-collapse-plan>Done</button>
+          <button class="fx-btn fx-btn-sm fx-btn-danger" data-del-plan="${p.id}">Delete Plan</button>
+        </div>
       </div>
 
       ${GROUPED_SLOTS.map(slot => {
@@ -460,14 +553,27 @@ async function renderPlans(query) {
 
   el.querySelectorAll("[data-plan-meal]").forEach(sel => enhanceSelect(sel, { placeholder: "Search meals…" }));
 
+  el.querySelectorAll("[data-edit-plan]").forEach(btn => btn.addEventListener("click", () => {
+    expandedPlanId = btn.dataset.editPlan;
+    delete itemsByPlan[expandedPlanId];
+    renderPlans(document.getElementById("planSearch").value);
+  }));
+  el.querySelectorAll("[data-collapse-plan]").forEach(btn => btn.addEventListener("click", () => {
+    expandedPlanId = null;
+    renderPlans(document.getElementById("planSearch").value);
+  }));
+  el.querySelectorAll("[data-assign-plan]").forEach(btn => btn.addEventListener("click", () => openAssignPlan(btn.dataset.assignPlan, btn.dataset.name)));
+
   el.querySelectorAll("[data-del-plan]").forEach(btn => btn.addEventListener("click", async () => {
     if (!confirm("Delete this meal plan?")) return;
     await sb().from("smartcore_flexi_meal_plans").delete().eq("id", btn.dataset.delPlan);
+    if (expandedPlanId === btn.dataset.delPlan) expandedPlanId = null;
     loadPlans();
   }));
   el.querySelectorAll("[data-del-item]").forEach(btn => btn.addEventListener("click", async () => {
     await sb().from("smartcore_flexi_meal_plan_items").delete().eq("id", btn.dataset.delItem);
-    loadPlans();
+    delete itemsByPlan[expandedPlanId];
+    renderPlans(document.getElementById("planSearch").value);
   }));
   el.querySelectorAll(".slot-block[data-plan]").forEach(block => {
     const planId = block.dataset.plan;
@@ -477,7 +583,8 @@ async function renderPlans(query) {
       if (!mealId) { toast("Choose a meal first", "error"); return; }
       const { error } = await sb().from("smartcore_flexi_meal_plan_items").insert({ meal_plan_id: planId, meal_id: mealId, meal_slot: slot });
       if (error) { toast(error.message, "error"); return; }
-      loadPlans();
+      delete itemsByPlan[planId];
+      renderPlans(document.getElementById("planSearch").value);
     });
     block.querySelector("[data-save-target]").addEventListener("click", async () => {
       const target_calories = parseInt(block.querySelector("[data-target-cal]").value) || null;
@@ -526,6 +633,52 @@ document.getElementById("savePlanBtn").addEventListener("click", async (e) => {
   closeModal("planModal");
   toast("Meal plan added", "success");
   loadPlans();
+});
+
+// ---- Assign meal plan to a client ----
+async function openAssignPlan(planId, name) {
+  document.getElementById("assignPlanSub").textContent = `Create a nutrition plan for a client using "${name}"'s targets and meal options.`;
+  document.getElementById("assignPlanMsg").textContent = "";
+  const { data: clients } = await sb().from("smartcore_flexi_clients").select("id, full_name").eq("status", "active").order("full_name");
+  const sel = document.getElementById("assignPlanClient");
+  sel.innerHTML = (clients || []).map(c => `<option value="${c.id}">${escapeHtml(c.full_name)}</option>`).join("") || `<option value="">No active clients</option>`;
+  enhanceSelect(sel, { placeholder: "Search clients…" });
+  document.getElementById("confirmAssignPlanBtn").dataset.plan = planId;
+  document.getElementById("confirmAssignPlanBtn").dataset.name = name;
+  openModal("assignPlanModal");
+}
+document.querySelectorAll("[data-close-assign]").forEach(b => b.addEventListener("click", () => closeModal("assignPlanModal")));
+document.getElementById("confirmAssignPlanBtn").addEventListener("click", async (e) => {
+  const planId = e.target.dataset.plan;
+  const planName = e.target.dataset.name;
+  const clientId = document.getElementById("assignPlanClient").value;
+  if (!clientId) { showMessage("assignPlanMsg", "Choose a client.", "error"); return; }
+  setLoading(e.target, true, "Assigning…");
+  try {
+    const [{ data: plan }, { data: targets }] = await Promise.all([
+      sb().from("smartcore_flexi_meal_plans").select("*").eq("id", planId).single(),
+      sb().from("smartcore_flexi_meal_plan_slot_targets").select("*").eq("meal_plan_id", planId),
+    ]);
+    const totals = (targets || []).reduce((acc, t) => ({
+      calories: acc.calories + (t.target_calories || 0),
+      protein: acc.protein + (t.target_protein_g || 0),
+      carbs: acc.carbs + (t.target_carbs_g || 0),
+      fat: acc.fat + (t.target_fat_g || 0),
+    }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+    const { error } = await sb().from("smartcore_flexi_nutrition_plans").insert({
+      company_id: profile.company_id, client_id: clientId, trainer_id: profile.id,
+      name: planName, goal: plan?.goal || null, meal_plan_id: planId,
+      daily_calories: totals.calories || null, protein_g: totals.protein || null, carbs_g: totals.carbs || null, fat_g: totals.fat || null,
+    });
+    if (error) throw error;
+  } catch (err) {
+    setLoading(e.target, false);
+    showMessage("assignPlanMsg", err.message || "Something went wrong.", "error");
+    return;
+  }
+  setLoading(e.target, false);
+  closeModal("assignPlanModal");
+  toast("Meal plan assigned — a nutrition plan was created for this client", "success");
 });
 
 await loadMeals();

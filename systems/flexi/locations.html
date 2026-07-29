@@ -26,7 +26,7 @@
 
 <div class="fx-modal" id="addModal">
   <div class="fx-modal-box">
-    <div class="fx-modal-head"><h3>Add Location</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div class="fx-modal-head"><h3 id="locModalTitle">Add Location</h3><button class="fx-modal-close" data-close>✕</button></div>
     <div class="fx-field"><label>Name</label><input class="fx-input" id="locName" placeholder="e.g. City Centre Studio"/></div>
     <div class="fx-field"><label>Address line 1</label><input class="fx-input" id="locAddr1"/></div>
     <div class="fx-form-row">
@@ -52,6 +52,7 @@ setupThemeToggle();
 revealApp();
 
 let all = [];
+let editingLocId = null;
 function render() {
   const q = document.getElementById("searchInput").value.trim().toLowerCase();
   const rows = all.filter(l => !q || l.name.toLowerCase().includes(q) || (l.city || "").toLowerCase().includes(q));
@@ -65,10 +66,22 @@ function render() {
         <div class="fx-tile-title">${escapeHtml(l.name)}</div>
       </div>
       <div style="padding:16px">
-        <div style="color:var(--fx-text3);font-size:12.5px">${escapeHtml([l.address_line_1, l.city, l.postcode].filter(Boolean).join(", ") || "No address set")}</div>
+        <div style="color:var(--fx-text3);font-size:12.5px;margin-bottom:10px">${escapeHtml([l.address_line_1, l.city, l.postcode].filter(Boolean).join(", ") || "No address set")}</div>
+        <div style="display:flex;gap:6px">
+          <button class="fx-btn fx-btn-sm" data-edit-loc="${l.id}">Edit</button>
+          <button class="fx-btn fx-btn-sm fx-btn-danger" data-del-loc="${l.id}">Delete</button>
+        </div>
       </div>
     </div>
   `).join("");
+  grid.querySelectorAll("[data-edit-loc]").forEach(btn => btn.addEventListener("click", () => openEdit(btn.dataset.editLoc)));
+  grid.querySelectorAll("[data-del-loc]").forEach(btn => btn.addEventListener("click", async () => {
+    if (!confirm("Delete this location? Clients and bookings referencing it will keep their history but lose the location link.")) return;
+    const { error } = await sb().from("smartcore_flexi_locations").delete().eq("id", btn.dataset.delLoc);
+    if (error) { toast(error.message, "error"); return; }
+    toast("Location deleted", "success");
+    load();
+  }));
 }
 async function load() {
   const { data } = await sb().from("smartcore_flexi_locations").select("*").order("is_primary", { ascending: false });
@@ -77,23 +90,51 @@ async function load() {
 }
 document.getElementById("searchInput").addEventListener("input", render);
 
-document.getElementById("addBtn").addEventListener("click", () => { document.getElementById("locMsg").textContent = ""; openModal("addModal"); });
+function resetLocForm() {
+  ["locName","locAddr1","locCity","locPostcode"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("locPrimary").checked = false;
+  document.getElementById("locMsg").textContent = "";
+}
+document.getElementById("addBtn").addEventListener("click", () => {
+  editingLocId = null;
+  resetLocForm();
+  document.getElementById("locModalTitle").textContent = "Add Location";
+  document.getElementById("saveLocBtn").textContent = "Add Location";
+  openModal("addModal");
+});
+function openEdit(id) {
+  const l = all.find(x => x.id === id);
+  if (!l) return;
+  editingLocId = id;
+  document.getElementById("locName").value = l.name || "";
+  document.getElementById("locAddr1").value = l.address_line_1 || "";
+  document.getElementById("locCity").value = l.city || "";
+  document.getElementById("locPostcode").value = l.postcode || "";
+  document.getElementById("locPrimary").checked = !!l.is_primary;
+  document.getElementById("locMsg").textContent = "";
+  document.getElementById("locModalTitle").textContent = "Edit Location";
+  document.getElementById("saveLocBtn").textContent = "Save Changes";
+  openModal("addModal");
+}
 document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));
 document.getElementById("saveLocBtn").addEventListener("click", async (e) => {
   const name = document.getElementById("locName").value.trim();
   if (!name) { showMessage("locMsg", "Name is required.", "error"); return; }
-  setLoading(e.target, true, "Adding…");
-  const { error } = await sb().from("smartcore_flexi_locations").insert({
-    company_id: profile.company_id, name,
+  setLoading(e.target, true, editingLocId ? "Saving…" : "Adding…");
+  const fields = {
+    name,
     address_line_1: document.getElementById("locAddr1").value.trim() || null,
     city: document.getElementById("locCity").value.trim() || null,
     postcode: document.getElementById("locPostcode").value.trim() || null,
     is_primary: document.getElementById("locPrimary").checked,
-  });
+  };
+  const { error } = editingLocId
+    ? await sb().from("smartcore_flexi_locations").update(fields).eq("id", editingLocId)
+    : await sb().from("smartcore_flexi_locations").insert({ ...fields, company_id: profile.company_id });
   setLoading(e.target, false);
   if (error) { showMessage("locMsg", error.message, "error"); return; }
   closeModal("addModal");
-  toast("Location added", "success");
+  toast(editingLocId ? "Location updated" : "Location added", "success");
   load();
 });
 

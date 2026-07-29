@@ -88,11 +88,12 @@
 
 <script type="module">
 import { requireClientAccess, api } from "../shared/client-auth.js";
-import { revealApp, setupThemeToggle, escapeHtml, toast, showMessage, setLoading, openModal, closeModal, emptyState } from "../shared/ui.js";
+import { revealApp, setupThemeToggle, escapeHtml, toast, showMessage, setLoading, openModal, closeModal, emptyState, enhanceSelect } from "../shared/ui.js";
 
 const client = await requireClientAccess();
 setupThemeToggle();
 revealApp();
+enhanceSelect(document.getElementById("meal"));
 
 let allLibraryMeals = [];
 
@@ -144,9 +145,19 @@ if (meal_plan) {
   }
 }
 
+function formatIngredient(ing) {
+  const parts = [];
+  if (ing.qty) parts.push(ing.qty + (ing.unit ? ing.unit : ""));
+  parts.push(ing.name);
+  return parts.join(" ");
+}
+function ingredientLines(m) {
+  if (m.ingredients_structured?.length) return m.ingredients_structured.map(formatIngredient);
+  return (m.ingredients || "").split("\n").filter(Boolean);
+}
 function openRecipe(m, slot) {
   document.getElementById("recipeTitle").textContent = m.name;
-  const ingredients = (m.ingredients || "").split("\n").filter(Boolean);
+  const ingredients = ingredientLines(m);
   const steps = (m.instructions || "").split("\n").filter(Boolean);
   document.getElementById("recipeBody").innerHTML = `
     <div class="fx-tabular" style="font-size:13.5px;font-weight:700;margin-bottom:14px">${m.calories || "—"} kcal · P ${m.protein_g || 0}g · C ${m.carbs_g || 0}g · F ${m.fat_g || 0}g</div>

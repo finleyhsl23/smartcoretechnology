@@ -55,6 +55,65 @@ async function handleAction({ request, env }) {
     });
   }
 
+  // ── Progression (gamified dashboard stats) ─────────────────────────────
+  if (action === 'progression_summary') {
+    const period = ['week', 'month'].includes(body.period) ? body.period : 'day';
+    const now = new Date();
+    let start;
+    if (period === 'day') {
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (period === 'week') {
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    } else {
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+    const daysElapsed = Math.max(1, Math.ceil((now - start) / 86400000));
+    const startIso = start.toISOString();
+    const startDate = start.toISOString().slice(0, 10);
+
+    const [periodLogs, recentLogs, activePrograms, planRows, foodLogs] = await Promise.all([
+      sb(env, `/smartcore_flexi_workout_logs?client_id=eq.${cid}&completed_at=gte.${startIso}&select=id,completed_at`),
+      sb(env, `/smartcore_flexi_workout_logs?client_id=eq.${cid}&order=completed_at.desc&limit=200&select=completed_at`),
+      sb(env, `/smartcore_flexi_programs?client_id=eq.${cid}&status=eq.active&order=created_at.desc&limit=1&select=id`),
+      sb(env, `/smartcore_flexi_nutrition_plans?client_id=eq.${cid}&active=eq.true&order=created_at.desc&limit=1&select=daily_calories,protein_g,carbs_g,fat_g`),
+      sb(env, `/smartcore_flexi_food_logs?client_id=eq.${cid}&logged_at=gte.${startDate}&select=logged_at,calories,protein_g,carbs_g,fat_g`),
+    ]);
+
+    let weeklyGoal = 4;
+    if (activePrograms?.[0]) {
+      const workouts = await sb(env, `/smartcore_flexi_workouts?program_id=eq.${activePrograms[0].id}&is_rest_day=eq.false&select=id`);
+      if (workouts?.length) weeklyGoal = workouts.length;
+    }
+    const goal = period === 'day' ? 1 : period === 'week' ? weeklyGoal : Math.round(weeklyGoal * 4.345);
+
+    const loggedDates = new Set((recentLogs || []).map(l => l.completed_at.slice(0, 10)));
+    let streak = 0;
+    const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (!loggedDates.has(cursor.toISOString().slice(0, 10))) cursor.setDate(cursor.getDate() - 1);
+    while (loggedDates.has(cursor.toISOString().slice(0, 10))) { streak++; cursor.setDate(cursor.getDate() - 1); }
+
+    const plan = planRows?.[0] || null;
+    const dayKeys = new Set();
+    let calSum = 0, proSum = 0, carbSum = 0, fatSum = 0;
+    (foodLogs || []).forEach(f => {
+      dayKeys.add(f.logged_at);
+      calSum += f.calories || 0; proSum += f.protein_g || 0; carbSum += f.carbs_g || 0; fatSum += f.fat_g || 0;
+    });
+
+    return json({
+      period,
+      workout: { done: periodLogs?.length || 0, goal, streak_days: streak },
+      nutrition: plan ? {
+        cal_done: calSum, cal_goal: (plan.daily_calories || 0) * daysElapsed,
+        protein_done: proSum, protein_goal: (plan.protein_g || 0) * daysElapsed,
+        carbs_done: carbSum, carbs_goal: (plan.carbs_g || 0) * daysElapsed,
+        fat_done: fatSum, fat_goal: (plan.fat_g || 0) * daysElapsed,
+        days_logged: dayKeys.size, days_total: daysElapsed,
+      } : null,
+    });
+  }
+
   // ── Training ────────────────────────────────────────────────────────────
   if (action === 'active_programs') {
     const programs = await sb(env, `/smartcore_flexi_programs?client_id=eq.${cid}&status=eq.active&order=created_at.desc&select=id,name`);
@@ -121,7 +180,7 @@ async function handleAction({ request, env }) {
 
   // ── Progress ────────────────────────────────────────────────────────────
   if (action === 'progress_entries') {
-    const rows = await sb(env, `/smartcore_flexi_progress_entries?client_id=eq.${cid}&order=logged_at.desc&select=logged_at,weight_kg,notes,photo_urls`);
+    const rows = await sb(env, `/smartcore_flexi_progress_entries?client_id=eq.${cid}&order=logged_at.desc&select=logged_at,weight_kg,notes,photo_urls,measurements`);
     return json({ entries: rows });
   }
 
@@ -137,7 +196,7 @@ async function handleAction({ request, env }) {
       body: {
         company_id: companyId, client_id: cid,
         weight_kg: body.weight_kg ?? null, body_fat_pct: body.body_fat_pct ?? null,
-        notes: body.notes || null, photo_urls, logged_by: 'client',
+        notes: body.notes || null, photo_urls, measurements: body.measurements || null, logged_by: 'client',
       },
     });
     return json({ success: true });

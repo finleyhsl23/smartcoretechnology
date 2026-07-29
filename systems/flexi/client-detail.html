@@ -41,6 +41,7 @@
         <div class="fx-tab" data-tab="bookings">Bookings</div>
         <div class="fx-tab" data-tab="packages">Packages &amp; Payments</div>
         <div class="fx-tab" data-tab="waivers">Waivers</div>
+        <div class="fx-tab" data-tab="checkins">Check-Ins</div>
       </div>
 
       <!-- Overview -->
@@ -86,10 +87,22 @@
             <div class="fx-field"><label>Body fat %</label><input class="fx-input" id="progBodyFat" type="number" step="0.1"/></div>
           </div>
           <div class="fx-field"><label>Notes</label><input class="fx-input" id="progNotes"/></div>
+          <details style="margin:4px 0 12px">
+            <summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--fx-text2);list-style:none">📏 Body Measurements (optional)</summary>
+            <div class="fx-form-row" style="margin-top:10px">
+              <div class="fx-field"><label>Chest (cm)</label><input class="fx-input" id="progChest" type="number" step="0.1"/></div>
+              <div class="fx-field"><label>Waist (cm)</label><input class="fx-input" id="progWaist" type="number" step="0.1"/></div>
+            </div>
+            <div class="fx-form-row">
+              <div class="fx-field"><label>Hips (cm)</label><input class="fx-input" id="progHips" type="number" step="0.1"/></div>
+              <div class="fx-field"><label>Arms (cm)</label><input class="fx-input" id="progArms" type="number" step="0.1"/></div>
+            </div>
+            <div class="fx-field"><label>Thighs (cm)</label><input class="fx-input" id="progThighs" type="number" step="0.1"/></div>
+          </details>
           <button class="fx-btn fx-btn-primary" id="addProgressBtn">+ Log Entry</button>
         </div>
         <div class="fx-table-wrap">
-          <table class="fx-table"><thead><tr><th>Date</th><th>Weight</th><th>Body Fat %</th><th>Notes</th><th>Logged By</th></tr></thead><tbody id="progressBody"></tbody></table>
+          <table class="fx-table"><thead><tr><th>Date</th><th>Weight</th><th>Body Fat %</th><th>Measurements</th><th>Notes</th><th>Logged By</th></tr></thead><tbody id="progressBody"></tbody></table>
         </div>
       </div>
 
@@ -206,6 +219,11 @@
         </div>
       </div>
 
+      <!-- Check-ins -->
+      <div class="fx-tabpanel" id="tab-checkins">
+        <div id="checkinsList"></div>
+      </div>
+
     </main>
   </div>
 </div>
@@ -258,6 +276,7 @@ async function loadClient() {
 }
 await loadClient();
 revealApp();
+["editStatus","mcSex","mcActivity","mcGoal","nutGoal","payMethod"].forEach(id => enhanceSelect(document.getElementById(id)));
 
 // ---- Tabs ----
 document.querySelectorAll(".fx-tab").forEach(tab => {
@@ -274,7 +293,7 @@ const loaded = new Set();
 function loadTab(name) {
   if (loaded.has(name)) return;
   loaded.add(name);
-  const map = { overview: loadOverview, programs: loadPrograms, progress: loadProgress, nutrition: loadNutrition, messages: loadMessages, bookings: loadBookings, packages: loadPackages, waivers: loadWaivers };
+  const map = { overview: loadOverview, programs: loadPrograms, progress: loadProgress, nutrition: loadNutrition, messages: loadMessages, bookings: loadBookings, packages: loadPackages, waivers: loadWaivers, checkins: loadCheckins };
   map[name]?.();
 }
 const requestedTab = new URLSearchParams(location.search).get("tab");
@@ -337,26 +356,40 @@ document.getElementById("addProgramBtn").addEventListener("click", async (e) => 
 });
 
 // ---- Progress ----
+const MEASURE_LABELS = { chest: "Chest", waist: "Waist", hips: "Hips", arms: "Arms", thighs: "Thighs" };
+function measurementChips(m) {
+  if (!m || typeof m !== "object") return "—";
+  const parts = Object.entries(m).filter(([, v]) => v != null && v !== "").map(([k, v]) => `${MEASURE_LABELS[k] || k} ${v}cm`);
+  if (!parts.length) return "—";
+  return `<div style="display:flex;flex-wrap:wrap;gap:4px">${parts.map(p => `<span class="fx-badge fx-badge-grey">${p}</span>`).join("")}</div>`;
+}
 async function loadProgress() {
   const { data } = await sb().from("smartcore_flexi_progress_entries").select("*").eq("client_id", clientId).order("logged_at", { ascending: false });
   const body = document.getElementById("progressBody");
-  if (!data?.length) { body.innerHTML = `<tr><td colspan="5">${emptyState("📈", "No entries logged", "")}</td></tr>`; return; }
+  if (!data?.length) { body.innerHTML = `<tr><td colspan="6">${emptyState("📈", "No entries logged", "")}</td></tr>`; return; }
   body.innerHTML = data.map(p => `
-    <tr><td>${fmtDate(p.logged_at)}</td><td>${p.weight_kg ? p.weight_kg + " kg" : "—"}</td><td>${p.body_fat_pct ? p.body_fat_pct + "%" : "—"}</td><td>${escapeHtml(p.notes || "—")}</td><td>${escapeHtml(p.logged_by)}</td></tr>
+    <tr><td>${fmtDate(p.logged_at)}</td><td>${p.weight_kg ? p.weight_kg + " kg" : "—"}</td><td>${p.body_fat_pct ? p.body_fat_pct + "%" : "—"}</td><td>${measurementChips(p.measurements)}</td><td>${escapeHtml(p.notes || "—")}</td><td>${escapeHtml(p.logged_by)}</td></tr>
   `).join("");
 }
 document.getElementById("addProgressBtn").addEventListener("click", async (e) => {
   const weight_kg = parseFloat(document.getElementById("progWeight").value) || null;
   const body_fat_pct = parseFloat(document.getElementById("progBodyFat").value) || null;
   const notes = document.getElementById("progNotes").value.trim() || null;
-  if (!weight_kg && !body_fat_pct && !notes) return;
+  const measurements = {};
+  [["chest","progChest"],["waist","progWaist"],["hips","progHips"],["arms","progArms"],["thighs","progThighs"]].forEach(([key, id]) => {
+    const v = parseFloat(document.getElementById(id).value);
+    if (!isNaN(v)) measurements[key] = v;
+  });
+  const hasMeasurements = Object.keys(measurements).length > 0;
+  if (!weight_kg && !body_fat_pct && !notes && !hasMeasurements) return;
   setLoading(e.target, true, "Saving…");
   const { error } = await sb().from("smartcore_flexi_progress_entries").insert({
-    company_id: profile.company_id, client_id: clientId, weight_kg, body_fat_pct, notes, logged_by: "trainer",
+    company_id: profile.company_id, client_id: clientId, weight_kg, body_fat_pct, notes,
+    measurements: hasMeasurements ? measurements : null, logged_by: "trainer",
   });
   setLoading(e.target, false);
   if (error) { toast(error.message, "error"); return; }
-  ["progWeight","progBodyFat","progNotes"].forEach(id => document.getElementById(id).value = "");
+  ["progWeight","progBodyFat","progNotes","progChest","progWaist","progHips","progArms","progThighs"].forEach(id => document.getElementById(id).value = "");
   loaded.delete("progress"); loadTab("progress");
   toast("Entry logged", "success");
 });
@@ -409,6 +442,7 @@ document.getElementById("mcCalcBtn").addEventListener("click", () => {
   document.getElementById("nutFat").value = fatG;
   document.getElementById("nutCarbs").value = carbsG;
   document.getElementById("nutGoal").value = goal;
+  enhanceSelect(document.getElementById("nutGoal"));
   showMessage("mcMsg", `${calories} kcal · P ${proteinG}g · C ${carbsG}g · F ${fatG}g — filled in below.`, "success");
 });
 document.getElementById("addNutritionBtn").addEventListener("click", async (e) => {
@@ -428,6 +462,7 @@ document.getElementById("addNutritionBtn").addEventListener("click", async (e) =
   if (error) { toast(error.message, "error"); return; }
   ["nutName","nutCals","nutProtein","nutCarbs","nutFat"].forEach(id => document.getElementById(id).value = "");
   document.getElementById("nutGoal").value = ""; document.getElementById("nutMealPlan").value = "";
+  enhanceSelect(document.getElementById("nutGoal")); enhanceSelect(document.getElementById("nutMealPlan"));
   loaded.delete("nutrition"); loadTab("nutrition");
   toast("Plan created", "success");
 });
@@ -567,6 +602,41 @@ async function loadWaivers() {
         : (sig ? escapeHtml(sig.signature_name) : "—")}</td>
     </tr>`;
   }).join("");
+}
+
+// ---- Check-ins ----
+async function loadCheckins() {
+  const { data } = await sb().from("smartcore_flexi_checkins").select("*").eq("client_id", clientId).order("due_date", { ascending: false });
+  const el = document.getElementById("checkinsList");
+  el.innerHTML = !data?.length ? emptyState("✅", "No check-ins sent yet", "Send one from the Check-Ins page.") : data.map(c => `
+    <div class="fx-card" style="margin-bottom:14px" id="checkin-${c.id}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+        <div><strong>${escapeHtml(c.title)}</strong><div style="color:var(--fx-text3);font-size:12px;margin-top:2px">Due ${fmtDate(c.due_date)}${c.submitted_at ? ` · Submitted ${fmtDateTime(c.submitted_at)}` : ""}</div></div>
+        <span class="fx-badge ${c.submitted_at ? "fx-badge-green" : "fx-badge-amber"}">${c.submitted_at ? "Submitted" : "Pending"}</span>
+      </div>
+      ${c.responses && Object.keys(c.responses).length ? `
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
+          ${Object.entries(c.responses).map(([q,a]) => a ? `<div><div style="font-size:11px;font-weight:800;color:var(--fx-text3);text-transform:uppercase;letter-spacing:.03em">${escapeHtml(q)}</div><div style="font-size:13px">${escapeHtml(a)}</div></div>` : "").join("")}
+        </div>
+      ` : ""}
+      ${c.notes ? `<div style="font-size:13px;font-style:italic;color:var(--fx-text2);margin-bottom:10px">"${escapeHtml(c.notes)}"</div>` : ""}
+      ${c.photo_urls?.length ? `
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${c.photo_urls.map(u => `<a href="${u}" target="_blank" rel="noopener"><img src="${u}" style="width:84px;height:84px;border-radius:10px;object-fit:cover;border:1px solid var(--fx-line)"/></a>`).join("")}
+        </div>
+      ` : ""}
+      ${!c.submitted_at ? `<p style="color:var(--fx-text3);font-size:12.5px">Waiting on the client to complete this.</p>` : ""}
+    </div>
+  `).join("");
+
+  const highlightId = new URLSearchParams(location.search).get("checkin");
+  if (highlightId) {
+    const target = document.getElementById(`checkin-${highlightId}`);
+    if (target) {
+      target.style.boxShadow = "0 0 0 2px var(--fx-accent), 0 0 20px rgba(255,90,54,.3)";
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
 }
 
 // ---- Resend passcode ----

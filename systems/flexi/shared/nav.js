@@ -1,5 +1,6 @@
 import { tierHasFeature, hasPermission, isAdmin, logout } from "./auth.js";
 import { initials } from "./ui.js";
+import { sb } from "./supabase.js";
 
 export const ICON_ATTRS = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
 export const ICONS = {
@@ -11,7 +12,7 @@ export const ICONS = {
   classes: `<svg ${ICON_ATTRS}><circle cx="8.5" cy="8.5" r="3"/><circle cx="16" cy="9" r="2.6"/><path d="M2.8 20.2c0-3.3 2.6-5.9 5.7-5.9s5.7 2.6 5.7 5.9"/><path d="M14.6 15c2.4.4 4.2 2.5 4.2 5"/></svg>`,
   messages: `<svg ${ICON_ATTRS}><path d="M4.5 5.5h15a1 1 0 0 1 1 1V16a1 1 0 0 1-1 1H9.8l-4.3 3.6V17H4.5a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1Z"/></svg>`,
   nutrition: `<svg ${ICON_ATTRS}><path d="M12 3c1.2 2 1.2 4-.3 5.6"/><path d="M12 8.4c4 0 7 3 7 7a5.6 5.6 0 0 1-11.2 0M5 15.4A5.6 5.6 0 0 1 12 8.4"/></svg>`,
-  checkins: `<svg ${ICON_ATTRS}><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M8 12.3l2.6 2.6L16.5 9"/></svg>`,
+  checkins: `<svg ${ICON_ATTRS}><path d="M7 5.5h10a1 1 0 0 1 1 1V19a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V6.5a1 1 0 0 1 1-1Z"/><path d="M9.3 4a.8.8 0 0 1 .8-.8h3.8a.8.8 0 0 1 .8.8v1a.8.8 0 0 1-.8.8h-3.8a.8.8 0 0 1-.8-.8V4Z"/><path d="M9 12.3l1.7 1.7L14.2 10.4"/><line x1="9" y1="17" x2="15" y2="17"/></svg>`,
   packages: `<svg ${ICON_ATTRS}><path d="M21 7.5 12 3 3 7.5v9L12 21l9-4.5v-9Z"/><path d="M3 7.5 12 12l9-4.5"/><line x1="12" y1="12" x2="12" y2="21"/></svg>`,
   waivers: `<svg ${ICON_ATTRS}><path d="M6.5 3h8l4 4v13a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14.5 3v4h4"/><line x1="8.5" y1="13" x2="15.5" y2="13"/><line x1="8.5" y1="16.7" x2="13" y2="16.7"/></svg>`,
   community: `<svg ${ICON_ATTRS}><path d="M7 4h10v3.5a5 5 0 0 1-10 0V4Z"/><path d="M7 5.5H4.7A2.3 2.3 0 0 0 7 9"/><path d="M17 5.5h2.3A2.3 2.3 0 0 1 17 9"/><path d="M12 12.5v3.3"/><path d="M9 20h6l-.9-3.7a.5.5 0 0 0-.5-.5h-3.2a.5.5 0 0 0-.5.5L9 20Z"/></svg>`,
@@ -44,6 +45,8 @@ const NAV_ITEMS = [
 ];
 
 export function renderNav({ activeKey, profile, tier }) {
+  renderUtilityBar();
+
   const container = document.getElementById("fxSidebar");
   if (!container) return;
 
@@ -62,6 +65,7 @@ export function renderNav({ activeKey, profile, tier }) {
       ${items.map(item => `
         <a href="${item.href}" class="fx-side-link ${item.key === activeKey ? "active" : ""}">
           <span class="fx-side-icon">${ICONS[item.icon] || ""}</span>${item.label}
+          ${item.key === "messages" ? '<span class="fx-nav-badge" id="fxMsgBadge"></span>' : ""}
         </a>
       `).join("")}
     </nav>
@@ -73,7 +77,7 @@ export function renderNav({ activeKey, profile, tier }) {
           <div class="fx-side-user-name">${profile.full_name || profile.email}</div>
           <div class="fx-side-user-role">${isAdmin(profile) ? "Admin" : "Trainer"}</div>
         </div>
-        <button class="fx-icon-btn" id="themeToggle" title="Toggle theme">🌙</button>
+        <button class="fx-icon-btn fx-theme-btn" title="Toggle theme">🌙</button>
       </div>
       <div class="fx-side-actions">
         <a href="/modules/" class="fx-side-back">${ICONS.modules} Modules</a>
@@ -81,6 +85,42 @@ export function renderNav({ activeKey, profile, tier }) {
       </div>
     </div>
   `;
+
+  if (items.some(item => item.key === "messages")) refreshUnreadBadge();
+}
+
+// Total unread client-sent messages across every conversation this trainer
+// can see. Called after renderNav, and again by messages.html the moment a
+// conversation is marked read so the badge updates without a page reload.
+export async function refreshUnreadBadge() {
+  const badge = document.getElementById("fxMsgBadge");
+  if (!badge) return;
+  const { count } = await sb().from("smartcore_flexi_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("sender_type", "client").is("read_at", null);
+  if (count) {
+    badge.textContent = count > 9 ? "9+" : String(count);
+    badge.style.display = "inline-flex";
+  } else {
+    badge.style.display = "none";
+  }
+}
+
+// A slim bar pinned above every trainer page's header — a quick way back to
+// the SmartCore module grid and a theme toggle, without needing to open the
+// (often-collapsed-on-mobile) sidebar first.
+function renderUtilityBar() {
+  if (document.getElementById("fxUtilityBar")) return;
+  const main = document.querySelector(".fx-main");
+  if (!main) return;
+  const bar = document.createElement("div");
+  bar.id = "fxUtilityBar";
+  bar.className = "fx-utility-bar";
+  bar.innerHTML = `
+    <a href="/modules/" class="fx-utility-back"><svg ${ICON_ATTRS}><path d="M14.5 5 8 12l6.5 7"/></svg><span>Modules</span></a>
+    <button class="fx-icon-btn fx-theme-btn" title="Toggle theme">🌙</button>
+  `;
+  main.prepend(bar);
 }
 
 export function wireMobileNavToggle() {
