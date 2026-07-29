@@ -24,20 +24,31 @@ export function getToken() {
 }
 
 // Generic call into the multiplexed portal-api action endpoint. Redirects
-// to login on an expired/invalid session rather than surfacing a raw 401.
-export async function api(action, params = {}) {
+// to login on a *confirmed* expired/invalid session rather than surfacing a
+// raw 401 — but a single network blip or cold-start hiccup on the edge
+// function should never be enough to sign someone out, so both a network
+// failure and a 401 get one retry before we actually give up and clear the
+// session. Only a 401 that survives the retry is treated as a real logout.
+export async function api(action, params = {}, _isRetry = false) {
   const token = getToken();
   if (!token) {
     window.location.href = LOGIN_URL;
     throw new Error("No session");
   }
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ action, ...params }),
-  });
-  const data = await res.json().catch(() => ({}));
+  let res, data;
+  try {
+    res = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action, ...params }),
+    });
+    data = await res.json().catch(() => ({}));
+  } catch (networkErr) {
+    if (!_isRetry) { await new Promise(r => setTimeout(r, 500)); return api(action, params, true); }
+    throw new Error("Network error — please check your connection and try again.");
+  }
   if (res.status === 401) {
+    if (!_isRetry) { await new Promise(r => setTimeout(r, 500)); return api(action, params, true); }
     clearSession();
     window.location.href = LOGIN_URL;
     throw new Error(data.error || "Session expired");

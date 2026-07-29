@@ -12,7 +12,15 @@ export function isAdmin(profile) {
 }
 
 export async function requireAuth() {
-  const { data, error } = await sb().auth.getSession();
+  let { data, error } = await sb().auth.getSession();
+  if (error || !data?.session) {
+    // getSession() can occasionally resolve before the client has finished
+    // restoring a persisted session from storage right after a cold page
+    // load (every Flexi page is a full reload, not an SPA route change) —
+    // give it one more beat before treating this as a real logout.
+    await new Promise(resolve => setTimeout(resolve, 400));
+    ({ data, error } = await sb().auth.getSession());
+  }
   if (error || !data?.session) {
     window.location.href = "/modules/";
     throw new Error("No session");

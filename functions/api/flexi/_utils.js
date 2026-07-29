@@ -86,6 +86,18 @@ export async function verifyClientSession(request, env) {
   const client = rows?.[0];
   if (!client) return null;
   if (client.session_expires_at && new Date(client.session_expires_at) < new Date()) return null;
+
+  // Sliding expiry — an actively-used session should never quietly run out
+  // from under someone. Only bother extending it once it's within 30 days
+  // of expiring, so this isn't a write on every single request.
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const expiresAtMs = client.session_expires_at ? new Date(client.session_expires_at).getTime() : 0;
+  if (expiresAtMs - Date.now() < THIRTY_DAYS_MS) {
+    const newExpiry = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
+    sb(env, `/smartcore_flexi_clients?id=eq.${client.id}`, {
+      method: 'PATCH', body: { session_expires_at: newExpiry }, extraHeaders: { Prefer: 'return=minimal' },
+    }).catch(() => {});
+  }
   return client;
 }
 

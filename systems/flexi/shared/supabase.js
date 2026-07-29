@@ -5,6 +5,19 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 let _client = null;
 export function sb() {
-  if (!_client) _client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  if (!_client) {
+    _client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        // Every Flexi page is a full reload (no SPA router), so the session
+        // must survive that reliably: persist it, keep it silently refreshed
+        // in the background, and don't try to parse OAuth params out of the
+        // URL (Flexi never uses a redirect-based login flow, so leaving this
+        // on just risks it misreading an unrelated query string on reload).
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+      },
+    });
+  }
   return _client;
 }
