@@ -31,6 +31,10 @@ export async function onRequestPost({ request, env }) {
     return json({ error: 'Incorrect passcode.' }, 401);
   }
 
+  if (client.status === 'paused' || client.status === 'archived') {
+    return json({ error: 'Sorry, Your trainer has paused your account, please contact them if you think this is a mistake.' }, 403);
+  }
+
   const session_token = crypto.randomUUID();
   const session_expires_at = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
 

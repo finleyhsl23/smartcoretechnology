@@ -193,9 +193,44 @@ function openEdit(ex) {
 
 document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));
 
+function normalizeExName(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+function levenshtein(a, b) {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[a.length][b.length];
+}
+function findSimilarExercises(name, excludeId) {
+  const norm = normalizeExName(name);
+  if (!norm) return [];
+  return all.filter(x => {
+    if (excludeId && x.id === excludeId) return false;
+    const xNorm = normalizeExName(x.name);
+    if (!xNorm) return false;
+    if (xNorm === norm || xNorm.includes(norm) || norm.includes(xNorm)) return true;
+    return levenshtein(xNorm, norm) <= 2;
+  });
+}
+
 document.getElementById("saveExBtn").addEventListener("click", async (e) => {
   const name = document.getElementById("exName").value.trim();
   if (!name) { showMessage("exMsg", "Name is required.", "error"); return; }
+  // Only warn when creating a genuinely new exercise — editing or cloning an
+  // existing one obviously "matches" itself.
+  if (!editingId && !cloningFrom) {
+    const similar = findSimilarExercises(name);
+    if (similar.length) {
+      const list = similar.map(x => x.name).join(", ");
+      const proceed = confirm(`The following exercises already exist: ${list}. Are you sure you want to make a new one?`);
+      if (!proceed) return;
+    }
+  }
   const uploadMode = document.getElementById("videoModeUpload").classList.contains("active");
   const file = document.getElementById("exVideoFile").files[0];
 

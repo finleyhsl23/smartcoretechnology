@@ -22,6 +22,9 @@ export async function onRequestPost(context) {
 async function handleAction({ request, env }) {
   const client = await verifyClientSession(request, env);
   if (!client) return json({ error: 'Session expired — please sign in again.' }, 401);
+  if (client.status === 'paused' || client.status === 'archived') {
+    return json({ error: 'Sorry, Your trainer has paused your account, please contact them if you think this is a mistake.' }, 403);
+  }
 
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid request body' }, 400); }
