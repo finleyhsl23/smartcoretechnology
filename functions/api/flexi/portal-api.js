@@ -117,10 +117,17 @@ async function handleAction({ request, env }) {
   // ── Training ────────────────────────────────────────────────────────────
   if (action === 'active_programs') {
     const programs = await sb(env, `/smartcore_flexi_programs?client_id=eq.${cid}&status=eq.active&order=created_at.desc&select=id,name`);
-    const withWorkouts = await Promise.all((programs || []).map(async p => ({
-      ...p,
-      workouts: await sb(env, `/smartcore_flexi_workouts?program_id=eq.${p.id}&order=order_index.asc&select=id,name`),
-    })));
+    const withWorkouts = await Promise.all((programs || []).map(async p => {
+      const workouts = await sb(env, `/smartcore_flexi_workouts?program_id=eq.${p.id}&order=order_index.asc&select=id,name,day_label`);
+      const withMeta = await Promise.all((workouts || []).map(async w => {
+        const [exercises, lastLog] = await Promise.all([
+          sb(env, `/smartcore_flexi_workout_exercises?workout_id=eq.${w.id}&select=id`),
+          sb(env, `/smartcore_flexi_workout_logs?client_id=eq.${cid}&workout_id=eq.${w.id}&order=completed_at.desc&limit=1&select=completed_at`),
+        ]);
+        return { ...w, exercise_count: exercises?.length || 0, last_completed_at: lastLog?.[0]?.completed_at || null };
+      }));
+      return { ...p, workouts: withMeta };
+    }));
     return json({ programs: withWorkouts });
   }
 
