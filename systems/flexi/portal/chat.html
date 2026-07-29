@@ -27,8 +27,7 @@
 </div>
 
 <script type="module">
-import { requireClientAccess } from "../shared/client-auth.js";
-import { sb } from "../shared/supabase.js";
+import { requireClientAccess, api } from "../shared/client-auth.js";
 import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, toast, emptyState } from "../shared/ui.js";
 
 const client = await requireClientAccess();
@@ -36,9 +35,9 @@ setupThemeToggle();
 revealApp();
 
 async function load() {
-  const { data } = await sb().from("smartcore_flexi_messages").select("*").eq("client_id", client.id).order("created_at");
+  const { messages } = await api("messages");
   const el = document.getElementById("chatMessages");
-  el.innerHTML = !data?.length ? emptyState("💬", "Say hello to your trainer", "") : data.map(m => `
+  el.innerHTML = !messages?.length ? emptyState("💬", "Say hello to your trainer", "") : messages.map(m => `
     <div class="fx-bubble ${m.sender_type === "client" ? "fx-bubble-mine" : "fx-bubble-theirs"}">
       ${escapeHtml(m.body)}<div class="fx-bubble-meta">${fmtDateTime(m.created_at)}</div>
     </div>
@@ -53,10 +52,7 @@ async function send() {
   const body = input.value.trim();
   if (!body) return;
   input.value = "";
-  const { error } = await sb().from("smartcore_flexi_messages").insert({
-    company_id: client.company_id, client_id: client.id, sender_type: "client", body,
-  });
-  if (error) { toast(error.message, "error"); return; }
+  try { await api("send_message", { body }); } catch (e) { toast(e.message, "error"); return; }
   load();
 }
 

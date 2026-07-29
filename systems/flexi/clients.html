@@ -42,7 +42,7 @@
     <div class="fx-modal-head"><h3>Add Client</h3><button class="fx-modal-close" data-close>✕</button></div>
     <div class="fx-field"><label>Full name</label><input class="fx-input" id="newName"/></div>
     <div class="fx-form-row">
-      <div class="fx-field"><label>Email</label><input class="fx-input" id="newEmail" type="email"/></div>
+      <div class="fx-field"><label>Email <span class="fx-hint">— required, their login</span></label><input class="fx-input" id="newEmail" type="email"/></div>
       <div class="fx-field"><label>Phone</label><input class="fx-input" id="newPhone"/></div>
     </div>
     <div class="fx-field"><label>Goals</label><textarea class="fx-textarea" id="newGoals" placeholder="e.g. Lose 5kg, build strength for a 5k"></textarea></div>
@@ -50,6 +50,7 @@
       <label>Assign trainer</label>
       <select class="fx-select" id="newTrainer"></select>
     </div>
+    <p style="font-size:11.5px;color:var(--fx-text3);margin-bottom:14px">A 5-character passcode and your trainer code will be emailed to them automatically — no password to set up.</p>
     <div class="fx-form-msg" id="addClientMsg"></div>
     <button class="fx-btn fx-btn-primary fx-btn-block" id="saveClientBtn">Add Client</button>
   </div>
@@ -125,21 +126,28 @@ document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click
 document.getElementById("saveClientBtn").addEventListener("click", async (e) => {
   const btn = e.target;
   const full_name = document.getElementById("newName").value.trim();
+  const email = document.getElementById("newEmail").value.trim();
   if (!full_name) { showMessage("addClientMsg", "Name is required.", "error"); return; }
+  if (!email || !email.includes("@")) { showMessage("addClientMsg", "A valid email is required — it's how they'll log in.", "error"); return; }
   setLoading(btn, true, "Adding…");
-  const { error } = await sb().from("smartcore_flexi_clients").insert({
-    company_id: profile.company_id,
-    full_name,
-    email: document.getElementById("newEmail").value.trim() || null,
-    phone: document.getElementById("newPhone").value.trim() || null,
-    goals: document.getElementById("newGoals").value.trim() || null,
-    trainer_id: admin ? (document.getElementById("newTrainer").value || null) : profile.id,
-    created_by: profile.id,
+
+  const { data: { session } } = await sb().auth.getSession();
+  const res = await fetch("/api/flexi/add-client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({
+      full_name, email,
+      phone: document.getElementById("newPhone").value.trim() || null,
+      goals: document.getElementById("newGoals").value.trim() || null,
+      trainer_id: admin ? (document.getElementById("newTrainer").value || null) : undefined,
+    }),
   });
+  const data = await res.json().catch(() => ({}));
   setLoading(btn, false);
-  if (error) { showMessage("addClientMsg", error.message, "error"); return; }
+  if (!res.ok) { showMessage("addClientMsg", data.error || "Failed to add client.", "error"); return; }
+
   closeModal("addClientModal");
-  toast("Client added", "success");
+  toast(data.emailSent ? "Client added — login details emailed" : `Client added — passcode ${data.passcode} (email not sent, share it manually)`, "success");
   loadClients();
 });
 

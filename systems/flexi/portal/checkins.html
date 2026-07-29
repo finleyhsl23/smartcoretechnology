@@ -39,20 +39,16 @@
 </div>
 
 <script type="module">
-import { requireClientAccess } from "../shared/client-auth.js";
-import { sb } from "../shared/supabase.js";
+import { requireClientAccess, api } from "../shared/client-auth.js";
 import { revealApp, setupThemeToggle, escapeHtml, fmtDate, toast, openModal, closeModal, emptyState } from "../shared/ui.js";
 
 const client = await requireClientAccess();
 setupThemeToggle();
 revealApp();
 
-const today = new Date().toISOString().slice(0,10);
-
 async function loadHabits() {
-  const { data: habits } = await sb().from("smartcore_flexi_habits").select("*").eq("client_id", client.id).eq("active", true);
-  const { data: logs } = await sb().from("smartcore_flexi_habit_logs").select("*").eq("logged_date", today).in("habit_id", (habits || []).map(h => h.id));
-  const doneIds = new Set((logs || []).map(l => l.habit_id));
+  const { habits, done_ids } = await api("habits_today");
+  const doneIds = new Set(done_ids || []);
 
   const el = document.getElementById("habits");
   el.innerHTML = !habits?.length ? emptyState("✅", "No habits set", "Your trainer hasn't added any yet.") : habits.map(h => `
@@ -62,24 +58,23 @@ async function loadHabits() {
     </label>
   `).join("");
   el.querySelectorAll("[data-habit]").forEach(cb => cb.addEventListener("change", async () => {
-    if (cb.checked) {
-      await sb().from("smartcore_flexi_habit_logs").upsert({ habit_id: cb.dataset.habit, logged_date: today, completed: true }, { onConflict: "habit_id,logged_date" });
-    } else {
-      await sb().from("smartcore_flexi_habit_logs").delete().eq("habit_id", cb.dataset.habit).eq("logged_date", today);
-    }
+    try { await api("toggle_habit", { habit_id: cb.dataset.habit, completed: cb.checked }); }
+    catch (e) { toast(e.message, "error"); cb.checked = !cb.checked; }
   }));
 }
 
+let checkinsCache = [];
 async function loadCheckins() {
-  const { data } = await sb().from("smartcore_flexi_checkins").select("*").eq("client_id", client.id).order("due_date", { ascending: false });
+  const { checkins } = await api("checkins_list");
+  checkinsCache = checkins || [];
   const el = document.getElementById("checkinsList");
-  el.innerHTML = !data?.length ? emptyState("☑", "No check-ins yet", "") : data.map(c => `
+  el.innerHTML = !checkinsCache.length ? emptyState("☑", "No check-ins yet", "") : checkinsCache.map(c => `
     <div class="fx-card" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;${c.submitted_at ? "" : "cursor:pointer"}" ${c.submitted_at ? "" : `data-open="${c.id}"`}>
       <div><strong>${escapeHtml(c.title)}</strong><div style="color:var(--fx-text3);font-size:12px">Due ${fmtDate(c.due_date)}</div></div>
       <span class="fx-badge ${c.submitted_at ? "fx-badge-green" : "fx-badge-amber"}">${c.submitted_at ? "Submitted" : "Tap to complete"}</span>
     </div>
   `).join("");
-  el.querySelectorAll("[data-open]").forEach(card => card.addEventListener("click", () => openCheckin(card.dataset.open, data.find(d => d.id === card.dataset.open))));
+  el.querySelectorAll("[data-open]").forEach(card => card.addEventListener("click", () => openCheckin(card.dataset.open, checkinsCache.find(d => d.id === card.dataset.open))));
 }
 
 function openCheckin(id, checkin) {
@@ -98,8 +93,7 @@ document.getElementById("submitCiBtn").addEventListener("click", async (e) => {
   const questions = JSON.parse(e.target.dataset.questions);
   const responses = {};
   questions.forEach((q, i) => { responses[q] = document.querySelector(`[data-q="${i}"]`).value.trim(); });
-  const { error } = await sb().from("smartcore_flexi_checkins").update({ submitted_at: new Date().toISOString(), responses }).eq("id", id);
-  if (error) { toast(error.message, "error"); return; }
+  try { await api("submit_checkin", { checkin_id: id, responses }); } catch (e) { toast(e.message, "error"); return; }
   closeModal("ciModal");
   toast("Check-in submitted", "success");
   loadCheckins();

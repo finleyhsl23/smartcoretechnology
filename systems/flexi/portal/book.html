@@ -27,8 +27,7 @@
 </div>
 
 <script type="module">
-import { requireClientAccess } from "../shared/client-auth.js";
-import { sb } from "../shared/supabase.js";
+import { requireClientAccess, api } from "../shared/client-auth.js";
 import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, toast, emptyState } from "../shared/ui.js";
 
 const client = await requireClientAccess();
@@ -36,44 +35,34 @@ setupThemeToggle();
 revealApp();
 
 async function loadMyBookings() {
-  const { data } = await sb().from("smartcore_flexi_bookings").select("*").eq("client_id", client.id).gte("starts_at", new Date(Date.now() - 3600000).toISOString()).neq("status", "cancelled").order("starts_at");
+  const { bookings } = await api("my_bookings");
   const el = document.getElementById("myBookings");
-  el.innerHTML = !data?.length ? emptyState("📅", "Nothing booked", "Book a class below.") : data.map(b => `
+  el.innerHTML = !bookings?.length ? emptyState("📅", "Nothing booked", "Book a class below.") : bookings.map(b => `
     <div class="fx-card" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
       <div><strong>${fmtDateTime(b.starts_at)}</strong><div style="color:var(--fx-text3);font-size:12px">${b.session_type === "class" ? "Group Class" : "1:1 Session"}</div></div>
       ${b.status === "confirmed" ? `<button class="fx-btn fx-btn-sm" data-cancel="${b.id}">Cancel</button>` : `<span class="fx-badge fx-badge-grey">${b.status}</span>`}
     </div>
   `).join("");
   el.querySelectorAll("[data-cancel]").forEach(btn => btn.addEventListener("click", async () => {
-    await sb().from("smartcore_flexi_bookings").update({ status: "cancelled" }).eq("id", btn.dataset.cancel);
+    try { await api("cancel_booking", { booking_id: btn.dataset.cancel }); } catch (e) { toast(e.message, "error"); return; }
     toast("Booking cancelled", "success");
     loadMyBookings(); loadClasses();
   }));
 }
 
 async function loadClasses() {
-  const { data: classes } = await sb().from("smartcore_flexi_class_sessions").select("*").eq("status", "scheduled").gte("starts_at", new Date().toISOString()).order("starts_at");
+  const { classes } = await api("available_classes");
   const el = document.getElementById("availableClasses");
   if (!classes?.length) { el.innerHTML = emptyState("◫", "No classes scheduled", ""); return; }
 
-  const { data: myBookings } = await sb().from("smartcore_flexi_bookings").select("class_session_id").eq("client_id", client.id).eq("status", "confirmed");
-  const bookedIds = new Set((myBookings || []).map(b => b.class_session_id));
-
-  const rows = await Promise.all(classes.map(async c => {
-    const { count } = await sb().from("smartcore_flexi_bookings").select("id", { count: "exact", head: true }).eq("class_session_id", c.id).eq("status", "confirmed");
-    const full = (count || 0) >= c.capacity;
-    const booked = bookedIds.has(c.id);
-    return `
+  el.innerHTML = classes.map(c => `
       <div class="fx-card" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-        <div><strong>${escapeHtml(c.name)}</strong><div style="color:var(--fx-text3);font-size:12px">${fmtDateTime(c.starts_at)} · ${count || 0}/${c.capacity} booked</div></div>
-        ${booked ? '<span class="fx-badge fx-badge-green">Booked</span>' : full ? '<span class="fx-badge fx-badge-red">Full</span>' : `<button class="fx-btn fx-btn-sm fx-btn-primary" data-book="${c.id}">Book</button>`}
+        <div><strong>${escapeHtml(c.name)}</strong><div style="color:var(--fx-text3);font-size:12px">${fmtDateTime(c.starts_at)} · ${c.booked_count}/${c.capacity} booked</div></div>
+        ${c.is_booked ? '<span class="fx-badge fx-badge-green">Booked</span>' : c.booked_count >= c.capacity ? '<span class="fx-badge fx-badge-red">Full</span>' : `<button class="fx-btn fx-btn-sm fx-btn-primary" data-book="${c.id}">Book</button>`}
       </div>
-    `;
-  }));
-  el.innerHTML = rows.join("");
+    `).join("");
   el.querySelectorAll("[data-book]").forEach(btn => btn.addEventListener("click", async () => {
-    const { error } = await sb().rpc("flexi_book_class", { p_class_session_id: btn.dataset.book, p_client_id: client.id });
-    if (error) { toast(error.message, "error"); return; }
+    try { await api("book_class", { class_session_id: btn.dataset.book }); } catch (e) { toast(e.message, "error"); return; }
     toast("Booked!", "success");
     loadMyBookings(); loadClasses();
   }));

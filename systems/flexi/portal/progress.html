@@ -34,8 +34,7 @@
 </div>
 
 <script type="module">
-import { requireClientAccess } from "../shared/client-auth.js";
-import { sb } from "../shared/supabase.js";
+import { requireClientAccess, api } from "../shared/client-auth.js";
 import { revealApp, setupThemeToggle, fmtDate, setLoading, showMessage, toast, emptyState } from "../shared/ui.js";
 
 const client = await requireClientAccess();
@@ -43,15 +42,24 @@ setupThemeToggle();
 revealApp();
 
 async function loadHistory() {
-  const { data } = await sb().from("smartcore_flexi_progress_entries").select("*").eq("client_id", client.id).order("logged_at", { ascending: false });
+  const { entries } = await api("progress_entries");
   const el = document.getElementById("history");
-  el.innerHTML = !data?.length ? emptyState("📈", "No entries yet", "Log your first one above.") : data.map(p => `
+  el.innerHTML = !entries?.length ? emptyState("📈", "No entries yet", "Log your first one above.") : entries.map(p => `
     <div class="fx-card" style="margin-bottom:8px">
       <div style="display:flex;justify-content:space-between"><strong>${fmtDate(p.logged_at)}</strong><span>${p.weight_kg ? p.weight_kg + " kg" : ""}</span></div>
       ${p.notes ? `<div style="color:var(--fx-text3);font-size:12.5px;margin-top:4px">${p.notes}</div>` : ""}
       ${p.photo_urls?.length ? `<div style="display:flex;gap:6px;margin-top:8px">${p.photo_urls.map(u => `<div style="width:56px;height:56px;border-radius:8px;background:var(--fx-card2);overflow:hidden"><img src="${u}" style="width:100%;height:100%;object-fit:cover"/></div>`).join("")}</div>` : ""}
     </div>
   `).join("");
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 document.getElementById("logBtn").addEventListener("click", async (e) => {
@@ -62,20 +70,15 @@ document.getElementById("logBtn").addEventListener("click", async (e) => {
   if (!weight_kg && !body_fat_pct && !notes && !file) { showMessage("msg", "Add at least one field.", "error"); return; }
 
   setLoading(e.target, true, "Saving…");
-  let photo_urls = [];
-  if (file) {
-    const path = `${client.company_id}/${client.id}/progress/${Date.now()}-${file.name}`;
-    const { error: upErr } = await sb().storage.from("flexi-media").upload(path, file);
-    if (upErr) { setLoading(e.target, false); showMessage("msg", upErr.message, "error"); return; }
-    const { data: signed } = await sb().storage.from("flexi-media").createSignedUrl(path, 60 * 60 * 24 * 365);
-    if (signed?.signedUrl) photo_urls.push(signed.signedUrl);
+  try {
+    const photo_base64 = file ? await fileToBase64(file) : null;
+    await api("log_progress", { weight_kg, body_fat_pct, notes, photo_base64, photo_type: file?.type });
+  } catch (err) {
+    setLoading(e.target, false);
+    showMessage("msg", err.message, "error");
+    return;
   }
-
-  const { error } = await sb().from("smartcore_flexi_progress_entries").insert({
-    company_id: client.company_id, client_id: client.id, weight_kg, body_fat_pct, notes, photo_urls, logged_by: "client",
-  });
   setLoading(e.target, false);
-  if (error) { showMessage("msg", error.message, "error"); return; }
   ["weight","bodyFat","notes","photo"].forEach(id => document.getElementById(id).value = "");
   toast("Progress logged", "success");
   loadHistory();

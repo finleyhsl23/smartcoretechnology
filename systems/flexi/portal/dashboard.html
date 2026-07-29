@@ -42,9 +42,8 @@
 </div>
 
 <script type="module">
-import { requireClientAccess } from "../shared/client-auth.js";
-import { sb } from "../shared/supabase.js";
-import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime } from "../shared/ui.js";
+import { requireClientAccess, api } from "../shared/client-auth.js";
+import { revealApp, setupThemeToggle, fmtDateTime } from "../shared/ui.js";
 
 const client = await requireClientAccess();
 setupThemeToggle();
@@ -53,24 +52,19 @@ revealApp();
 document.getElementById("greeting").textContent = `Hey ${(client.full_name || "").split(" ")[0] || ""}`;
 document.getElementById("todayLabel").textContent = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 
-const [{ data: nextBooking }, { data: latestProgress }, { count: workoutCount }, { data: dueCheckins }] = await Promise.all([
-  sb().from("smartcore_flexi_bookings").select("*").eq("client_id", client.id).gte("starts_at", new Date().toISOString()).eq("status", "confirmed").order("starts_at").limit(1),
-  sb().from("smartcore_flexi_progress_entries").select("weight_kg").eq("client_id", client.id).order("logged_at", { ascending: false }).limit(1),
-  sb().from("smartcore_flexi_workout_logs").select("id", { count: "exact", head: true }).eq("client_id", client.id),
-  sb().from("smartcore_flexi_checkins").select("id").eq("client_id", client.id).is("submitted_at", null),
-]);
+const { next_booking, latest_weight, workout_count, due_checkins } = await api("dashboard_summary");
 
-document.getElementById("nextSessionCard").innerHTML = nextBooking?.[0]
-  ? `<div style="font-size:11px;color:var(--fx-text3);font-weight:700;text-transform:uppercase;margin-bottom:4px">Next Session</div><div style="font-size:15px;font-weight:700">${fmtDateTime(nextBooking[0].starts_at)}</div>`
+document.getElementById("nextSessionCard").innerHTML = next_booking
+  ? `<div style="font-size:11px;color:var(--fx-text3);font-weight:700;text-transform:uppercase;margin-bottom:4px">Next Session</div><div style="font-size:15px;font-weight:700">${fmtDateTime(next_booking.starts_at)}</div>`
   : `<div style="font-size:11px;color:var(--fx-text3);font-weight:700;text-transform:uppercase;margin-bottom:4px">Next Session</div><div style="font-size:13.5px;color:var(--fx-text3)">Nothing booked — head to Book to grab a slot.</div>`;
 
-document.getElementById("statWeight").textContent = latestProgress?.[0]?.weight_kg ? `${latestProgress[0].weight_kg} kg` : "—";
-document.getElementById("statWorkouts").textContent = workoutCount ?? 0;
+document.getElementById("statWeight").textContent = latest_weight ? `${latest_weight} kg` : "—";
+document.getElementById("statWorkouts").textContent = workout_count ?? 0;
 
-if (dueCheckins?.length) {
+if (due_checkins) {
   document.getElementById("checkinBanner").innerHTML = `
     <a href="checkins.html" class="fx-card" style="display:block;margin-bottom:16px;border-color:var(--fx-accent)">
-      <strong>☑ You have ${dueCheckins.length} check-in${dueCheckins.length > 1 ? "s" : ""} due</strong>
+      <strong>☑ You have ${due_checkins} check-in${due_checkins > 1 ? "s" : ""} due</strong>
       <div style="color:var(--fx-text3);font-size:12.5px;margin-top:4px">Tap to complete it now →</div>
     </a>`;
 }

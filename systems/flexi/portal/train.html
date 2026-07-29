@@ -28,8 +28,7 @@
 </div>
 
 <script type="module">
-import { requireClientAccess } from "../shared/client-auth.js";
-import { sb } from "../shared/supabase.js";
+import { requireClientAccess, api } from "../shared/client-auth.js";
 import { revealApp, setupThemeToggle, escapeHtml, setLoading, toast, emptyState } from "../shared/ui.js";
 
 const client = await requireClientAccess();
@@ -37,29 +36,26 @@ setupThemeToggle();
 revealApp();
 
 async function loadList() {
-  const { data: programs } = await sb().from("smartcore_flexi_programs").select("*").eq("client_id", client.id).eq("status", "active").order("created_at", { ascending: false });
+  const { programs } = await api("active_programs");
   const listView = document.getElementById("listView");
   if (!programs?.length) { listView.innerHTML = emptyState("🏋️", "No active program", "Your trainer hasn't assigned one yet."); return; }
 
-  const blocks = await Promise.all(programs.map(async p => {
-    const { data: workouts } = await sb().from("smartcore_flexi_workouts").select("*").eq("program_id", p.id).order("order_index");
-    return `
+  const blocks = programs.map(p => `
       <div style="margin-bottom:20px">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--fx-text3);margin-bottom:8px">${escapeHtml(p.name)}</div>
-        ${(workouts || []).map(w => `
+        ${(p.workouts || []).map(w => `
           <div class="fx-card" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" data-workout="${w.id}" data-name="${escapeHtml(w.name)}">
             <span>${escapeHtml(w.name)}</span><span style="color:var(--fx-accent);font-weight:700">Start →</span>
           </div>
         `).join("") || `<p style="color:var(--fx-text3);font-size:12.5px">No workouts in this program yet.</p>`}
       </div>
-    `;
-  }));
+    `);
   listView.innerHTML = blocks.join("");
   listView.querySelectorAll("[data-workout]").forEach(el => el.addEventListener("click", () => openWorkout(el.dataset.workout, el.dataset.name)));
 }
 
 async function openWorkout(workoutId, name) {
-  const { data: exercises } = await sb().from("smartcore_flexi_workout_exercises").select("*, smartcore_flexi_exercises(name, video_url, instructions)").eq("workout_id", workoutId).order("order_index");
+  const { exercises } = await api("workout_exercises", { workout_id: workoutId });
   document.getElementById("listView").style.display = "none";
   const logView = document.getElementById("logView");
   logView.style.display = "";
@@ -91,28 +87,31 @@ async function openWorkout(workoutId, name) {
 
   document.getElementById("finishBtn").addEventListener("click", async (e) => {
     setLoading(e.target, true, "Saving…");
-    const { data: log, error } = await sb().from("smartcore_flexi_workout_logs").insert({
-      client_id: client.id, workout_id: workoutId, company_id: client.company_id,
-    }).select().single();
-    if (error) { setLoading(e.target, false); toast(error.message, "error"); return; }
 
-    const rows = [];
+    const sets = [];
     exList.querySelectorAll("[data-ex-block]").forEach(block => {
-      const workoutExerciseId = block.dataset.exBlock;
-      const exerciseId = block.dataset.exerciseId;
+      const workout_exercise_id = block.dataset.exBlock;
+      const exercise_id = block.dataset.exerciseId;
       block.querySelectorAll(".set-row[data-set]").forEach((row, i) => {
         const reps = row.querySelector("[data-reps]").value;
         const weight = row.querySelector("[data-weight]").value;
         const rpe = row.querySelector("[data-rpe]").value;
         if (reps || weight) {
-          rows.push({
-            workout_log_id: log.id, workout_exercise_id: workoutExerciseId, exercise_id: exerciseId,
+          sets.push({
+            workout_exercise_id, exercise_id,
             set_number: i + 1, reps_done: parseInt(reps) || null, weight_used_kg: parseFloat(weight) || null, rpe: parseFloat(rpe) || null,
           });
         }
       });
     });
-    if (rows.length) await sb().from("smartcore_flexi_exercise_logs").insert(rows);
+
+    try {
+      await api("log_workout", { workout_id: workoutId, sets });
+    } catch (err) {
+      setLoading(e.target, false);
+      toast(err.message, "error");
+      return;
+    }
 
     setLoading(e.target, false);
     toast("Workout logged 💪", "success");

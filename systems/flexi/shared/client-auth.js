@@ -1,75 +1,88 @@
-import { sb } from "./supabase.js";
+// Client-portal auth — session-token based, no Supabase Auth involved at
+// all (clients never get an auth.users row). The session token comes back
+// from POST /api/flexi/portal-login and is sent as a Bearer token on every
+// subsequent call to POST /api/flexi/portal-api.
 
-let _client = null;
+const SESSION_KEY = "flexi_client_session";
+const API_URL = "/api/flexi/portal-api";
+const LOGIN_URL = "/systems/flexi/portal/login.html";
 
-export async function requireClientSession() {
-  const { data, error } = await sb().auth.getSession();
-  if (error || !data?.session) {
-    window.location.href = "/systems/flexi/portal/login.html";
-    throw new Error("No session");
-  }
-  return data.session;
+function readSession() {
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch { return null; }
 }
 
-/**
- * Resolves the caller's smartcore_flexi_clients row. RLS
- * (smartcore_flexi_clients_select_self) scopes this to auth_user_id = auth.uid(),
- * so no company_id filter is needed client-side.
- */
-export async function getClientProfile() {
-  if (_client) return _client;
-  await requireClientSession();
+export function storeSession(session_token, client) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ session_token, client }));
+}
 
-  const { data, error } = await sb()
-    .from("smartcore_flexi_clients")
-    .select("*, smartcore_flexi_locations(name)")
-    .maybeSingle();
+export function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+}
 
-  if (error || !data) {
-    throw new Error("Client profile not found.");
+export function getToken() {
+  return readSession()?.session_token || null;
+}
+
+// Generic call into the multiplexed portal-api action endpoint. Redirects
+// to login on an expired/invalid session rather than surfacing a raw 401.
+export async function api(action, params = {}) {
+  const token = getToken();
+  if (!token) {
+    window.location.href = LOGIN_URL;
+    throw new Error("No session");
   }
-  _client = data;
-  return _client;
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action, ...params }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    clearSession();
+    window.location.href = LOGIN_URL;
+    throw new Error(data.error || "Session expired");
+  }
+  if (!res.ok) throw new Error(data.error || "Something went wrong");
+  return data;
 }
 
 function wireEscapeButtons() {
   const btn = document.getElementById("clientLogoutBtn");
   if (btn && !btn._wired) {
     btn._wired = true;
-    btn.addEventListener("click", async () => {
-      await sb().auth.signOut();
-      window.location.href = "/systems/flexi/portal/login.html";
+    btn.addEventListener("click", () => {
+      clearSession();
+      window.location.href = LOGIN_URL;
     });
   }
 }
 
 export async function requireClientAccess() {
-  let client;
+  if (!getToken()) {
+    window.location.href = LOGIN_URL;
+    throw new Error("No session");
+  }
   try {
-    client = await getClientProfile();
+    const { client } = await api("me");
+    storeSession(getToken(), client);
+    wireEscapeButtons();
+    return client;
   } catch (e) {
     wireEscapeButtons();
     document.body.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0c14;color:#f2f1fa;font-family:system-ui;text-align:center;padding:24px">
         <div>
           <div style="font-size:44px;margin-bottom:14px">⚠️</div>
-          <h2 style="font-size:19px;margin-bottom:8px">Account Not Linked</h2>
-          <p style="color:rgba(242,241,250,.6);margin-bottom:20px;max-width:380px">We couldn't find a client profile for this account. Ask your trainer to re-send your invite.</p>
-          <button id="clientLogoutBtn" style="background:#374151;color:#fff;padding:10px 24px;border-radius:99px;border:none;cursor:pointer;font-weight:600">Sign Out</button>
+          <h2 style="font-size:19px;margin-bottom:8px">Couldn't load your account</h2>
+          <p style="color:rgba(242,241,250,.6);margin-bottom:20px;max-width:380px">${e.message === "No session" ? "Please sign in again." : e.message}</p>
+          <a href="${LOGIN_URL}" style="background:#ff5a36;color:#fff;padding:10px 24px;border-radius:99px;text-decoration:none;font-weight:600">Sign In</a>
         </div>
       </div>`;
-    wireEscapeButtons();
     throw e;
   }
-  wireEscapeButtons();
-  return client;
-}
-
-export function clearClientCache() {
-  _client = null;
 }
 
 export async function clientLogout() {
-  await sb().auth.signOut();
-  window.location.href = "/systems/flexi/portal/login.html";
+  clearSession();
+  window.location.href = LOGIN_URL;
 }

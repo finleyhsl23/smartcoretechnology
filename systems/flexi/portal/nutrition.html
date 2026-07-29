@@ -42,32 +42,30 @@
 </div>
 
 <script type="module">
-import { requireClientAccess } from "../shared/client-auth.js";
-import { sb } from "../shared/supabase.js";
+import { requireClientAccess, api } from "../shared/client-auth.js";
 import { revealApp, setupThemeToggle, escapeHtml, toast, emptyState } from "../shared/ui.js";
 
 const client = await requireClientAccess();
 setupThemeToggle();
 revealApp();
 
-const { data: plan } = await sb().from("smartcore_flexi_nutrition_plans").select("*").eq("client_id", client.id).eq("active", true).order("created_at", { ascending: false }).limit(1);
-document.getElementById("planCard").innerHTML = plan?.[0] ? `
+const { plan } = await api("nutrition_plan");
+document.getElementById("planCard").innerHTML = plan ? `
   <div class="fx-card">
-    <strong>${escapeHtml(plan[0].name)}</strong>
+    <strong>${escapeHtml(plan.name)}</strong>
     <div class="fx-grid fx-grid-4" style="margin-top:12px">
-      <div><div style="font-size:10.5px;color:var(--fx-text3);text-transform:uppercase">Kcal</div><div style="font-weight:700">${plan[0].daily_calories || "—"}</div></div>
-      <div><div style="font-size:10.5px;color:var(--fx-text3);text-transform:uppercase">Protein</div><div style="font-weight:700">${plan[0].protein_g || 0}g</div></div>
-      <div><div style="font-size:10.5px;color:var(--fx-text3);text-transform:uppercase">Carbs</div><div style="font-weight:700">${plan[0].carbs_g || 0}g</div></div>
-      <div><div style="font-size:10.5px;color:var(--fx-text3);text-transform:uppercase">Fat</div><div style="font-weight:700">${plan[0].fat_g || 0}g</div></div>
+      <div><div style="font-size:10.5px;color:var(--fx-text3);text-transform:uppercase">Kcal</div><div style="font-weight:700">${plan.daily_calories || "—"}</div></div>
+      <div><div style="font-size:10.5px;color:var(--fx-text3);text-transform:uppercase">Protein</div><div style="font-weight:700">${plan.protein_g || 0}g</div></div>
+      <div><div style="font-size:10.5px;color:var(--fx-text3);text-transform:uppercase">Carbs</div><div style="font-weight:700">${plan.carbs_g || 0}g</div></div>
+      <div><div style="font-size:10.5px;color:var(--fx-text3);text-transform:uppercase">Fat</div><div style="font-weight:700">${plan.fat_g || 0}g</div></div>
     </div>
   </div>
 ` : emptyState("🥗", "No active nutrition plan", "Your trainer hasn't set one up yet.");
 
 async function loadFood() {
-  const today = new Date().toISOString().slice(0,10);
-  const { data } = await sb().from("smartcore_flexi_food_logs").select("*").eq("client_id", client.id).eq("logged_at", today).order("created_at");
+  const { logs } = await api("food_logs_today");
   const el = document.getElementById("foodList");
-  el.innerHTML = !data?.length ? emptyState("🍽️", "Nothing logged today", "") : data.map(f => `
+  el.innerHTML = !logs?.length ? emptyState("🍽️", "Nothing logged today", "") : logs.map(f => `
     <div class="fx-card" style="margin-bottom:8px;display:flex;justify-content:space-between">
       <div><span class="fx-badge fx-badge-grey" style="text-transform:capitalize">${f.meal}</span> <span style="font-size:13px">${escapeHtml(f.description)}</span></div>
       <span class="fx-tabular">${f.calories ? f.calories + " kcal" : ""}</span>
@@ -78,13 +76,13 @@ async function loadFood() {
 document.getElementById("logBtn").addEventListener("click", async () => {
   const description = document.getElementById("description").value.trim();
   if (!description) { toast("Add a description", "error"); return; }
-  const { error } = await sb().from("smartcore_flexi_food_logs").insert({
-    company_id: client.company_id, client_id: client.id,
-    meal: document.getElementById("meal").value,
-    description,
-    calories: parseInt(document.getElementById("calories").value) || null,
-  });
-  if (error) { toast(error.message, "error"); return; }
+  try {
+    await api("log_food", {
+      meal: document.getElementById("meal").value,
+      description,
+      calories: parseInt(document.getElementById("calories").value) || null,
+    });
+  } catch (e) { toast(e.message, "error"); return; }
   document.getElementById("description").value = "";
   document.getElementById("calories").value = "";
   toast("Logged", "success");

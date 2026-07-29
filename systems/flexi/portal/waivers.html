@@ -35,8 +35,7 @@
 </div>
 
 <script type="module">
-import { requireClientAccess } from "../shared/client-auth.js";
-import { sb } from "../shared/supabase.js";
+import { requireClientAccess, api } from "../shared/client-auth.js";
 import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, showMessage, openModal, closeModal, toast, emptyState } from "../shared/ui.js";
 
 const client = await requireClientAccess();
@@ -44,10 +43,7 @@ setupThemeToggle();
 revealApp();
 
 async function load() {
-  const [{ data: waivers }, { data: sigs }] = await Promise.all([
-    sb().from("smartcore_flexi_waivers").select("*").eq("active", true),
-    sb().from("smartcore_flexi_waiver_signatures").select("*").eq("client_id", client.id),
-  ]);
+  const { waivers, signatures: sigs } = await api("waivers_list");
   const signedMap = new Map((sigs || []).map(s => [s.waiver_id, s]));
   const el = document.getElementById("list");
   el.innerHTML = !waivers?.length ? emptyState("📝", "No waivers to sign", "") : waivers.map(w => {
@@ -77,10 +73,8 @@ document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click
 document.getElementById("confirmSignBtn").addEventListener("click", async (e) => {
   const name = document.getElementById("signName").value.trim();
   if (!name) { showMessage("signMsg", "Type your name to sign.", "error"); return; }
-  const { error } = await sb().from("smartcore_flexi_waiver_signatures").insert({
-    waiver_id: e.target.dataset.waiver, client_id: client.id, company_id: client.company_id, signature_name: name,
-  });
-  if (error) { showMessage("signMsg", error.message, "error"); return; }
+  try { await api("sign_waiver", { waiver_id: e.target.dataset.waiver, signature_name: name }); }
+  catch (err) { showMessage("signMsg", err.message, "error"); return; }
   closeModal("signModal");
   toast("Signed — thank you", "success");
   load();

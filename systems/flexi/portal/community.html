@@ -35,8 +35,7 @@
 </div>
 
 <script type="module">
-import { requireClientAccess } from "../shared/client-auth.js";
-import { sb } from "../shared/supabase.js";
+import { requireClientAccess, api } from "../shared/client-auth.js";
 import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, fmtDate, toast, emptyState } from "../shared/ui.js";
 
 const client = await requireClientAccess();
@@ -44,13 +43,13 @@ setupThemeToggle();
 revealApp();
 
 async function loadChallenges() {
-  const { data: challenges } = await sb().from("smartcore_flexi_challenges").select("*").order("start_date", { ascending: false });
+  const { challenges } = await api("challenges_list");
   const el = document.getElementById("challenges");
   if (!challenges?.length) { el.innerHTML = emptyState("🏆", "No challenges running", ""); return; }
 
-  const blocks = await Promise.all(challenges.map(async ch => {
-    const { data: entries } = await sb().from("smartcore_flexi_challenge_entries").select("*, smartcore_flexi_clients(full_name)").eq("challenge_id", ch.id).order("value", { ascending: false }).limit(10);
-    const mine = (entries || []).find(e => e.client_id === client.id);
+  const blocks = challenges.map(ch => {
+    const entries = ch.entries || [];
+    const mine = entries.find(e => e.client_id === client.id);
     return `
       <div class="fx-card" style="margin-bottom:12px">
         <strong>${escapeHtml(ch.name)}</strong>
@@ -66,21 +65,21 @@ async function loadChallenges() {
         </div>
       </div>
     `;
-  }));
+  });
   el.innerHTML = blocks.join("");
   el.querySelectorAll("[data-entry-save]").forEach(btn => btn.addEventListener("click", async () => {
     const chId = btn.dataset.entrySave;
     const value = parseFloat(el.querySelector(`[data-entry-input="${chId}"]`).value) || 0;
-    await sb().from("smartcore_flexi_challenge_entries").upsert({ challenge_id: chId, client_id: client.id, value, updated_at: new Date().toISOString() }, { onConflict: "challenge_id,client_id" });
+    try { await api("update_challenge_entry", { challenge_id: chId, value }); } catch (e) { toast(e.message, "error"); return; }
     toast("Updated", "success");
     loadChallenges();
   }));
 }
 
 async function loadPosts() {
-  const { data } = await sb().from("smartcore_flexi_community_posts").select("*, core_employees(full_name), smartcore_flexi_clients(full_name)").order("created_at", { ascending: false }).limit(20);
+  const { posts } = await api("community_posts");
   const el = document.getElementById("posts");
-  el.innerHTML = !data?.length ? emptyState("💬", "No posts yet", "") : data.map(p => `
+  el.innerHTML = !posts?.length ? emptyState("💬", "No posts yet", "") : posts.map(p => `
     <div class="fx-card" style="margin-bottom:8px">
       <div style="font-size:12px;font-weight:700;margin-bottom:4px">${escapeHtml(p.core_employees?.full_name || p.smartcore_flexi_clients?.full_name || "Someone")}</div>
       <div style="font-size:13px">${escapeHtml(p.body)}</div>
@@ -92,8 +91,7 @@ async function loadPosts() {
 document.getElementById("postBtn").addEventListener("click", async () => {
   const body = document.getElementById("postBody").value.trim();
   if (!body) return;
-  const { error } = await sb().from("smartcore_flexi_community_posts").insert({ company_id: client.company_id, author_client_id: client.id, body });
-  if (error) { toast(error.message, "error"); return; }
+  try { await api("post_community", { body }); } catch (e) { toast(e.message, "error"); return; }
   document.getElementById("postBody").value = "";
   loadPosts();
 });

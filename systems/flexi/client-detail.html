@@ -27,7 +27,7 @@
         <div class="fx-topbar-sub"><span class="fx-badge" id="clientStatusBadge"></span></div>
       </div>
       <div class="fx-topbar-spacer"></div>
-      <button class="fx-btn fx-btn-sm" id="inviteBtn">Portal Invite</button>
+      <button class="fx-btn fx-btn-sm" id="inviteBtn">Resend Passcode</button>
       <a href="clients.html" class="fx-btn fx-btn-sm">← All Clients</a>
     </header>
     <main class="fx-content">
@@ -174,10 +174,14 @@
 
 <div class="fx-modal" id="inviteModal">
   <div class="fx-modal-box">
-    <div class="fx-modal-head"><h3>Portal Invite</h3><button class="fx-modal-close" data-close-invite>✕</button></div>
-    <p style="font-size:13px;color:var(--fx-text2);margin-bottom:14px">Send this link to your client so they can set a password and access the Flexi client app.</p>
-    <div class="fx-field"><label>Invite link</label><input class="fx-input" id="inviteLink" readonly/></div>
-    <button class="fx-btn fx-btn-block" id="copyInviteBtn">Copy Link</button>
+    <div class="fx-modal-head"><h3>Passcode Sent</h3><button class="fx-modal-close" data-close-invite>✕</button></div>
+    <p style="font-size:13px;color:var(--fx-text2);margin-bottom:14px" id="inviteStatusMsg"></p>
+    <div class="fx-form-row">
+      <div class="fx-field"><label>Trainer code</label><input class="fx-input" id="inviteTrainerCode" readonly style="font-weight:700;letter-spacing:2px"/></div>
+      <div class="fx-field"><label>Passcode</label><input class="fx-input" id="invitePasscode" readonly style="font-weight:700;letter-spacing:2px"/></div>
+    </div>
+    <p style="font-size:11.5px;color:var(--fx-text3);margin-bottom:14px">A fresh passcode replaces their old one. Share these details if the email didn't arrive.</p>
+    <button class="fx-btn fx-btn-block" id="copyInviteBtn">Copy Both</button>
   </div>
 </div>
 
@@ -484,21 +488,33 @@ async function loadWaivers() {
   }).join("");
 }
 
-// ---- Invite ----
-document.getElementById("inviteBtn").addEventListener("click", async () => {
-  let token = crypto.randomUUID();
-  const { error } = await sb().from("smartcore_flexi_client_invites").insert({
-    company_id: profile.company_id, client_id: clientId, token, email: client.email || "client@example.com", created_by: profile.id,
+// ---- Resend passcode ----
+document.getElementById("inviteBtn").addEventListener("click", async (e) => {
+  if (!client.email) { toast("This client has no email on file — add one first.", "error"); return; }
+  setLoading(e.target, true, "Sending…");
+  const { data: { session } } = await sb().auth.getSession();
+  const res = await fetch("/api/flexi/resend-client-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ client_id: clientId }),
   });
-  if (error) { toast(error.message, "error"); return; }
-  const link = `${location.origin}/systems/flexi/portal/client-invite.html?token=${token}`;
-  document.getElementById("inviteLink").value = link;
+  const data = await res.json().catch(() => ({}));
+  setLoading(e.target, false);
+  if (!res.ok) { toast(data.error || "Failed to resend passcode.", "error"); return; }
+
+  document.getElementById("inviteStatusMsg").textContent = data.emailSent
+    ? `A new passcode was emailed to ${client.email}.`
+    : "Email could not be sent — share these details with your client directly.";
+  document.getElementById("inviteTrainerCode").value = data.trainer_code;
+  document.getElementById("invitePasscode").value = data.passcode;
   openModal("inviteModal");
 });
 document.querySelectorAll("[data-close-invite]").forEach(b => b.addEventListener("click", () => closeModal("inviteModal")));
 document.getElementById("copyInviteBtn").addEventListener("click", () => {
-  navigator.clipboard.writeText(document.getElementById("inviteLink").value);
-  toast("Link copied", "success");
+  const code = document.getElementById("inviteTrainerCode").value;
+  const passcode = document.getElementById("invitePasscode").value;
+  navigator.clipboard.writeText(`Trainer code: ${code}\nPasscode: ${passcode}`);
+  toast("Copied", "success");
 });
 </script>
 </body>
