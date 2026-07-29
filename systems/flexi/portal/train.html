@@ -8,6 +8,10 @@
 <style>
 .set-row{display:grid;grid-template-columns:24px 1fr 1fr 1fr;gap:8px;align-items:center;margin-bottom:6px}
 .set-row .set-num{font-size:12px;color:var(--fx-text3);font-weight:700;text-align:center}
+.ex-demo-link{display:inline-block;font-size:12px;font-weight:700;color:var(--fx-accent);margin:2px 0 10px;cursor:pointer}
+.ex-demo-video{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;margin-bottom:10px;display:none}
+.ex-demo-video.open{display:block}
+.ex-demo-video iframe,.ex-demo-video video{width:100%;height:100%;display:block;border:0}
 </style>
 </head>
 <body>
@@ -68,15 +72,29 @@ async function openWorkout(workoutId, name) {
   document.getElementById("backBtn").addEventListener("click", () => { logView.style.display = "none"; document.getElementById("listView").style.display = ""; });
 
   const exList = document.getElementById("exList");
-  exList.innerHTML = (exercises || []).map((we, i) => `
+  exList.innerHTML = (exercises || []).map((we, i) => {
+    const videoUrl = we.smartcore_flexi_exercises?.video_url;
+    const yt = videoUrl && videoUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{6,})/);
+    return `
     <div class="fx-card" style="margin-bottom:14px" data-ex-block="${we.id}" data-exercise-id="${we.exercise_id}">
       <strong>${escapeHtml(we.smartcore_flexi_exercises?.name || "Exercise")}</strong>
-      <div style="color:var(--fx-text3);font-size:12px;margin:4px 0 10px">Target: ${we.target_sets || "—"} × ${escapeHtml(we.target_reps || "—")}${we.target_weight_kg ? " @ " + we.target_weight_kg + "kg" : ""}</div>
-      <div class="set-row" style="font-weight:700;color:var(--fx-text3);font-size:10.5px;text-transform:uppercase"><div></div><div>Reps</div><div>Weight kg</div><div>RPE</div></div>
+      <div style="color:var(--fx-text3);font-size:12px;margin:4px 0 2px">Target: ${we.target_sets || "—"} × ${escapeHtml(we.target_reps || "—")}${we.target_weight_kg ? " @ " + we.target_weight_kg + "kg" : ""}</div>
+      ${videoUrl ? `
+        <span class="ex-demo-link" data-demo-toggle="${we.id}">▶ Watch demo</span>
+        <div class="ex-demo-video" id="demo-${we.id}">${yt ? `<iframe data-src="https://www.youtube.com/embed/${yt[1]}" allowfullscreen loading="lazy"></iframe>` : `<video data-src="${escapeHtml(videoUrl)}" controls preload="none"></video>`}</div>
+      ` : ""}
+      <div class="set-row" style="font-weight:700;color:var(--fx-text3);font-size:10.5px;text-transform:uppercase;margin-top:8px"><div></div><div>Reps</div><div>Weight kg</div><div>RPE</div></div>
       <div class="sets-container" data-sets="${we.id}"></div>
       <button class="fx-btn fx-btn-sm" data-add-set="${we.id}" style="margin-top:6px">+ Add Set</button>
     </div>
-  `).join("");
+  `;
+  }).join("");
+  exList.querySelectorAll("[data-demo-toggle]").forEach(link => link.addEventListener("click", () => {
+    const box = document.getElementById(`demo-${link.dataset.demoToggle}`);
+    box.classList.toggle("open");
+    const media = box.querySelector("[data-src]");
+    if (box.classList.contains("open") && media && !media.src) media.src = media.dataset.src;
+  }));
 
   (exercises || []).forEach(we => {
     const n = we.target_sets || 3;

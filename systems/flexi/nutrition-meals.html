@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Meal Library — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+<style>
+.nut-subnav{display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--fx-line)}
+.nut-subnav a{padding:10px 4px;font-size:13px;font-weight:700;color:var(--fx-text3);text-decoration:none;border-bottom:2px solid transparent;margin-right:18px}
+.nut-subnav a.active{color:var(--fx-accent-d);border-color:var(--fx-accent)}
+.plan-item-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--fx-line);font-size:13px}
+.plan-item-row:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Meal Library</h1><div class="fx-topbar-sub">Recommended meals &amp; meal plans, reusable across clients</div></div>
+    </header>
+    <main class="fx-content">
+      <div class="nut-subnav">
+        <a href="nutrition.html">Plans</a>
+        <a href="nutrition-meals.html" class="active">Meal Library</a>
+      </div>
+
+      <div class="fx-section-head" style="margin-top:0"><h2>Meals</h2><button class="fx-btn fx-btn-sm fx-btn-primary" id="addMealBtn">+ Add Meal</button></div>
+      <div class="fx-grid fx-grid-3" id="mealsGrid" style="margin-bottom:32px"></div>
+
+      <div class="fx-section-head"><h2>Meal Plans</h2><button class="fx-btn fx-btn-sm fx-btn-primary" id="addPlanBtn">+ Add Meal Plan</button></div>
+      <div id="plansList"></div>
+    </main>
+  </div>
+</div>
+
+<div class="fx-modal" id="mealModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>Add Meal</h3><button class="fx-modal-close" data-close-meal>✕</button></div>
+    <div class="fx-field"><label>Name</label><input class="fx-input" id="mealName" placeholder="e.g. Grilled chicken & rice bowl"/></div>
+    <div class="fx-field"><label>Type</label>
+      <select class="fx-select" id="mealType"><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option><option value="meal" selected>Any meal</option></select>
+    </div>
+    <div class="fx-form-row">
+      <div class="fx-field"><label>Calories</label><input class="fx-input" id="mealCals" type="number"/></div>
+      <div class="fx-field"><label>Protein (g)</label><input class="fx-input" id="mealProtein" type="number"/></div>
+    </div>
+    <div class="fx-form-row">
+      <div class="fx-field"><label>Carbs (g)</label><input class="fx-input" id="mealCarbs" type="number"/></div>
+      <div class="fx-field"><label>Fat (g)</label><input class="fx-input" id="mealFat" type="number"/></div>
+    </div>
+    <div class="fx-field"><label>Ingredients</label><textarea class="fx-textarea" id="mealIngredients" style="min-height:60px"></textarea></div>
+    <div class="fx-field"><label>Instructions</label><textarea class="fx-textarea" id="mealInstructions" style="min-height:60px"></textarea></div>
+    <div class="fx-form-msg" id="mealMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="saveMealBtn">Save Meal</button>
+  </div>
+</div>
+
+<div class="fx-modal" id="planModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>Add Meal Plan</h3><button class="fx-modal-close" data-close-plan>✕</button></div>
+    <div class="fx-field"><label>Name</label><input class="fx-input" id="planName" placeholder="e.g. Fat Loss — 2000kcal"/></div>
+    <div class="fx-field"><label>Goal</label>
+      <select class="fx-select" id="planGoal"><option value="">—</option><option value="lose">Lose weight</option><option value="maintain">Maintain / recomposition</option><option value="gain">Build muscle</option></select>
+    </div>
+    <div class="fx-field"><label>Description</label><textarea class="fx-textarea" id="planDesc" style="min-height:60px"></textarea></div>
+    <div class="fx-form-msg" id="planMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="savePlanBtn">Save Meal Plan</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient, enhanceSelect } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "nutrition" });
+renderNav({ activeKey: "nutrition", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+const SLOTS = ["breakfast","lunch","dinner","snack","meal"];
+let allMeals = [];
+
+async function loadMeals() {
+  const { data } = await sb().from("smartcore_flexi_meals").select("*").order("name");
+  allMeals = data || [];
+  const grid = document.getElementById("mealsGrid");
+  grid.innerHTML = !allMeals.length ? emptyState("🍽️", "No meals yet", "Add your first recommended meal above.") : allMeals.map(m => `
+    <div class="fx-card fx-card-flush">
+      <div class="fx-tile" style="background:${tileGradient(m.id)};border-radius:0">
+        <div class="fx-tile-eyebrow">${escapeHtml(m.meal_type)}</div>
+        <div class="fx-tile-title">${escapeHtml(m.name)}</div>
+      </div>
+      <div style="padding:14px">
+        <div class="fx-tabular" style="font-size:12.5px;color:var(--fx-text2);margin-bottom:6px">${m.calories || "—"} kcal · P ${m.protein_g || 0}g · C ${m.carbs_g || 0}g · F ${m.fat_g || 0}g</div>
+        ${m.ingredients ? `<div style="font-size:11.5px;color:var(--fx-text3)">${escapeHtml(m.ingredients)}</div>` : ""}
+        <button class="fx-btn fx-btn-sm fx-btn-danger" style="margin-top:10px" data-del-meal="${m.id}">Delete</button>
+      </div>
+    </div>
+  `).join("");
+  grid.querySelectorAll("[data-del-meal]").forEach(btn => btn.addEventListener("click", async () => {
+    if (!confirm("Delete this meal? It will be removed from any plans using it.")) return;
+    await sb().from("smartcore_flexi_meals").delete().eq("id", btn.dataset.delMeal);
+    loadMeals(); loadPlans();
+  }));
+}
+
+document.getElementById("addMealBtn").addEventListener("click", () => {
+  ["mealName","mealCals","mealProtein","mealCarbs","mealFat","mealIngredients","mealInstructions"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("mealType").value = "meal";
+  document.getElementById("mealMsg").textContent = "";
+  openModal("mealModal");
+});
+document.querySelectorAll("[data-close-meal]").forEach(b => b.addEventListener("click", () => closeModal("mealModal")));
+document.getElementById("saveMealBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("mealName").value.trim();
+  if (!name) { showMessage("mealMsg", "Name is required.", "error"); return; }
+  setLoading(e.target, true, "Saving…");
+  const { error } = await sb().from("smartcore_flexi_meals").insert({
+    company_id: profile.company_id, name,
+    meal_type: document.getElementById("mealType").value,
+    calories: parseInt(document.getElementById("mealCals").value) || null,
+    protein_g: parseInt(document.getElementById("mealProtein").value) || null,
+    carbs_g: parseInt(document.getElementById("mealCarbs").value) || null,
+    fat_g: parseInt(document.getElementById("mealFat").value) || null,
+    ingredients: document.getElementById("mealIngredients").value.trim() || null,
+    instructions: document.getElementById("mealInstructions").value.trim() || null,
+    created_by: profile.id,
+  });
+  setLoading(e.target, false);
+  if (error) { showMessage("mealMsg", error.message, "error"); return; }
+  closeModal("mealModal");
+  toast("Meal added", "success");
+  loadMeals();
+});
+
+// ---- Meal plans ----
+async function loadPlans() {
+  const { data: plans } = await sb().from("smartcore_flexi_meal_plans").select("*").order("created_at", { ascending: false });
+  const el = document.getElementById("plansList");
+  if (!plans?.length) { el.innerHTML = emptyState("📋", "No meal plans yet", "Group meals into a reusable plan above."); return; }
+
+  const itemsByPlan = {};
+  for (const p of plans) {
+    const { data } = await sb().from("smartcore_flexi_meal_plan_items").select("*, smartcore_flexi_meals(name, calories)").eq("meal_plan_id", p.id).order("order_index");
+    itemsByPlan[p.id] = data || [];
+  }
+
+  el.innerHTML = plans.map(p => `
+    <div class="fx-card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <strong>${escapeHtml(p.name)}</strong> ${p.goal ? `<span class="fx-badge fx-badge-grey" style="text-transform:capitalize">${escapeHtml(p.goal)}</span>` : ""}
+          ${p.description ? `<div style="color:var(--fx-text3);font-size:12px;margin-top:4px">${escapeHtml(p.description)}</div>` : ""}
+        </div>
+        <button class="fx-btn fx-btn-sm fx-btn-danger" data-del-plan="${p.id}">Delete Plan</button>
+      </div>
+      <div style="margin-top:12px">
+        ${itemsByPlan[p.id].length ? itemsByPlan[p.id].map(it => `
+          <div class="plan-item-row">
+            <span class="fx-badge fx-badge-blue" style="text-transform:capitalize">${escapeHtml(it.meal_slot)}</span>
+            <span style="flex:1">${escapeHtml(it.smartcore_flexi_meals?.name || "—")}</span>
+            <span class="fx-tabular" style="color:var(--fx-text3)">${it.smartcore_flexi_meals?.calories || "—"} kcal</span>
+            <button class="fx-btn fx-btn-sm" data-del-item="${it.id}">✕</button>
+          </div>
+        `).join("") : `<p style="color:var(--fx-text3);font-size:12.5px">No meals added yet.</p>`}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <select class="fx-select" data-plan-meal="${p.id}" style="max-width:220px"><option value="">Choose a meal…</option>${allMeals.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("")}</select>
+        <select class="fx-select" data-plan-slot="${p.id}" style="max-width:140px">${SLOTS.map(s => `<option value="${s}">${s[0].toUpperCase()+s.slice(1)}</option>`).join("")}</select>
+        <button class="fx-btn fx-btn-sm fx-btn-primary" data-add-item="${p.id}">+ Add to Plan</button>
+      </div>
+    </div>
+  `).join("");
+  el.querySelectorAll("[data-plan-meal]").forEach(sel => enhanceSelect(sel, { placeholder: "Search meals…" }));
+
+  el.querySelectorAll("[data-del-plan]").forEach(btn => btn.addEventListener("click", async () => {
+    if (!confirm("Delete this meal plan?")) return;
+    await sb().from("smartcore_flexi_meal_plans").delete().eq("id", btn.dataset.delPlan);
+    loadPlans();
+  }));
+  el.querySelectorAll("[data-del-item]").forEach(btn => btn.addEventListener("click", async () => {
+    await sb().from("smartcore_flexi_meal_plan_items").delete().eq("id", btn.dataset.delItem);
+    loadPlans();
+  }));
+  el.querySelectorAll("[data-add-item]").forEach(btn => btn.addEventListener("click", async () => {
+    const planId = btn.dataset.addItem;
+    const mealId = el.querySelector(`[data-plan-meal="${planId}"]`).value;
+    const slot = el.querySelector(`[data-plan-slot="${planId}"]`).value;
+    if (!mealId) { toast("Choose a meal first", "error"); return; }
+    const { error } = await sb().from("smartcore_flexi_meal_plan_items").insert({ meal_plan_id: planId, meal_id: mealId, meal_slot: slot });
+    if (error) { toast(error.message, "error"); return; }
+    loadPlans();
+  }));
+}
+
+document.getElementById("addPlanBtn").addEventListener("click", () => {
+  ["planName","planDesc"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("planGoal").value = "";
+  document.getElementById("planMsg").textContent = "";
+  openModal("planModal");
+});
+document.querySelectorAll("[data-close-plan]").forEach(b => b.addEventListener("click", () => closeModal("planModal")));
+document.getElementById("savePlanBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("planName").value.trim();
+  if (!name) { showMessage("planMsg", "Name is required.", "error"); return; }
+  setLoading(e.target, true, "Saving…");
+  const { error } = await sb().from("smartcore_flexi_meal_plans").insert({
+    company_id: profile.company_id, name,
+    goal: document.getElementById("planGoal").value || null,
+    description: document.getElementById("planDesc").value.trim() || null,
+    created_by: profile.id,
+  });
+  setLoading(e.target, false);
+  if (error) { showMessage("planMsg", error.message, "error"); return; }
+  closeModal("planModal");
+  toast("Meal plan added", "success");
+  loadPlans();
+});
+
+await loadMeals();
+await loadPlans();
+</script>
+</body>
+</html>

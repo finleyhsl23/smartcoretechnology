@@ -136,6 +136,66 @@ export function emptyState(icon, title, sub) {
   return `<div class="fx-empty"><div class="fx-empty-icon">${icon}</div><div class="fx-empty-title">${escapeHtml(title)}</div>${sub ? `<div class="fx-empty-sub">${escapeHtml(sub)}</div>` : ""}</div>`;
 }
 
+// Progressively enhances a plain <select> into a searchable combobox — type
+// to filter, click/Enter to choose. The original <select> stays in the DOM
+// (hidden) as the single source of truth, so every existing call site that
+// reads `.value` / `.selectedOptions` or listens for `change` keeps working
+// unmodified; this only needs to be called once after the select's options
+// are populated (safe to call again after re-populating — it just refreshes
+// the visible label instead of re-wrapping).
+export function enhanceSelect(select, { placeholder } = {}) {
+  if (!select) return;
+  if (select.dataset.fxEnhanced) {
+    const input = select.nextElementSibling?.querySelector(".fx-combo-input");
+    if (input) input.value = select.selectedOptions[0]?.textContent?.trim() || "";
+    return;
+  }
+  select.dataset.fxEnhanced = "1";
+  select.style.display = "none";
+
+  const wrap = document.createElement("div");
+  wrap.className = "fx-combo";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "fx-input fx-combo-input";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.placeholder = placeholder || select.dataset.placeholder || "Search…";
+  const list = document.createElement("div");
+  list.className = "fx-combo-list";
+  wrap.appendChild(input);
+  wrap.appendChild(list);
+  select.insertAdjacentElement("afterend", wrap);
+
+  const opts = () => Array.from(select.options).filter(o => o.textContent.trim());
+  const sync = () => { input.value = select.selectedOptions[0]?.textContent?.trim() || ""; };
+  sync();
+
+  function render(query) {
+    const q = (query || "").trim().toLowerCase();
+    const matches = opts().filter(o => !q || o.textContent.toLowerCase().includes(q));
+    list.innerHTML = !matches.length
+      ? `<div class="fx-combo-empty">No matches</div>`
+      : matches.map(o => `<div class="fx-combo-opt${o.value === select.value ? " active" : ""}" data-value="${escapeHtml(o.value)}">${escapeHtml(o.textContent.trim())}</div>`).join("");
+    list.querySelectorAll("[data-value]").forEach(row => {
+      row.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        select.value = row.dataset.value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        sync();
+        close();
+      });
+    });
+  }
+  function open() { render(""); list.classList.add("fx-combo-open"); }
+  function close() { list.classList.remove("fx-combo-open"); sync(); }
+
+  input.addEventListener("focus", () => { input.value = ""; open(); });
+  input.addEventListener("input", () => render(input.value));
+  input.addEventListener("blur", () => setTimeout(close, 130));
+  input.addEventListener("keydown", (e) => { if (e.key === "Escape") input.blur(); });
+}
+
 export function setupThemeToggle(storageKey = "flexiTheme") {
   const saved = localStorage.getItem(storageKey);
   if (saved) document.documentElement.setAttribute("data-theme", saved);

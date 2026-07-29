@@ -95,9 +95,47 @@
 
       <!-- Nutrition -->
       <div class="fx-tabpanel" id="tab-nutrition">
+        <details class="fx-card" id="macroCalc" style="margin-bottom:16px">
+          <summary style="cursor:pointer;font-size:14px;font-weight:700;list-style:none">🧮 Macro Calculator <span style="font-weight:400;color:var(--fx-text3);font-size:12px">— estimate calories &amp; macros, then apply to the plan below</span></summary>
+          <div style="margin-top:14px">
+            <div class="fx-form-row">
+              <div class="fx-field"><label>Weight (kg)</label><input class="fx-input" id="mcWeight" type="number" step="0.1"/></div>
+              <div class="fx-field"><label>Height (cm)</label><input class="fx-input" id="mcHeight" type="number"/></div>
+            </div>
+            <div class="fx-form-row">
+              <div class="fx-field"><label>Age</label><input class="fx-input" id="mcAge" type="number"/></div>
+              <div class="fx-field"><label>Sex</label>
+                <select class="fx-select" id="mcSex"><option value="male">Male</option><option value="female">Female</option></select>
+              </div>
+            </div>
+            <div class="fx-form-row">
+              <div class="fx-field"><label>Activity level</label>
+                <select class="fx-select" id="mcActivity">
+                  <option value="1.2">Desk job, little exercise</option>
+                  <option value="1.375">Light exercise 1-3 days/wk</option>
+                  <option value="1.55" selected>Moderate exercise 3-5 days/wk</option>
+                  <option value="1.725">Heavy exercise 6-7 days/wk</option>
+                  <option value="1.9">Very heavy — daily training</option>
+                </select>
+              </div>
+              <div class="fx-field"><label>Goal</label>
+                <select class="fx-select" id="mcGoal"><option value="lose">Lose weight (-20%)</option><option value="maintain">Maintain / recomposition</option><option value="gain">Build muscle (+12%)</option></select>
+              </div>
+            </div>
+            <div class="fx-form-msg" id="mcMsg"></div>
+            <button type="button" class="fx-btn fx-btn-primary" id="mcCalcBtn">Calculate &amp; Fill In Below</button>
+          </div>
+        </details>
+
         <div class="fx-card" style="margin-bottom:16px">
           <h3 style="margin-bottom:12px;font-size:14px">New Nutrition Plan</h3>
           <div class="fx-field"><label>Plan name</label><input class="fx-input" id="nutName" placeholder="e.g. Cutting Phase"/></div>
+          <div class="fx-form-row">
+            <div class="fx-field"><label>Goal</label>
+              <select class="fx-select" id="nutGoal"><option value="">—</option><option value="lose">Lose weight</option><option value="maintain">Maintain / recomposition</option><option value="gain">Build muscle</option></select>
+            </div>
+            <div class="fx-field"><label>Meal plan (optional)</label><select class="fx-select" id="nutMealPlan"><option value="">None</option></select></div>
+          </div>
           <div class="fx-form-row">
             <div class="fx-field"><label>Daily calories</label><input class="fx-input" id="nutCals" type="number"/></div>
             <div class="fx-field"><label>Protein (g)</label><input class="fx-input" id="nutProtein" type="number"/></div>
@@ -189,7 +227,7 @@
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
-import { revealApp, setupThemeToggle, escapeHtml, fmtDate, fmtMoney, fmtDateTime, setLoading, showMessage, toast, openModal, closeModal, emptyState, tileGradient } from "./shared/ui.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDate, fmtMoney, fmtDateTime, setLoading, showMessage, toast, openModal, closeModal, emptyState, tileGradient, enhanceSelect } from "./shared/ui.js";
 import { logAudit } from "./shared/audit.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "clients" });
@@ -325,28 +363,62 @@ document.getElementById("addProgressBtn").addEventListener("click", async (e) =>
 
 // ---- Nutrition ----
 async function loadNutrition() {
-  const [{ data: plans }, { data: logs }] = await Promise.all([
-    sb().from("smartcore_flexi_nutrition_plans").select("*").eq("client_id", clientId).order("created_at", { ascending: false }),
+  const [{ data: plans }, { data: logs }, { data: mealPlans }] = await Promise.all([
+    sb().from("smartcore_flexi_nutrition_plans").select("*, smartcore_flexi_meal_plans(name)").eq("client_id", clientId).order("created_at", { ascending: false }),
     sb().from("smartcore_flexi_food_logs").select("*").eq("client_id", clientId).order("logged_at", { ascending: false }).limit(15),
+    sb().from("smartcore_flexi_meal_plans").select("id, name").order("name"),
   ]);
   const el = document.getElementById("nutritionList");
   el.innerHTML = !plans?.length ? emptyState("🥗", "No nutrition plans yet", "") : plans.map(p => `
     <div class="fx-card" style="margin-bottom:10px">
-      <strong>${escapeHtml(p.name)}</strong> ${p.active ? '<span class="fx-badge fx-badge-green">active</span>' : ""}
-      <div style="color:var(--fx-text3);font-size:12.5px;margin-top:6px">${p.daily_calories || "—"} kcal · P ${p.protein_g || 0}g · C ${p.carbs_g || 0}g · F ${p.fat_g || 0}g</div>
+      <strong>${escapeHtml(p.name)}</strong> ${p.active ? '<span class="fx-badge fx-badge-green">active</span>' : ""} ${p.goal ? `<span class="fx-badge fx-badge-grey" style="text-transform:capitalize">${escapeHtml(p.goal)}</span>` : ""}
+      <div style="color:var(--fx-text3);font-size:12.5px;margin-top:6px">${p.daily_calories || "—"} kcal · P ${p.protein_g || 0}g · C ${p.carbs_g || 0}g · F ${p.fat_g || 0}g${p.smartcore_flexi_meal_plans ? ` · Meal plan: ${escapeHtml(p.smartcore_flexi_meal_plans.name)}` : ""}</div>
     </div>
   `).join("");
   const body = document.getElementById("foodLogBody");
   body.innerHTML = !logs?.length ? `<tr><td colspan="4">${emptyState("🍽️", "No food logged yet", "")}</td></tr>` : logs.map(l => `
     <tr><td>${fmtDate(l.logged_at)}</td><td>${escapeHtml(l.meal)}</td><td>${escapeHtml(l.description)}</td><td>${l.calories || "—"}</td></tr>
   `).join("");
+  const mpSel = document.getElementById("nutMealPlan");
+  mpSel.innerHTML = `<option value="">None</option>` + (mealPlans || []).map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("");
+  enhanceSelect(mpSel, { placeholder: "Search meal plans…" });
+
+  document.getElementById("mcWeight").value = client.starting_weight_kg || "";
+  document.getElementById("mcHeight").value = client.height_cm || "";
 }
+document.getElementById("mcCalcBtn").addEventListener("click", () => {
+  const weight = parseFloat(document.getElementById("mcWeight").value);
+  const height = parseFloat(document.getElementById("mcHeight").value);
+  const age = parseFloat(document.getElementById("mcAge").value);
+  if (!weight || !height || !age) { showMessage("mcMsg", "Enter weight, height and age.", "error"); return; }
+  const sex = document.getElementById("mcSex").value;
+  const activity = parseFloat(document.getElementById("mcActivity").value);
+  const goal = document.getElementById("mcGoal").value;
+
+  const bmr = sex === "male" ? 10 * weight + 6.25 * height - 5 * age + 5 : 10 * weight + 6.25 * height - 5 * age - 161;
+  const tdee = bmr * activity;
+  const goalMultiplier = { lose: 0.8, maintain: 1, gain: 1.12 }[goal] ?? 1;
+  const calories = Math.round((tdee * goalMultiplier) / 10) * 10;
+  const proteinG = Math.round((weight * 1.8) / 5) * 5;
+  const fatG = Math.round((weight * 0.8) / 5) * 5;
+  const carbsCals = calories - proteinG * 4 - fatG * 9;
+  const carbsG = Math.max(0, Math.round(carbsCals / 4 / 5) * 5);
+
+  document.getElementById("nutCals").value = calories;
+  document.getElementById("nutProtein").value = proteinG;
+  document.getElementById("nutFat").value = fatG;
+  document.getElementById("nutCarbs").value = carbsG;
+  document.getElementById("nutGoal").value = goal;
+  showMessage("mcMsg", `${calories} kcal · P ${proteinG}g · C ${carbsG}g · F ${fatG}g — filled in below.`, "success");
+});
 document.getElementById("addNutritionBtn").addEventListener("click", async (e) => {
   const name = document.getElementById("nutName").value.trim();
   if (!name) return;
   setLoading(e.target, true, "Creating…");
   const { error } = await sb().from("smartcore_flexi_nutrition_plans").insert({
     company_id: profile.company_id, client_id: clientId, trainer_id: profile.id, name,
+    goal: document.getElementById("nutGoal").value || null,
+    meal_plan_id: document.getElementById("nutMealPlan").value || null,
     daily_calories: parseInt(document.getElementById("nutCals").value) || null,
     protein_g: parseInt(document.getElementById("nutProtein").value) || null,
     carbs_g: parseInt(document.getElementById("nutCarbs").value) || null,
@@ -355,6 +427,7 @@ document.getElementById("addNutritionBtn").addEventListener("click", async (e) =
   setLoading(e.target, false);
   if (error) { toast(error.message, "error"); return; }
   ["nutName","nutCals","nutProtein","nutCarbs","nutFat"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("nutGoal").value = ""; document.getElementById("nutMealPlan").value = "";
   loaded.delete("nutrition"); loadTab("nutrition");
   toast("Plan created", "success");
 });
@@ -435,6 +508,7 @@ async function loadPackages() {
   `).join("");
   const sel = document.getElementById("sellPackageSelect");
   sel.innerHTML = (allPkgs || []).map(p => `<option value="${p.id}" data-sessions="${p.session_count || ""}" data-validity="${p.validity_days || ""}">${escapeHtml(p.name)} — ${fmtMoney(p.price_pence, p.currency)}</option>`).join("") || `<option value="">No packages configured</option>`;
+  enhanceSelect(sel, { placeholder: "Search packages…" });
 
   const payBody = document.getElementById("paymentsBody");
   payBody.innerHTML = !payments?.length ? `<tr><td colspan="5">${emptyState("💳", "No payments recorded", "")}</td></tr>` : payments.map(p => `

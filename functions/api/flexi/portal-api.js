@@ -215,8 +215,20 @@ async function handleAction({ request, env }) {
   if (action === 'submit_checkin') {
     const [owned] = await sb(env, `/smartcore_flexi_checkins?id=eq.${body.checkin_id}&client_id=eq.${cid}&select=id`);
     if (!owned) return json({ error: 'Not found.' }, 404);
+    const photo_urls = [];
+    for (const [i, photo_base64] of (body.photos || []).entries()) {
+      const path = `${companyId}/${cid}/checkins/${Date.now()}-${i}.jpg`;
+      const url = await uploadToStorage(env, path, photo_base64, 'image/jpeg');
+      if (url) photo_urls.push(url);
+    }
     await sb(env, `/smartcore_flexi_checkins?id=eq.${body.checkin_id}`, {
-      method: 'PATCH', body: { submitted_at: new Date().toISOString(), responses: body.responses || {} },
+      method: 'PATCH',
+      body: {
+        submitted_at: new Date().toISOString(),
+        responses: body.responses || {},
+        notes: body.notes || null,
+        photo_urls,
+      },
     });
     return json({ success: true });
   }

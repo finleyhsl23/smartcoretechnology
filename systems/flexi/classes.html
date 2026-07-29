@@ -37,6 +37,13 @@
   </div>
 </div>
 
+<div class="fx-modal" id="attendModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3 id="attendTitle">Attendance</h3><button class="fx-modal-close" data-close-attend>✕</button></div>
+    <div id="attendList"></div>
+  </div>
+</div>
+
 <script type="module">
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
@@ -69,7 +76,10 @@ async function load() {
       <div style="color:var(--fx-text3);font-size:12.5px;margin-bottom:10px">${fmtDateTime(s.starts_at)}</div>
       <div class="fx-progress-track" style="margin-bottom:6px"><div class="fx-progress-fill" style="width:${Math.min(100, (counts[s.id]/s.capacity)*100)}%"></div></div>
       <div class="fx-tabular" style="font-size:12.5px;color:var(--fx-text2)">${counts[s.id]} / ${s.capacity} booked</div>
-      ${s.status === "scheduled" ? `<button class="fx-btn fx-btn-sm fx-btn-danger" style="margin-top:10px" data-cancel="${s.id}">Cancel Class</button>` : ""}
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="fx-btn fx-btn-sm fx-btn-primary" data-attend="${s.id}" data-name="${escapeHtml(s.name)}">Take Attendance</button>
+        ${s.status === "scheduled" ? `<button class="fx-btn fx-btn-sm fx-btn-danger" data-cancel="${s.id}">Cancel Class</button>` : ""}
+      </div>
     </div>
   `).join("");
 
@@ -78,10 +88,43 @@ async function load() {
     await sb().from("smartcore_flexi_class_sessions").update({ status: "cancelled" }).eq("id", btn.dataset.cancel);
     load();
   }));
+  grid.querySelectorAll("[data-attend]").forEach(btn => btn.addEventListener("click", () => openAttendance(btn.dataset.attend, btn.dataset.name)));
+}
+
+async function openAttendance(sessionId, name) {
+  document.getElementById("attendTitle").textContent = `Attendance — ${name}`;
+  const list = document.getElementById("attendList");
+  list.innerHTML = `<p style="color:var(--fx-text3);font-size:13px">Loading…</p>`;
+  openModal("attendModal");
+  const { data: bookings } = await sb().from("smartcore_flexi_bookings")
+    .select("*, smartcore_flexi_clients(full_name)")
+    .eq("class_session_id", sessionId).neq("status", "cancelled").order("created_at");
+  list.innerHTML = !bookings?.length
+    ? `<p style="color:var(--fx-text3);font-size:13px;padding:8px 0">No one has booked this class yet.</p>`
+    : bookings.map(b => `
+      <label class="fx-card" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer">
+        <input type="checkbox" data-attend-booking="${b.id}" ${b.attended ? "checked" : ""}/>
+        <span style="flex:1">${escapeHtml(b.smartcore_flexi_clients?.full_name || "—")}</span>
+        <span class="fx-badge ${b.attended ? "fx-badge-green" : "fx-badge-grey"}" data-attend-badge="${b.id}">${b.attended ? "Attended" : "Not yet"}</span>
+      </label>
+    `).join("");
+  list.querySelectorAll("[data-attend-booking]").forEach(cb => cb.addEventListener("change", async () => {
+    const id = cb.dataset.attendBooking;
+    const attended = cb.checked;
+    const { error } = await sb().from("smartcore_flexi_bookings").update({
+      attended, attended_at: attended ? new Date().toISOString() : null,
+      status: attended ? "completed" : "confirmed",
+    }).eq("id", id);
+    if (error) { toast(error.message, "error"); cb.checked = !attended; return; }
+    const badge = list.querySelector(`[data-attend-badge="${id}"]`);
+    badge.textContent = attended ? "Attended" : "Not yet";
+    badge.className = `fx-badge ${attended ? "fx-badge-green" : "fx-badge-grey"}`;
+  }));
 }
 
 document.getElementById("addBtn").addEventListener("click", () => { document.getElementById("clsMsg").textContent = ""; openModal("addModal"); });
 document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));
+document.querySelectorAll("[data-close-attend]").forEach(b => b.addEventListener("click", () => closeModal("attendModal")));
 document.getElementById("saveClsBtn").addEventListener("click", async (e) => {
   const name = document.getElementById("clsName").value.trim();
   const start = document.getElementById("clsStart").value;

@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Exercise Library — Flexi</title>
 <link rel="stylesheet" href="shared/flexi.css"/>
+<style>
+.ex-video-wrap{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:0;overflow:hidden}
+.ex-video-wrap iframe,.ex-video-wrap video{width:100%;height:100%;display:block;border:0}
+.ex-video-toggle{display:flex;gap:8px;margin-bottom:12px}
+.ex-video-toggle button{flex:1;padding:9px;border-radius:9px;border:1px solid var(--fx-line);background:var(--fx-card2);color:var(--fx-text2);font-size:12.5px;font-weight:700;cursor:pointer;transition:.15s}
+.ex-video-toggle button.active{background:var(--fx-grad);border-color:transparent;color:#fff}
+.ex-card-actions{display:flex;gap:8px;margin-top:10px}
+.ex-file-hint{font-size:11.5px;color:var(--fx-text3)}
+</style>
 </head>
 <body>
 <div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
@@ -31,7 +40,8 @@
 
 <div class="fx-modal" id="addModal">
   <div class="fx-modal-box">
-    <div class="fx-modal-head"><h3>Add Exercise</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div class="fx-modal-head"><h3 id="modalTitle">Add Exercise</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <p class="fx-file-hint" id="cloneNotice" style="display:none;margin-bottom:12px">This is a built-in exercise — saving will create your own copy of it with the video attached.</p>
     <div class="fx-field"><label>Name</label><input class="fx-input" id="exName"/></div>
     <div class="fx-form-row">
       <div class="fx-field"><label>Category</label>
@@ -39,11 +49,20 @@
       </div>
       <div class="fx-field"><label>Muscle group</label><input class="fx-input" id="exMuscle"/></div>
     </div>
-    <div class="fx-form-row">
-      <div class="fx-field"><label>Equipment</label><input class="fx-input" id="exEquipment"/></div>
-      <div class="fx-field"><label>Video URL</label><input class="fx-input" id="exVideo" placeholder="YouTube link, optional"/></div>
-    </div>
+    <div class="fx-field"><label>Equipment</label><input class="fx-input" id="exEquipment"/></div>
     <div class="fx-field"><label>Instructions</label><textarea class="fx-textarea" id="exInstructions"></textarea></div>
+
+    <div class="fx-field">
+      <label>Demo video</label>
+      <div class="ex-video-toggle">
+        <button type="button" id="videoModeYoutube" class="active">YouTube link</button>
+        <button type="button" id="videoModeUpload">Upload a video</button>
+      </div>
+      <input class="fx-input" id="exVideoUrl" placeholder="https://youtube.com/watch?v=…"/>
+      <input class="fx-input" id="exVideoFile" type="file" accept="video/*" capture="environment" style="display:none"/>
+      <div class="fx-file-hint" id="videoHint">Paste a YouTube link, or switch to "Upload a video" to record/select a clip of yourself demonstrating it.</div>
+    </div>
+
     <div class="fx-form-msg" id="exMsg"></div>
     <button class="fx-btn fx-btn-primary fx-btn-block" id="saveExBtn">Add Exercise</button>
   </div>
@@ -62,6 +81,19 @@ setupThemeToggle();
 revealApp();
 
 let all = [];
+let editingId = null;   // exercise id being edited in place (owned by this company)
+let cloningFrom = null; // built-in exercise id being cloned into a new company copy
+
+function youtubeEmbedUrl(url) {
+  const m = String(url || "").match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{6,})/);
+  return m ? `https://www.youtube.com/embed/${m[1]}` : null;
+}
+function renderVideo(url) {
+  if (!url) return "";
+  const yt = youtubeEmbedUrl(url);
+  return `<div class="ex-video-wrap">${yt ? `<iframe src="${yt}" allowfullscreen loading="lazy"></iframe>` : `<video src="${escapeHtml(url)}" controls preload="metadata"></video>`}</div>`;
+}
+
 async function load() {
   const { data } = await sb().from("smartcore_flexi_exercises").select("*").order("name");
   all = data || [];
@@ -75,15 +107,20 @@ function render() {
   const grid = document.getElementById("exGrid");
   grid.innerHTML = !rows.length ? emptyState("◒", "No exercises found", "") : rows.map(x => `
     <div class="fx-card fx-card-flush">
-      <div class="fx-tile" style="background:${tileGradient(x.id)};border-radius:0">
-        <div class="fx-tile-eyebrow">${escapeHtml(x.category)}</div>
-        <div class="fx-tile-title">${escapeHtml(x.name)}</div>
-      </div>
+      ${x.video_url ? renderVideo(x.video_url) : `
+        <div class="fx-tile" style="background:${tileGradient(x.id)};border-radius:0">
+          <div class="fx-tile-eyebrow">${escapeHtml(x.category)}</div>
+          <div class="fx-tile-title">${escapeHtml(x.name)}</div>
+        </div>
+      `}
       <div style="padding:16px">
-        <div style="color:var(--fx-text3);font-size:12.5px;margin-bottom:8px">${escapeHtml(x.muscle_group || "")}${x.equipment ? " · " + escapeHtml(x.equipment) : ""}</div>
+        ${x.video_url ? `<strong style="font-size:14px">${escapeHtml(x.name)}</strong><div style="color:var(--fx-text3);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${escapeHtml(x.category)}</div>` : ""}
+        <div style="color:var(--fx-text3);font-size:12.5px;margin:8px 0">${escapeHtml(x.muscle_group || "")}${x.equipment ? " · " + escapeHtml(x.equipment) : ""}</div>
         <div style="font-size:12.5px;color:var(--fx-text2)">${escapeHtml(x.instructions || "")}</div>
-        ${x.video_url ? `<a href="${escapeHtml(x.video_url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font-size:12px;color:var(--fx-accent);font-weight:700">▶ Watch demo</a>` : ""}
-        ${x.company_id ? `<button class="fx-btn fx-btn-sm fx-btn-danger" style="margin-top:10px" data-del="${x.id}">Delete</button>` : `<div style="margin-top:10px"><span class="fx-badge fx-badge-blue">Built-in</span></div>`}
+        <div class="ex-card-actions">
+          <button class="fx-btn fx-btn-sm" data-edit="${x.id}">${x.company_id ? "Edit" : "Add My Video"}</button>
+          ${x.company_id ? `<button class="fx-btn fx-btn-sm fx-btn-danger" data-del="${x.id}">Delete</button>` : `<span class="fx-badge fx-badge-blue" style="align-self:center">Built-in</span>`}
+        </div>
       </div>
     </div>
   `).join("");
@@ -92,29 +129,114 @@ function render() {
     await sb().from("smartcore_flexi_exercises").delete().eq("id", btn.dataset.del);
     load();
   }));
+  grid.querySelectorAll("[data-edit]").forEach(btn => btn.addEventListener("click", () => openEdit(all.find(x => x.id === btn.dataset.edit))));
 }
 document.getElementById("searchInput").addEventListener("input", render);
 document.getElementById("categoryFilter").addEventListener("change", render);
-document.getElementById("addBtn").addEventListener("click", () => openModal("addModal"));
+
+function resetForm() {
+  ["exName","exMuscle","exEquipment","exInstructions","exVideoUrl"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("exCategory").value = "strength";
+  document.getElementById("exVideoFile").value = "";
+  setVideoMode("youtube");
+  document.getElementById("cloneNotice").style.display = "none";
+  document.getElementById("exMsg").textContent = "";
+}
+
+function setVideoMode(mode) {
+  const isUpload = mode === "upload";
+  document.getElementById("videoModeYoutube").classList.toggle("active", !isUpload);
+  document.getElementById("videoModeUpload").classList.toggle("active", isUpload);
+  document.getElementById("exVideoUrl").style.display = isUpload ? "none" : "";
+  document.getElementById("exVideoFile").style.display = isUpload ? "" : "none";
+  document.getElementById("videoHint").textContent = isUpload
+    ? "Record on your phone or pick a video file — it's uploaded privately and only your clients can view it."
+    : "Paste a YouTube link, or switch to \"Upload a video\" to record/select a clip of yourself demonstrating it.";
+}
+document.getElementById("videoModeYoutube").addEventListener("click", () => setVideoMode("youtube"));
+document.getElementById("videoModeUpload").addEventListener("click", () => setVideoMode("upload"));
+
+document.getElementById("addBtn").addEventListener("click", () => {
+  editingId = null; cloningFrom = null;
+  resetForm();
+  document.getElementById("modalTitle").textContent = "Add Exercise";
+  document.getElementById("saveExBtn").textContent = "Add Exercise";
+  openModal("addModal");
+});
+
+function openEdit(ex) {
+  if (!ex) return;
+  resetForm();
+  document.getElementById("exName").value = ex.name || "";
+  document.getElementById("exCategory").value = ex.category || "strength";
+  document.getElementById("exMuscle").value = ex.muscle_group || "";
+  document.getElementById("exEquipment").value = ex.equipment || "";
+  document.getElementById("exInstructions").value = ex.instructions || "";
+  document.getElementById("exVideoUrl").value = youtubeEmbedUrl(ex.video_url || "") ? ex.video_url : "";
+  if (ex.company_id) {
+    editingId = ex.id; cloningFrom = null;
+    document.getElementById("modalTitle").textContent = "Edit Exercise";
+    document.getElementById("saveExBtn").textContent = "Save Changes";
+  } else {
+    editingId = null; cloningFrom = ex.id;
+    document.getElementById("modalTitle").textContent = "Add My Video";
+    document.getElementById("saveExBtn").textContent = "Save My Copy";
+    document.getElementById("cloneNotice").style.display = "";
+  }
+  openModal("addModal");
+}
+
 document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));
+
 document.getElementById("saveExBtn").addEventListener("click", async (e) => {
   const name = document.getElementById("exName").value.trim();
   if (!name) { showMessage("exMsg", "Name is required.", "error"); return; }
-  setLoading(e.target, true, "Adding…");
-  const { error } = await sb().from("smartcore_flexi_exercises").insert({
-    company_id: profile.company_id, name,
+  const uploadMode = document.getElementById("videoModeUpload").classList.contains("active");
+  const file = document.getElementById("exVideoFile").files[0];
+
+  setLoading(e.target, true, "Saving…");
+  const fields = {
+    name,
     category: document.getElementById("exCategory").value,
     muscle_group: document.getElementById("exMuscle").value.trim() || null,
     equipment: document.getElementById("exEquipment").value.trim() || null,
-    video_url: document.getElementById("exVideo").value.trim() || null,
     instructions: document.getElementById("exInstructions").value.trim() || null,
-    created_by: profile.id,
-  });
+  };
+  if (!uploadMode) {
+    const url = document.getElementById("exVideoUrl").value.trim();
+    if (url) fields.video_url = url;
+  }
+
+  try {
+    let exerciseId = editingId;
+    if (editingId) {
+      const { error } = await sb().from("smartcore_flexi_exercises").update(fields).eq("id", editingId);
+      if (error) throw error;
+    } else {
+      const { data, error } = await sb().from("smartcore_flexi_exercises").insert({
+        ...fields, company_id: profile.company_id, created_by: profile.id,
+      }).select().single();
+      if (error) throw error;
+      exerciseId = data.id;
+    }
+
+    if (uploadMode && file) {
+      const ext = (file.name.split(".").pop() || "mp4").toLowerCase();
+      const path = `${profile.company_id}/exercises/${exerciseId}/${Date.now()}.${ext}`;
+      const { error: upErr } = await sb().storage.from("flexi-media").upload(path, file, { upsert: true, contentType: file.type || "video/mp4" });
+      if (upErr) throw upErr;
+      const { data: signed, error: signErr } = await sb().storage.from("flexi-media").createSignedUrl(path, 60 * 60 * 24 * 365);
+      if (signErr) throw signErr;
+      await sb().from("smartcore_flexi_exercises").update({ video_url: signed.signedUrl }).eq("id", exerciseId);
+    }
+  } catch (err) {
+    setLoading(e.target, false);
+    showMessage("exMsg", err.message || "Something went wrong.", "error");
+    return;
+  }
   setLoading(e.target, false);
-  if (error) { showMessage("exMsg", error.message, "error"); return; }
   closeModal("addModal");
-  toast("Exercise added", "success");
-  ["exName","exMuscle","exEquipment","exVideo","exInstructions"].forEach(id => document.getElementById(id).value = "");
+  toast(editingId ? "Exercise updated" : "Exercise added", "success");
   load();
 });
 load();
