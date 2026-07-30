@@ -105,6 +105,7 @@ export function welcomeEmailHtml({ businessName, primaryColor, fullName, trainer
   const color = primaryColor || '#ff5a36';
   const grad = `linear-gradient(128deg, #ff7a45 0%, ${color} 45%, #ff3d7f 100%)`;
   const font = `-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',Roboto,Arial,sans-serif`;
+  const logoUrl = `${new URL(portalUrl).origin}/systems/flexi/shared/smartcore-icon-white.png`;
   const feature = (emoji, label) => `
     <td align="center" style="padding:0 6px">
       <table cellpadding="0" cellspacing="0"><tr><td align="center" style="width:52px;height:52px;border-radius:14px;background:#f6f7fc;border:1px solid #ecedf6;font-size:20px;line-height:52px">${emoji}</td></tr></table>
@@ -119,7 +120,7 @@ export function welcomeEmailHtml({ businessName, primaryColor, fullName, trainer
       <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 20px 48px rgba(23,25,50,.14);max-width:560px;width:100%">
         <tr>
           <td style="background:${grad};padding:40px 36px 32px;text-align:center">
-            <table cellpadding="0" cellspacing="0" style="margin:0 auto 18px"><tr><td style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.35);font-size:20px;font-weight:800;color:#ffffff;text-align:center;line-height:46px">F</td></tr></table>
+            <table cellpadding="0" cellspacing="0" style="margin:0 auto 18px"><tr><td style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.35);text-align:center;vertical-align:middle"><img src="${logoUrl}" alt="SmartCore" width="26" height="26" style="display:block;margin:10px auto"/></td></tr></table>
             <div style="font-size:23px;font-weight:800;color:#ffffff;letter-spacing:-0.5px">${businessName}</div>
             <div style="color:rgba(255,255,255,0.85);font-size:12.5px;margin-top:6px;font-weight:600;letter-spacing:.3px">POWERED BY FLEXI</div>
           </td>

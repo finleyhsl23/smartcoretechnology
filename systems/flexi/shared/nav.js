@@ -58,7 +58,7 @@ export function renderNav({ activeKey, profile, tier }) {
 
   container.innerHTML = `
     <div class="fx-side-brand">
-      <div class="fx-side-logo">F</div>
+      <div class="fx-side-logo"><img src="shared/smartcore-icon-white.png" alt="SmartCore" style="width:60%;height:60%;object-fit:contain"/></div>
       <span>Flexi</span>
     </div>
     <nav class="fx-side-nav">
