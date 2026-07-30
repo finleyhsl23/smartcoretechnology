@@ -343,30 +343,28 @@ async function sendWelcomeWithInvoice(env, o, modules, today) {
   // Save invoice record best-effort — don't let a DB failure block the email
   try { await dbPost(env, '/marketplace_invoices', inv, false); } catch (e) { console.error('invoice insert error:', e); }
 
-  const pdfBase64 = buildInvoicePdf(inv, o, modules);
-  const html      = welcomeHtml(o, modules, inv);
+  const html = welcomeHtml(o, modules, inv);
 
   const resendKey = env.RESEND_API_KEY || env.RESEND_SMARTCORE_SHOP;
   if (!resendKey) throw new Error('No Resend API key configured (tried RESEND_API_KEY, RESEND_SMARTCORE_SHOP)');
 
+  // Build PDF attachment — skip if generation fails to avoid blocking the email
+  let attachments = [];
+  try {
+    const pdfBase64 = buildInvoicePdf(inv, o, modules);
+    attachments = [{ filename: `SmartCore-Invoice-${inv.invoice_number}.pdf`, content: pdfBase64, content_type: 'application/pdf' }];
+  } catch (pdfErr) {
+    console.error('PDF generation failed, sending without attachment:', pdfErr);
+  }
+
   const recipients = [...new Set([o.email, o.accounts_email].filter(Boolean))];
+  const body = { from: FROM, to: recipients, subject: `Welcome to SmartCore — ${o.order_reference}`, html };
+  if (attachments.length) body.attachments = attachments;
+
   const emailRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: {
-      Authorization:  `Bearer ${resendKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from:    FROM,
-      to:      recipients,
-      subject: `Welcome to SmartCore — ${o.order_reference}`,
-      html,
-      attachments: [{
-        filename:     `SmartCore-Invoice-${inv.invoice_number}.pdf`,
-        content:      pdfBase64,
-        content_type: 'application/pdf',
-      }],
-    }),
+    headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
   if (!emailRes.ok) {
     const errText = await emailRes.text();
@@ -483,7 +481,11 @@ function buildInvoicePdf(inv, o, modules) {
   pdf += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root 1 0 R >>\n';
   pdf += 'startxref\n' + xrefOffset + '\n%%EOF';
 
-  return btoa(pdf);
+  // btoa only handles Latin-1; use TextEncoder + base64 for safety
+  const bytes = new TextEncoder().encode(pdf);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
 }
 
 function encodeUtf8(str) {
