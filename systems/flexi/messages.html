@@ -39,6 +39,13 @@
 .msg-pane .fx-chat{flex:1;min-height:0;max-height:none}
 .msg-pane-head{display:none;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--fx-line);flex-shrink:0}
 .msg-pane-head strong{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fx-chat-skel{background:var(--fx-card2);position:relative;overflow:hidden;color:transparent}
+.fx-chat-skel::after{
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,color-mix(in srgb, var(--fx-text) 8%, transparent),transparent);
+  animation:fx-chat-shimmer 1.3s ease-in-out infinite
+}
+@keyframes fx-chat-shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
 /* Mobile: a 50/50 split with no room to type doesn't work on a phone —
    show the conversation list full-screen, and only bring the chat pane
    in (also full-screen, covering everything including the sidebar/topbar)
@@ -148,7 +155,14 @@ document.getElementById("closeChatBtn").addEventListener("click", () => {
   document.querySelector(".msg-shell").classList.remove("chat-open");
 });
 
-async function selectClient(clientId, userOpened = false) {
+let selectRequestId = 0;
+function chatSkeletonHtml() {
+  return [180, 130, 150].map((w, i) => `
+    <div class="fx-bubble fx-chat-skel ${i === 1 ? "fx-bubble-mine" : "fx-bubble-theirs"}" style="width:${w}px;height:34px">&nbsp;</div>
+  `).join("");
+}
+
+async function selectClient(clientId, userOpened = false, showLoading = true) {
   activeClientId = clientId;
   document.querySelectorAll(".msg-list-item").forEach(el => el.classList.toggle("active", el.dataset.client === clientId));
   document.getElementById("chatInput").disabled = false;
@@ -159,7 +173,14 @@ async function selectClient(clientId, userOpened = false) {
   document.getElementById("msgPaneAvatar").textContent = client ? initials(client.full_name) : "";
   if (userOpened) document.querySelector(".msg-shell").classList.add("chat-open");
 
+  // A slower request for a conversation the trainer has since clicked away
+  // from must never clobber whatever loaded after it — otherwise switching
+  // chats quickly can flash the wrong person's messages back in.
+  const requestId = ++selectRequestId;
+  if (showLoading) document.getElementById("chatMessages").innerHTML = chatSkeletonHtml();
+
   const { data } = await sb().from("smartcore_flexi_messages").select("*").eq("client_id", clientId).order("created_at");
+  if (requestId !== selectRequestId) return;
   const el = document.getElementById("chatMessages");
   el.innerHTML = !data?.length ? emptyState("💬", "No messages yet", "Say hello!") : data.map(m => `
     <div class="fx-bubble ${m.sender_type === "trainer" ? "fx-bubble-mine" : "fx-bubble-theirs"}">
@@ -188,7 +209,7 @@ async function send() {
     company_id: profile.company_id, client_id: activeClientId, sender_type: "trainer", sender_employee_id: profile.id, body,
   });
   if (error) { toast(error.message, "error"); return; }
-  selectClient(activeClientId);
+  selectClient(activeClientId, false, false);
 }
 
 loadList();
