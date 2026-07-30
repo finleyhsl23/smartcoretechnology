@@ -15,13 +15,27 @@
 .cal-nav-btn:hover{background:var(--fx-bg2);color:var(--fx-text)}
 .cal-toolbar-spacer{flex:1}
 
+/* A 7-column grid has no natural way to shrink below its content's
+   minimum size (day number + event pills), so on a phone it was
+   silently overflowing off the right edge of the screen with nothing
+   to scroll it into view — .cal-grid-scroll below is what makes that
+   overflow reachable instead of just cut off. */
+.cal-grid-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .cal-grid{border:1px solid var(--fx-line);border-radius:16px;overflow:hidden;background:var(--fx-card)}
 .cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--fx-line);background:var(--fx-card2)}
-.cal-weekdays div{padding:10px 4px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--fx-text3)}
+.cal-weekdays div{padding:10px 4px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--fx-text3);min-width:0}
 .cal-body{display:grid;grid-template-columns:repeat(7,1fr)}
 .cal-cell{
-  min-height:104px;border-right:1px solid var(--fx-line);border-bottom:1px solid var(--fx-line);
+  min-height:104px;min-width:0;border-right:1px solid var(--fx-line);border-bottom:1px solid var(--fx-line);
   padding:7px;cursor:pointer;transition:background .15s;display:flex;flex-direction:column;gap:4px;position:relative
+}
+@media(max-width:700px){
+  /* .cal-grid clips its own content via overflow:hidden (for the rounded
+     corners) and, being a plain block, won't grow to fit an overflowing
+     child on its own — without this it silently clips the 600px-wide
+     grid down to the viewport before .cal-grid-scroll ever sees an
+     overflow to make scrollable. */
+  .cal-grid,.cal-weekdays,.cal-body{min-width:600px}
 }
 .cal-cell:nth-child(7n){border-right:none}
 .cal-cell:hover{background:var(--fx-card2)}
@@ -69,9 +83,11 @@
           <div class="cal-toolbar-spacer"></div>
           <button class="fx-btn fx-btn-sm" id="todayBtn">Today</button>
         </div>
-        <div class="cal-grid">
-          <div class="cal-weekdays"><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div></div>
-          <div class="cal-body" id="calBody"></div>
+        <div class="cal-grid-scroll">
+          <div class="cal-grid">
+            <div class="cal-weekdays"><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div></div>
+            <div class="cal-body" id="calBody"></div>
+          </div>
         </div>
       </div>
     </main>

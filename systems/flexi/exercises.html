@@ -15,6 +15,22 @@
 .ex-video-toggle button.active{background:var(--fx-grad);border-color:transparent;color:#fff}
 .ex-card-actions{display:flex;gap:8px;margin-top:10px}
 .ex-file-hint{font-size:11.5px;color:var(--fx-text3)}
+/* Search collapses to just the magnifying-glass icon so it doesn't crowd
+   out the category filter on narrow screens — it grows back once
+   focused or holding a query. */
+.ex-search-wrap{position:relative;flex-shrink:0}
+.ex-search-wrap svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--fx-text3);pointer-events:none}
+.ex-search-wrap #searchInput{width:38px;padding:9px 10px 9px 32px;transition:width .2s ease;cursor:pointer}
+.ex-search-wrap #searchInput.expanded{width:190px;cursor:text}
+#categoryFilter + .fx-combo{width:150px;flex-shrink:0}
+@media(max-width:640px){
+  .ex-search-wrap #searchInput.expanded{width:150px}
+  #categoryFilter + .fx-combo{width:125px}
+  /* Icon-search + a wider filter still don't leave room for + Add
+     Exercise on one line at phone widths — wrap instead of letting it
+     spill off the right edge of the screen. */
+  .fx-topbar{flex-wrap:wrap;row-gap:10px}
+}
 </style>
 </head>
 <body>
@@ -26,8 +42,11 @@
       <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
       <div><h1>Exercise Library</h1><div class="fx-topbar-sub" id="countLabel"></div></div>
       <div class="fx-topbar-spacer"></div>
-      <input class="fx-input" id="searchInput" placeholder="Search exercises…" style="max-width:200px"/>
-      <select class="fx-select" id="categoryFilter" style="max-width:140px">
+      <div class="ex-search-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input class="fx-input" id="searchInput" placeholder="Search exercises…"/>
+      </div>
+      <select class="fx-select" id="categoryFilter">
         <option value="">All categories</option>
         <option value="strength">Strength</option><option value="cardio">Cardio</option><option value="core">Core</option>
         <option value="mobility">Mobility</option><option value="plyometric">Plyometric</option><option value="other">Other</option>
@@ -140,7 +159,13 @@ function render() {
   }));
   grid.querySelectorAll("[data-edit]").forEach(btn => btn.addEventListener("click", () => openEdit(all.find(x => x.id === btn.dataset.edit))));
 }
-document.getElementById("searchInput").addEventListener("input", render);
+const searchInput = document.getElementById("searchInput");
+function syncSearchExpanded() {
+  searchInput.classList.toggle("expanded", document.activeElement === searchInput || !!searchInput.value);
+}
+searchInput.addEventListener("focus", syncSearchExpanded);
+searchInput.addEventListener("blur", syncSearchExpanded);
+searchInput.addEventListener("input", () => { syncSearchExpanded(); render(); });
 document.getElementById("categoryFilter").addEventListener("change", render);
 
 function resetForm() {
