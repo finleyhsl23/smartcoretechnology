@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Check History — Convoy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/convoy/shared/convoy.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Check History</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireConvoyAccess } from "/systems/convoy/shared/auth.js";
+  import { checks, vehicles } from "/systems/convoy/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/convoy/shared/nav.js";
+  import { initTheme } from "/systems/convoy/shared/theme.js";
+  import { esc, fmtDateTime, statusBadge, integrityBadges, loadingState, emptyState, errorState, setInner } from "/systems/convoy/shared/ui.js";
+
+  initTheme();
+  let _companyId = null;
+  const vehicleFilter = new URLSearchParams(location.search).get("vehicle") || "";
+
+  try {
+    const { profile, admin } = await requireConvoyAccess();
+    _companyId = profile.company_id;
+    renderNav("checks", profile, { admin });
+    initMobileNav(); initTopbar();
+    await load();
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Convoy", message: e.message }));
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading check history…"));
+    try {
+      const [list, vehicleList] = await Promise.all([
+        checks.listForCompany(_companyId, { vehicleId: vehicleFilter || undefined, limit: 100 }),
+        vehicles.list(_companyId),
+      ]);
+      render(list, vehicleList);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load checks", message: e.message, retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", load);
+    }
+  }
+
+  function render(list, vehicleList) {
+    const html = `
+      <div class="sl-page-head">
+        <div><h2>Check History</h2><p>Every submitted vehicle check is a locked audit record.</p></div>
+      </div>
+      <div class="sl-toolbar">
+        <select class="form-select" id="vehicleFilter" style="max-width:240px">
+          <option value="">All vehicles</option>
+          ${vehicleList.map(v => `<option value="${esc(v.id)}" ${vehicleFilter === v.id ? "selected" : ""}>${esc(v.registration)}</option>`).join("")}
+        </select>
+      </div>
+      ${list.length === 0 ? emptyState({ icon: "clipboard-check", title: "No checks recorded yet" }) :
+        `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Date</th><th>Vehicle</th><th>Driver</th><th>Type</th><th>Result</th><th>Integrity</th></tr></thead><tbody>
+          ${list.map(c => `
+            <tr class="clickable" onclick="location.href='check-detail.html?id=${esc(c.id)}'">
+              <td>${esc(fmtDateTime(c.submitted_at))}</td>
+              <td>${esc(c.vehicle?.registration || "—")}</td>
+              <td>${esc(c.driver?.full_name || "—")}</td>
+              <td>${esc(c.check_type)}</td>
+              <td>${c.overall_result === "pass" ? statusBadge("resolved") : statusBadge("open")}</td>
+              <td><div class="integrity-flags">${integrityBadges(c.integrity_flags)}</div></td>
+            </tr>`).join("")}
+        </tbody></table></div>`}
+    `;
+    setInner("body", html);
+    document.getElementById("vehicleFilter").addEventListener("change", (e) => {
+      const v = e.target.value;
+      window.location.href = v ? `checks.html?vehicle=${v}` : "checks.html";
+    });
+  }
+</script>
+</body>
+</html>

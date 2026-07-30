@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Settings — Convoy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/convoy/shared/convoy.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Settings</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content" style="max-width:640px"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireConvoyAccess } from "/systems/convoy/shared/auth.js";
+  import { settings as settingsApi } from "/systems/convoy/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/convoy/shared/nav.js";
+  import { initTheme } from "/systems/convoy/shared/theme.js";
+  import { toast, loadingState, errorState, setInner } from "/systems/convoy/shared/ui.js";
+
+  initTheme();
+  let _companyId = null;
+
+  try {
+    const { profile, admin } = await requireConvoyAccess();
+    _companyId = profile.company_id;
+    renderNav("settings", profile, { admin });
+    initMobileNav(); initTopbar();
+    await load();
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Convoy", message: e.message }));
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading settings…"));
+    try {
+      const s = await settingsApi.get(_companyId);
+      render(s);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load settings", message: e.message, retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", load);
+    }
+  }
+
+  function render(s) {
+    setInner("body", `
+      <div class="sl-page-head"><div><h2>Settings</h2><p>Controls for GPS verification and walkaround integrity checks.</p></div></div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h2 style="margin-top:0">Location Verification</h2>
+        <div class="form-field">
+          <label class="form-label">Default geofence radius (metres)</label>
+          <input class="form-input" type="number" id="fRadius" value="${s.default_geofence_radius_m}"/>
+          <p class="form-hint">Checks started further than this from a vehicle's depot location are flagged "Away from vehicle depot." Individual vehicles can override this.</p>
+        </div>
+        <div class="form-field">
+          <label class="form-label">GPS accuracy warning threshold (metres)</label>
+          <input class="form-input" type="number" id="fAccuracy" value="${s.gps_accuracy_warn_m}"/>
+          <p class="form-hint">A GPS fix worse than this accuracy gets flagged rather than trusted outright.</p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h2 style="margin-top:0">Walkaround Integrity</h2>
+        <div class="form-field">
+          <label class="form-label">Minimum walkaround time (seconds)</label>
+          <input class="form-input" type="number" id="fMinSeconds" value="${s.min_walkaround_seconds}"/>
+          <p class="form-hint">Drivers can't submit a check faster than this — long enough to actually walk around and photograph the vehicle.</p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h2 style="margin-top:0">Compliance Reminders</h2>
+        <div class="form-field">
+          <label class="form-label">Remind this many days before MOT/tax/insurance/service is due</label>
+          <input class="form-input" type="number" id="fReminderDays" value="${s.compliance_reminder_days}"/>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="saveBtn">Save Settings</button>
+    `);
+
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      try {
+        await settingsApi.update(_companyId, {
+          default_geofence_radius_m: Number(document.getElementById("fRadius").value) || 150,
+          gps_accuracy_warn_m: Number(document.getElementById("fAccuracy").value) || 100,
+          min_walkaround_seconds: Number(document.getElementById("fMinSeconds").value) || 45,
+          compliance_reminder_days: Number(document.getElementById("fReminderDays").value) || 14,
+        });
+        toast("success", "Settings saved");
+      } catch (e) {
+        toast("error", "Couldn't save settings", e.message);
+      }
+    });
+  }
+</script>
+</body>
+</html>

@@ -9,6 +9,7 @@ const SITE = 'https://smartcoretechnology.co.uk';
 const CRON_JOBS = [
   { name: 'Invoice generator', path: '/api/cron-invoice' },
   { name: 'Reminder emails',   path: '/api/cron-reminders' },
+  { name: 'Convoy compliance reminders', path: '/api/convoy/cron-compliance-reminders' },
 ];
 
 export default {

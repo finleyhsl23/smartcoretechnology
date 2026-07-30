@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Check — Convoy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/convoy/shared/convoy.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Check Record</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content" style="max-width:760px"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireConvoyAccess } from "/systems/convoy/shared/auth.js";
+  import { checks, signedUrl } from "/systems/convoy/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/convoy/shared/nav.js";
+  import { initTheme } from "/systems/convoy/shared/theme.js";
+  import { esc, fmtDateTime, statusBadge, integrityBadges, mapsUrl, loadingState, errorState, setInner } from "/systems/convoy/shared/ui.js";
+
+  initTheme();
+  const checkId = new URLSearchParams(location.search).get("id");
+
+  try {
+    const { profile, admin } = await requireConvoyAccess();
+    renderNav("checks", profile, { admin });
+    initMobileNav(); initTopbar();
+    await load();
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Convoy", message: e.message }));
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading check record…"));
+    try {
+      const c = await checks.get(checkId);
+      render(c);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load check", message: e.message }));
+    }
+  }
+
+  async function render(c) {
+    const html = `
+      <div class="sl-page-head">
+        <div>
+          <h2>${esc(c.vehicle?.registration || "Vehicle")} — ${esc(c.check_type)} check</h2>
+          <p>${esc(fmtDateTime(c.submitted_at))} by ${esc(c.driver?.full_name || "—")}</p>
+        </div>
+        ${c.overall_result === "pass" ? statusBadge("resolved") : statusBadge("open")}
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header-row"><h2>Integrity &amp; Location</h2></div>
+        <div class="integrity-flags" style="margin-bottom:10px">${integrityBadges(c.integrity_flags)}</div>
+        <div class="tbl-wrap"><table class="tbl"><tbody>
+          <tr><td>Duration</td><td>${c.duration_seconds != null ? `${c.duration_seconds}s` : "—"}</td></tr>
+          <tr><td>Distance from depot</td><td>${c.distance_from_depot_m != null ? `${Math.round(c.distance_from_depot_m)}m` : "—"}</td></tr>
+          <tr><td>Start location</td><td>${c.start_latitude ? `<a href="${mapsUrl(c.start_latitude, c.start_longitude)}" target="_blank" rel="noopener">${c.start_latitude}, ${c.start_longitude}</a> (±${Math.round(c.start_accuracy_m || 0)}m)` : "Unavailable"}</td></tr>
+          <tr><td>End location</td><td>${c.end_latitude ? `<a href="${mapsUrl(c.end_latitude, c.end_longitude)}" target="_blank" rel="noopener">${c.end_latitude}, ${c.end_longitude}</a> (±${Math.round(c.end_accuracy_m || 0)}m)` : "Unavailable"}</td></tr>
+          <tr><td>Driver attestation</td><td>${c.driver_attestation ? `Confirmed by "${esc(c.driver_attested_name)}"` : "Not confirmed"}</td></tr>
+          <tr><td>Mileage</td><td>${c.mileage ?? "—"}</td></tr>
+        </tbody></table></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header-row"><h2>Checklist</h2></div>
+        <div id="itemsList">${c.items.map(itemRow).join("")}</div>
+      </div>
+    `;
+    setInner("body", html);
+
+    for (const it of c.items) {
+      if (it.photo?.storage_path) {
+        const url = await signedUrl(it.photo.storage_path);
+        const img = document.querySelector(`[data-thumb="${it.id}"]`);
+        if (img && url) img.src = url;
+      }
+    }
+  }
+
+  function itemRow(it) {
+    return `
+      <div class="walk-item ${it.passed ? "done" : "failed"}">
+        <div class="walk-item-head">
+          <div>
+            <div class="walk-item-label">${esc(it.label)}</div>
+            <div class="walk-item-zone">${esc((it.zone || "").replace(/_/g, " "))}</div>
+          </div>
+          <i data-lucide="${it.passed ? "check-circle" : "x-circle"}" style="width:20px;height:20px;color:var(--${it.passed ? "good" : "bad"})"></i>
+        </div>
+        ${it.notes ? `<p class="text-muted" style="font-size:13px;margin:6px 0 0">${esc(it.notes)}</p>` : ""}
+        ${it.photo?.storage_path ? `<img class="walk-item-thumb" data-thumb="${esc(it.id)}" alt="${esc(it.label)} photo"/>` : ""}
+      </div>`;
+  }
+</script>
+</body>
+</html>

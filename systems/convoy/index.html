@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Dashboard — Convoy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/convoy/shared/convoy.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Dashboard</h1>
+      <button class="icon-btn" id="refreshBtn" aria-label="Refresh dashboard" title="Refresh"><i data-lucide="refresh-cw"></i></button>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="sl-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="dashboardBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireConvoyAccess, hasPermission } from "/systems/convoy/shared/auth.js";
+  import { vehicles, defects, dashboard, checklists } from "/systems/convoy/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/convoy/shared/nav.js";
+  import { initTheme } from "/systems/convoy/shared/theme.js";
+  import {
+    esc, timeAgo, fmtDate, daysUntil, statusBadge, severityBadge,
+    loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
+    offlineBanner, staleBadge, setInner,
+  } from "/systems/convoy/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null;
+  let _companyId = null;
+  let _admin = false;
+  let _lastRefreshed = null;
+
+  try {
+    const { profile, admin } = await requireConvoyAccess();
+    _profile = profile;
+    _companyId = profile.company_id;
+    _admin = admin;
+
+    renderNav("dashboard", profile, { admin });
+    initMobileNav();
+    initTopbar();
+    wireOfflineBanner();
+
+    document.getElementById("refreshBtn").addEventListener("click", () => loadDashboard());
+
+    if (_admin || hasPermission("convoy.manage_checklists")) {
+      checklists.ensureDefault(_companyId, _profile.id).catch(() => {});
+    }
+
+    await loadDashboard();
+  } catch (e) {
+    renderAccessBlocked(e);
+  }
+
+  async function loadDashboard() {
+    setInner("dashboardBody", loadingState("Loading dashboard…"));
+    try {
+      const [stats, allVehicles] = await Promise.all([
+        dashboard.stats(_companyId),
+        vehicles.list(_companyId, { status: "active" }),
+      ]);
+      _lastRefreshed = new Date();
+      renderDashboard(stats, allVehicles);
+    } catch (e) {
+      setInner("dashboardBody", errorState({
+        title: "Couldn't load the dashboard",
+        message: e.message || "Something went wrong fetching data.",
+        retryId: "dashRetry",
+      }));
+      document.getElementById("dashRetry")?.addEventListener("click", loadDashboard);
+    }
+  }
+
+  function renderDashboard(stats, allVehicles) {
+    const firstName = (_profile.full_name || "").split(" ")[0] || "there";
+    const notCheckedToday = allVehicles.filter(v => !stats.checkedTodayVehicleIds.has(v.id));
+
+    const quickActions = [
+      { permission: "convoy.perform_checks", href: "check.html", icon: "camera", label: "Do a Vehicle Check" },
+      { permission: "convoy.view_vehicles", href: "vehicles.html", icon: "truck", label: "View Vehicles" },
+      { permission: "convoy.manage_vehicles", href: "vehicles.html?new=1", icon: "plus-circle", label: "Add Vehicle" },
+      { permission: "convoy.view_vehicles", href: "defects.html", icon: "alert-triangle", label: "View Defects" },
+    ].filter(a => _admin || hasPermission(a.permission));
+
+    const html = `
+      <div class="sl-page-head">
+        <div>
+          <h2>Welcome back, ${esc(firstName)}</h2>
+          <p>Here's what's happening across your fleet. ${staleBadge(_lastRefreshed)}</p>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-value">${stats.activeVehicles}</div><div class="stat-label">Active Vehicles</div></div>
+        <div class="stat-card ${stats.vorVehicles.length ? "bad" : ""}"><div class="stat-value">${stats.vorVehicles.length}</div><div class="stat-label">Off The Road</div></div>
+        <div class="stat-card ${stats.openDefects.length ? "warn" : ""}"><div class="stat-value">${stats.openDefects.length}</div><div class="stat-label">Open Defects</div></div>
+        <div class="stat-card ${stats.dueSoon.length ? "warn" : ""}"><div class="stat-value">${stats.dueSoon.length}</div><div class="stat-label">Compliance Due (30d)</div></div>
+      </div>
+
+      ${quickActions.length ? `
+      <div class="quick-actions">
+        ${quickActions.map(a => `
+          <a class="quick-action" href="${esc(a.href)}">
+            <i data-lucide="${esc(a.icon)}"></i>
+            <span>${esc(a.label)}</span>
+          </a>`).join("")}
+      </div>` : ""}
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header-row">
+          <h2>Not Checked Today</h2>
+          <a class="btn" href="vehicles.html">All Vehicles →</a>
+        </div>
+        ${notCheckedToday.length === 0
+          ? emptyState({ icon: "shield-check", title: "Every active vehicle has been checked today", message: "Nice work — the fleet is up to date." })
+          : `<div class="activity-list">${notCheckedToday.slice(0, 8).map(vehicleRow).join("")}</div>`}
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header-row">
+          <h2>Open Defects</h2>
+          <a class="btn" href="defects.html">All Defects →</a>
+        </div>
+        ${stats.openDefects.length === 0
+          ? emptyState({ icon: "check-circle", title: "No open defects", message: "Reported vehicle defects will show up here." })
+          : `<div class="activity-list">${stats.openDefects.slice(0, 6).map(defectRow).join("")}</div>`}
+      </div>
+
+      <div class="card">
+        <div class="card-header-row">
+          <h2>Compliance Due Soon</h2>
+          <a class="btn" href="vehicles.html">All Vehicles →</a>
+        </div>
+        ${stats.dueSoon.length === 0
+          ? emptyState({ icon: "calendar-check", title: "Nothing due in the next 30 days" })
+          : `<div class="activity-list">${stats.dueSoon.slice(0, 8).map(complianceRow).join("")}</div>`}
+      </div>
+    `;
+
+    setInner("dashboardBody", html);
+  }
+
+  function vehicleRow(v) {
+    return `
+      <div class="activity-row">
+        <div class="avatar avatar-sm">${esc((v.registration || "?").slice(0, 2))}</div>
+        <div>
+          <div class="activity-name">${esc(v.registration)}</div>
+          <div class="activity-meta">${esc([v.make, v.model].filter(Boolean).join(" ") || v.vehicle_type)}${v.driver ? " · " + esc(v.driver.full_name) : ""}</div>
+        </div>
+        <div class="activity-time"><a class="btn" href="check.html?vehicle=${esc(v.id)}">Check now</a></div>
+      </div>`;
+  }
+
+  function defectRow(d) {
+    return `
+      <a href="defect-detail.html?id=${esc(d.id)}" style="text-decoration:none;color:inherit">
+        <div class="activity-row">
+          <div class="avatar avatar-sm">${esc((d.vehicle?.registration || "?").slice(0, 2))}</div>
+          <div>
+            <div class="activity-name">${esc(d.title)}</div>
+            <div class="activity-meta">${severityBadge(d.severity)} ${esc(d.vehicle?.registration || "")}</div>
+          </div>
+          <div class="activity-time">${esc(timeAgo(d.created_at))}</div>
+        </div>
+      </a>`;
+  }
+
+  function complianceRow(v) {
+    const items = [
+      v.mot_due && { label: "MOT", date: v.mot_due },
+      v.tax_due && { label: "Tax", date: v.tax_due },
+      v.insurance_due && { label: "Insurance", date: v.insurance_due },
+      v.service_due && { label: "Service", date: v.service_due },
+    ].filter(Boolean).filter(i => { const d = daysUntil(i.date); return d !== null && d <= 30; });
+    return items.map(i => {
+      const d = daysUntil(i.date);
+      return `
+        <a href="vehicle-detail.html?id=${esc(v.id)}" style="text-decoration:none;color:inherit">
+          <div class="activity-row">
+            <div class="avatar avatar-sm">${esc((v.registration || "?").slice(0, 2))}</div>
+            <div>
+              <div class="activity-name">${esc(v.registration)} — ${esc(i.label)}</div>
+              <div class="activity-meta">${d < 0 ? `Overdue by ${Math.abs(d)}d` : `Due in ${d}d`}</div>
+            </div>
+            <div class="activity-time">${esc(fmtDate(i.date))}</div>
+          </div>
+        </a>`;
+    }).join("");
+  }
+
+  function renderAccessBlocked(e) {
+    const msg = e?.message || "";
+    document.body.innerHTML = `
+      <div class="sl-shell">
+        <div class="sl-main" style="width:100%">
+          <div class="sl-topbar">
+            <h1>Convoy</h1>
+            <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+            <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+          </div>
+          <div class="sl-content" id="content"></div>
+        </div>
+      </div>
+      <div id="toastwrap" aria-live="polite"></div>`;
+    initTheme();
+    initTopbar();
+
+    let html;
+    if (msg.includes("not enabled")) html = moduleDisabledState();
+    else if (msg.includes("permission") || msg.includes("No access")) html = permissionDeniedState(msg);
+    else if (msg.includes("profile") || msg.includes("session")) html = permissionDeniedState(msg || "Your account isn't set up for this module yet.");
+    else html = errorState({ title: "Couldn't load Convoy", message: msg, retryId: "blockedRetry" });
+
+    setInner("content", html);
+    document.getElementById("blockedRetry")?.addEventListener("click", () => window.location.reload());
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+</script>
+</body>
+</html>

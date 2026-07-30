@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Defects — Convoy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/convoy/shared/convoy.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Defects</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireConvoyAccess, hasPermission } from "/systems/convoy/shared/auth.js";
+  import { defects, vehicles } from "/systems/convoy/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/convoy/shared/nav.js";
+  import { initTheme } from "/systems/convoy/shared/theme.js";
+  import { esc, fmtDate, severityBadge, statusBadge, toast, modal, loadingState, emptyState, errorState, setInner } from "/systems/convoy/shared/ui.js";
+
+  initTheme();
+  let _profile = null, _companyId = null, _admin = false;
+  const vehicleFilter = new URLSearchParams(location.search).get("vehicle") || "";
+  let _statusFilter = "";
+
+  try {
+    const { profile, admin } = await requireConvoyAccess();
+    _profile = profile; _companyId = profile.company_id; _admin = admin;
+    renderNav("defects", profile, { admin });
+    initMobileNav(); initTopbar();
+    await load();
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Convoy", message: e.message }));
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading defects…"));
+    try {
+      const [list, vehicleList] = await Promise.all([
+        defects.list(_companyId, { vehicleId: vehicleFilter || undefined, status: _statusFilter || undefined }),
+        vehicles.list(_companyId),
+      ]);
+      render(list, vehicleList);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load defects", message: e.message, retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", load);
+    }
+  }
+
+  function render(list, vehicleList) {
+    const canReport = _admin || hasPermission("convoy.perform_checks");
+    const html = `
+      <div class="sl-page-head">
+        <div><h2>Defects</h2><p>${list.length} defect${list.length === 1 ? "" : "s"} shown.</p></div>
+        ${canReport ? `<button class="btn btn-primary" id="reportBtn"><i data-lucide="plus"></i> Report Defect</button>` : ""}
+      </div>
+      <div class="sl-toolbar">
+        <select class="form-select" id="statusFilter" style="max-width:200px">
+          ${["", "open", "in_progress", "resolved"].map(s => `<option value="${s}" ${_statusFilter === s ? "selected" : ""}>${s ? s.replace("_", " ") : "All statuses"}</option>`).join("")}
+        </select>
+      </div>
+      ${list.length === 0 ? emptyState({ icon: "check-circle", title: "No defects found" }) :
+        `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Title</th><th>Vehicle</th><th>Severity</th><th>Status</th><th>Reported</th></tr></thead><tbody>
+          ${list.map(d => `
+            <tr class="clickable" onclick="location.href='defect-detail.html?id=${esc(d.id)}'">
+              <td>${esc(d.title)}</td>
+              <td>${esc(d.vehicle?.registration || "—")}</td>
+              <td>${severityBadge(d.severity)}</td>
+              <td>${statusBadge(d.status)}</td>
+              <td>${esc(fmtDate(d.created_at))}</td>
+            </tr>`).join("")}
+        </tbody></table></div>`}
+    `;
+    setInner("body", html);
+    document.getElementById("statusFilter").addEventListener("change", (e) => { _statusFilter = e.target.value; load(); });
+    document.getElementById("reportBtn")?.addEventListener("click", () => openReportModal(vehicleList));
+  }
+
+  function openReportModal(vehicleList) {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Report a Defect</h3><button class="modal-close" aria-label="Close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Vehicle</label>
+          <select class="form-select" id="fVehicle">${vehicleList.map(v => `<option value="${esc(v.id)}">${esc(v.registration)}</option>`).join("")}</select>
+        </div>
+        <div class="form-field"><label class="form-label">Title</label><input class="form-input" id="fTitle" placeholder="e.g. Cracked wing mirror"/></div>
+        <div class="form-field"><label class="form-label">Description</label><textarea class="form-textarea" id="fDesc"></textarea></div>
+        <div class="form-field"><label class="form-label">Severity</label>
+          <select class="form-select" id="fSeverity">
+            <option value="minor">Minor</option>
+            <option value="major">Major</option>
+            <option value="off_road">Off Road — vehicle unsafe to drive</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="cancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">Report Defect</button>
+      </div>
+    `);
+    document.getElementById("cancelBtn").addEventListener("click", () => overlay.close());
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      const title = document.getElementById("fTitle").value.trim();
+      if (!title) return toast("error", "Title is required");
+      try {
+        await defects.create(_companyId, _profile.id, {
+          vehicle_id: document.getElementById("fVehicle").value,
+          title, description: document.getElementById("fDesc").value.trim() || null,
+          severity: document.getElementById("fSeverity").value,
+        });
+        toast("success", "Defect reported");
+        overlay.close();
+        load();
+      } catch (e) {
+        toast("error", "Couldn't report defect", e.message);
+      }
+    });
+  }
+</script>
+</body>
+</html>

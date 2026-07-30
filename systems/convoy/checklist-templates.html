@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Checklists — Convoy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/convoy/shared/convoy.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Checklist Templates</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireConvoyAccess } from "/systems/convoy/shared/auth.js";
+  import { checklists } from "/systems/convoy/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/convoy/shared/nav.js";
+  import { initTheme } from "/systems/convoy/shared/theme.js";
+  import { esc, toast, modal, loadingState, emptyState, errorState, setInner } from "/systems/convoy/shared/ui.js";
+
+  initTheme();
+  let _profile = null, _companyId = null;
+  const ZONES = ["front","rear","driver_side","passenger_side","tyres_wheels","lights_indicators","windscreen_mirrors","fluids_engine","interior_cab","documents","general"];
+
+  try {
+    const { profile, admin } = await requireConvoyAccess();
+    _profile = profile; _companyId = profile.company_id;
+    renderNav("checklists", profile, { admin });
+    initMobileNav(); initTopbar();
+    await load();
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Convoy", message: e.message }));
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading checklists…"));
+    try {
+      const list = await checklists.ensureDefault(_companyId, _profile.id);
+      render(list);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load checklists", message: e.message, retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", load);
+    }
+  }
+
+  function render(list) {
+    const html = `
+      <div class="sl-page-head">
+        <div><h2>Checklist Templates</h2><p>These items are copied onto every new vehicle check. Items marked "Photo required" force a live-camera zone photo before they can be marked pass/fail.</p></div>
+        <button class="btn btn-primary" id="newBtn"><i data-lucide="plus"></i> New Template</button>
+      </div>
+      ${list.map(templateCard).join("")}
+    `;
+    setInner("body", html);
+    document.getElementById("newBtn").addEventListener("click", () => openTemplateModal());
+    list.forEach(t => {
+      document.getElementById(`addItem-${t.id}`)?.addEventListener("click", () => openItemModal(t));
+      t.items.forEach(it => {
+        document.getElementById(`editItem-${it.id}`)?.addEventListener("click", () => openItemModal(t, it));
+        document.getElementById(`delItem-${it.id}`)?.addEventListener("click", async () => {
+          if (!confirm(`Remove "${it.label}"?`)) return;
+          await checklists.deleteItem(it.id);
+          load();
+        });
+      });
+      document.getElementById(`editTpl-${t.id}`)?.addEventListener("click", () => openTemplateModal(t));
+    });
+  }
+
+  function templateCard(t) {
+    return `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header-row">
+          <h2>${esc(t.name)} <span class="badge badge-blue">${esc(t.vehicle_type)}</span></h2>
+          <div style="display:flex;gap:8px">
+            <button class="btn" id="editTpl-${esc(t.id)}"><i data-lucide="pencil"></i></button>
+            <button class="btn btn-primary" id="addItem-${esc(t.id)}"><i data-lucide="plus"></i> Item</button>
+          </div>
+        </div>
+        ${t.items.length === 0 ? emptyState({ icon: "list-checks", title: "No items yet" }) :
+          `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Label</th><th>Zone</th><th>Photo required</th><th></th></tr></thead><tbody>
+            ${t.items.map(it => `<tr>
+              <td>${esc(it.label)}</td><td>${esc(it.zone.replace(/_/g," "))}</td>
+              <td>${it.requires_photo ? '<span class="badge badge-blue">Yes</span>' : '<span class="badge badge-grey">No</span>'}</td>
+              <td style="display:flex;gap:6px">
+                <button class="btn" id="editItem-${esc(it.id)}"><i data-lucide="pencil"></i></button>
+                <button class="btn btn-danger" id="delItem-${esc(it.id)}"><i data-lucide="trash-2"></i></button>
+              </td>
+            </tr>`).join("")}
+          </tbody></table></div>`}
+      </div>`;
+  }
+
+  function openTemplateModal(existing) {
+    const isEdit = !!existing;
+    const overlay = modal(`
+      <div class="modal-header"><h3>${isEdit ? "Edit Template" : "New Template"}</h3><button class="modal-close" aria-label="Close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Name</label><input class="form-input" id="fName" value="${esc(existing?.name || "")}"/></div>
+        <div class="form-field"><label class="form-label">Vehicle type</label>
+          <select class="form-select" id="fType">
+            ${["car","van","minibus","hgv","plant","other"].map(t => `<option value="${t}" ${existing?.vehicle_type === t ? "selected" : ""}>${t}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="cancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">Save</button>
+      </div>
+    `);
+    document.getElementById("cancelBtn").addEventListener("click", () => overlay.close());
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      const name = document.getElementById("fName").value.trim();
+      if (!name) return toast("error", "Name is required");
+      const payload = { name, vehicle_type: document.getElementById("fType").value };
+      try {
+        if (isEdit) await checklists.update(existing.id, payload);
+        else await checklists.create(_companyId, _profile.id, payload);
+        overlay.close();
+        load();
+      } catch (e) {
+        toast("error", "Couldn't save template", e.message);
+      }
+    });
+  }
+
+  function openItemModal(template, existing) {
+    const isEdit = !!existing;
+    const overlay = modal(`
+      <div class="modal-header"><h3>${isEdit ? "Edit Item" : "New Item"}</h3><button class="modal-close" aria-label="Close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Label</label><input class="form-input" id="fLabel" value="${esc(existing?.label || "")}"/></div>
+        <div class="form-field"><label class="form-label">Zone</label>
+          <select class="form-select" id="fZone">${ZONES.map(z => `<option value="${z}" ${existing?.zone === z ? "selected" : ""}>${z.replace(/_/g," ")}</option>`).join("")}</select>
+        </div>
+        <div class="form-field">
+          <label class="form-label"><input type="checkbox" id="fPhoto" ${existing?.requires_photo !== false ? "checked" : ""}/> Requires a live-camera photo</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="cancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">Save</button>
+      </div>
+    `);
+    document.getElementById("cancelBtn").addEventListener("click", () => overlay.close());
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      const label = document.getElementById("fLabel").value.trim();
+      if (!label) return toast("error", "Label is required");
+      const payload = { label, zone: document.getElementById("fZone").value, requires_photo: document.getElementById("fPhoto").checked };
+      try {
+        if (isEdit) await checklists.updateItem(existing.id, payload);
+        else await checklists.addItem(template.id, { ...payload, sort_order: template.items.length + 1 });
+        overlay.close();
+        load();
+      } catch (e) {
+        toast("error", "Couldn't save item", e.message);
+      }
+    });
+  }
+</script>
+</body>
+</html>
