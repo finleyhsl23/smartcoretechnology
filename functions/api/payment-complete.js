@@ -54,7 +54,15 @@ export async function onRequestPost(context) {
     });
 
     const modules = parseModules(o.modules);
-    const oFull   = { ...o, subscription_start_date: today, next_billing_date: nextBilling };
+
+    // Pull accounts_team_email from the company record (set during onboarding)
+    let accountsTeamEmail = o.accounts_email || null;
+    try {
+      const coRows = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(o.email)}&select=accounts_team_email&limit=1`);
+      if (coRows?.[0]?.accounts_team_email) accountsTeamEmail = coRows[0].accounts_team_email;
+    } catch (_) {}
+
+    const oFull = { ...o, subscription_start_date: today, next_billing_date: nextBilling, accounts_email: accountsTeamEmail };
 
     // Provision modules (best-effort)
     try { await provisionModules(env, o); } catch (e) { console.error('provision error:', e); }
