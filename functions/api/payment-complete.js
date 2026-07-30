@@ -248,7 +248,7 @@ async function provisionFlexi(env, o) {
   const company = companiesRows?.[0] || scCompany;
   if (!company?.id) return;
 
-  const tier = FLEXI_SIZE_TIER_MAP[o.size_tier] || 'starter';
+  const tier = 'enterprise';
 
   // Upsert company_modules row
   await fetch(`${env.SUPABASE_URL}/rest/v1/company_modules`, {
