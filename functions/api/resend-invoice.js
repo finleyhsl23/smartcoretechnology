@@ -95,22 +95,23 @@ function accountsHtml(o, inv) {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>SmartCore Invoice</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#06060e;font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;color:#e0e0ea}
-.wrap{max-width:600px;margin:32px auto;border-radius:20px;overflow:hidden;border:1px solid rgba(255,255,255,.08)}
-.hdr{background:linear-gradient(135deg,#0b0b18,#0f1529);padding:28px 36px;border-bottom:1px solid rgba(255,255,255,.07)}
-.logo{font-size:18px;font-weight:900;color:#f5f5f7;letter-spacing:-.03em}
-.tag{font-size:10px;color:rgba(255,255,255,.35);letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
-.body{background:#0e0e18;padding:36px}
-.badge{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;background:rgba(91,143,255,.15);color:#5b8fff;border:1px solid rgba(91,143,255,.25);margin-bottom:20px}
-h1{font-size:22px;font-weight:800;color:#f5f5f7;letter-spacing:-.03em;margin-bottom:8px}
-.sub{font-size:14px;color:#8a8a9e;line-height:1.7;margin-bottom:28px}
-.inv-box{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:20px 24px;margin-bottom:24px}
-.row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px}
-.row:last-child{border-bottom:none;padding-top:12px;font-size:15px;font-weight:700;color:#f5f5f7}
-.row span:first-child{color:#7a7a96}
-.note{font-size:12px;color:#52526e;line-height:1.7;margin-top:20px}
-.ftr{padding:20px 36px;background:#09090f;border-top:1px solid rgba(255,255,255,.06);font-size:12px;color:#52526e;text-align:center;line-height:2}
-.ftr a{color:#5b8fff;text-decoration:none}
+body{background:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;color:#1a1a2e}
+.wrap{max-width:600px;margin:32px auto;border-radius:16px;overflow:hidden;border:1px solid #e0e0e8;background:#ffffff}
+.hdr{background:#0f1529;padding:24px 36px}
+.logo{font-size:18px;font-weight:900;color:#ffffff;letter-spacing:-.03em}
+.tag{font-size:10px;color:rgba(255,255,255,.45);letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
+.body{background:#ffffff;padding:36px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;background:#eef2ff;color:#4060e0;border:1px solid #c7d2fe;margin-bottom:20px}
+h1{font-size:22px;font-weight:800;color:#0f1529;letter-spacing:-.03em;margin-bottom:8px}
+.sub{font-size:14px;color:#555570;line-height:1.7;margin-bottom:28px}
+.inv-box{background:#f8f8fc;border:1px solid #e0e0ec;border-radius:12px;padding:20px 24px;margin-bottom:24px}
+.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #ebebf2;font-size:13px;color:#1a1a2e}
+.row:last-child{border-bottom:none;padding-top:14px;font-size:15px;font-weight:800;color:#0f1529}
+.row span:first-child{color:#777790;font-weight:500}
+.note{font-size:12px;color:#888899;line-height:1.8;margin-top:4px}
+.note a{color:#4060e0;text-decoration:none}
+.ftr{padding:20px 36px;background:#f4f4f7;border-top:1px solid #e0e0e8;font-size:12px;color:#888899;text-align:center;line-height:2}
+.ftr a{color:#4060e0;text-decoration:none}
 </style></head><body>
 <div class="wrap">
   <div class="hdr">
@@ -129,8 +130,8 @@ h1{font-size:22px;font-weight:800;color:#f5f5f7;letter-spacing:-.03em;margin-bot
       <div class="row"><span>Billing</span><span>${billing}</span></div>
       <div class="row"><span>Total</span><span>${total}${o.billing_type === 'yearly' ? '/yr' : '/mo'}</span></div>
     </div>
-    <p class="note">The full welcome email and setup instructions have been sent to ${esc(o.email)}.<br>
-    For subscription management, visit <a href="${SITE}/cancel-subscriptions" style="color:#5b8fff">${SITE}/cancel-subscriptions</a></p>
+    <p class="note">The full welcome email and setup instructions have been sent to <a href="mailto:${esc(o.email)}">${esc(o.email)}</a>.<br>
+    For subscription management, visit <a href="${SITE}/cancel-subscriptions">${SITE}/cancel-subscriptions</a></p>
   </div>
   <div class="ftr">
     SmartCore Technology &bull; <a href="${SITE}">${SITE.replace('https://','')}</a><br>
