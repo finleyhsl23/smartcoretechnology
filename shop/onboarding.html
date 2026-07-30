@@ -413,6 +413,15 @@
     }
     userId = session.user.id;
 
+    // If user already has a company, skip setup entirely
+    const { data: existingCompany } = await sb
+      .from('companies')
+      .select('id')
+      .eq('owner_user_id', userId)
+      .limit(1)
+      .maybeSingle();
+    if (existingCompany) return skipOnboarding();
+
     // Pre-fill company name in page header if available
     if (company) {
       document.querySelector('.page-title').textContent = 'Set up ' + company;
