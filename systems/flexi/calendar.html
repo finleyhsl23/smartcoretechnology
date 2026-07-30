@@ -132,7 +132,12 @@ let cursor = new Date(); cursor.setDate(1); cursor.setHours(0,0,0,0);
 let monthBookings = [];
 let openDayKey = null;
 
-function dayKey(d) { return d.toISOString().slice(0,10); }
+// toISOString() converts to UTC first, so a grid cell built at local
+// midnight (e.g. 00:00 BST) rolls back to the previous day once
+// converted (23:00 UTC the day before) - today's cell key would never
+// match dayKey(new Date()) in any positive-UTC-offset timezone, and
+// "today" would never highlight. Use local date components instead.
+function dayKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function mondayStartOffset(jsDay) { return (jsDay + 6) % 7; } // 0=Mon..6=Sun
 
 function gridBounds() {
