@@ -105,8 +105,14 @@ async function load() {
 function render() {
   const q = document.getElementById("searchInput").value.toLowerCase();
   const cat = document.getElementById("categoryFilter").value;
-  const rows = all.filter(x => (!cat || x.category === cat) && (!q || x.name.toLowerCase().includes(q)));
-  document.getElementById("countLabel").textContent = `${all.length} exercises in your library`;
+  // Once this company has its own clone of a built-in exercise (made via
+  // "Add My Video"), the original built-in card is redundant — hide it
+  // rather than showing both. The shared global row itself is untouched
+  // (and can't be, by RLS) so other companies still see it fine.
+  const clonedIds = new Set(all.filter(x => x.cloned_from_id).map(x => x.cloned_from_id));
+  const visible = all.filter(x => !clonedIds.has(x.id));
+  const rows = visible.filter(x => (!cat || x.category === cat) && (!q || x.name.toLowerCase().includes(q)));
+  document.getElementById("countLabel").textContent = `${visible.length} exercises in your library`;
   const grid = document.getElementById("exGrid");
   grid.innerHTML = !rows.length ? emptyState("◒", "No exercises found", "") : rows.map(x => `
     <div class="fx-card fx-card-flush">
@@ -255,6 +261,7 @@ document.getElementById("saveExBtn").addEventListener("click", async (e) => {
     } else {
       const { data, error } = await sb().from("smartcore_flexi_exercises").insert({
         ...fields, company_id: profile.company_id, created_by: profile.id,
+        cloned_from_id: cloningFrom || null,
       }).select().single();
       if (error) throw error;
       exerciseId = data.id;
