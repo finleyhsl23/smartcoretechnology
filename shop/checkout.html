@@ -271,14 +271,6 @@
           <label class="label">Phone Number</label>
           <input id="fPhone" class="inp" type="tel" placeholder="+44 7700 900000" />
         </div>
-        <div>
-          <label class="label">Approx. Staff Count</label>
-          <input id="fStaff" class="inp" type="number" min="1" placeholder="e.g. 35" />
-        </div>
-        <div class="sm:col-span-2">
-          <label class="label">Additional Notes</label>
-          <textarea id="fNotes" class="inp" placeholder="Anything you'd like us to know — special requirements, questions, timelines…"></textarea>
-        </div>
       </div>
 
       <div id="errMsg" class="hidden mt-4 p-3 rounded-xl text-sm font-bold" style="background:rgba(248,113,113,.14);color:#f87171;border:1px solid rgba(248,113,113,.28)"></div>
@@ -373,10 +365,6 @@ window.selectSizeTier = function selectSizeTier(tierId) {
   localStorage.setItem('sc_size_tier', tier.id);
   document.getElementById('fSizeTier').value = tier.id;
   document.getElementById('fSizeMultiplier').value = tier.multiplier !== null ? tier.multiplier.toFixed(2) : 'custom';
-  const staffInput = document.getElementById('fStaff');
-  if (staffInput && !staffInput.value) {
-    staffInput.value = TIER_MIDPOINTS[tier.id] || '';
-  }
   renderSizeTierGrid();
   renderSummary();
   // Toggle quote vs order flow
@@ -474,13 +462,12 @@ async function showDetailsPanel() {
       const companyId = empRows?.[0]?.company_id;
       if (companyId) {
         const { data: co } = await sb.from('smartcore_core_companies')
-          .select('company_name,company_email,company_phone,staff_count').eq('id', companyId).single();
+          .select('company_name,company_email,company_phone').eq('id', companyId).single();
         if (co) {
           const set = (id, val) => { const el = document.getElementById(id); if (el && !el.value && val) el.value = val; };
           set('fCompany', co.company_name);
           set('fEmail',   co.company_email);
           set('fPhone',   co.company_phone);
-          set('fStaff',   co.staff_count);
         }
       }
     } catch (_) {}
@@ -790,8 +777,6 @@ async function submitOrder() {
   const contact = document.getElementById('fContact').value.trim();
   const email   = document.getElementById('fEmail').value.trim();
   const phone   = document.getElementById('fPhone').value.trim();
-  const staff   = parseInt(document.getElementById('fStaff').value) || null;
-  const notes   = document.getElementById('fNotes').value.trim();
   const errEl   = document.getElementById('errMsg');
   const btn     = document.getElementById('submitBtn');
 
@@ -817,8 +802,6 @@ async function submitOrder() {
       contact_name:         contact,
       email:                email.toLowerCase(),
       phone:                phone || null,
-      staff_count:          staff,
-      notes:                notes || null,
       auth_user_id:         authedUserId || null,
       modules:              basket.map(m => ({
         id:            m.id,
@@ -872,8 +855,6 @@ async function submitQuoteRequest() {
   const contact = document.getElementById('fContact').value.trim();
   const email   = document.getElementById('fEmail').value.trim();
   const phone   = document.getElementById('fPhone').value.trim();
-  const staff   = document.getElementById('fStaff').value.trim();
-  const notes   = document.getElementById('fNotes').value.trim();
   const btn     = document.getElementById('submitBtn');
 
   if (!company) return showErr('Please enter your company name.');
