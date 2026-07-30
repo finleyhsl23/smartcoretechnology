@@ -58,16 +58,53 @@ wireMobileNavToggle();
 setupThemeToggle();
 revealApp();
 
-async function loadPosts() {
-  const { data } = await sb().from("smartcore_flexi_community_posts").select("*, core_employees(full_name), smartcore_flexi_clients(full_name)").order("created_at", { ascending: false }).limit(20);
-  const el = document.getElementById("posts");
-  el.innerHTML = !data?.length ? emptyState("💬", "No posts yet", "") : data.map(p => `
+const POST_PAGE_SIZE = 10;
+let loadedPosts = [];
+let oldestPostAt = null;
+let hasMorePosts = false;
+let loadingMorePosts = false;
+
+function postHtml(p) {
+  return `
     <div class="fx-card" style="margin-bottom:10px">
       <div style="font-size:12.5px;font-weight:700;margin-bottom:4px">${escapeHtml(p.core_employees?.full_name || p.smartcore_flexi_clients?.full_name || "Someone")}${p.author_client_id ? ' <span class="fx-badge fx-badge-grey">client</span>' : ""}</div>
       <div style="font-size:13.5px">${escapeHtml(p.body)}</div>
       <div style="font-size:11px;color:var(--fx-text3);margin-top:6px">${fmtDateTime(p.created_at)}</div>
     </div>
-  `).join("");
+  `;
+}
+
+function renderPosts() {
+  const el = document.getElementById("posts");
+  if (!loadedPosts.length) { el.innerHTML = emptyState("💬", "No posts yet", ""); return; }
+  el.innerHTML = loadedPosts.map(postHtml).join("")
+    + (hasMorePosts ? `<button type="button" class="fx-btn fx-btn-sm fx-btn-block" id="loadMorePostsBtn">Load more</button>` : "");
+  document.getElementById("loadMorePostsBtn")?.addEventListener("click", loadMorePosts);
+}
+
+async function loadMorePosts() {
+  if (loadingMorePosts || !hasMorePosts || !oldestPostAt) return;
+  loadingMorePosts = true;
+  const btn = document.getElementById("loadMorePostsBtn");
+  if (btn) { btn.textContent = "Loading…"; btn.disabled = true; }
+
+  const { data } = await sb().from("smartcore_flexi_community_posts").select("*, core_employees(full_name), smartcore_flexi_clients(full_name)")
+    .lt("created_at", oldestPostAt).order("created_at", { ascending: false }).limit(POST_PAGE_SIZE);
+  loadingMorePosts = false;
+
+  const older = data || [];
+  hasMorePosts = older.length === POST_PAGE_SIZE;
+  if (older.length) oldestPostAt = older[older.length - 1].created_at;
+  loadedPosts = [...loadedPosts, ...older];
+  renderPosts();
+}
+
+async function loadPosts() {
+  const { data } = await sb().from("smartcore_flexi_community_posts").select("*, core_employees(full_name), smartcore_flexi_clients(full_name)").order("created_at", { ascending: false }).limit(POST_PAGE_SIZE);
+  loadedPosts = data || [];
+  hasMorePosts = loadedPosts.length === POST_PAGE_SIZE;
+  oldestPostAt = loadedPosts[loadedPosts.length - 1]?.created_at || null;
+  renderPosts();
 }
 document.getElementById("postBtn").addEventListener("click", async (e) => {
   const body = document.getElementById("postBody").value.trim();
