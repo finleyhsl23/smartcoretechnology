@@ -346,11 +346,14 @@ async function sendWelcomeWithInvoice(env, o, modules, today) {
   const pdfBase64 = buildInvoicePdf(inv, o, modules);
   const html      = welcomeHtml(o, modules, inv);
 
+  const resendKey = env.RESEND_API_KEY || env.RESEND_SMARTCORE_SHOP;
+  if (!resendKey) throw new Error('No Resend API key configured (tried RESEND_API_KEY, RESEND_SMARTCORE_SHOP)');
+
   const recipients = [...new Set([o.email, o.accounts_email].filter(Boolean))];
   const emailRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
-      Authorization:  `Bearer ${env.RESEND_API_KEY}`,
+      Authorization:  `Bearer ${resendKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
