@@ -1853,8 +1853,17 @@
                 <option value="archived" ${m?.status==="archived"?"selected":""}>Archived</option>
               </select>
             </div>
-            <div><label class="label">Monthly Price (£)</label><input id="mMonthly" class="inp" type="number" step="0.01" min="0" value="${esc(m?.monthly_price||"0")}" /></div>
-            <div><label class="label">Yearly Price (£) <span class="muted" style="font-weight:400">(auto = monthly × 0.92)</span></label><input id="mYearly" class="inp" type="number" step="0.01" min="0" value="${esc(m?.yearly_price||"")}" /></div>
+            <div><label class="label">Monthly Price (£)</label><input id="mMonthly" class="inp" type="number" step="0.01" min="0" value="${esc(m?.monthly_price||"0")}" oninput="syncYearlyPrice()" /></div>
+            <div>
+              <label class="label" style="display:flex;align-items:center;justify-content:space-between">
+                <span>Yearly Price (£)</span>
+                <label style="font-size:11px;font-weight:400;color:var(--muted);display:flex;align-items:center;gap:5px;cursor:pointer">
+                  <input type="checkbox" id="mYearlyManual" ${m?.yearly_price ? "checked" : ""} onchange="syncYearlyPrice()"> Manual
+                </label>
+              </label>
+              <input id="mYearly" class="inp" type="number" step="0.01" min="0" value="${esc(m?.yearly_price||"")}" placeholder="auto" ${m?.yearly_price ? "" : "disabled style='opacity:.5'"} />
+              <div id="mYearlyHint" class="muted" style="font-size:11px;margin-top:4px">${m?.yearly_price ? "" : "Auto-calculated as monthly × 0.92"}</div>
+            </div>
             <div class="md:col-span-2">
               <label class="label">Thumbnail Image</label>
               <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -1909,11 +1918,34 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
+    window.syncYearlyPrice = function syncYearlyPrice() {
+      const panel = document.getElementById('mktFormPanel');
+      if (!panel) return;
+      const manual = panel.querySelector('#mYearlyManual')?.checked;
+      const yearlyEl = panel.querySelector('#mYearly');
+      const hint = panel.querySelector('#mYearlyHint');
+      if (!yearlyEl) return;
+      if (manual) {
+        yearlyEl.disabled = false;
+        yearlyEl.style.opacity = '1';
+        if (hint) hint.textContent = '';
+      } else {
+        const monthly = parseFloat(panel.querySelector('#mMonthly')?.value) || 0;
+        yearlyEl.value = parseFloat((monthly * 0.92).toFixed(2)) || '';
+        yearlyEl.disabled = true;
+        yearlyEl.style.opacity = '.5';
+        if (hint) hint.textContent = 'Auto-calculated as monthly × 0.92';
+      }
+    };
+
     window.saveModule = async function saveModule(id) {
       const panel = document.getElementById('mktFormPanel');
       const q = sel => panel ? panel.querySelector(sel) : null;
       const monthly = parseFloat(q('#mMonthly')?.value) || 0;
-      const yearly = parseFloat(q('#mYearly')?.value) || parseFloat((monthly * 0.92).toFixed(2));
+      const manualYearly = q('#mYearlyManual')?.checked;
+      const yearly = manualYearly
+        ? (parseFloat(q('#mYearly')?.value) || parseFloat((monthly * 0.92).toFixed(2)))
+        : parseFloat((monthly * 0.92).toFixed(2));
       const features = (q('#mFeatures')?.value || "").split("\n").map(s=>s.trim()).filter(Boolean);
       const screenshots = (q('#mScreenshots')?.value || "").split("\n").map(s=>s.trim()).filter(Boolean);
       const videos = (q('#mVideos')?.value || "").split("\n").map(s=>s.trim()).filter(Boolean);
