@@ -469,14 +469,59 @@ document.getElementById("addNutritionBtn").addEventListener("click", async (e) =
 });
 
 // ---- Messages ----
-async function loadMessages() {
-  const { data } = await sb().from("smartcore_flexi_messages").select("*").eq("client_id", clientId).order("created_at");
-  const el = document.getElementById("chatMessages");
-  el.innerHTML = !data?.length ? `<div style="padding:20px">${emptyState("💬", "No messages yet", "")}</div>` : data.map(m => `
+const MSG_PAGE_SIZE = 100;
+let loadedMessages = []; // chronological, oldest first
+let oldestLoadedAt = null;
+let hasMoreOlder = false;
+let loadingMoreMessages = false;
+
+function msgBubbleHtml(m) {
+  return `
     <div class="fx-bubble ${m.sender_type === "trainer" ? "fx-bubble-mine" : "fx-bubble-theirs"}">
       ${escapeHtml(m.body)}<div class="fx-bubble-meta">${fmtDateTime(m.created_at)}</div>
     </div>
-  `).join("");
+  `;
+}
+
+function renderMessages() {
+  const el = document.getElementById("chatMessages");
+  if (!loadedMessages.length) { el.innerHTML = `<div style="padding:20px">${emptyState("💬", "No messages yet", "")}</div>`; return; }
+  el.innerHTML = (hasMoreOlder ? `<button type="button" class="fx-btn fx-btn-sm" id="loadMoreMsgBtn" style="align-self:center;margin-bottom:6px">Load older messages</button>` : "")
+    + loadedMessages.map(msgBubbleHtml).join("");
+  document.getElementById("loadMoreMsgBtn")?.addEventListener("click", loadMoreMessages);
+}
+
+async function loadMoreMessages() {
+  if (loadingMoreMessages || !hasMoreOlder || !oldestLoadedAt) return;
+  loadingMoreMessages = true;
+  const btn = document.getElementById("loadMoreMsgBtn");
+  if (btn) { btn.textContent = "Loading…"; btn.disabled = true; }
+
+  const { data } = await sb().from("smartcore_flexi_messages").select("*")
+    .eq("client_id", clientId).lt("created_at", oldestLoadedAt)
+    .order("created_at", { ascending: false }).limit(MSG_PAGE_SIZE);
+  loadingMoreMessages = false;
+
+  const older = (data || []).slice().reverse();
+  hasMoreOlder = (data || []).length === MSG_PAGE_SIZE;
+  if (older[0]) oldestLoadedAt = older[0].created_at;
+  loadedMessages = [...older, ...loadedMessages];
+
+  const el = document.getElementById("chatMessages");
+  const prevScrollTop = el.scrollTop;
+  const prevScrollHeight = el.scrollHeight;
+  renderMessages();
+  el.scrollTop = prevScrollTop + (el.scrollHeight - prevScrollHeight);
+}
+
+async function loadMessages() {
+  const { data } = await sb().from("smartcore_flexi_messages").select("*")
+    .eq("client_id", clientId).order("created_at", { ascending: false }).limit(MSG_PAGE_SIZE);
+  loadedMessages = (data || []).slice().reverse();
+  hasMoreOlder = (data || []).length === MSG_PAGE_SIZE;
+  oldestLoadedAt = loadedMessages[0]?.created_at || null;
+  renderMessages();
+  const el = document.getElementById("chatMessages");
   el.scrollTop = el.scrollHeight;
   await sb().from("smartcore_flexi_messages").update({ read_at: new Date().toISOString() }).eq("client_id", clientId).eq("sender_type", "client").is("read_at", null);
 }
