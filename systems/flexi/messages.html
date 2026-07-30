@@ -15,7 +15,14 @@
    .fx-main to the viewport and let .fx-content/.msg-shell flex to fill
    whatever's actually left. Self-adjusting, no magic numbers. */
 .fx-main{height:100vh;overflow:hidden}
-.fx-content{max-width:none;padding:20px 24px 0;display:flex;flex-direction:column;min-height:0;flex:1}
+/* animation:none matters here, not just cosmetically: the shared
+   .fx-content rule's fx-fade-up animation uses fill-mode:both, which
+   leaves transform:translateY(0) permanently applied even after it
+   finishes. A non-"none" transform on an ancestor makes it the
+   containing block for any position:fixed descendant, which broke the
+   mobile full-screen chat overlay below (it was anchoring to .fx-content
+   instead of the viewport, so it didn't actually cover the header). */
+.fx-content{max-width:none;padding:20px 24px 0;display:flex;flex-direction:column;min-height:0;flex:1;animation:none}
 .fx-topbar{max-width:none;flex-shrink:0}
 .msg-shell{display:flex;gap:0;border:1px solid var(--fx-line);border-radius:var(--fx-radius);background:var(--fx-card);overflow:hidden;flex:1;min-height:0}
 .msg-list{width:300px;flex-shrink:0;border-right:1px solid var(--fx-line);overflow-y:auto;display:flex;flex-direction:column}
@@ -30,7 +37,21 @@
    needs to fill it exactly, or the input row stalls partway down the
    shell instead of reaching its bottom edge. */
 .msg-pane .fx-chat{flex:1;min-height:0;max-height:none}
-@media(max-width:760px){.fx-content{padding:14px 14px 0}.msg-shell{flex-direction:column}.msg-list{width:100%;max-height:220px}}
+.msg-pane-head{display:none;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--fx-line);flex-shrink:0}
+.msg-pane-head strong{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Mobile: a 50/50 split with no room to type doesn't work on a phone —
+   show the conversation list full-screen, and only bring the chat pane
+   in (also full-screen, covering everything including the sidebar/topbar)
+   once a conversation is actually opened. */
+@media(max-width:760px){
+  .fx-content{padding:14px 14px 0}
+  .msg-shell{flex-direction:column}
+  .msg-list{width:100%;max-height:none;flex:1}
+  .msg-pane{display:none}
+  .msg-pane-head{display:flex}
+  .msg-shell.chat-open .msg-list{display:none}
+  .msg-shell.chat-open .msg-pane{display:flex;position:fixed;inset:0;z-index:200;background:var(--fx-card)}
+}
 </style>
 </head>
 <body>
@@ -49,6 +70,11 @@
           <div id="msgList" style="flex:1;overflow-y:auto"></div>
         </div>
         <div class="msg-pane">
+          <div class="msg-pane-head" id="msgPaneHead">
+            <button class="fx-icon-btn" id="closeChatBtn" title="Back to conversations">✕</button>
+            <div class="fx-avatar" id="msgPaneAvatar" style="width:30px;height:30px;font-size:11px"></div>
+            <strong id="msgPaneName"></strong>
+          </div>
           <div class="fx-chat" id="chatMessages" style="flex:1"></div>
           <div class="fx-chat-input">
             <input class="fx-input" id="chatInput" placeholder="Select a client to start messaging…" disabled/>
@@ -90,8 +116,9 @@ async function loadList() {
   orderedConvos = [...rows, ...rest];
 
   renderList();
+  const openedFromUrl = !!activeClientId;
   if (!activeClientId && orderedConvos[0]) activeClientId = orderedConvos[0].id;
-  if (activeClientId) selectClient(activeClientId);
+  if (activeClientId) selectClient(activeClientId, openedFromUrl);
 }
 
 function renderList() {
@@ -113,15 +140,24 @@ function renderList() {
       ${unreadCounts[c.id] ? `<span class="fx-badge fx-badge-accent">${unreadCounts[c.id]}</span>` : ""}
     </div>
   `).join("");
-  list.querySelectorAll("[data-client]").forEach(el => el.addEventListener("click", () => selectClient(el.dataset.client)));
+  list.querySelectorAll("[data-client]").forEach(el => el.addEventListener("click", () => selectClient(el.dataset.client, true)));
 }
 document.getElementById("convoSearch").addEventListener("input", renderList);
 
-async function selectClient(clientId) {
+document.getElementById("closeChatBtn").addEventListener("click", () => {
+  document.querySelector(".msg-shell").classList.remove("chat-open");
+});
+
+async function selectClient(clientId, userOpened = false) {
   activeClientId = clientId;
   document.querySelectorAll(".msg-list-item").forEach(el => el.classList.toggle("active", el.dataset.client === clientId));
   document.getElementById("chatInput").disabled = false;
   document.getElementById("sendBtn").disabled = false;
+
+  const client = orderedConvos.find(c => c.id === clientId);
+  document.getElementById("msgPaneName").textContent = client?.full_name || "";
+  document.getElementById("msgPaneAvatar").textContent = client ? initials(client.full_name) : "";
+  if (userOpened) document.querySelector(".msg-shell").classList.add("chat-open");
 
   const { data } = await sb().from("smartcore_flexi_messages").select("*").eq("client_id", clientId).order("created_at");
   const el = document.getElementById("chatMessages");
