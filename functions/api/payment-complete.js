@@ -521,13 +521,25 @@ async function sendStripeInvoice(env, o, modules) {
 
   // Get or create Stripe customer
   let customerId = o.stripe_customer_id;
+  const extraEmails = o.accounts_email && o.accounts_email.toLowerCase() !== o.email?.toLowerCase()
+    ? [o.accounts_email]
+    : [];
   if (!customerId) {
-    const customer = await stripe('POST', '/customers', {
+    const customerBody = {
       email: o.email,
       name:  o.company_name,
       metadata: { order_reference: o.order_reference, smartcore_order_id: o.id },
-    });
+    };
+    extraEmails.forEach((e, i) => { customerBody[`invoice_settings[custom_fields][${i}][name]`] = 'Accounts'; });
+    if (extraEmails.length) customerBody['invoice_settings[footer]'] = `CC: ${extraEmails.join(', ')}`;
+    const customer = await stripe('POST', '/customers', customerBody);
     customerId = customer.id;
+  }
+  // Add accounts email as extra recipient if present
+  if (extraEmails.length) {
+    await stripe('POST', `/customers/${customerId}`, {
+      'invoice_settings[extra_invoice_emails][0]': extraEmails[0],
+    });
   }
 
   // Create a one-off invoice (not subscription-linked) marked as already paid
