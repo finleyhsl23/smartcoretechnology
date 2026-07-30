@@ -1884,6 +1884,8 @@
               <label class="flex gap-2 items-center"><input type="checkbox" id="mFeatured" ${m?.featured?"checked":""}> Featured</label>
               <label class="flex gap-2 items-center"><input type="checkbox" id="mPopular" ${m?.popular?"checked":""}> Popular</label>
               <label class="flex gap-2 items-center"><input type="checkbox" id="mRecommended" ${m?.recommended?"checked":""}> Recommended</label>
+              <label class="flex gap-2 items-center"><input type="checkbox" id="mSizePricing" ${m?.size_pricing?"checked":""}> Size-based pricing</label>
+              <label class="flex gap-2 items-center"><input type="checkbox" id="mFlatRate" ${m?.is_flat_rate?"checked":""}> Flat rate (ignore size)</label>
             </div>
           </div>
           <div class="flex gap-3 mt-6">
@@ -1931,12 +1933,14 @@
         sort_order: parseInt(q('#mSort')?.value) || 0,
         featured: q('#mFeatured')?.checked || false,
         popular: q('#mPopular')?.checked || false,
-        recommended: q('#mRecommended')?.checked || false
+        recommended: q('#mRecommended')?.checked || false,
+        size_pricing: q('#mSizePricing')?.checked || false,
+        is_flat_rate: q('#mFlatRate')?.checked || false,
       };
       if (!payload.name || !payload.slug) return alert("Name and slug are required.");
       const result = id
-        ? await sb.from("marketplace_modules").update(payload).eq("id",id)
-        : await sb.from("marketplace_modules").insert(payload);
+        ? await sb.from("marketplace_modules").update(payload).eq("id",id).select()
+        : await sb.from("marketplace_modules").insert(payload).select();
       if (result.error) return alert(result.error.message);
       await audit(id?"update_module":"add_module","marketplace_modules",id||payload.slug,{name:payload.name});
       closeMktForm();
