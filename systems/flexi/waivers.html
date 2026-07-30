@@ -9,6 +9,11 @@
 <style>
 .waiver-card{position:relative;transition:box-shadow .2s}
 .waiver-card.glow-active{box-shadow:0 0 0 1px rgba(22,163,74,.55),0 0 14px rgba(13,148,136,.22)}
+.wv-section-label{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.wv-row{display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:8px;cursor:pointer;transition:background .15s}
+.wv-row:hover{background:var(--fx-card2)}
+.wv-row-name{font-size:13px;font-weight:700}
+.wv-row-sub{font-size:11.5px;color:var(--fx-text3)}
 </style>
 </head>
 <body>
@@ -39,11 +44,18 @@
   </div>
 </div>
 
+<div class="fx-modal" id="waiverListModal">
+  <div class="fx-modal-box" style="max-width:460px">
+    <div class="fx-modal-head"><h3 id="waiverListTitle">Waiver</h3><button class="fx-modal-close" data-close-list>✕</button></div>
+    <div id="waiverListBody"></div>
+  </div>
+</div>
+
 <script type="module">
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
-import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState } from "./shared/ui.js";
+import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState, initials, fmtDate } from "./shared/ui.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "waivers" });
 renderNav({ activeKey: "waivers", profile, tier });
@@ -80,7 +92,10 @@ async function render() {
         </div>
         <div class="fx-progress-track" style="margin-top:12px"><div class="fx-progress-fill" style="width:${pct}%"></div></div>
         <div style="margin-top:6px;font-size:12.5px;color:var(--fx-text2)">${signed || 0} of ${totalClients || 0} active clients signed</div>
-        <button class="fx-btn fx-btn-sm" style="margin-top:10px" data-toggle="${w.id}" data-active="${w.active}">${w.active ? "Deactivate" : "Reactivate"}</button>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="fx-btn fx-btn-sm" data-list="${w.id}">View List</button>
+          <button class="fx-btn fx-btn-sm" data-toggle="${w.id}" data-active="${w.active}">${w.active ? "Deactivate" : "Reactivate"}</button>
+        </div>
       </div>
     `;
   }));
@@ -89,6 +104,51 @@ async function render() {
     await sb().from("smartcore_flexi_waivers").update({ active: btn.dataset.active !== "true" }).eq("id", btn.dataset.toggle);
     load();
   }));
+  list.querySelectorAll("[data-list]").forEach(btn => btn.addEventListener("click", () => {
+    openWaiverList(allWaivers.find(w => w.id === btn.dataset.list));
+  }));
+}
+
+document.querySelectorAll("[data-close-list]").forEach(b => b.addEventListener("click", () => closeModal("waiverListModal")));
+
+function waiverListRow(client, signedAt) {
+  return `
+    <div class="wv-row" onclick="location.href='client-detail.html?id=${client.id}'">
+      <div class="fx-avatar" style="width:30px;height:30px;font-size:11px">${initials(client.full_name)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="wv-row-name">${escapeHtml(client.full_name)}</div>
+        ${signedAt ? `<div class="wv-row-sub">Signed ${fmtDate(signedAt)}</div>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+async function openWaiverList(waiver) {
+  if (!waiver) return;
+  document.getElementById("waiverListTitle").textContent = waiver.title;
+  const body = document.getElementById("waiverListBody");
+  body.innerHTML = `<div style="text-align:center;padding:20px;color:var(--fx-text3)">Loading…</div>`;
+  openModal("waiverListModal");
+
+  const [{ data: clients }, { data: sigs }] = await Promise.all([
+    sb().from("smartcore_flexi_clients").select("id, full_name").eq("status", "active").order("full_name"),
+    sb().from("smartcore_flexi_waiver_signatures").select("client_id, signed_at").eq("waiver_id", waiver.id),
+  ]);
+
+  const sigByClient = new Map((sigs || []).map(s => [s.client_id, s.signed_at]));
+  const signedClients = (clients || []).filter(c => sigByClient.has(c.id));
+  const notSignedClients = (clients || []).filter(c => !sigByClient.has(c.id));
+
+  body.innerHTML = `
+    <div style="margin-bottom:18px">
+      <div class="wv-section-label" style="color:var(--fx-green)">Signed (${signedClients.length})</div>
+      ${signedClients.length ? signedClients.map(c => waiverListRow(c, sigByClient.get(c.id))).join("") : `<div class="wv-row-sub">No one yet.</div>`}
+    </div>
+    <div>
+      <div class="wv-section-label" style="color:var(--fx-red)">Not Signed (${notSignedClients.length})</div>
+      ${notSignedClients.length ? notSignedClients.map(c => waiverListRow(c, null)).join("") : `<div class="wv-row-sub">Everyone's signed 🎉</div>`}
+    </div>
+  `;
 }
 document.getElementById("searchInput").addEventListener("input", render);
 
