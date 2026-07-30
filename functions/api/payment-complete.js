@@ -14,6 +14,7 @@ const ADMIN_EMAIL   = 'support@smartcoretechnology.co.uk';
 const FROM          = 'SmartCore <noreply@smartcoretechnology.co.uk>';
 const FROM_BILLING  = 'SmartCore Billing <noreply@smartcoretechnology.co.uk>';
 const SITE          = 'https://smartcoretechnology.co.uk';
+const STRIPE_BASE   = 'https://api.stripe.com/v1';
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -75,6 +76,9 @@ export async function onRequestPost(context) {
 
     // Send welcome email with PDF invoice attached (best-effort)
     try { await sendWelcomeWithInvoice(env, oFull, modules, today); } catch (e) { console.error('email error:', e); }
+
+    // Send Stripe invoice to customer (best-effort)
+    try { await sendStripeInvoice(env, o, modules); } catch (e) { console.error('stripe invoice error:', e); }
 
     return json({
       success:  true,
@@ -486,6 +490,105 @@ function buildInvoicePdf(inv, o, modules) {
   let binary = '';
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
+}
+
+// ---------------------------------------------------------------------------
+// Stripe invoice
+// ---------------------------------------------------------------------------
+async function sendStripeInvoice(env, o, modules) {
+  const stripeKey = env.STRIPE_SECRET_KEY;
+  if (!stripeKey) return; // Stripe not configured
+
+  const stripe = (method, path, body = null) => {
+    const opts = {
+      method,
+      headers: { Authorization: `Bearer ${stripeKey}`, 'Stripe-Version': '2023-10-16' },
+    };
+    if (body) {
+      opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+      opts.body = stripeEncode(body);
+    }
+    return fetch(`${STRIPE_BASE}${path}`, opts).then(async r => {
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message || `Stripe ${method} ${path} → ${r.status}`);
+      return d;
+    });
+  };
+
+  const multiplier = o.size_multiplier || 1;
+  const interval   = o.billing_type === 'yearly' ? 'year' : 'month';
+  const regular    = modules.filter(m => m.slug !== 'smartcore-core');
+
+  // Get or create Stripe customer
+  let customerId = o.stripe_customer_id;
+  if (!customerId) {
+    const customer = await stripe('POST', '/customers', {
+      email: o.email,
+      name:  o.company_name,
+      metadata: { order_reference: o.order_reference, smartcore_order_id: o.id },
+    });
+    customerId = customer.id;
+  }
+
+  // Create a one-off invoice (not subscription-linked) marked as already paid
+  const inv = await stripe('POST', '/invoices', {
+    customer:           customerId,
+    collection_method:  'send_invoice',
+    days_until_due:     0,
+    currency:           'gbp',
+    description:        `SmartCore subscription — ${o.order_reference}`,
+    'metadata[order_reference]': o.order_reference,
+    'metadata[billing_type]':    o.billing_type,
+  });
+
+  // Add a line item per module
+  const coreItem = await stripe('POST', '/invoiceitems', {
+    customer:   customerId,
+    invoice:    inv.id,
+    currency:   'gbp',
+    unit_amount: 0,
+    quantity:   1,
+    description: 'SmartCore Core (included free)',
+  });
+
+  for (const m of regular) {
+    const isFlat = !!m.is_flat_rate;
+    const base   = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+    const price  = Math.round((base || 0) * (isFlat ? 1 : multiplier) * 100); // pence
+    await stripe('POST', '/invoiceitems', {
+      customer:    customerId,
+      invoice:     inv.id,
+      currency:    'gbp',
+      unit_amount: price,
+      quantity:    1,
+      description: `${m.name} (${o.billing_type === 'yearly' ? 'annual' : 'monthly'})`,
+    });
+  }
+
+  if (o.discount_amount > 0) {
+    await stripe('POST', '/invoiceitems', {
+      customer:    customerId,
+      invoice:     inv.id,
+      currency:    'gbp',
+      unit_amount: -Math.round(o.discount_amount * 100),
+      quantity:    1,
+      description: 'Package discount',
+    });
+  }
+
+  // Finalize and send — mark as paid since payment was collected via Stripe checkout
+  await stripe('POST', `/invoices/${inv.id}/finalize`, {});
+  await stripe('POST', `/invoices/${inv.id}/pay`, { paid_out_of_band: 'true' });
+  await stripe('POST', `/invoices/${inv.id}/send`, {});
+}
+
+function stripeEncode(obj, prefix = '') {
+  const parts = [];
+  for (const [k, v] of Object.entries(obj)) {
+    const key = prefix ? `${prefix}[${k}]` : k;
+    if (v !== null && v !== undefined) parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(v))}`);
+  }
+  return parts.join('&');
 }
 
 function encodeUtf8(str) {
