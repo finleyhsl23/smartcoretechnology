@@ -657,7 +657,10 @@ function getPackageDiscount(count) {
 const billingType = localStorage.getItem('sc_billing') || 'monthly';
 
 function modulePrice(m) {
-  return billingType === 'yearly' ? m.monthly_price * 12 : m.monthly_price;
+  if (billingType === 'yearly') {
+    return m.yearly_price != null ? +m.yearly_price : +(m.monthly_price * 12).toFixed(2);
+  }
+  return m.monthly_price;
 }
 function fmt(n) { return '£' + Number(n || 0).toFixed(2); }
 
@@ -778,7 +781,10 @@ async function submitOrder() {
         name:          m.name,
         monthly_price: m.monthly_price,
         is_flat_rate:  flatRateSlugs.has(m.slug),
-        price:         billingType === 'yearly' ? m.monthly_price * 12 : m.monthly_price
+        yearly_price:  m.yearly_price,
+        price:         billingType === 'yearly'
+          ? (m.yearly_price != null ? +m.yearly_price : +(m.monthly_price * 12).toFixed(2))
+          : m.monthly_price
       })),
       billing_type:         billingType,
       size_tier:            selectedSizeTier.id,
