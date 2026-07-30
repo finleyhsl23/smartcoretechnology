@@ -62,6 +62,9 @@ export async function onRequestPost(context) {
     // Provision CRM extras (best-effort)
     try { await provisionCRM(env, o); } catch (e) { console.error('crm provision error:', e); }
 
+    // Provision Flexi (best-effort)
+    try { await provisionFlexi(env, o); } catch (e) { console.error('flexi provision error:', e); }
+
     // Send welcome email with PDF invoice attached (best-effort)
     try { await sendWelcomeWithInvoice(env, oFull, modules, today); } catch (e) { console.error('email error:', e); }
 
@@ -211,6 +214,84 @@ async function provisionCRM(env, o) {
     },
     body: JSON.stringify({ tenant_id: company.id, tier, pipeline_stages: defaultStages }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Flexi Provisioning
+// ---------------------------------------------------------------------------
+const FLEXI_SIZE_TIER_MAP = {
+  'micro':      'starter',
+  'small':      'starter',
+  'medium':     'pro',
+  'large':      'business',
+  'enterprise': 'enterprise',
+};
+
+const FLEXI_ALL_PERMS = [
+  'flexi.view_clients','flexi.manage_clients','flexi.manage_programs',
+  'flexi.manage_exercises','flexi.manage_bookings','flexi.manage_classes',
+  'flexi.send_messages','flexi.manage_nutrition','flexi.manage_checkins',
+  'flexi.manage_packages','flexi.manage_waivers','flexi.manage_community',
+  'flexi.manage_locations','flexi.export_reports',
+];
+
+async function provisionFlexi(env, o) {
+  const modules = parseModules(o.modules);
+  if (!modules.find(m => m.slug === 'flexi')) return;
+
+  // Find company by email
+  const byEmail = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(o.email)}&select=id&limit=1`);
+  const scCompany = byEmail?.[0];
+
+  // Also look up in the `companies` table (used by Flexi auth)
+  const companiesRows = await dbGet(env, `/companies?owner_user_id=eq.${enc(o.auth_user_id || '')}&select=id&limit=1`);
+  const company = companiesRows?.[0] || scCompany;
+  if (!company?.id) return;
+
+  const tier = FLEXI_SIZE_TIER_MAP[o.size_tier] || 'starter';
+
+  // Upsert company_modules row
+  await fetch(`${env.SUPABASE_URL}/rest/v1/company_modules`, {
+    method: 'POST',
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify({
+      company_id:   company.id,
+      module_key:   'flexi',
+      enabled:      true,
+      tier,
+      activated_at: new Date().toISOString(),
+    }),
+  });
+
+  // Grant full permissions to the owner's core_employees record
+  if (o.auth_user_id) {
+    const empRows = await dbGet(env, `/core_employees?company_id=eq.${enc(company.id)}&auth_user_id=eq.${enc(o.auth_user_id)}&select=id&limit=1`);
+    const emp = empRows?.[0];
+    if (emp?.id) {
+      for (const perm of FLEXI_ALL_PERMS) {
+        await fetch(`${env.SUPABASE_URL}/rest/v1/smartcore_flexi_permission_grants`, {
+          method: 'POST',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=ignore-duplicates,return=minimal',
+          },
+          body: JSON.stringify({
+            company_id:  company.id,
+            employee_id: emp.id,
+            permission:  perm,
+            granted_by:  emp.id,
+          }),
+        });
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
