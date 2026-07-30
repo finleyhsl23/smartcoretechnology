@@ -43,16 +43,15 @@ export async function onRequestPost({ request, env }) {
 
   const trainerCode = await ensureTrainerCode(env, trainer.company_id);
 
-  const settingsRows = await sb(env, `/smartcore_flexi_settings?company_id=eq.${trainer.company_id}&select=business_name,brand_color`);
+  const settingsRows = await sb(env, `/smartcore_flexi_settings?company_id=eq.${trainer.company_id}&select=business_name`);
   const companyRows = await sb(env, `/smartcore_core_companies?id=eq.${trainer.company_id}&select=company_name`);
   const businessName = settingsRows?.[0]?.business_name || companyRows?.[0]?.company_name || 'Your Trainer';
-  const primaryColor = settingsRows?.[0]?.brand_color || '#ff5a36';
 
   const portalUrl = `${new URL(request.url).origin}/systems/flexi/portal/login.html`;
   const { sent } = await sendEmail(env, {
     to: email,
     subject: `Your ${businessName} login — Flexi`,
-    html: welcomeEmailHtml({ businessName, primaryColor, fullName: full_name, trainerCode, email, passcode, portalUrl }),
+    html: welcomeEmailHtml({ businessName, fullName: full_name, trainerCode, email, passcode, portalUrl }),
   });
 
   return json({ client, passcode, trainer_code: trainerCode, emailSent: sent });
