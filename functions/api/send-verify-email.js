@@ -6,6 +6,7 @@
 
 const SUPABASE_URL      = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
 const SUPABASE_ANON     = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts';
+let SERVICE_KEY = null;
 const FROM              = 'SmartCore <noreply@smartcoretechnology.co.uk>';
 const SITE              = 'https://smartcoretechnology.co.uk';
 
@@ -18,6 +19,8 @@ const CORS = {
 export async function onRequestPost(context) {
   const { request, env } = context;
   try {
+    SERVICE_KEY = env.SUPABASE_SERVICE_ROLE || env.SUPABASE_SERVICE_KEY;
+    if (!SERVICE_KEY) return json({ error: 'Server configuration error' }, 500);
     const resendKey = env.RESEND_SMARTCORE_SHOP;
     if (!resendKey) return json({ error: 'Email service not configured' }, 500);
 
@@ -89,8 +92,8 @@ async function supabaseFetch(url, method, body) {
   const r = await fetch(url, {
     method,
     headers: {
-      apikey: SUPABASE_ANON,
-      Authorization: `Bearer ${SUPABASE_ANON}`,
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
       'Content-Type': 'application/json',
       Prefer: 'return=minimal',
     },
@@ -104,8 +107,8 @@ async function supabaseRpc(env, table, filter, method) {
   await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
     method,
     headers: {
-      apikey: SUPABASE_ANON,
-      Authorization: `Bearer ${SUPABASE_ANON}`,
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
       'Content-Type': 'application/json',
     },
   });
