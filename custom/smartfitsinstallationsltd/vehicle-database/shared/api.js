@@ -362,14 +362,14 @@ export async function denyEditRequest(requestId, reviewerEmployeeId, reviewNote 
   if (error) throw error;
 }
 
-// ── DVLA registration lookup (server-side proxy — see functions/api/
-// smartfits-vehicle-database/dvla-lookup.js) ────────────────────────────
-export async function dvlaLookup(registration) {
+// ── Registration lookup — DVSA MOT History API, server-side proxy (see
+// functions/api/smartfits-vehicle-database/registration-lookup.js) ──────
+export async function lookupRegistration(registration) {
   const { data: sessionData } = await sb().auth.getSession();
   const token = sessionData?.session?.access_token;
   if (!token) throw new Error("Not signed in");
 
-  const res = await fetch("/api/smartfits-vehicle-database/dvla-lookup", {
+  const res = await fetch("/api/smartfits-vehicle-database/registration-lookup", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ registration: normalizeReg(registration) }),

@@ -31,7 +31,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { getVehicle, createVehicle, updateVehicle, dvlaLookup, FIELD_GROUPS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { getVehicle, createVehicle, updateVehicle, lookupRegistration, FIELD_GROUPS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
   import { esc, setInner, loadingState, errorState, toast, permissionDeniedState } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
@@ -88,7 +88,7 @@
             <label class="form-label" for="f_registration">Registration *</label>
             <div style="display:flex;gap:8px">
               <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase" value="${esc(v.registration || "")}" placeholder="e.g. AB12 CDE" required/>
-              <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> DVLA Lookup</button>
+              <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> Reg Lookup</button>
             </div>
             <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:6px"></p>
           </div>
@@ -134,15 +134,17 @@
     if (!reg) { toast("error", "Enter a registration first"); return; }
     statusEl.textContent = "Looking up…";
     try {
-      const result = await dvlaLookup(reg);
+      const result = await lookupRegistration(reg);
+      const year = result.manufactureYear || (result.manufactureDate || result.registrationDate || "").split(/[.-]/)[0];
       if (result.make) document.getElementById("f_make").value = result.make;
-      if (result.yearOfManufacture) document.getElementById("f_year_of_manufacture").value = result.yearOfManufacture;
-      if (result.colour) document.getElementById("f_colour").value = result.colour;
+      if (result.model) document.getElementById("f_model").value = result.model;
+      if (year) document.getElementById("f_year_of_manufacture").value = year;
+      if (result.primaryColour) document.getElementById("f_colour").value = result.primaryColour;
       if (result.fuelType) document.getElementById("f_fuel_type").value = result.fuelType;
-      _vehicle.dvla_raw = result;
-      _vehicle.dvla_looked_up_at = new Date().toISOString();
-      statusEl.textContent = "DVLA doesn't provide the model — check and fill that in by hand.";
-      toast("success", "DVLA details filled in", "Make, year, colour and fuel type updated. Model isn't returned by DVLA.");
+      _vehicle.lookup_raw = result;
+      _vehicle.lookup_looked_up_at = new Date().toISOString();
+      statusEl.textContent = "Filled in from MOT history — check the details before saving.";
+      toast("success", "Details filled in", "Make, model, year, colour and fuel type updated from MOT history.");
     } catch (e) {
       statusEl.textContent = "";
       toast("error", "Lookup failed", e.message);
@@ -164,9 +166,9 @@
         patch[key] = val || null;
       }
     });
-    if (_vehicle.dvla_raw) {
-      patch.dvla_raw = _vehicle.dvla_raw;
-      patch.dvla_looked_up_at = _vehicle.dvla_looked_up_at;
+    if (_vehicle.lookup_raw) {
+      patch.lookup_raw = _vehicle.lookup_raw;
+      patch.lookup_looked_up_at = _vehicle.lookup_looked_up_at;
     }
 
     const btn = document.getElementById("saveBtn");
