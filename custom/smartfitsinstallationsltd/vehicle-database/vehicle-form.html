@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Add / Edit Vehicle — SmartCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/vehicledb.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="vdb-shell">
+  <nav class="vdb-sidebar" id="vdbNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="vdb-main">
+    <div class="vdb-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1 id="pageTitle">Add Vehicle</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="vdb-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
+  import { getVehicle, createVehicle, updateVehicle, dvlaLookup, FIELD_GROUPS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
+  import { esc, setInner, loadingState, errorState, toast, permissionDeniedState } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+
+  initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
+  const params = new URLSearchParams(location.search);
+  const vehicleId = params.get("id");
+  const isEdit = !!vehicleId;
+  let _profile, _tier, _vehicle = {};
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    _profile = profile; _tier = tier;
+    renderNav("home", profile, tier);
+    initMobileNav();
+    initTopbar();
+
+    if (tier !== "owner_admin" && tier !== "manager") {
+      setInner("body", permissionDeniedState("Only Senior Regional Engineering Managers, Owners and Admins can add or directly edit vehicles. If you spotted something wrong, use \"Suggest a Change\" on the vehicle's page instead."));
+    } else {
+      await render();
+    }
+  } catch (e) {
+    if (!document.body.innerHTML.includes("vdb-state")) {
+      setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+    }
+  }
+
+  async function render() {
+    if (isEdit) {
+      setInner("body", loadingState("Loading vehicle…"));
+      try {
+        _vehicle = await getVehicle(vehicleId);
+        if (!_vehicle) { setInner("body", errorState({ title: "Vehicle not found" })); return; }
+      } catch (e) {
+        setInner("body", errorState({ title: "Couldn't load vehicle", message: e.message }));
+        return;
+      }
+    }
+    document.getElementById("pageTitle").textContent = isEdit ? "Edit Vehicle" : "Add Vehicle";
+    draw();
+  }
+
+  function draw() {
+    const v = _vehicle;
+    const html = `
+      <a class="back-link" href="${isEdit ? `${BASE}/vehicle-detail.html?id=${esc(vehicleId)}` : `${BASE}/index.html`}"><i data-lucide="arrow-left"></i> ${isEdit ? "Back to vehicle" : "Back to search"}</a>
+      <div class="page-head"><div><h2>${isEdit ? "Edit Vehicle" : "Add Vehicle"}</h2><p>Registration/VIN identify the vehicle; everything else is install reference data for engineers.</p></div></div>
+
+      <form id="vehForm">
+        <div class="card" style="margin-bottom:18px">
+          <div class="form-row">
+            <label class="form-label" for="f_registration">Registration *</label>
+            <div style="display:flex;gap:8px">
+              <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase" value="${esc(v.registration || "")}" placeholder="e.g. AB12 CDE" required/>
+              <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> DVLA Lookup</button>
+            </div>
+            <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:6px"></p>
+          </div>
+          <div class="form-grid">
+            ${fieldInput({ key: "vin", label: "VIN" }, v)}
+            ${fieldInput({ key: "make", label: "Make" }, v)}
+            ${fieldInput({ key: "model", label: "Model" }, v)}
+            ${fieldInput({ key: "year_of_manufacture", label: "Year", type: "number" }, v)}
+            ${fieldInput({ key: "colour", label: "Colour" }, v)}
+            ${fieldInput({ key: "fuel_type", label: "Fuel Type" }, v)}
+          </div>
+        </div>
+
+        ${FIELD_GROUPS.slice(1).map(group => `
+          <div class="section-header"><h3>${esc(group.title)}</h3></div>
+          <div class="card" style="margin-bottom:18px">
+            <div class="form-grid">
+              ${group.fields.map(f => fieldInput(f, v)).join("")}
+            </div>
+          </div>
+        `).join("")}
+
+        <button type="submit" class="btn btn-primary" id="saveBtn"><i data-lucide="save"></i> ${isEdit ? "Save Changes" : "Add Vehicle"}</button>
+      </form>
+    `;
+    setInner("body", html);
+
+    document.getElementById("lookupBtn").addEventListener("click", doLookup);
+    document.getElementById("vehForm").addEventListener("submit", onSubmit);
+  }
+
+  function fieldInput(f, v) {
+    const value = v[f.key] ?? "";
+    if (f.type === "textarea") {
+      return `<div class="form-row"><label class="form-label" for="f_${f.key}">${esc(f.label)}</label><textarea id="f_${f.key}" class="form-input" data-field="${f.key}">${esc(value)}</textarea></div>`;
+    }
+    return `<div class="form-row"><label class="form-label" for="f_${f.key}">${esc(f.label)}</label><input type="${f.type === "number" ? "number" : "text"}" id="f_${f.key}" class="form-input" data-field="${f.key}" value="${esc(value)}"/></div>`;
+  }
+
+  async function doLookup() {
+    const reg = document.getElementById("f_registration").value.trim();
+    const statusEl = document.getElementById("lookupStatus");
+    if (!reg) { toast("error", "Enter a registration first"); return; }
+    statusEl.textContent = "Looking up…";
+    try {
+      const result = await dvlaLookup(reg);
+      if (result.make) document.getElementById("f_make").value = result.make;
+      if (result.yearOfManufacture) document.getElementById("f_year_of_manufacture").value = result.yearOfManufacture;
+      if (result.colour) document.getElementById("f_colour").value = result.colour;
+      if (result.fuelType) document.getElementById("f_fuel_type").value = result.fuelType;
+      _vehicle.dvla_raw = result;
+      _vehicle.dvla_looked_up_at = new Date().toISOString();
+      statusEl.textContent = "DVLA doesn't provide the model — check and fill that in by hand.";
+      toast("success", "DVLA details filled in", "Make, year, colour and fuel type updated. Model isn't returned by DVLA.");
+    } catch (e) {
+      statusEl.textContent = "";
+      toast("error", "Lookup failed", e.message);
+    }
+  }
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    const registration = document.getElementById("f_registration").value.trim();
+    if (!registration) { toast("error", "Registration is required"); return; }
+
+    const patch = { registration };
+    document.querySelectorAll("[data-field]").forEach(el => {
+      const key = el.dataset.field;
+      let val = el.value.trim();
+      if (el.type === "number") {
+        patch[key] = val ? Number(val) : null;
+      } else {
+        patch[key] = val || null;
+      }
+    });
+    if (_vehicle.dvla_raw) {
+      patch.dvla_raw = _vehicle.dvla_raw;
+      patch.dvla_looked_up_at = _vehicle.dvla_looked_up_at;
+    }
+
+    const btn = document.getElementById("saveBtn");
+    btn.disabled = true;
+    try {
+      if (isEdit) {
+        await updateVehicle(vehicleId, patch, _profile.id);
+        toast("success", "Vehicle updated");
+        window.location.href = `${BASE}/vehicle-detail.html?id=${vehicleId}`;
+      } else {
+        const created = await createVehicle(patch, _profile.id);
+        toast("success", "Vehicle added");
+        window.location.href = `${BASE}/vehicle-detail.html?id=${created.id}`;
+      }
+    } catch (e2) {
+      btn.disabled = false;
+      const message = /duplicate key.*registration/i.test(e2.message) ? "A vehicle with this registration already exists." : e2.message;
+      toast("error", "Couldn't save", message);
+    }
+  }
+</script>
+</body>
+</html>

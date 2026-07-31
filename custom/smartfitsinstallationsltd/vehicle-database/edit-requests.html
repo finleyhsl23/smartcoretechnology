@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Review Change Requests — SmartCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/vehicledb.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="vdb-shell">
+  <nav class="vdb-sidebar" id="vdbNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="vdb-main">
+    <div class="vdb-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Review Change Requests</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="vdb-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
+  import {
+    listEditRequests, getEditRequest, listRequestPhotos, getPhotoUrl, approveEditRequest, denyEditRequest,
+    getEmployeesByIds, fieldLabel, categoryLabel,
+  } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { sb } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/supabase.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
+  import { esc, setInner, loadingState, emptyState, errorState, toast, modal, permissionDeniedState, timeAgo } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+
+  initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
+  const params = new URLSearchParams(location.search);
+  const vehicleFilter = params.get("vehicle");
+  let _profile, _tier, _statusFilter = "pending", _vehiclesById = {}, _employeesById = {};
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    _profile = profile; _tier = tier;
+    renderNav("edit-requests", profile, tier);
+    initMobileNav();
+    initTopbar();
+
+    if (tier !== "owner_admin" && tier !== "manager") {
+      setInner("body", permissionDeniedState("Only Senior Regional Engineering Managers, Owners and Admins can review change requests."));
+    } else {
+      await render();
+    }
+  } catch (e) {
+    if (!document.body.innerHTML.includes("vdb-state")) {
+      setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+    }
+  }
+
+  async function render() {
+    setInner("body", loadingState("Loading requests…"));
+    try {
+      let requests = await listEditRequests(_statusFilter === "all" ? {} : { status: _statusFilter });
+      if (vehicleFilter) requests = requests.filter(r => r.vehicle_id === vehicleFilter);
+
+      const vehicleIds = [...new Set(requests.map(r => r.vehicle_id))];
+      const requesterIds = [...new Set(requests.map(r => r.requested_by))];
+      const { data: vehicles } = vehicleIds.length
+        ? await sb().schema("smartfitsinstallationsltd").from("vdb_vehicles").select("*").in("id", vehicleIds)
+        : { data: [] };
+      _vehiclesById = Object.fromEntries((vehicles || []).map(v => [v.id, v]));
+      const employees = await getEmployeesByIds(requesterIds);
+      _employeesById = Object.fromEntries(employees.map(e => [e.id, e]));
+
+      draw(requests);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load requests", message: e.message }));
+    }
+  }
+
+  function draw(requests) {
+    const html = `
+      <div class="page-head"><div>
+        <h2>Review Change Requests</h2>
+        <p>${vehicleFilter ? "Showing requests for this vehicle only." : "Suggested changes from employees, awaiting your decision."}</p>
+      </div></div>
+      <div class="pill-row">
+        ${["pending", "approved", "denied", "all"].map(s => `<button class="pill ${_statusFilter === s ? "active" : ""}" data-status="${s}">${s[0].toUpperCase() + s.slice(1)}</button>`).join("")}
+      </div>
+      <div id="list"></div>
+    `;
+    setInner("body", html);
+
+    document.querySelectorAll(".pill[data-status]").forEach(btn => {
+      btn.addEventListener("click", async () => { _statusFilter = btn.dataset.status; await render(); });
+    });
+
+    const list = document.getElementById("list");
+    if (!requests.length) {
+      list.innerHTML = emptyState({ icon: "list-checks", title: "Nothing here", message: `No ${_statusFilter === "all" ? "" : _statusFilter + " "}requests found.` });
+      return;
+    }
+
+    list.innerHTML = requests.map(r => {
+      const veh = _vehiclesById[r.vehicle_id];
+      const requester = _employeesById[r.requested_by];
+      const fieldCount = Object.keys(r.proposed_changes || {}).length;
+      return `
+        <div class="request-row" data-id="${esc(r.id)}">
+          <div class="request-info">
+            <div class="request-title">${veh ? esc(veh.registration) : "Vehicle deleted"}${veh?.make ? ` — ${esc([veh.make, veh.model].filter(Boolean).join(" "))}` : ""}</div>
+            <div class="request-meta">Suggested by ${esc(requester?.full_name || "Unknown")} · ${fieldCount} field${fieldCount === 1 ? "" : "s"} changed · ${esc(timeAgo(r.created_at))}</div>
+          </div>
+          ${statusBadge(r.status)}
+        </div>`;
+    }).join("");
+
+    list.querySelectorAll(".request-row").forEach(row => {
+      row.addEventListener("click", () => openReview(row.dataset.id));
+    });
+    window.lucide?.createIcons?.();
+  }
+
+  function statusBadge(status) {
+    if (status === "approved") return `<span class="badge badge-green">Approved</span>`;
+    if (status === "denied") return `<span class="badge badge-red">Denied</span>`;
+    return `<span class="badge badge-yellow">Pending</span>`;
+  }
+
+  async function openReview(requestId) {
+    let request, photos;
+    try {
+      [request, photos] = await Promise.all([getEditRequest(requestId), listRequestPhotos(requestId)]);
+    } catch (e) {
+      toast("error", "Couldn't load request", e.message);
+      return;
+    }
+    const veh = _vehiclesById[request.vehicle_id];
+    const requester = _employeesById[request.requested_by];
+    const changes = Object.entries(request.proposed_changes || {});
+
+    const photoUrls = await Promise.all(photos.map(async p => ({ ...p, url: await getPhotoUrl(p.storage_path).catch(() => "") })));
+
+    const overlay = modal(`
+      <div class="modal-header">
+        <h3>${veh ? esc(veh.registration) : "Vehicle deleted"} — Suggested Change</h3>
+        <button class="btn modal-close" aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted" style="margin-bottom:14px">Suggested by ${esc(requester?.full_name || "Unknown")} · ${esc(timeAgo(request.created_at))}</p>
+        ${request.request_note ? `<div class="card" style="margin-bottom:16px"><strong>Requester's note:</strong><p style="margin:6px 0 0">${esc(request.request_note)}</p></div>` : ""}
+
+        ${changes.length ? `
+          <h4 style="margin:0 0 8px">Field Changes</h4>
+          <div style="margin-bottom:18px">
+            ${changes.map(([key, newVal]) => `
+              <div class="diff-row">
+                <div class="diff-label">${esc(fieldLabel(key))}</div>
+                <div class="diff-old">${esc(veh?.[key] || "(empty)")}</div>
+                <div class="diff-arrow"><i data-lucide="arrow-right"></i></div>
+                <div class="diff-new">${esc(newVal || "(empty)")}</div>
+              </div>`).join("")}
+          </div>
+        ` : `<p class="text-muted">No field changes proposed.</p>`}
+
+        ${photoUrls.length ? `
+          <h4 style="margin:0 0 8px">Proposed Photos</h4>
+          <div class="photo-grid" style="margin-bottom:18px">
+            ${photoUrls.map(p => `<div class="photo-thumb"><img src="${esc(p.url)}" alt="${esc(categoryLabel(p.category))}" title="${esc(categoryLabel(p.category))}"/></div>`).join("")}
+          </div>
+        ` : ""}
+
+        ${request.status === "pending" ? `
+          <div class="form-row">
+            <label class="form-label" for="reviewNote">Note (optional, shown to the requester)</label>
+            <textarea id="reviewNote" class="form-input"></textarea>
+          </div>
+        ` : request.review_note ? `<div class="card"><strong>Your note:</strong><p style="margin:6px 0 0">${esc(request.review_note)}</p></div>` : ""}
+      </div>
+      <div class="modal-footer">
+        ${request.status === "pending" ? `
+          <button class="btn btn-danger" id="denyBtn">Deny</button>
+          <button class="btn btn-primary" id="approveBtn"><i data-lucide="check"></i> Approve</button>
+        ` : `<span class="text-muted">Already ${esc(request.status)}</span>`}
+      </div>
+    `, { size: "modal-lg" });
+    window.lucide?.createIcons?.();
+
+    overlay.querySelector("#approveBtn")?.addEventListener("click", async () => {
+      const note = overlay.querySelector("#reviewNote")?.value.trim() || "";
+      try {
+        await approveEditRequest(request, _profile.id, note);
+        toast("success", "Change approved and applied");
+        overlay.remove();
+        await render();
+      } catch (e) {
+        toast("error", "Couldn't approve", e.message);
+      }
+    });
+    overlay.querySelector("#denyBtn")?.addEventListener("click", async () => {
+      const note = overlay.querySelector("#reviewNote")?.value.trim() || "";
+      try {
+        await denyEditRequest(request.id, _profile.id, note);
+        toast("success", "Request denied");
+        overlay.remove();
+        await render();
+      } catch (e) {
+        toast("error", "Couldn't deny", e.message);
+      }
+    });
+  }
+</script>
+</body>
+</html>

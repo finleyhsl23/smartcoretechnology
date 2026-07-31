@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Vehicle Installations Database — SmartCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/vehicledb.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="vdb-shell">
+  <nav class="vdb-sidebar" id="vdbNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="vdb-main">
+    <div class="vdb-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Vehicle Installations Database</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="vdb-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
+  import { searchVehicles, listRecentVehicles } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
+  import { esc, setInner, loadingState, emptyState, errorState } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+
+  initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
+  let _profile, _tier;
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    _profile = profile; _tier = tier;
+    renderNav("home", profile, tier);
+    initMobileNav();
+    initTopbar();
+    await render();
+  } catch (e) {
+    if (!document.body.innerHTML.includes("vdb-state")) {
+      setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+    }
+  }
+
+  async function render() {
+    setInner("body", loadingState("Loading vehicles…"));
+    try {
+      const vehicles = await listRecentVehicles(24);
+      draw(vehicles, "");
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load vehicles", message: e.message }));
+    }
+  }
+
+  function draw(vehicles, query) {
+    const isManagerOrAbove = _tier === "owner_admin" || _tier === "manager";
+    const html = `
+      <div class="page-head">
+        <div>
+          <h2>Search Vehicles</h2>
+          <p>Look up a vehicle by registration, VIN, make or model to see its full install profile.</p>
+        </div>
+        <div class="page-head-actions">
+          ${isManagerOrAbove ? `<a class="btn btn-primary" href="${BASE}/vehicle-form.html"><i data-lucide="plus"></i> Add Vehicle</a>` : ""}
+        </div>
+      </div>
+      <div class="search-wrap">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="text" id="vehSearch" class="form-input" placeholder="Search by reg, VIN, make or model…" autocomplete="off" value="${esc(query)}"/>
+      </div>
+      <div id="results"></div>
+    `;
+    setInner("body", html);
+    renderResults(vehicles, query);
+
+    const input = document.getElementById("vehSearch");
+    input.focus();
+    input.setSelectionRange(query.length, query.length);
+    let debounce;
+    input.addEventListener("input", (e) => {
+      clearTimeout(debounce);
+      const q = e.target.value;
+      debounce = setTimeout(async () => {
+        try {
+          const results = q.trim() ? await searchVehicles(q) : await listRecentVehicles(24);
+          renderResults(results, q);
+        } catch (err) {
+          setInner("results", errorState({ title: "Search failed", message: err.message }));
+        }
+      }, 250);
+    });
+  }
+
+  function renderResults(vehicles, query) {
+    const container = document.getElementById("results");
+    if (!container) return;
+    if (!vehicles.length) {
+      container.innerHTML = emptyState({
+        icon: "car",
+        title: query.trim() ? "No matches" : "No vehicles added yet",
+        message: query.trim() ? "Try a different registration, VIN, make or model." : "Vehicles added here will show up as recent.",
+      });
+    } else {
+      container.innerHTML = `<div class="veh-grid">${vehicles.map(vehicleCard).join("")}</div>`;
+    }
+    container.querySelectorAll("[data-veh-id]").forEach(card => {
+      card.addEventListener("click", () => {
+        window.location.href = `${BASE}/vehicle-detail.html?id=${card.dataset.vehId}`;
+      });
+    });
+    window.lucide?.createIcons?.();
+  }
+
+  function vehicleCard(v) {
+    const title = [v.make, v.model].filter(Boolean).join(" ") || "Make/model not set";
+    const meta = [v.year_of_manufacture, v.colour].filter(Boolean).join(" · ");
+    return `
+      <div class="veh-card" data-veh-id="${esc(v.id)}">
+        <span class="veh-card-reg">${esc(formatReg(v.registration))}</span>
+        <div class="veh-card-title">${esc(title)}</div>
+        ${meta ? `<div class="veh-card-meta">${esc(meta)}</div>` : ""}
+        ${v.vin ? `<div class="veh-card-meta">VIN: ${esc(v.vin)}</div>` : ""}
+      </div>`;
+  }
+
+  function formatReg(reg) {
+    return reg || "—";
+  }
+</script>
+</body>
+</html>

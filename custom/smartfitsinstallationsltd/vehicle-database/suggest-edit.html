@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Suggest a Change — SmartCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/vehicledb.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="vdb-shell">
+  <nav class="vdb-sidebar" id="vdbNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="vdb-main">
+    <div class="vdb-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Suggest a Change</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="vdb-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
+  import { getVehicle, createEditRequest, uploadRequestPhoto, FIELD_GROUPS, PHOTO_CATEGORIES } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
+  import { esc, setInner, loadingState, errorState, toast } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+
+  initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
+  const params = new URLSearchParams(location.search);
+  const vehicleId = params.get("vehicle");
+  let _profile, _tier, _vehicle, _pendingPhotos = [];
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    _profile = profile; _tier = tier;
+    renderNav("home", profile, tier);
+    initMobileNav();
+    initTopbar();
+
+    if (!vehicleId) {
+      setInner("body", errorState({ title: "No vehicle specified", message: "Go back and open a vehicle first." }));
+    } else {
+      await render();
+    }
+  } catch (e) {
+    if (!document.body.innerHTML.includes("vdb-state")) {
+      setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+    }
+  }
+
+  async function render() {
+    setInner("body", loadingState("Loading vehicle…"));
+    try {
+      _vehicle = await getVehicle(vehicleId);
+      if (!_vehicle) { setInner("body", errorState({ title: "Vehicle not found" })); return; }
+      draw();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load vehicle", message: e.message }));
+    }
+  }
+
+  function draw() {
+    const v = _vehicle;
+    const html = `
+      <a class="back-link" href="${BASE}/vehicle-detail.html?id=${esc(vehicleId)}"><i data-lucide="arrow-left"></i> Back to vehicle</a>
+      <div class="page-head"><div>
+        <h2>Suggest a Change — ${esc(v.registration)}</h2>
+        <p>Edit any fields that are wrong or out of date, add photos if useful, then submit. A Senior Regional Engineering Manager will review before anything changes on the vehicle's record.</p>
+      </div></div>
+
+      <form id="suggestForm">
+        ${FIELD_GROUPS.map(group => `
+          <div class="section-header"><h3>${esc(group.title)}</h3></div>
+          <div class="card" style="margin-bottom:18px">
+            <div class="form-grid">
+              ${group.fields.map(f => fieldInput(f, v)).join("")}
+            </div>
+          </div>
+        `).join("")}
+
+        <div class="section-header"><h3>Add Photos (optional)</h3></div>
+        <div class="card" style="margin-bottom:18px">
+          ${PHOTO_CATEGORIES.map(cat => `
+            <div class="photo-cat-block">
+              <div class="photo-cat-title">${esc(cat.label)}</div>
+              <div class="photo-grid" data-cat="${esc(cat.key)}">
+                <label class="photo-add-btn"><i data-lucide="upload"></i>Add<input type="file" accept="image/*" data-stage-cat="${esc(cat.key)}" hidden/></label>
+              </div>
+            </div>`).join("")}
+        </div>
+
+        <div class="section-header"><h3>Note for the reviewer (optional)</h3></div>
+        <div class="card" style="margin-bottom:18px">
+          <textarea id="requestNote" class="form-input" placeholder="Why is this change needed?"></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="submitBtn"><i data-lucide="send"></i> Submit for Review</button>
+      </form>
+    `;
+    setInner("body", html);
+    wirePhotoStaging();
+    document.getElementById("suggestForm").addEventListener("submit", onSubmit);
+  }
+
+  function fieldInput(f, v) {
+    const value = v[f.key] ?? "";
+    if (f.type === "textarea") {
+      return `<div class="form-row"><label class="form-label" for="f_${f.key}">${esc(f.label)}</label><textarea id="f_${f.key}" class="form-input" data-field="${f.key}">${esc(value)}</textarea></div>`;
+    }
+    return `<div class="form-row"><label class="form-label" for="f_${f.key}">${esc(f.label)}</label><input type="${f.type === "number" ? "number" : "text"}" id="f_${f.key}" class="form-input" data-field="${f.key}" value="${esc(value)}"/></div>`;
+  }
+
+  // Staged photos live only in the browser (as File objects) until the
+  // request itself exists — they're uploaded right after the request row is
+  // created, since storage RLS keys off an existing pending request id.
+  function wirePhotoStaging() {
+    document.querySelectorAll("[data-stage-cat]").forEach(input => {
+      input.addEventListener("change", () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        const category = input.dataset.stageCat;
+        _pendingPhotos.push({ category, file });
+        const grid = input.closest(".photo-grid");
+        const thumb = document.createElement("div");
+        thumb.className = "photo-thumb";
+        const img = document.createElement("img");
+        img.src = URL.createObjectURL(file);
+        thumb.appendChild(img);
+        grid.insertBefore(thumb, input.closest("label"));
+        input.value = "";
+      });
+    });
+  }
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    const proposed_changes = {};
+    document.querySelectorAll("[data-field]").forEach(el => {
+      const key = el.dataset.field;
+      const field = FIELD_GROUPS.flatMap(g => g.fields).find(f => f.key === key);
+      let newVal = el.value.trim();
+      if (field?.type === "number") newVal = newVal ? Number(newVal) : null;
+      else newVal = newVal || null;
+      const oldVal = _vehicle[key] ?? null;
+      if (String(newVal ?? "") !== String(oldVal ?? "")) proposed_changes[key] = newVal;
+    });
+
+    if (!Object.keys(proposed_changes).length && !_pendingPhotos.length) {
+      toast("error", "No changes to submit", "Edit at least one field or add a photo first.");
+      return;
+    }
+
+    const btn = document.getElementById("submitBtn");
+    btn.disabled = true;
+    try {
+      const request = await createEditRequest({
+        vehicle_id: vehicleId,
+        requested_by: _profile.id,
+        proposed_changes,
+        request_note: document.getElementById("requestNote").value.trim(),
+      });
+      for (const p of _pendingPhotos) {
+        await uploadRequestPhoto(request.id, p.category, p.file);
+      }
+      toast("success", "Submitted for review", "A manager will review your suggested change shortly.");
+      window.location.href = `${BASE}/vehicle-detail.html?id=${vehicleId}`;
+    } catch (err) {
+      btn.disabled = false;
+      toast("error", "Couldn't submit", err.message);
+    }
+  }
+</script>
+</body>
+</html>
