@@ -4,9 +4,13 @@
 // browser-originated requests.
 //
 // Requires a Cloudflare Pages environment variable: DVLA_API_KEY
-// Get one free at: https://register-for-ves.driver-vehicle-licensing.api.gov.uk/
+// Apply for one free via the DVLA API Developer Portal:
+// https://developer-portal.driver-vehicle-licensing.api.gov.uk/apis/vehicle-enquiry-service/Register-For-VES-API.html
+// (the older register-for-ves.driver-vehicle-licensing.api.gov.uk portal has
+// been retired in favour of this developer portal).
 // Optional override: DVLA_API_URL (defaults to the production endpoint;
-// DVLA also publish a UAT/sandbox endpoint for testing without real plates).
+// DVLA also publish a UAT/sandbox endpoint for testing without real plates:
+// https://uat.driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles).
 //
 // Note: DVLA does not return the vehicle's model (e.g. "Focus") — only
 // make (e.g. "FORD"), year, colour, fuel type, and tax/MOT status. Model
