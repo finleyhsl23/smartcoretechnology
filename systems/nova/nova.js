@@ -134,10 +134,10 @@ function renderUserMsg(content) {
   const el   = document.createElement("div");
   el.className = "msg user";
   el.innerHTML = `
-    <div class="msg-avatar">${(profile?.full_name?.[0] || "U").toUpperCase()}</div>
+    <div class="msg-avatar">${"(profile?.full_name?.[0] || \"U\").toUpperCase()"}</div>
     <div class="msg-body">
-      <div class="msg-bubble">${esc(content)}</div>
-      <div class="msg-time">${fmtTime(new Date().toISOString())}</div>
+      <div class="msg-bubble">${"esc(content)"}</div>
+      <div class="msg-time">${"fmtTime(new Date().toISOString())"}</div>
     </div>
   `;
   chat.appendChild(el);
@@ -151,15 +151,15 @@ function renderNovaMsg(content, cards = []) {
 
   let cardsHtml = "";
   if (cards?.length) {
-    cardsHtml = `<div class="msg-cards">${cards.map(renderCard).join("")}</div>`;
+    cardsHtml = `<div class="msg-cards">${"cards.map(renderCard).join(\"\")"}</div>`;
   }
 
   el.innerHTML = `
     <div class="msg-avatar">✦</div>
     <div class="msg-body">
-      <div class="msg-bubble">${esc(content)}</div>
-      ${cardsHtml}
-      <div class="msg-time">${fmtTime(new Date().toISOString())}</div>
+      <div class="msg-bubble">${"esc(content)"}</div>
+      ${"cardsHtml"}
+      <div class="msg-time">${"fmtTime(new Date().toISOString())"}</div>
     </div>
   `;
   chat.appendChild(el);
@@ -540,6 +540,17 @@ async function boot() {
     ttsBtn.textContent = ttsEnabled ? "🔊" : "🔇";
     if (!ttsEnabled) stopSpeaking();
     toast("ok", ttsEnabled ? "Voice on" : "Voice off");
+  });
+
+  document.querySelectorAll(".quick-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const ta = document.getElementById("novaTextarea");
+      if (ta) {
+        ta.value = btn.dataset.prompt;
+        ta.dispatchEvent(new Event("input"));
+        sendMessage();
+      }
+    });
   });
 
   document.getElementById("themeBtn")?.addEventListener("click", toggleTheme);
