@@ -41,14 +41,14 @@ function toast(type, msg) {
   setTimeout(() => el.remove(), 3500);
 }
 
-// ── Orb state ───────────────────────────────────────────────────────────────
+// ── Orb state ──────────────────────────────────────────────────────────────
 function setOrbState(state) {
   const orb = document.getElementById("novaOrb");
   if (!orb) return;
-  orb.className = "nova-orb" + (state !== "idle" ? ` ${state}` : "");
+  orb.className = "orb-dot" + (state !== "idle" ? ` ${state}` : "");
 }
 
-// ── Greeting ───────────────────────────────────────────────────────────── */
+// ── Greeting ───────────────────────────────────────────────────────────────
 function renderGreeting() {
   const h = new Date().getHours();
   const period = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
@@ -181,7 +181,7 @@ function showTyping() {
 }
 function hideTyping() { document.getElementById("typingWrap")?.remove(); }
 
-// ── Rich cards ───────────────────────────────────────────────────────────────
+// ── Rich cards ─────────────────────────────────────────────────────────────
 function renderCard(card) {
   if (!card) return "";
   switch (card.type) {
@@ -247,7 +247,7 @@ function renderTaskCard(card) {
   const rows = items.slice(0,8).map(t => `
     <div class="task-row">
       <div class="task-check${t.status==="completed"?" done":""}"></div>
-      <span class="task-text${t.status==="completed"?" done":""}"}>${esc(t.title)}</span>
+      <span class="task-text${t.status==="completed"?" done":""">${esc(t.title)}</span>
       <span class="task-priority prio-${t.priority||"medium"}">${t.priority||"medium"}</span>
       ${t.due_date?`<span class="task-due">${t.due_date}</span>`:""}
     </div>`).join("");
@@ -262,7 +262,7 @@ function renderContactCard(card) {
   const items = card.type === "contact_list" ? card.data : [card.data];
   if (!items?.length) return "";
   const contacts = items.slice(0,6).map(c => {
-    const initials = ((c.first_name?.[0]||"")+( c.last_name?.[0]||"")).toUpperCase()||"?";
+    const initials = ((c.first_name?.[0]||"")+( c.last_name?.[0]||"" )).toUpperCase()||"?";
     return `
       <div class="contact-item">
         <div class="contact-avatar">${esc(initials)}</div>
