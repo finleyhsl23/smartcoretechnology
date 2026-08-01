@@ -542,6 +542,17 @@ async function boot() {
     toast("ok", ttsEnabled ? "Voice on" : "Voice off");
   });
 
+  document.querySelectorAll(".quick-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const ta = document.getElementById("novaTextarea");
+      if (ta) {
+        ta.value = btn.dataset.prompt;
+        ta.dispatchEvent(new Event("input"));
+        sendMessage();
+      }
+    });
+  });
+
   document.getElementById("themeBtn")?.addEventListener("click", toggleTheme);
   document.getElementById("micBtn")?.addEventListener("click", toggleVoice);
   document.getElementById("sendBtn")?.addEventListener("click", sendMessage);
