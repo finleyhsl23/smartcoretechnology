@@ -15,6 +15,7 @@ let ttsEnabled  = true;
 let recognition = null;
 let isListening = false;
 let synth       = window.speechSynthesis;
+let idleTimer   = null;
 
 // ── Theme ──────────────────────────────────────────────────────────────────
 function initTheme() {
@@ -126,6 +127,15 @@ function scrollToBottom() {
 }
 function removeGreeting() {
   document.getElementById("novaGreeting")?.remove();
+}
+
+function resetIdle() {
+  const shell = document.querySelector(".nova-shell");
+  shell?.classList.remove("nova-idle");
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    shell?.classList.add("nova-idle");
+  }, 45000);
 }
 
 // ── Render messages ────────────────────────────────────────────────────────
@@ -465,7 +475,7 @@ function initVoice() {
     isListening = false;
     document.getElementById("micBtn")?.classList.remove("active");
     setOrbState("idle");
-    if (e.error !== "no-speech") toast("warn", `Mic error: ${e.error}`);
+    if (e.error !== "no-speech" && e.error !== "aborted") toast("warn", `Mic error: ${e.error}`);
   };
 }
 
@@ -480,10 +490,13 @@ function toggleVoice() {
   }
   stopSpeaking();
   try {
+    const transcriptEl = document.getElementById("transcriptText");
+    if (transcriptEl) transcriptEl.textContent = "";
     recognition.start();
     isListening = true;
     document.getElementById("micBtn").classList.add("active");
     setOrbState("listening");
+    resetIdle();
   } catch (e) {
     toast("warn", "Could not start microphone");
   }
@@ -563,6 +576,11 @@ async function boot() {
   renderGreeting();
   initVoice();
   initWakeWord();
+  resetIdle();
+
+  document.addEventListener("mousemove", resetIdle, { passive: true });
+  document.addEventListener("keydown", resetIdle, { passive: true });
+  document.addEventListener("touchstart", resetIdle, { passive: true });
 
   if (synth && synth.getVoices().length === 0) {
     synth.addEventListener("voiceschanged", () => {}, { once: true });
