@@ -379,6 +379,46 @@ function stopSpeaking() {
   setOrbState("idle");
 }
 
+// ── Wake word ──────────────────────────────────────────────────────────────
+function initWakeWord() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) return;
+
+  let wake = new SpeechRec();
+  wake.continuous = true;
+  wake.interimResults = true;
+  wake.lang = "en-GB";
+
+  let restarting = false;
+
+  wake.onresult = (event) => {
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const text = event.results[i][0].transcript.toLowerCase().trim();
+      if (text.includes("nova")) {
+        wake.stop();
+        setTimeout(() => { if (!isListening) toggleVoice(); }, 250);
+        return;
+      }
+    }
+  };
+
+  wake.onend = () => {
+    if (!isListening && !restarting) {
+      restarting = true;
+      setTimeout(() => { restarting = false; try { wake.start(); } catch(e) {} }, 500);
+    }
+  };
+
+  wake.onerror = () => {
+    if (!isListening && !restarting) {
+      restarting = true;
+      setTimeout(() => { restarting = false; try { wake.start(); } catch(e) {} }, 1000);
+    }
+  };
+
+  try { wake.start(); } catch(e) {}
+}
+
 // ── Speech Recognition ─────────────────────────────────────────────────────
 function initVoice() {
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -519,6 +559,7 @@ async function boot() {
 
   renderGreeting();
   initVoice();
+  initWakeWord();
 
   if (synth && synth.getVoices().length === 0) {
     synth.addEventListener("voiceschanged", () => {}, { once: true });
