@@ -129,13 +129,23 @@ function removeGreeting() {
   document.getElementById("novaGreeting")?.remove();
 }
 
+function showIdleScreen() {
+  const screen = document.getElementById("idleScreen");
+  if (!screen) return;
+  const h = new Date().getHours();
+  const period = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+  const firstName = profile?.full_name?.split(" ")[0] || "";
+  const text = `Good ${period}${firstName ? `, ${firstName}` : ""}`;
+  const el = document.getElementById("idleGreetingText");
+  if (el) el.textContent = text;
+  screen.classList.add("active");
+}
+
 function resetIdle() {
-  const shell = document.querySelector(".nova-shell");
-  shell?.classList.remove("nova-idle");
+  const screen = document.getElementById("idleScreen");
+  screen?.classList.remove("active");
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => {
-    shell?.classList.add("nova-idle");
-  }, 45000);
+  idleTimer = setTimeout(showIdleScreen, 45000);
 }
 
 // ── Render messages ────────────────────────────────────────────────────────
@@ -458,12 +468,9 @@ function initVoice() {
     isListening = false;
     document.getElementById("micBtn")?.classList.remove("active");
     setOrbState("idle");
-    const bar   = document.getElementById("voiceBar");
-    const text  = document.getElementById("transcriptText");
+    document.getElementById("voiceBar")?.classList.remove("active");
     const input = document.getElementById("novaTextarea");
-    bar.classList.remove("active");
-    if (text?.textContent.trim()) {
-      if (input) input.value = text.textContent.trim();
+    if (input?.value.trim()) {
       setTimeout(() => sendMessage(), 100);
     }
   };
@@ -578,6 +585,7 @@ async function boot() {
   document.addEventListener("mousemove", resetIdle, { passive: true });
   document.addEventListener("keydown", resetIdle, { passive: true });
   document.addEventListener("touchstart", resetIdle, { passive: true });
+  document.getElementById("idleScreen")?.addEventListener("click", resetIdle);
 
   if (synth && synth.getVoices().length === 0) {
     synth.addEventListener("voiceschanged", () => {}, { once: true });
