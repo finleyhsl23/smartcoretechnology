@@ -45,7 +45,7 @@ function toast(type, msg) {
 function setOrbState(state) {
   const orb = document.getElementById("novaOrb");
   if (!orb) return;
-  orb.className = "nova-orb" + (state !== "idle" ? ` ${state}` : "");
+  orb.className = "orb-dot" + (state !== "idle" ? ` ${state}` : "");
 }
 
 // ── Greeting ───────────────────────────────────────────────────────────────
