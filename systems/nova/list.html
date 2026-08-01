@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Shopping List · Nova</title>
+<style>
+  :root { --cyan: #06b6d4; --bg: #0a0f1e; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    min-height: 100vh;
+    color: #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+  }
+  .bg {
+    position: fixed; inset: 0; z-index: 0;
+    background: radial-gradient(ellipse at 20% 20%, rgba(6,182,212,0.08) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 80%, rgba(99,102,241,0.06) 0%, transparent 60%);
+  }
+  .panel {
+    position: relative; z-index: 1;
+    width: 100%; max-width: 480px;
+    background: rgba(13,20,38,0.95);
+    border: 1px solid rgba(6,182,212,0.15);
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+  }
+  .header {
+    background: linear-gradient(135deg, #0d1426, #0f2044);
+    padding: 28px 28px 24px;
+    border-bottom: 1px solid rgba(6,182,212,0.1);
+  }
+  .badge {
+    display: inline-block;
+    background: rgba(6,182,212,0.12);
+    border: 1px solid rgba(6,182,212,0.3);
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--cyan);
+    margin-bottom: 12px;
+  }
+  .header h1 { font-size: 22px; font-weight: 700; color: #fff; }
+  .header p { color: rgba(255,255,255,0.4); font-size: 13px; margin-top: 4px; }
+  .items { padding: 8px 0; }
+  .item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 24px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    cursor: pointer;
+    transition: background 0.15s;
+    user-select: none;
+  }
+  .item:last-child { border-bottom: none; }
+  .item:hover { background: rgba(255,255,255,0.03); }
+  .item:active { background: rgba(6,182,212,0.05); }
+  .checkbox {
+    width: 22px; height: 22px; flex-shrink: 0;
+    border: 2px solid rgba(6,182,212,0.4);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .item.checked .checkbox {
+    background: var(--cyan); border-color: var(--cyan);
+  }
+  .tick { color: #000; font-size: 13px; font-weight: 700; display: none; }
+  .item.checked .tick { display: block; }
+  .label {
+    font-size: 15px; color: rgba(255,255,255,0.85);
+    transition: opacity 0.2s, text-decoration 0.2s;
+    flex: 1;
+  }
+  .item.checked .label { text-decoration: line-through; opacity: 0.35; }
+  .footer {
+    padding: 16px 24px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .count { color: rgba(255,255,255,0.3); font-size: 13px; }
+  .clear-btn {
+    background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2);
+    color: #f87171; border-radius: 8px; padding: 7px 14px;
+    font-size: 13px; font-family: inherit; cursor: pointer; transition: opacity 0.2s;
+  }
+  .clear-btn:hover { opacity: 0.8; }
+  .empty {
+    padding: 40px 24px; text-align: center;
+    color: rgba(255,255,255,0.25); font-size: 15px;
+  }
+  .nova-link {
+    margin-top: 20px; text-align: center;
+  }
+  .nova-link a {
+    color: var(--cyan); font-size: 13px; text-decoration: none;
+    opacity: 0.6; transition: opacity 0.2s;
+  }
+  .nova-link a:hover { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="panel">
+  <div class="header">
+    <div class="badge">NOVA · SMARTCORE AI</div>
+    <h1>🛒 Shopping List</h1>
+    <p id="subtitle">Loading…</p>
+  </div>
+  <div class="items" id="itemsList"></div>
+  <div class="footer">
+    <span class="count" id="countLabel"></span>
+    <button class="clear-btn" onclick="clearChecked()">Remove ticked</button>
+  </div>
+</div>
+<div class="nova-link"><a href="/systems/nova">Open Nova →</a></div>
+
+<script>
+  let items = [];
+
+  function load() {
+    const params = new URLSearchParams(location.search);
+    const encoded = params.get('items');
+    if (!encoded) { showEmpty(); return; }
+    try {
+      items = JSON.parse(decodeURIComponent(escape(atob(encoded))));
+      items = items.map(i => ({ text: i, checked: false }));
+    } catch {
+      showEmpty(); return;
+    }
+    render();
+  }
+
+  function render() {
+    const list = document.getElementById('itemsList');
+    const subtitle = document.getElementById('subtitle');
+    const countLabel = document.getElementById('countLabel');
+    const remaining = items.filter(i => !i.checked).length;
+    subtitle.textContent = `${items.length} item${items.length !== 1 ? 's' : ''}`;
+    countLabel.textContent = `${remaining} remaining`;
+
+    if (!items.length) { list.innerHTML = '<div class="empty">All done! 🎉</div>'; return; }
+
+    list.innerHTML = '';
+    items.forEach((item, idx) => {
+      const div = document.createElement('div');
+      div.className = 'item' + (item.checked ? ' checked' : '');
+      div.innerHTML = `<div class="checkbox"><span class="tick">✓</span></div><span class="label">${item.text}</span>`;
+      div.addEventListener('click', () => toggle(idx));
+      list.appendChild(div);
+    });
+  }
+
+  function toggle(idx) {
+    items[idx].checked = !items[idx].checked;
+    render();
+  }
+
+  function clearChecked() {
+    items = items.filter(i => !i.checked);
+    render();
+  }
+
+  function showEmpty() {
+    document.getElementById('subtitle').textContent = 'No items found';
+    document.getElementById('itemsList').innerHTML = '<div class="empty">This list appears to be empty.</div>';
+  }
+
+  load();
+</script>
+</body>
+</html>
