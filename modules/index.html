@@ -230,26 +230,40 @@
 
     .mod-right{display:flex;align-items:center;gap:10px;flex-shrink:0;padding-right:8px}
 
-    .tag-active{
-      font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-      padding:3px 9px;border-radius:5px;
-      background:rgba(34,197,94,.12);
-      border:1px solid rgba(34,197,94,.2);
-      color:#4ade80;
+    .info-btn{
+      width:22px;height:22px;border-radius:50%;
+      border:none;cursor:pointer;
+      display:inline-flex;align-items:center;justify-content:center;
+      font-size:12px;font-weight:800;
+      flex-shrink:0;
+      position:relative;
+      background:transparent;
+      padding:0;
     }
-    .tag-locked{
-      font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-      padding:3px 9px;border-radius:5px;
-      background:rgba(255,255,255,.04);
-      border:1px solid var(--border);
-      color:var(--muted);
+    .info-btn.green{color:#4ade80;border:1.5px solid rgba(34,197,94,.4)}
+    .info-btn.amber{color:#fbbf24;border:1.5px solid rgba(245,158,11,.35)}
+    .info-popover{
+      position:absolute;
+      bottom:calc(100% + 8px);
+      right:0;
+      background:#1e293b;
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:10px;
+      padding:9px 13px;
+      font-size:12px;font-weight:500;
+      color:#e2e8f0;
+      white-space:nowrap;
+      box-shadow:0 8px 24px rgba(0,0,0,.5);
+      z-index:20;
+      pointer-events:none;
+      opacity:0;
+      transform:translateY(4px);
+      transition:opacity .15s,transform .15s;
     }
-    .tag-restricted{
-      font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-      padding:3px 9px;border-radius:5px;
-      background:rgba(245,158,11,.1);
-      border:1px solid rgba(245,158,11,.2);
-      color:#fbbf24;
+    .info-btn.open .info-popover{
+      opacity:1;
+      transform:translateY(0);
+      pointer-events:auto;
     }
 
     .btn-enter{
@@ -768,11 +782,15 @@ function canAccess(slug) {
   return true;
 }
 
+function infoBtn(color, label) {
+  return `<button class="info-btn ${color}" data-info="${label.replace(/"/g,'&quot;')}" title="${label}">ⓘ<span class="info-popover">${label}</span></button>`;
+}
+
 function accessTag(slug) {
   const ac = state.accessMap[slug];
   if (!ac) return '';
-  if (ac.allowed_employee_ids?.length) return `<span class="tag-restricted">RESTRICTED</span>`;
-  if (ac.allowed_roles && ac.allowed_roles.length < 3) return `<span class="tag-restricted">ROLE RESTRICTED</span>`;
+  if (ac.allowed_employee_ids?.length) return infoBtn('amber', 'Restricted to specific employees');
+  if (ac.allowed_roles && ac.allowed_roles.length < 3) return infoBtn('amber', 'Restricted to certain roles');
   return '';
 }
 
@@ -794,7 +812,7 @@ function modCard(slug, active) {
         <div class="mod-desc">${info.desc}</div>
       </div>
       <div class="mod-right">
-        ${tag || `<span class="tag-active">ACTIVE</span>`}
+        ${tag || infoBtn('green', 'Active — you have full access')}
         <a class="btn-enter" href="${info.href}">Enter <span style="opacity:.7">→</span></a>
       </div>
     </div>`;
@@ -967,6 +985,19 @@ document.getElementById('drawerSave').addEventListener('click', saveDrawer);
 document.getElementById('empSearch').addEventListener('input', e => {
   drawer.searchTerm = e.target.value;
   renderEmpList();
+});
+
+// ── Info button toggle ───────────────────────────────────────────────────────
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.info-btn');
+  if (btn) {
+    e.stopPropagation();
+    const wasOpen = btn.classList.contains('open');
+    document.querySelectorAll('.info-btn.open').forEach(b => b.classList.remove('open'));
+    if (!wasOpen) btn.classList.add('open');
+    return;
+  }
+  document.querySelectorAll('.info-btn.open').forEach(b => b.classList.remove('open'));
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
