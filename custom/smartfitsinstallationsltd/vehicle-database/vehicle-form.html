@@ -41,6 +41,7 @@
   const params = new URLSearchParams(location.search);
   const vehicleId = params.get("id");
   const isEdit = !!vehicleId;
+  const prefillReg = params.get("registration") || "";
   let _profile, _tier, _vehicle = {};
 
   try {
@@ -87,7 +88,7 @@
           <div class="form-row">
             <label class="form-label" for="f_registration">Registration *</label>
             <div style="display:flex;gap:8px">
-              <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase" value="${esc(v.registration || "")}" placeholder="e.g. AB12 CDE" autocomplete="off" required/>
+              <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase" value="${esc(v.registration || prefillReg)}" placeholder="e.g. AB12 CDE" autocomplete="off" required/>
               <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> Reg Lookup</button>
             </div>
             <p class="text-muted" style="font-size:12px;margin-top:6px">Finish typing a registration and it'll check MOT history automatically — the button forces a re-check.</p>
@@ -121,6 +122,12 @@
     document.getElementById("lookupBtn").addEventListener("click", () => doLookup());
     document.getElementById("vehForm").addEventListener("submit", onSubmit);
     wireRegistrationAutoLookup();
+
+    // Arrived here from the "Create Vehicle" link in the search modal, which
+    // only ever appears after that reg was already confirmed not to exist —
+    // run the MOT history lookup immediately rather than waiting on a
+    // keystroke that isn't coming.
+    if (prefillReg && !isEdit) handleRegistrationTyped(prefillReg);
   }
 
   function fieldInput(f, v) {

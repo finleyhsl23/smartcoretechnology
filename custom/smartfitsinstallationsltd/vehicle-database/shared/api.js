@@ -161,6 +161,16 @@ export async function getVehicleByRegistration(reg) {
   return data;
 }
 
+export async function searchVehiclesByMakeModelYear({ make, model, year } = {}) {
+  let builder = vdb().from("vdb_vehicles").select("*").order("updated_at", { ascending: false });
+  if (make) builder = builder.ilike("make", `%${make.trim()}%`);
+  if (model) builder = builder.ilike("model", `%${model.trim()}%`);
+  if (year) builder = builder.eq("year_of_manufacture", Number(year));
+  const { data, error } = await builder.limit(50);
+  if (error) throw error;
+  return data || [];
+}
+
 export async function createVehicle(patch, createdByEmployeeId) {
   const { data, error } = await vdb()
     .from("vdb_vehicles")

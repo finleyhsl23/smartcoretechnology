@@ -31,10 +31,10 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { searchVehicles, listRecentVehicles } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { searchVehicles, listRecentVehicles, getVehicleByRegistration, searchVehiclesByMakeModelYear } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
-  import { esc, setInner, loadingState, emptyState, errorState } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+  import { esc, setInner, loadingState, emptyState, errorState, modal, toast } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
 
   initTheme();
   const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
@@ -72,7 +72,7 @@
           <p>Look up a vehicle by registration, VIN, make or model to see its full install profile.</p>
         </div>
         <div class="page-head-actions">
-          ${isManagerOrAbove ? `<a class="btn btn-primary" href="${BASE}/vehicle-form.html"><i data-lucide="plus"></i> Add Vehicle</a>` : ""}
+          <button class="btn btn-primary" id="findVehicleBtn"><i data-lucide="search"></i> Search</button>
         </div>
       </div>
       <div class="search-wrap">
@@ -83,6 +83,7 @@
     `;
     setInner("body", html);
     renderResults(vehicles, query);
+    document.getElementById("findVehicleBtn").addEventListener("click", () => openFindVehicleModal(isManagerOrAbove));
 
     const input = document.getElementById("vehSearch");
     input.focus();
@@ -136,6 +137,134 @@
 
   function formatReg(reg) {
     return reg || "—";
+  }
+
+  // ── Find (or Create) Vehicle modal ───────────────────────────────────────
+  // Two search modes: by registration, or by make/model/year. "Create
+  // Vehicle" only ever appears after a registration search comes up empty —
+  // never from the make/model/year search — so a new vehicle can't be
+  // created without first confirming its reg isn't already in the database.
+  function openFindVehicleModal(isManagerOrAbove) {
+    const overlay = modal(`
+      <div class="modal-header">
+        <h3>Find a Vehicle</h3>
+        <button class="btn modal-close" aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="pill-row">
+          <button class="pill active" data-mode="reg" type="button">By Registration</button>
+          <button class="pill" data-mode="mmy" type="button">By Make, Model &amp; Year</button>
+        </div>
+
+        <div data-panel="reg">
+          <div class="form-row">
+            <label class="form-label" for="findReg">Registration</label>
+            <div style="display:flex;gap:8px">
+              <input type="text" id="findReg" class="form-input" style="text-transform:uppercase" placeholder="e.g. AB12 CDE" autocomplete="off"/>
+              <button class="btn btn-primary" id="findRegBtn" type="button" style="white-space:nowrap"><i data-lucide="search"></i> Search</button>
+            </div>
+          </div>
+          <div id="findRegResult"></div>
+        </div>
+
+        <div data-panel="mmy" style="display:none">
+          <div class="form-grid">
+            <div class="form-row"><label class="form-label" for="findMake">Make</label><input type="text" id="findMake" class="form-input" autocomplete="off"/></div>
+            <div class="form-row"><label class="form-label" for="findModel">Model</label><input type="text" id="findModel" class="form-input" autocomplete="off"/></div>
+            <div class="form-row"><label class="form-label" for="findYear">Year</label><input type="number" id="findYear" class="form-input" autocomplete="off"/></div>
+          </div>
+          <button class="btn btn-primary" id="findMmyBtn" type="button"><i data-lucide="search"></i> Search</button>
+          <div id="findMmyResult" style="margin-top:14px"></div>
+        </div>
+      </div>
+    `, {});
+    window.lucide?.createIcons?.();
+
+    overlay.querySelectorAll(".pill[data-mode]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        overlay.querySelectorAll(".pill[data-mode]").forEach(b => b.classList.toggle("active", b === btn));
+        overlay.querySelectorAll("[data-panel]").forEach(p => p.style.display = p.dataset.panel === btn.dataset.mode ? "" : "none");
+      });
+    });
+
+    const regInput = overlay.querySelector("#findReg");
+    const runRegSearch = () => searchByRegistration(overlay, regInput.value.trim(), isManagerOrAbove);
+    overlay.querySelector("#findRegBtn").addEventListener("click", runRegSearch);
+    regInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); runRegSearch(); } });
+    regInput.focus();
+
+    const runMmySearch = () => searchByMakeModelYear(overlay);
+    overlay.querySelector("#findMmyBtn").addEventListener("click", runMmySearch);
+    ["#findMake", "#findModel", "#findYear"].forEach(sel => {
+      overlay.querySelector(sel).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); runMmySearch(); } });
+    });
+  }
+
+  async function searchByRegistration(overlay, reg, isManagerOrAbove) {
+    const resultEl = overlay.querySelector("#findRegResult");
+    if (!reg) { toast("error", "Enter a registration first"); return; }
+    resultEl.innerHTML = loadingState("Searching…");
+    try {
+      const existing = await getVehicleByRegistration(reg);
+      if (existing) {
+        const title = [existing.make, existing.model, existing.year_of_manufacture].filter(Boolean).join(" ");
+        resultEl.innerHTML = `
+          <div class="card" style="margin-top:14px">
+            <span class="veh-card-reg">${esc(existing.registration)}</span>
+            <div class="veh-card-title" style="margin-top:10px">${esc(title || "Make/model not set")}</div>
+            <a class="btn btn-primary" style="margin-top:12px" href="${BASE}/vehicle-detail.html?id=${esc(existing.id)}">View Vehicle →</a>
+          </div>`;
+      } else if (isManagerOrAbove) {
+        resultEl.innerHTML = `
+          <div class="card" style="margin-top:14px;border-color:var(--warn)">
+            <p style="margin:0 0 12px">No vehicle found with registration <strong>${esc(reg.toUpperCase())}</strong>.</p>
+            <a class="btn btn-primary" href="${BASE}/vehicle-form.html?registration=${esc(reg)}"><i data-lucide="plus"></i> Create Vehicle</a>
+          </div>`;
+      } else {
+        resultEl.innerHTML = `
+          <div class="card" style="margin-top:14px;border-color:var(--warn)">
+            <p style="margin:0">No vehicle found with registration <strong>${esc(reg.toUpperCase())}</strong>. Ask a Senior Regional Engineering Manager to add it.</p>
+          </div>`;
+      }
+      window.lucide?.createIcons?.();
+    } catch (e) {
+      resultEl.innerHTML = "";
+      toast("error", "Search failed", e.message);
+    }
+  }
+
+  async function searchByMakeModelYear(overlay) {
+    const resultEl = overlay.querySelector("#findMmyResult");
+    const make = overlay.querySelector("#findMake").value.trim();
+    const model = overlay.querySelector("#findModel").value.trim();
+    const year = overlay.querySelector("#findYear").value.trim();
+    if (!make && !model && !year) { toast("error", "Enter at least a make, model or year"); return; }
+
+    resultEl.innerHTML = loadingState("Searching…");
+    try {
+      const matches = await searchVehiclesByMakeModelYear({ make, model, year });
+      if (!matches.length) {
+        resultEl.innerHTML = `
+          <div class="card" style="border-color:var(--warn)">
+            <p style="margin:0">No vehicles found for that make, model and year. Search by registration to add a new one.</p>
+          </div>`;
+        return;
+      }
+      resultEl.innerHTML = matches.map(v => {
+        const title = [v.make, v.model, v.year_of_manufacture].filter(Boolean).join(" ");
+        return `
+          <div class="veh-card" data-veh-id="${esc(v.id)}" style="margin-bottom:10px;cursor:pointer">
+            <span class="veh-card-reg">${esc(v.registration)}</span>
+            <div class="veh-card-title" style="margin-top:8px">${esc(title || "Make/model not set")}</div>
+          </div>`;
+      }).join("");
+      resultEl.querySelectorAll("[data-veh-id]").forEach(card => {
+        card.addEventListener("click", () => { window.location.href = `${BASE}/vehicle-detail.html?id=${card.dataset.vehId}`; });
+      });
+    } catch (e) {
+      resultEl.innerHTML = "";
+      toast("error", "Search failed", e.message);
+    }
   }
 </script>
 </body>
