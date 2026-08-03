@@ -8,6 +8,7 @@ function navLinksFor(tier) {
   const isManagerOrAbove = tier === "owner_admin" || tier === "manager";
   const links = [
     { id: "home", icon: "search", label: "Search Vehicles", href: `${BASE}/index.html` },
+    { id: "leaderboard", icon: "trophy", label: "Leaderboard", href: `${BASE}/leaderboard.html` },
   ];
   if (tier === "employee") {
     links.push({ id: "my-requests", icon: "send", label: "My Suggested Changes", href: `${BASE}/my-requests.html` });

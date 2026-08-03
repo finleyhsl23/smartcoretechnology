@@ -165,14 +165,54 @@ export async function getVehicle(id) {
   return data;
 }
 
+// Checks the registrations log first — this covers every plate ever logged
+// against a profile, not just each vehicle's own primary registration — and
+// falls back to a direct check on vdb_vehicles for the rare case a vehicle's
+// own reg hasn't made it into the log yet.
 export async function getVehicleByRegistration(reg) {
+  const norm = normalizeReg(reg);
+  const { data: regRow, error: regErr } = await vdb()
+    .from("vdb_vehicle_registrations")
+    .select("vehicle_id")
+    .eq("registration_norm", norm)
+    .maybeSingle();
+  if (regErr) throw regErr;
+  if (regRow) return getVehicle(regRow.vehicle_id);
+
   const { data, error } = await vdb()
     .from("vdb_vehicles")
     .select("*")
-    .eq("registration_norm", normalizeReg(reg))
+    .eq("registration_norm", norm)
     .maybeSingle();
   if (error) throw error;
   return data;
+}
+
+// ── Known registrations log (one vehicle profile can cover several plates
+// bought as an identical fleet batch) ────────────────────────────────────
+export async function listVehicleRegistrations(vehicleId) {
+  const { data, error } = await vdb()
+    .from("vdb_vehicle_registrations")
+    .select("*")
+    .eq("vehicle_id", vehicleId)
+    .order("added_at");
+  if (error) throw error;
+  return data || [];
+}
+
+export async function addVehicleRegistration(vehicleId, registration, addedByEmployeeId) {
+  const { data, error } = await vdb()
+    .from("vdb_vehicle_registrations")
+    .insert({ vehicle_id: vehicleId, registration, added_by: addedByEmployeeId })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function removeVehicleRegistration(id) {
+  const { error } = await vdb().from("vdb_vehicle_registrations").delete().eq("id", id);
+  if (error) throw error;
 }
 
 export async function searchVehiclesByMakeModelYear({ make, model, year } = {}) {
@@ -192,6 +232,9 @@ export async function createVehicle(patch, createdByEmployeeId) {
     .select()
     .single();
   if (error) throw error;
+  try {
+    await addVehicleRegistration(data.id, data.registration, createdByEmployeeId);
+  } catch { /* non-fatal — getVehicleByRegistration falls back to vdb_vehicles directly */ }
   return data;
 }
 
@@ -405,4 +448,15 @@ export async function lookupRegistration(registration) {
     throw err;
   }
   return body;
+}
+
+// ── Leaderboard — most vehicle change requests submitted ────────────────
+// Calls a SECURITY DEFINER aggregate function rather than querying
+// vdb_edit_requests directly: that table's own RLS only lets an employee see
+// their own requests (plus managers seeing everything), which isn't enough
+// to power a leaderboard everyone can see. Returns [{ employee_id, request_count }].
+export async function listChangeRequestLeaderboard() {
+  const { data, error } = await vdb().rpc("vdb_change_request_leaderboard");
+  if (error) throw error;
+  return data || [];
 }
