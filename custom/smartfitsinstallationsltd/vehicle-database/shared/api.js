@@ -375,6 +375,10 @@ export async function lookupRegistration(registration) {
     body: JSON.stringify({ registration: normalizeReg(registration) }),
   });
   const body = await res.json();
-  if (!res.ok || body.error) throw new Error(body.error || "Lookup failed");
+  if (!res.ok || body.error) {
+    const err = new Error(body.error || "Lookup failed");
+    err.status = res.status;
+    throw err;
+  }
   return body;
 }

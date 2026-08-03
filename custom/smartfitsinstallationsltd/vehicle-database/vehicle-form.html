@@ -31,7 +31,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { getVehicle, createVehicle, updateVehicle, lookupRegistration, FIELD_GROUPS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { getVehicle, createVehicle, updateVehicle, lookupRegistration, getVehicleByRegistration, FIELD_GROUPS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
   import { esc, setInner, loadingState, errorState, toast, permissionDeniedState } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
@@ -87,10 +87,12 @@
           <div class="form-row">
             <label class="form-label" for="f_registration">Registration *</label>
             <div style="display:flex;gap:8px">
-              <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase" value="${esc(v.registration || "")}" placeholder="e.g. AB12 CDE" required/>
+              <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase" value="${esc(v.registration || "")}" placeholder="e.g. AB12 CDE" autocomplete="off" required/>
               <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> Reg Lookup</button>
             </div>
-            <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:6px"></p>
+            <p class="text-muted" style="font-size:12px;margin-top:6px">Finish typing a registration and it'll check MOT history automatically — the button forces a re-check.</p>
+            <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:2px"></p>
+            <div id="dupStatus"></div>
           </div>
           <div class="form-grid">
             ${fieldInput({ key: "vin", label: "VIN" }, v)}
@@ -116,8 +118,9 @@
     `;
     setInner("body", html);
 
-    document.getElementById("lookupBtn").addEventListener("click", doLookup);
+    document.getElementById("lookupBtn").addEventListener("click", () => doLookup());
     document.getElementById("vehForm").addEventListener("submit", onSubmit);
+    wireRegistrationAutoLookup();
   }
 
   function fieldInput(f, v) {
@@ -128,10 +131,60 @@
     return `<div class="form-row"><label class="form-label" for="f_${f.key}">${esc(f.label)}</label><input type="${f.type === "number" ? "number" : "text"}" id="f_${f.key}" class="form-input" data-field="${f.key}" value="${esc(value)}"/></div>`;
   }
 
-  async function doLookup() {
-    const reg = document.getElementById("f_registration").value.trim();
+  let _lookupTimer = null;
+  let _lastAutoCheckedReg = null;
+
+  // Fires on every keystroke in the registration field (debounced): checks
+  // whether this vehicle is already in our own database first (no point
+  // auto-filling a form for a duplicate — send them to the existing record
+  // instead), then runs the DVSA MOT history lookup automatically.
+  function wireRegistrationAutoLookup() {
+    const input = document.getElementById("f_registration");
+    input.addEventListener("input", () => {
+      clearTimeout(_lookupTimer);
+      const dupEl = document.getElementById("dupStatus");
+      const statusEl = document.getElementById("lookupStatus");
+      if (dupEl) dupEl.innerHTML = "";
+      if (statusEl) statusEl.textContent = "";
+
+      const normalized = input.value.toUpperCase().replace(/\s+/g, "");
+      if (normalized.length < 4) return;
+
+      _lookupTimer = setTimeout(() => handleRegistrationTyped(input.value), 700);
+    });
+  }
+
+  async function handleRegistrationTyped(reg) {
+    const normalized = reg.toUpperCase().replace(/\s+/g, "");
+    if (normalized === _lastAutoCheckedReg) return;
+    _lastAutoCheckedReg = normalized;
+
+    if (!isEdit) {
+      const dupEl = document.getElementById("dupStatus");
+      try {
+        const existing = await getVehicleByRegistration(reg);
+        if (existing) {
+          const title = [existing.make, existing.model].filter(Boolean).join(" ");
+          dupEl.innerHTML = `
+            <div class="card" style="border-color:var(--warn);margin-top:10px;padding:12px 14px">
+              <strong style="color:var(--warn)">Already in the database</strong>
+              <p style="margin:4px 0 10px;font-size:12.5px">${esc(existing.registration)}${title ? " — " + esc(title) : ""}</p>
+              <a class="btn" href="${BASE}/vehicle-detail.html?id=${esc(existing.id)}">View existing record →</a>
+            </div>`;
+          window.lucide?.createIcons?.();
+          return; // skip the DVSA autofill — this is a known duplicate
+        }
+        dupEl.innerHTML = "";
+      } catch { /* duplicate check failing shouldn't block the lookup */ }
+    }
+
+    await doLookup(reg, { silent: true });
+  }
+
+  async function doLookup(regOverride, { silent = false } = {}) {
+    const reg = (regOverride ?? document.getElementById("f_registration").value).trim();
     const statusEl = document.getElementById("lookupStatus");
-    if (!reg) { toast("error", "Enter a registration first"); return; }
+    if (!reg) { if (!silent) toast("error", "Enter a registration first"); return; }
     statusEl.textContent = "Looking up…";
     try {
       const result = await lookupRegistration(reg);
@@ -144,10 +197,17 @@
       _vehicle.lookup_raw = result;
       _vehicle.lookup_looked_up_at = new Date().toISOString();
       statusEl.textContent = "Filled in from MOT history — check the details before saving.";
-      toast("success", "Details filled in", "Make, model, year, colour and fuel type updated from MOT history.");
+      if (!silent) toast("success", "Details filled in", "Make, model, year, colour and fuel type updated from MOT history.");
     } catch (e) {
-      statusEl.textContent = "";
-      toast("error", "Lookup failed", e.message);
+      if (e.status === 404) {
+        // Expected for brand-new vehicles that haven't had a first MOT yet —
+        // not really an "error", so no toast when this fired automatically.
+        statusEl.textContent = e.message;
+        if (!silent) toast("info", "No MOT history found", e.message);
+      } else {
+        statusEl.textContent = "";
+        toast("error", "Lookup failed", e.message);
+      }
     }
   }
 
