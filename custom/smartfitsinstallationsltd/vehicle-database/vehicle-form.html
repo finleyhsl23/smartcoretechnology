@@ -85,43 +85,43 @@
 
   function draw() {
     const v = _vehicle;
-    const identityGroup = FIELD_GROUPS[0];
-    const identityAccent = `accent-${identityGroup.color}`;
 
     const html = `
       <a class="back-link" href="${isEdit ? `${BASE}/vehicle-detail.html?id=${esc(vehicleId)}` : `${BASE}/index.html`}"><i data-lucide="arrow-left"></i> ${isEdit ? "Back to vehicle" : "Back to search"}</a>
       <div class="page-head"><div><h2>${isEdit ? "Edit Vehicle" : "Add Vehicle"}</h2><p>Registration/VIN identify the vehicle; everything else is install reference data for engineers.</p></div></div>
 
       <form id="vehForm">
-        <div class="vform-field ${identityAccent}" style="margin-bottom:18px">
-          <label class="form-label" for="f_registration">Registration *</label>
-          <div style="display:flex;gap:8px">
-            <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase;flex:none" value="${esc(v.registration || prefillReg)}" placeholder="e.g. AB12 CDE" autocomplete="off" required/>
-            <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> Reg Lookup</button>
-          </div>
-          <p class="text-muted" style="font-size:12px;margin-top:8px">Finish typing (or click away from) the registration and it'll check MOT history automatically — the button forces a re-check.</p>
-          <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:2px"></p>
-          <div id="dupStatus"></div>
-        </div>
-
-        <div class="vform-grid" style="margin-bottom:18px">
-          ${fieldInput({ key: "vin", label: "VIN" }, v, identityAccent)}
-          ${fieldInput({ key: "make", label: "Make" }, v, identityAccent)}
-          ${fieldInput({ key: "model", label: "Model" }, v, identityAccent)}
-          ${fieldInput({ key: "year_of_manufacture", label: "Year", type: "number" }, v, identityAccent)}
-          ${fieldInput({ key: "colour", label: "Colour" }, v, identityAccent)}
-          ${fieldInput({ key: "fuel_type", label: "Fuel Type" }, v, identityAccent)}
-        </div>
-
-        ${FIELD_GROUPS.slice(1).map(group => {
-          const accent = `accent-${group.color}`;
-          return `
-            <div class="section-header"><div class="section-header-icon ${accent}"><i data-lucide="${groupIcon(group.title)}"></i></div><h3>${esc(group.title)}</h3></div>
-            <div class="vform-grid" style="margin-bottom:18px">
-              ${group.fields.map(f => fieldInput(f, v, accent)).join("")}
+        <div class="section-header"><div class="section-header-icon"><i data-lucide="id-card"></i></div><h3>Vehicle Identity</h3></div>
+        <div class="card" style="margin-bottom:24px">
+          <div class="vform-row" style="margin-bottom:20px">
+            <label class="form-label" for="f_registration">Registration *</label>
+            <div style="display:flex;gap:8px">
+              <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase;flex:none" value="${esc(v.registration || prefillReg)}" placeholder="e.g. AB12 CDE" autocomplete="off" required/>
+              <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> Reg Lookup</button>
             </div>
-          `;
-        }).join("")}
+            <p class="text-muted" style="font-size:12px;margin-top:8px">Finish typing (or click away from) the registration and it'll check MOT history automatically — the button forces a re-check.</p>
+            <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:2px"></p>
+            <div id="dupStatus"></div>
+          </div>
+
+          <div class="vform-grid">
+            ${fieldInput({ key: "vin", label: "VIN" }, v)}
+            ${fieldInput({ key: "make", label: "Make" }, v)}
+            ${fieldInput({ key: "model", label: "Model" }, v)}
+            ${fieldInput({ key: "year_of_manufacture", label: "Year", type: "number" }, v)}
+            ${fieldInput({ key: "colour", label: "Colour" }, v)}
+            ${fieldInput({ key: "fuel_type", label: "Fuel Type" }, v)}
+          </div>
+        </div>
+
+        ${FIELD_GROUPS.slice(1).map(group => `
+          <div class="section-header"><div class="section-header-icon"><i data-lucide="${groupIcon(group.title)}"></i></div><h3>${esc(group.title)}</h3></div>
+          <div class="card" style="margin-bottom:24px">
+            <div class="vform-grid">
+              ${group.fields.map(f => fieldInput(f, v)).join("")}
+            </div>
+          </div>
+        `).join("")}
 
         <button type="submit" class="btn btn-primary" id="saveBtn"><i data-lucide="save"></i> ${isEdit ? "Save Changes" : "Add Vehicle"}</button>
       </form>
@@ -147,14 +147,14 @@
     return "clipboard-list";
   }
 
-  function fieldInput(f, v, accentClass) {
+  function fieldInput(f, v) {
     const value = v[f.key] ?? "";
     const inputHtml = f.type === "textarea"
       ? `<textarea id="f_${f.key}" class="form-input" data-field="${f.key}">${esc(value)}</textarea>`
       : `<input type="${f.type === "number" ? "number" : "text"}" id="f_${f.key}" class="form-input" data-field="${f.key}" value="${esc(value)}"/>`;
     const photoHtml = f.photoCategory ? `<div class="vform-field-photos" id="photoStrip_${f.photoCategory}"></div>` : "";
     return `
-      <div class="vform-field ${accentClass}">
+      <div class="vform-row">
         <label class="form-label" for="f_${f.key}">${esc(f.label)}</label>
         ${inputHtml}
         ${photoHtml}
