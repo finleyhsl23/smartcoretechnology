@@ -43,13 +43,13 @@ export async function getProfile() {
 
 function renderBlockScreen({ icon, title, message }) {
   document.body.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#05081a;color:#e9f0ff;font-family:'Inter',system-ui">
+    <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:radial-gradient(1100px 760px at 6% -8%, rgba(224,16,42,.38), transparent 60%), linear-gradient(165deg, #000 0%, #1a0509 40%, #0a0507 72%, #000 100%);color:#f5f1f2;font-family:'Inter',system-ui">
       <div style="text-align:center;max-width:440px;padding:24px">
         <div style="font-size:48px;margin-bottom:16px">${icon}</div>
         <h2 style="font-size:20px;margin-bottom:8px">${title}</h2>
-        <p style="color:rgba(233,240,255,.6);margin-bottom:20px">${message}</p>
-        <a href="/modules/" style="background:#1e5cff;color:#fff;padding:10px 24px;border-radius:99px;text-decoration:none;font-weight:600;margin-right:8px">← Back to Modules</a>
-        <button id="logoutBtn" style="background:#374151;color:#fff;padding:10px 24px;border-radius:99px;border:none;cursor:pointer;font-weight:600">Sign Out</button>
+        <p style="color:rgba(245,241,242,.6);margin-bottom:20px">${message}</p>
+        <a href="/modules/" style="background:linear-gradient(135deg,#ff3d5a,#b0091f);color:#fff;padding:10px 24px;border-radius:99px;text-decoration:none;font-weight:600;margin-right:8px">← Back to Modules</a>
+        <button id="logoutBtn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:#fff;padding:10px 24px;border-radius:99px;cursor:pointer;font-weight:600">Sign Out</button>
       </div>
     </div>`;
   document.getElementById("logoutBtn")?.addEventListener("click", async () => {
