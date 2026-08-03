@@ -19,6 +19,7 @@ export const PHOTO_CATEGORIES = [
 export const FIELD_GROUPS = [
   {
     title: "Vehicle Identity",
+    color: "blue",
     fields: [
       { key: "registration",        label: "Registration", required: true },
       { key: "vin",                 label: "VIN" },
@@ -31,26 +32,29 @@ export const FIELD_GROUPS = [
   },
   {
     title: "Wiring & Electrical",
+    color: "amber",
     fields: [
       { key: "ignition_wire_colour",   label: "Ignition Wire Colour" },
-      { key: "ignition_wire_location", label: "Ignition Wire — Exact Location", type: "textarea" },
+      { key: "ignition_wire_location", label: "Ignition Wire — Exact Location", type: "textarea", photoCategory: "ignition_wire" },
       { key: "fuse_tap_options",       label: "Fuse Tap Options", type: "textarea" },
       { key: "can_high_colour",        label: "CAN High Colour" },
       { key: "can_low_colour",         label: "CAN Low Colour" },
-      { key: "earth_point_location",   label: "Earth Point Location", type: "textarea" },
+      { key: "earth_point_location",   label: "Earth Point Location", type: "textarea", photoCategory: "earth_point" },
     ],
   },
   {
     title: "Component Placement",
+    color: "purple",
     fields: [
-      { key: "airbag_location",           label: "Airbag Location(s)", type: "textarea" },
-      { key: "adas_camera_position",      label: "ADAS Camera Position", type: "textarea" },
-      { key: "dashcam_mounting_location", label: "Best Dashcam Mounting Location", type: "textarea" },
-      { key: "tracker_mounting_location", label: "Best Tracker Mounting Location", type: "textarea" },
+      { key: "airbag_location",           label: "Airbag Location(s)", type: "textarea", photoCategory: "airbag" },
+      { key: "adas_camera_position",      label: "ADAS Camera Position", type: "textarea", photoCategory: "adas_camera" },
+      { key: "dashcam_mounting_location", label: "Best Dashcam Mounting Location", type: "textarea", photoCategory: "dashcam_mounting" },
+      { key: "tracker_mounting_location", label: "Best Tracker Mounting Location", type: "textarea", photoCategory: "tracker_mounting" },
     ],
   },
   {
     title: "Install Notes",
+    color: "teal",
     fields: [
       { key: "installation_time", label: "Installation Time" },
       { key: "special_notes",     label: "Special Notes", type: "textarea" },

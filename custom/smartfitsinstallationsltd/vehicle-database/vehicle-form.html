@@ -31,10 +31,13 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { getVehicle, createVehicle, updateVehicle, lookupRegistration, getVehicleByRegistration, FIELD_GROUPS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import {
+    getVehicle, createVehicle, updateVehicle, lookupRegistration, getVehicleByRegistration, FIELD_GROUPS,
+    listVehiclePhotos, uploadVehiclePhoto, deleteVehiclePhoto, getPhotoUrl,
+  } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
-  import { esc, setInner, loadingState, errorState, toast, permissionDeniedState } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+  import { esc, setInner, loadingState, errorState, toast, confirmDialog, permissionDeniedState } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
 
   initTheme();
   const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
@@ -43,6 +46,8 @@
   const isEdit = !!vehicleId;
   const prefillReg = params.get("registration") || "";
   let _profile, _tier, _vehicle = {};
+  let _existingPhotos = [];
+  let _stagedPhotos = []; // add mode only: [{ id, category, file, previewUrl }] uploaded after createVehicle succeeds
 
   try {
     const { profile, tier } = await requireModuleAccess();
@@ -68,6 +73,7 @@
       try {
         _vehicle = await getVehicle(vehicleId);
         if (!_vehicle) { setInner("body", errorState({ title: "Vehicle not found" })); return; }
+        _existingPhotos = await listVehiclePhotos(vehicleId);
       } catch (e) {
         setInner("body", errorState({ title: "Couldn't load vehicle", message: e.message }));
         return;
@@ -79,40 +85,43 @@
 
   function draw() {
     const v = _vehicle;
+    const identityGroup = FIELD_GROUPS[0];
+    const identityAccent = `accent-${identityGroup.color}`;
+
     const html = `
       <a class="back-link" href="${isEdit ? `${BASE}/vehicle-detail.html?id=${esc(vehicleId)}` : `${BASE}/index.html`}"><i data-lucide="arrow-left"></i> ${isEdit ? "Back to vehicle" : "Back to search"}</a>
       <div class="page-head"><div><h2>${isEdit ? "Edit Vehicle" : "Add Vehicle"}</h2><p>Registration/VIN identify the vehicle; everything else is install reference data for engineers.</p></div></div>
 
       <form id="vehForm">
-        <div class="card" style="margin-bottom:18px">
-          <div class="form-row">
-            <label class="form-label" for="f_registration">Registration *</label>
-            <div style="display:flex;gap:8px">
-              <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase" value="${esc(v.registration || prefillReg)}" placeholder="e.g. AB12 CDE" autocomplete="off" required/>
-              <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> Reg Lookup</button>
-            </div>
-            <p class="text-muted" style="font-size:12px;margin-top:6px">Finish typing a registration and it'll check MOT history automatically — the button forces a re-check.</p>
-            <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:2px"></p>
-            <div id="dupStatus"></div>
+        <div class="vform-field ${identityAccent}" style="margin-bottom:18px">
+          <label class="form-label" for="f_registration">Registration *</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase;flex:none" value="${esc(v.registration || prefillReg)}" placeholder="e.g. AB12 CDE" autocomplete="off" required/>
+            <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> Reg Lookup</button>
           </div>
-          <div class="form-grid">
-            ${fieldInput({ key: "vin", label: "VIN" }, v)}
-            ${fieldInput({ key: "make", label: "Make" }, v)}
-            ${fieldInput({ key: "model", label: "Model" }, v)}
-            ${fieldInput({ key: "year_of_manufacture", label: "Year", type: "number" }, v)}
-            ${fieldInput({ key: "colour", label: "Colour" }, v)}
-            ${fieldInput({ key: "fuel_type", label: "Fuel Type" }, v)}
-          </div>
+          <p class="text-muted" style="font-size:12px;margin-top:8px">Finish typing (or click away from) the registration and it'll check MOT history automatically — the button forces a re-check.</p>
+          <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:2px"></p>
+          <div id="dupStatus"></div>
         </div>
 
-        ${FIELD_GROUPS.slice(1).map(group => `
-          <div class="section-header"><h3>${esc(group.title)}</h3></div>
-          <div class="card" style="margin-bottom:18px">
-            <div class="form-grid">
-              ${group.fields.map(f => fieldInput(f, v)).join("")}
+        <div class="vform-grid" style="margin-bottom:18px">
+          ${fieldInput({ key: "vin", label: "VIN" }, v, identityAccent)}
+          ${fieldInput({ key: "make", label: "Make" }, v, identityAccent)}
+          ${fieldInput({ key: "model", label: "Model" }, v, identityAccent)}
+          ${fieldInput({ key: "year_of_manufacture", label: "Year", type: "number" }, v, identityAccent)}
+          ${fieldInput({ key: "colour", label: "Colour" }, v, identityAccent)}
+          ${fieldInput({ key: "fuel_type", label: "Fuel Type" }, v, identityAccent)}
+        </div>
+
+        ${FIELD_GROUPS.slice(1).map(group => {
+          const accent = `accent-${group.color}`;
+          return `
+            <div class="section-header"><div class="section-header-icon ${accent}"><i data-lucide="${groupIcon(group.title)}"></i></div><h3>${esc(group.title)}</h3></div>
+            <div class="vform-grid" style="margin-bottom:18px">
+              ${group.fields.map(f => fieldInput(f, v, accent)).join("")}
             </div>
-          </div>
-        `).join("")}
+          `;
+        }).join("")}
 
         <button type="submit" class="btn btn-primary" id="saveBtn"><i data-lucide="save"></i> ${isEdit ? "Save Changes" : "Add Vehicle"}</button>
       </form>
@@ -123,6 +132,8 @@
     document.getElementById("vehForm").addEventListener("submit", onSubmit);
     wireRegistrationAutoLookup();
 
+    FIELD_GROUPS.flatMap(g => g.fields).filter(f => f.photoCategory).forEach(f => renderPhotoStrip(f.photoCategory));
+
     // Arrived here from the "Create Vehicle" link in the search modal, which
     // only ever appears after that reg was already confirmed not to exist —
     // run the MOT history lookup immediately rather than waiting on a
@@ -130,21 +141,109 @@
     if (prefillReg && !isEdit) handleRegistrationTyped(prefillReg);
   }
 
-  function fieldInput(f, v) {
+  function groupIcon(title) {
+    if (title.includes("Wiring")) return "zap";
+    if (title.includes("Placement")) return "map-pin";
+    return "clipboard-list";
+  }
+
+  function fieldInput(f, v, accentClass) {
     const value = v[f.key] ?? "";
-    if (f.type === "textarea") {
-      return `<div class="form-row"><label class="form-label" for="f_${f.key}">${esc(f.label)}</label><textarea id="f_${f.key}" class="form-input" data-field="${f.key}">${esc(value)}</textarea></div>`;
+    const inputHtml = f.type === "textarea"
+      ? `<textarea id="f_${f.key}" class="form-input" data-field="${f.key}">${esc(value)}</textarea>`
+      : `<input type="${f.type === "number" ? "number" : "text"}" id="f_${f.key}" class="form-input" data-field="${f.key}" value="${esc(value)}"/>`;
+    const photoHtml = f.photoCategory ? `<div class="vform-field-photos" id="photoStrip_${f.photoCategory}"></div>` : "";
+    return `
+      <div class="vform-field ${accentClass}">
+        <label class="form-label" for="f_${f.key}">${esc(f.label)}</label>
+        ${inputHtml}
+        ${photoHtml}
+      </div>`;
+  }
+
+  // ── Inline per-field photo attachment ────────────────────────────────────
+  // Editing an existing vehicle uploads/deletes photos immediately (the
+  // vehicle_id already exists). Adding a new one stages File objects locally
+  // (with an instant local preview) and uploads them right after the vehicle
+  // row is created in onSubmit — storage paths are keyed by vehicle_id, which
+  // doesn't exist yet.
+  async function renderPhotoStrip(category) {
+    const container = document.getElementById(`photoStrip_${category}`);
+    if (!container) return;
+    const existing = isEdit ? _existingPhotos.filter(p => p.category === category) : [];
+    const staged = _stagedPhotos.filter(p => p.category === category);
+
+    container.innerHTML = `
+      ${existing.map(p => `
+        <div class="photo-thumb photo-thumb-sm" data-existing-id="${esc(p.id)}">
+          <img loading="lazy" alt=""/>
+          <span class="photo-remove" data-remove-existing="${esc(p.id)}" data-path="${esc(p.storage_path)}"><i data-lucide="x"></i></span>
+        </div>`).join("")}
+      ${staged.map(p => `
+        <div class="photo-thumb photo-thumb-sm" data-staged-id="${esc(p.id)}">
+          <img src="${esc(p.previewUrl)}" alt=""/>
+          <span class="photo-remove" data-remove-staged="${esc(p.id)}"><i data-lucide="x"></i></span>
+        </div>`).join("")}
+      <label class="photo-add-btn photo-add-btn-sm" title="Add photo"><i data-lucide="camera"></i><input type="file" accept="image/*" data-photo-cat="${esc(category)}" hidden/></label>
+    `;
+    window.lucide?.createIcons?.();
+
+    for (const p of existing) {
+      try {
+        const url = await getPhotoUrl(p.storage_path);
+        const img = container.querySelector(`[data-existing-id="${p.id}"] img`);
+        if (img) img.src = url;
+      } catch { /* thumbnail failing to load isn't fatal */ }
     }
-    return `<div class="form-row"><label class="form-label" for="f_${f.key}">${esc(f.label)}</label><input type="${f.type === "number" ? "number" : "text"}" id="f_${f.key}" class="form-input" data-field="${f.key}" value="${esc(value)}"/></div>`;
+
+    container.querySelector("[data-photo-cat]").addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (isEdit) {
+        try {
+          await uploadVehiclePhoto(vehicleId, category, file, _profile.id);
+          _existingPhotos = await listVehiclePhotos(vehicleId);
+          renderPhotoStrip(category);
+        } catch (err) {
+          toast("error", "Upload failed", err.message);
+        }
+      } else {
+        _stagedPhotos.push({ id: crypto.randomUUID(), category, file, previewUrl: URL.createObjectURL(file) });
+        renderPhotoStrip(category);
+      }
+    });
+
+    container.querySelectorAll("[data-remove-existing]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        confirmDialog("Remove photo?", "This photo will be permanently deleted.", async () => {
+          try {
+            await deleteVehiclePhoto(btn.dataset.removeExisting, btn.dataset.path);
+            _existingPhotos = _existingPhotos.filter(p => p.id !== btn.dataset.removeExisting);
+            renderPhotoStrip(category);
+          } catch (err) {
+            toast("error", "Couldn't remove photo", err.message);
+          }
+        }, { confirmLabel: "Remove" });
+      });
+    });
+
+    container.querySelectorAll("[data-remove-staged]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _stagedPhotos = _stagedPhotos.filter(p => p.id !== btn.dataset.removeStaged);
+        renderPhotoStrip(category);
+      });
+    });
   }
 
   let _lookupTimer = null;
   let _lastAutoCheckedReg = null;
 
-  // Fires on every keystroke in the registration field (debounced): checks
-  // whether this vehicle is already in our own database first (no point
-  // auto-filling a form for a duplicate — send them to the existing record
-  // instead), then runs the DVSA MOT history lookup automatically.
+  // Fires on every keystroke in the registration field (debounced ~350ms —
+  // fast enough to feel instant without spamming a request per keystroke),
+  // and immediately on blur/tab-away with no wait at all. Checks whether
+  // this vehicle is already in our own database first (no point auto-filling
+  // a form for a duplicate — send them to the existing record instead), then
+  // runs the DVSA MOT history lookup automatically.
   function wireRegistrationAutoLookup() {
     const input = document.getElementById("f_registration");
     input.addEventListener("input", () => {
@@ -157,7 +256,12 @@
       const normalized = input.value.toUpperCase().replace(/\s+/g, "");
       if (normalized.length < 4) return;
 
-      _lookupTimer = setTimeout(() => handleRegistrationTyped(input.value), 700);
+      _lookupTimer = setTimeout(() => handleRegistrationTyped(input.value), 350);
+    });
+    input.addEventListener("blur", () => {
+      clearTimeout(_lookupTimer);
+      const normalized = input.value.toUpperCase().replace(/\s+/g, "");
+      if (normalized.length >= 4) handleRegistrationTyped(input.value);
     });
   }
 
@@ -247,6 +351,10 @@
         window.location.href = `${BASE}/vehicle-detail.html?id=${vehicleId}`;
       } else {
         const created = await createVehicle(patch, _profile.id);
+        for (const p of _stagedPhotos) {
+          try { await uploadVehiclePhoto(created.id, p.category, p.file, _profile.id); }
+          catch (err) { toast("error", `Couldn't upload a photo (${p.category.replace(/_/g, " ")})`, err.message); }
+        }
         toast("success", "Vehicle added");
         window.location.href = `${BASE}/vehicle-detail.html?id=${created.id}`;
       }
