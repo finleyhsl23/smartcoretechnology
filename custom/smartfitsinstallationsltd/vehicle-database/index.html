@@ -31,7 +31,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { searchVehicles, listRecentVehicles, getVehicleByRegistration, searchVehiclesByMakeModelYear } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { searchVehicles, listRecentVehicles, getVehicleByRegistration, searchVehiclesByMakeModelYear, lookupRegistration } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
   import { esc, setInner, loadingState, emptyState, errorState, modal, toast } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
@@ -214,23 +214,63 @@
             <div class="veh-card-title" style="margin-top:10px">${esc(title || "Make/model not set")}</div>
             <a class="btn btn-primary" style="margin-top:12px" href="${BASE}/vehicle-detail.html?id=${esc(existing.id)}">View Vehicle →</a>
           </div>`;
-      } else if (isManagerOrAbove) {
-        resultEl.innerHTML = `
-          <div class="card" style="margin-top:14px;border-color:var(--warn)">
-            <p style="margin:0 0 12px">No vehicle found with registration <strong>${esc(reg.toUpperCase())}</strong>.</p>
-            <a class="btn btn-primary" href="${BASE}/vehicle-form.html?registration=${esc(reg)}"><i data-lucide="plus"></i> Create Vehicle</a>
-          </div>`;
-      } else {
-        resultEl.innerHTML = `
-          <div class="card" style="margin-top:14px;border-color:var(--warn)">
-            <p style="margin:0">No vehicle found with registration <strong>${esc(reg.toUpperCase())}</strong>. Ask a Senior Regional Engineering Manager to add it.</p>
-          </div>`;
+        window.lucide?.createIcons?.();
+        return;
       }
-      window.lucide?.createIcons?.();
+
+      // No exact reg match — look this reg up via DVSA to find its
+      // make/model/year, then check whether we already hold any vehicle
+      // matching that make/model/year. Fleets are often bought as identical
+      // batches, so an existing sibling vehicle's install details are
+      // usually a good match even though the reg itself is new.
+      let similar = [];
+      let looked = null;
+      try {
+        looked = await lookupRegistration(reg);
+        const year = looked.manufactureYear || (looked.manufactureDate || looked.registrationDate || "").split(/[.-]/)[0];
+        if (looked.make || looked.model || year) {
+          similar = await searchVehiclesByMakeModelYear({ make: looked.make, model: looked.model, year });
+        }
+      } catch { /* DVSA lookup failing shouldn't block the "not found" state below */ }
+
+      renderRegNotFound(resultEl, reg, isManagerOrAbove, similar, looked);
     } catch (e) {
       resultEl.innerHTML = "";
       toast("error", "Search failed", e.message);
     }
+  }
+
+  function renderRegNotFound(resultEl, reg, isManagerOrAbove, similar, looked) {
+    const createBtn = isManagerOrAbove
+      ? `<a class="btn btn-primary" href="${BASE}/vehicle-form.html?registration=${esc(reg)}"><i data-lucide="plus"></i> Create Vehicle</a>`
+      : "";
+
+    let similarHtml = "";
+    if (similar.length) {
+      const mmyTitle = [looked?.make, looked?.model].filter(Boolean).join(" ");
+      similarHtml = `
+        <p style="margin:14px 0 8px;font-size:13px;font-weight:700">Same make/model/year already in the database${mmyTitle ? ` (${esc(mmyTitle)})` : ""}:</p>
+        ${similar.map(v => {
+          const title = [v.make, v.model, v.year_of_manufacture].filter(Boolean).join(" ");
+          return `
+            <div class="veh-card" data-veh-id="${esc(v.id)}" style="margin-bottom:8px;cursor:pointer">
+              <span class="veh-card-reg">${esc(v.registration)}</span>
+              <div class="veh-card-title" style="margin-top:8px">${esc(title || "Make/model not set")}</div>
+            </div>`;
+        }).join("")}`;
+    }
+
+    resultEl.innerHTML = `
+      <div class="card" style="margin-top:14px;border-color:var(--warn)">
+        <p style="margin:0${createBtn ? " 0 12px" : ""}">No vehicle found with registration <strong>${esc(reg.toUpperCase())}</strong>${isManagerOrAbove ? "." : ". Ask a Senior Regional Engineering Manager to add it."}</p>
+        ${createBtn}
+        ${similarHtml}
+      </div>`;
+
+    resultEl.querySelectorAll("[data-veh-id]").forEach(card => {
+      card.addEventListener("click", () => { window.location.href = `${BASE}/vehicle-detail.html?id=${card.dataset.vehId}`; });
+    });
+    window.lucide?.createIcons?.();
   }
 
   async function searchByMakeModelYear(overlay) {
