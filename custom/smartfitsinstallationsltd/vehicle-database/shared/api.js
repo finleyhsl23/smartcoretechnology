@@ -203,7 +203,7 @@ export async function listVehicleRegistrations(vehicleId) {
 export async function addVehicleRegistration(vehicleId, registration, addedByEmployeeId) {
   const { data, error } = await vdb()
     .from("vdb_vehicle_registrations")
-    .insert({ vehicle_id: vehicleId, registration, added_by: addedByEmployeeId })
+    .insert({ vehicle_id: vehicleId, registration: registration.trim().toUpperCase(), added_by: addedByEmployeeId })
     .select()
     .single();
   if (error) throw error;
@@ -226,9 +226,10 @@ export async function searchVehiclesByMakeModelYear({ make, model, year } = {}) 
 }
 
 export async function createVehicle(patch, createdByEmployeeId) {
+  const normalizedPatch = patch.registration ? { ...patch, registration: patch.registration.trim().toUpperCase() } : patch;
   const { data, error } = await vdb()
     .from("vdb_vehicles")
-    .insert({ ...patch, created_by: createdByEmployeeId, updated_by: createdByEmployeeId })
+    .insert({ ...normalizedPatch, created_by: createdByEmployeeId, updated_by: createdByEmployeeId })
     .select()
     .single();
   if (error) throw error;
@@ -239,9 +240,10 @@ export async function createVehicle(patch, createdByEmployeeId) {
 }
 
 export async function updateVehicle(id, patch, updatedByEmployeeId) {
+  const normalizedPatch = patch.registration ? { ...patch, registration: patch.registration.trim().toUpperCase() } : patch;
   const { data, error } = await vdb()
     .from("vdb_vehicles")
-    .update({ ...patch, updated_by: updatedByEmployeeId })
+    .update({ ...normalizedPatch, updated_by: updatedByEmployeeId })
     .eq("id", id)
     .select()
     .single();
