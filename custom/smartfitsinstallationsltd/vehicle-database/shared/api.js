@@ -7,6 +7,8 @@ const SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
 // ── Field + category definitions (shared across every page so the form,
 // detail view, and diff view can never drift out of sync) ──────────────────
 export const PHOTO_CATEGORIES = [
+  { key: "front",              label: "Front of Vehicle" },
+  { key: "back",               label: "Back of Vehicle" },
   { key: "ignition_wire",      label: "Ignition Wire Location" },
   { key: "earth_point",        label: "Earth Point" },
   { key: "airbag",             label: "Airbag Location" },
@@ -14,6 +16,14 @@ export const PHOTO_CATEGORIES = [
   { key: "dashcam_mounting",   label: "Dashcam Mounting Location" },
   { key: "tracker_mounting",   label: "Tracker Mounting Location" },
   { key: "general",            label: "General / Other" },
+];
+
+// A vehicle's body variant matters because a facelift usually changes the
+// front/rear styling — the front/back photos taken alongside it only really
+// make sense once you know which variant they're showing.
+export const BODY_VARIANTS = [
+  { key: "standard", label: "Standard" },
+  { key: "facelift", label: "Facelift" },
 ];
 
 export const FIELD_GROUPS = [

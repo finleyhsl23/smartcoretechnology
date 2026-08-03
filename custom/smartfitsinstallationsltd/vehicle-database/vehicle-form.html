@@ -33,11 +33,11 @@
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
   import {
     getVehicle, createVehicle, updateVehicle, lookupRegistration, getVehicleByRegistration, FIELD_GROUPS,
-    listVehiclePhotos, uploadVehiclePhoto, deleteVehiclePhoto, getPhotoUrl,
+    listVehiclePhotos, uploadVehiclePhoto, deleteVehiclePhoto, getPhotoUrl, BODY_VARIANTS,
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
-  import { esc, setInner, loadingState, errorState, toast, confirmDialog, permissionDeniedState } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+  import { esc, setInner, loadingState, errorState, toast, confirmDialog, permissionDeniedState, modal } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
 
   initTheme();
   const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
@@ -112,6 +112,12 @@
             ${fieldInput({ key: "colour", label: "Colour" }, v)}
             ${fieldInput({ key: "fuel_type", label: "Fuel Type" }, v)}
           </div>
+
+          <div class="vform-row" style="margin-top:20px">
+            <label class="form-label">Body Variant *</label>
+            <p class="text-muted" style="font-size:12px;margin:0 0 10px">Standard or facelift, plus a front and back photo — a facelift usually changes how the front/rear look, so this makes the photos meaningful on their own.</p>
+            <div id="bodyVariantSummary"></div>
+          </div>
         </div>
 
         ${FIELD_GROUPS.slice(1).map(group => `
@@ -133,6 +139,7 @@
     wireRegistrationAutoLookup();
 
     FIELD_GROUPS.flatMap(g => g.fields).filter(f => f.photoCategory).forEach(f => renderPhotoStrip(f.photoCategory));
+    renderBodyVariantSummary();
 
     // Arrived here from the "Create Vehicle" link in the search modal, which
     // only ever appears after that reg was already confirmed not to exist —
@@ -238,6 +245,162 @@
     });
   }
 
+  // ── Body Variant + front/back photo "Configure" wizard ───────────────────
+  // Standard vs facelift, then a front photo, then a back photo — captured
+  // together since a facelift usually changes the front/rear styling, so the
+  // photos only make sense once you know which variant they're showing.
+  // Renders in isolation (its own container) rather than via the full-form
+  // draw(), so it never wipes out anything the manager has typed elsewhere.
+  async function renderBodyVariantSummary() {
+    const container = document.getElementById("bodyVariantSummary");
+    if (!container) return;
+    const variant = _vehicle.body_variant;
+    const variantLabel = BODY_VARIANTS.find(b => b.key === variant)?.label;
+    const frontExisting = isEdit ? _existingPhotos.find(p => p.category === "front") : null;
+    const backExisting = isEdit ? _existingPhotos.find(p => p.category === "back") : null;
+    const frontStaged = _stagedPhotos.find(p => p.category === "front");
+    const backStaged = _stagedPhotos.find(p => p.category === "back");
+
+    if (!variant) {
+      container.innerHTML = `
+        <div class="card" style="border-color:var(--warn)">
+          <p style="margin:0 0 12px">Not configured yet — select Standard or Facelift and add front/back photos.</p>
+          <button type="button" class="btn btn-primary" id="configureBtn"><i data-lucide="settings"></i> Configure</button>
+        </div>`;
+    } else {
+      container.innerHTML = `
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span class="badge badge-blue">${esc(variantLabel)}</span>
+            ${variantThumb(frontExisting, frontStaged, "Front")}
+            ${variantThumb(backExisting, backStaged, "Back")}
+            <button type="button" class="btn" id="configureBtn" style="margin-left:auto"><i data-lucide="settings"></i> Reconfigure</button>
+          </div>
+        </div>`;
+      for (const [existing, label] of [[frontExisting, "front"], [backExisting, "back"]]) {
+        if (!existing) continue;
+        try {
+          const url = await getPhotoUrl(existing.storage_path);
+          const img = container.querySelector(`[data-existing-thumb="${label}"] img`);
+          if (img) img.src = url;
+        } catch { /* thumbnail failing to load isn't fatal */ }
+      }
+    }
+    window.lucide?.createIcons?.();
+    document.getElementById("configureBtn")?.addEventListener("click", openConfigureWizard);
+  }
+
+  function variantThumb(existing, staged, label) {
+    if (staged) return `<div class="photo-thumb photo-thumb-sm" title="${label}"><img src="${esc(staged.previewUrl)}" alt="${label}"/></div>`;
+    if (existing) return `<div class="photo-thumb photo-thumb-sm" data-existing-thumb="${label.toLowerCase()}" title="${label}"><img alt="${label}"/></div>`;
+    return `<div class="photo-thumb photo-thumb-sm" style="display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;font-weight:700">${label}</div>`;
+  }
+
+  function openConfigureWizard() {
+    let step = 1;
+    let variant = _vehicle.body_variant || null;
+    let frontFile = null, frontPreview = null;
+    let backFile = null, backPreview = null;
+
+    const overlay = modal(`<div id="wizContent"></div>`, {});
+
+    function renderWizStep() {
+      const content = overlay.querySelector("#wizContent");
+      const header = `<div class="modal-header"><h3>Configure Vehicle</h3><button class="btn modal-close" aria-label="Close"><i data-lucide="x"></i></button></div>`;
+
+      if (step === 1) {
+        content.innerHTML = `
+          ${header}
+          <div class="modal-body">
+            <p class="text-muted" style="margin-bottom:14px">Step 1 of 3 — Standard or facelift?</p>
+            <div class="pill-row">
+              ${BODY_VARIANTS.map(b => `<button type="button" class="pill ${variant === b.key ? "active" : ""}" data-variant="${esc(b.key)}">${esc(b.label)}</button>`).join("")}
+            </div>
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-primary" id="wizNext" ${variant ? "" : "disabled"}>Continue</button></div>`;
+        content.querySelectorAll("[data-variant]").forEach(btn => {
+          btn.addEventListener("click", () => { variant = btn.dataset.variant; renderWizStep(); });
+        });
+        content.querySelector("#wizNext").addEventListener("click", () => { step = 2; renderWizStep(); });
+      } else if (step === 2) {
+        content.innerHTML = `
+          ${header}
+          <div class="modal-body">
+            <p class="text-muted" style="margin-bottom:14px">Step 2 of 3 — Photo of the front</p>
+            ${frontPreview ? `<div class="photo-thumb" style="width:160px;height:160px;margin-bottom:14px"><img src="${esc(frontPreview)}" alt="Front"/></div>` : ""}
+            <label class="btn photo-add-btn-wide"><i data-lucide="camera"></i> ${frontPreview ? "Change photo" : "Choose photo"}<input type="file" accept="image/*" id="wizFrontInput" hidden/></label>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn" id="wizBack">Back</button>
+            <button type="button" class="btn btn-primary" id="wizNext" ${frontFile ? "" : "disabled"}>Continue</button>
+          </div>`;
+        content.querySelector("#wizFrontInput").addEventListener("change", (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          frontFile = file; frontPreview = URL.createObjectURL(file);
+          renderWizStep();
+        });
+        content.querySelector("#wizBack").addEventListener("click", () => { step = 1; renderWizStep(); });
+        content.querySelector("#wizNext").addEventListener("click", () => { step = 3; renderWizStep(); });
+      } else {
+        content.innerHTML = `
+          ${header}
+          <div class="modal-body">
+            <p class="text-muted" style="margin-bottom:14px">Step 3 of 3 — Photo of the back</p>
+            ${backPreview ? `<div class="photo-thumb" style="width:160px;height:160px;margin-bottom:14px"><img src="${esc(backPreview)}" alt="Back"/></div>` : ""}
+            <label class="btn photo-add-btn-wide"><i data-lucide="camera"></i> ${backPreview ? "Change photo" : "Choose photo"}<input type="file" accept="image/*" id="wizBackInput" hidden/></label>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn" id="wizBack">Back</button>
+            <button type="button" class="btn btn-primary" id="wizSave" ${backFile ? "" : "disabled"}>Save</button>
+          </div>`;
+        content.querySelector("#wizBackInput").addEventListener("change", (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          backFile = file; backPreview = URL.createObjectURL(file);
+          renderWizStep();
+        });
+        content.querySelector("#wizBack").addEventListener("click", () => { step = 2; renderWizStep(); });
+        content.querySelector("#wizSave").addEventListener("click", async () => {
+          const saveBtn = content.querySelector("#wizSave");
+          saveBtn.disabled = true;
+          try {
+            if (isEdit) {
+              await updateVehicle(vehicleId, { body_variant: variant }, _profile.id);
+              await replaceSingularPhoto("front", frontFile);
+              await replaceSingularPhoto("back", backFile);
+              _existingPhotos = await listVehiclePhotos(vehicleId);
+            } else {
+              _stagedPhotos = _stagedPhotos.filter(p => p.category !== "front" && p.category !== "back");
+              _stagedPhotos.push({ id: crypto.randomUUID(), category: "front", file: frontFile, previewUrl: frontPreview });
+              _stagedPhotos.push({ id: crypto.randomUUID(), category: "back", file: backFile, previewUrl: backPreview });
+            }
+            _vehicle.body_variant = variant;
+            overlay.remove();
+            renderBodyVariantSummary();
+            toast("success", "Vehicle configured");
+          } catch (err) {
+            saveBtn.disabled = false;
+            toast("error", "Couldn't save configuration", err.message);
+          }
+        });
+      }
+      window.lucide?.createIcons?.();
+    }
+
+    renderWizStep();
+  }
+
+  // front/back are singular per vehicle — reconfiguring replaces whatever
+  // was there before rather than adding a second photo alongside it.
+  async function replaceSingularPhoto(category, file) {
+    const olds = _existingPhotos.filter(p => p.category === category);
+    for (const old of olds) {
+      try { await deleteVehiclePhoto(old.id, old.storage_path); } catch { /* best effort cleanup */ }
+    }
+    await uploadVehiclePhoto(vehicleId, category, file, _profile.id);
+  }
+
   let _lookupTimer = null;
   let _lastAutoCheckedReg = null;
 
@@ -329,8 +492,12 @@
     e.preventDefault();
     const registration = document.getElementById("f_registration").value.trim();
     if (!registration) { toast("error", "Registration is required"); return; }
+    if (!_vehicle.body_variant) {
+      toast("error", "Body Variant is required", "Press Configure and select Standard or Facelift with front/back photos first.");
+      return;
+    }
 
-    const patch = { registration };
+    const patch = { registration, body_variant: _vehicle.body_variant };
     document.querySelectorAll("[data-field]").forEach(el => {
       const key = el.dataset.field;
       let val = el.value.trim();

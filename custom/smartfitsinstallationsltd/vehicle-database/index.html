@@ -31,7 +31,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { searchVehicles, listRecentVehicles, getVehicleByRegistration, searchVehiclesByMakeModelYear, lookupRegistration } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { searchVehicles, listRecentVehicles, getVehicleByRegistration, searchVehiclesByMakeModelYear, lookupRegistration, BODY_VARIANTS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
   import { esc, setInner, loadingState, emptyState, errorState, modal, toast } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
@@ -126,17 +126,14 @@
   function vehicleCard(v) {
     const title = [v.make, v.model].filter(Boolean).join(" ") || "Make/model not set";
     const meta = [v.year_of_manufacture, v.colour].filter(Boolean).join(" · ");
+    const variantLabel = BODY_VARIANTS.find(b => b.key === v.body_variant)?.label;
     return `
       <div class="veh-card" data-veh-id="${esc(v.id)}">
-        <span class="veh-card-reg">${esc(formatReg(v.registration))}</span>
+        <span class="veh-card-reg">${esc(variantLabel || v.registration || "—")}</span>
         <div class="veh-card-title">${esc(title)}</div>
-        ${meta ? `<div class="veh-card-meta">${esc(meta)}</div>` : ""}
+        <div class="veh-card-meta">${esc(v.registration || "—")}${meta ? " · " + esc(meta) : ""}</div>
         ${v.vin ? `<div class="veh-card-meta">VIN: ${esc(v.vin)}</div>` : ""}
       </div>`;
-  }
-
-  function formatReg(reg) {
-    return reg || "—";
   }
 
   // ── Find (or Create) Vehicle modal ───────────────────────────────────────
