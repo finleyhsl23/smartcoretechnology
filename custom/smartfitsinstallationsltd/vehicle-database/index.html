@@ -31,7 +31,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { searchVehicles, listRecentVehicles, getVehicleByRegistration, searchVehiclesByMakeModelYear, lookupRegistration, BODY_VARIANTS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { listRecentVehicles, getVehicleByRegistration, searchVehiclesByMakeModelYear, lookupRegistration, BODY_VARIANTS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
   import { esc, setInner, loadingState, emptyState, errorState, modal, toast } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
@@ -57,60 +57,43 @@
     setInner("body", loadingState("Loading vehicles…"));
     try {
       const vehicles = await listRecentVehicles(24);
-      draw(vehicles, "");
+      draw(vehicles);
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load vehicles", message: e.message }));
     }
   }
 
-  function draw(vehicles, query) {
+  function draw(vehicles) {
     const isManagerOrAbove = _tier === "owner_admin" || _tier === "manager";
     const html = `
       <div class="page-head">
         <div>
           <h2>Search Vehicles</h2>
-          <p>Look up a vehicle by registration, VIN, make or model to see its full install profile.</p>
-        </div>
-        <div class="page-head-actions">
-          <button class="btn btn-primary" id="findVehicleBtn"><i data-lucide="search"></i> Search</button>
+          <p>Look up a vehicle by registration, or by make, model and year, to see its full install profile.</p>
         </div>
       </div>
-      <div class="search-wrap">
-        <i data-lucide="search" class="search-icon"></i>
-        <input type="text" id="vehSearch" class="form-input" placeholder="Search by reg, VIN, make or model…" autocomplete="off" value="${esc(query)}"/>
+      <button class="btn btn-primary" id="findVehicleBtn" style="width:100%;padding:22px;font-size:16px;gap:10px;margin-bottom:28px">
+        <i data-lucide="search" style="width:22px;height:22px"></i> Search Vehicles
+      </button>
+      <div class="section-header">
+        <div class="section-header-icon"><i data-lucide="clock"></i></div>
+        <h3>Recently Updated</h3>
       </div>
       <div id="results"></div>
     `;
     setInner("body", html);
-    renderResults(vehicles, query);
+    renderResults(vehicles);
     document.getElementById("findVehicleBtn").addEventListener("click", () => openFindVehicleModal(isManagerOrAbove));
-
-    const input = document.getElementById("vehSearch");
-    input.focus();
-    input.setSelectionRange(query.length, query.length);
-    let debounce;
-    input.addEventListener("input", (e) => {
-      clearTimeout(debounce);
-      const q = e.target.value;
-      debounce = setTimeout(async () => {
-        try {
-          const results = q.trim() ? await searchVehicles(q) : await listRecentVehicles(24);
-          renderResults(results, q);
-        } catch (err) {
-          setInner("results", errorState({ title: "Search failed", message: err.message }));
-        }
-      }, 250);
-    });
   }
 
-  function renderResults(vehicles, query) {
+  function renderResults(vehicles) {
     const container = document.getElementById("results");
     if (!container) return;
     if (!vehicles.length) {
       container.innerHTML = emptyState({
         icon: "car",
-        title: query.trim() ? "No matches" : "No vehicles added yet",
-        message: query.trim() ? "Try a different registration, VIN, make or model." : "Vehicles added here will show up as recent.",
+        title: "No vehicles added yet",
+        message: "Vehicles added here will show up as recent.",
       });
     } else {
       container.innerHTML = `<div class="veh-grid">${vehicles.map(vehicleCard).join("")}</div>`;
