@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>SmartCore — Modules</title>
   <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png">
+  <link rel="manifest" href="/modules/manifest.json">
+  <meta name="theme-color" content="#000000">
+  <link rel="apple-touch-icon" href="/modules/icons/icon-192.png">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -227,26 +230,40 @@
 
     .mod-right{display:flex;align-items:center;gap:10px;flex-shrink:0;padding-right:8px}
 
-    .tag-active{
-      font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-      padding:3px 9px;border-radius:5px;
-      background:rgba(34,197,94,.12);
-      border:1px solid rgba(34,197,94,.2);
-      color:#4ade80;
+    .info-btn{
+      width:22px;height:22px;border-radius:50%;
+      border:none;cursor:pointer;
+      display:inline-flex;align-items:center;justify-content:center;
+      font-size:12px;font-weight:800;
+      flex-shrink:0;
+      position:relative;
+      background:transparent;
+      padding:0;
     }
-    .tag-locked{
-      font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-      padding:3px 9px;border-radius:5px;
-      background:rgba(255,255,255,.04);
-      border:1px solid var(--border);
-      color:var(--muted);
+    .info-btn.green{color:#4ade80;border:1.5px solid rgba(34,197,94,.4)}
+    .info-btn.amber{color:#fbbf24;border:1.5px solid rgba(245,158,11,.35)}
+    .info-popover{
+      position:absolute;
+      bottom:calc(100% + 8px);
+      right:0;
+      background:#1e293b;
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:10px;
+      padding:9px 13px;
+      font-size:12px;font-weight:500;
+      color:#e2e8f0;
+      white-space:nowrap;
+      box-shadow:0 8px 24px rgba(0,0,0,.5);
+      z-index:20;
+      pointer-events:none;
+      opacity:0;
+      transform:translateY(4px);
+      transition:opacity .15s,transform .15s;
     }
-    .tag-restricted{
-      font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-      padding:3px 9px;border-radius:5px;
-      background:rgba(245,158,11,.1);
-      border:1px solid rgba(245,158,11,.2);
-      color:#fbbf24;
+    .info-btn.open .info-popover{
+      opacity:1;
+      transform:translateY(0);
+      pointer-events:auto;
     }
 
     .btn-enter{
@@ -380,11 +397,25 @@
     /* ── Spinner ── */
     .spin{color:var(--muted);text-align:center;padding:48px;font-size:13px}
 
+    .page-company-mobile{display:none}
+
+    @media(min-width:581px) and (max-width:1100px){
+      .login-box{max-width:520px;padding:52px 48px}
+      .login-box h2{font-size:28px}
+      .login-box .sub{font-size:15px}
+      .lfield input{padding:14px 16px;font-size:15px}
+      .lbtn{padding:15px;font-size:15px}
+    }
+
     @media(max-width:580px){
       .nav{padding:0 16px}
+      .nav-company{display:none}
       .page{padding:24px 16px 60px}
       .mod-right{gap:8px}
       .btn-enter{padding:8px 14px;font-size:12px}
+      .mod-desc{display:none}
+      .page-sub{margin-bottom:2px}
+      .page-company-mobile{display:block;font-size:11px;color:var(--muted);margin-bottom:28px}
     }
   </style>
 </head>
@@ -439,6 +470,7 @@
   <div class="page">
     <div class="page-title">Your Modules</div>
     <div class="page-sub" id="pageSubtext">Loading…</div>
+    <div class="page-company-mobile" id="pageCompanyMobile"></div>
     <div id="modContent"><div class="spin">Loading modules…</div></div>
   </div>
 </div>
@@ -608,12 +640,15 @@ async function loadDashboard(user) {
         .eq('id', state.companyId)
         .single();
       state.company = co;
-      document.getElementById('navCompany').textContent = co?.company_name || user.email;
+      const companyLabel = co?.company_name || user.email;
+      document.getElementById('navCompany').textContent = companyLabel;
       document.getElementById('pageSubtext').textContent =
         `Welcome back${emp?.full_name ? ', ' + emp.full_name : ''}`;
+      document.getElementById('pageCompanyMobile').textContent = `Signed in as ${companyLabel}`;
     } else {
       document.getElementById('navCompany').textContent = user.email;
       document.getElementById('pageSubtext').textContent = `Welcome back`;
+      document.getElementById('pageCompanyMobile').textContent = `Signed in as ${user.email}`;
     }
 
     await fetchData();
@@ -756,11 +791,15 @@ function canAccess(slug) {
   return true;
 }
 
+function infoBtn(color, label) {
+  return `<button class="info-btn ${color}" data-info="${label.replace(/"/g,'&quot;')}" title="${label}">ⓘ<span class="info-popover">${label}</span></button>`;
+}
+
 function accessTag(slug) {
   const ac = state.accessMap[slug];
   if (!ac) return '';
-  if (ac.allowed_employee_ids?.length) return `<span class="tag-restricted">RESTRICTED</span>`;
-  if (ac.allowed_roles && ac.allowed_roles.length < 3) return `<span class="tag-restricted">ROLE RESTRICTED</span>`;
+  if (ac.allowed_employee_ids?.length) return infoBtn('amber', 'Restricted to specific employees');
+  if (ac.allowed_roles && ac.allowed_roles.length < 3) return infoBtn('amber', 'Restricted to certain roles');
   return '';
 }
 
@@ -782,7 +821,7 @@ function modCard(slug, active) {
         <div class="mod-desc">${info.desc}</div>
       </div>
       <div class="mod-right">
-        ${tag || `<span class="tag-active">ACTIVE</span>`}
+        ${tag || infoBtn('green', 'Active — you have full access')}
         <a class="btn-enter" href="${info.href}">Enter <span style="opacity:.7">→</span></a>
       </div>
     </div>`;
@@ -794,7 +833,6 @@ function modCard(slug, active) {
         <div class="mod-desc">${info.desc}</div>
       </div>
       <div class="mod-right">
-        <span class="tag-locked">NOT ACTIVE</span>
         <a class="btn-store" href="https://smartcoretechnology.co.uk/shop/" target="_blank">Add to plan</a>
       </div>
     </div>`;
@@ -957,6 +995,19 @@ document.getElementById('empSearch').addEventListener('input', e => {
   renderEmpList();
 });
 
+// ── Info button toggle ───────────────────────────────────────────────────────
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.info-btn');
+  if (btn) {
+    e.stopPropagation();
+    const wasOpen = btn.classList.contains('open');
+    document.querySelectorAll('.info-btn.open').forEach(b => b.classList.remove('open'));
+    if (!wasOpen) btn.classList.add('open');
+    return;
+  }
+  document.querySelectorAll('.info-btn.open').forEach(b => b.classList.remove('open'));
+});
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const DISPLAY = { loginWrap: 'flex', shell: 'block', signInPanel: 'block', resetPanel: 'block' };
 function show(id){ document.getElementById(id).style.display = DISPLAY[id] || 'block' }
@@ -970,6 +1021,11 @@ function showToast(msg) {
 }
 
 init();
+</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/modules/sw.js');
+  }
 </script>
 </body>
 </html>
