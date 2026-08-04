@@ -328,6 +328,30 @@ export async function listEditRequests({ status } = {}) {
   return data || [];
 }
 
+// Does a pending "new_vehicle" suggestion already match this search? Used so
+// a search that finds nothing in vdb_vehicles can point the searcher at an
+// existing pending suggestion instead of inviting an exact duplicate.
+// `requests` should come from listEditRequests({status:"pending"}) — RLS
+// already scopes that to every pending request for a manager, or only the
+// caller's own for a regular employee, so this needs no role branching.
+export function findPendingNewVehicleMatch(requests, { registration, make, model, year } = {}) {
+  const pending = requests.filter(r => r.request_type === "new_vehicle" && r.status === "pending");
+  if (registration) {
+    const norm = normalizeReg(registration);
+    const byReg = pending.find(r => normalizeReg(r.proposed_changes?.registration || "") === norm);
+    if (byReg) return byReg;
+  }
+  if (make || model || year) {
+    return pending.find(r => {
+      const pc = r.proposed_changes || {};
+      return (!make || (pc.make || "").toLowerCase() === make.toLowerCase())
+        && (!model || (pc.model || "").toLowerCase() === model.toLowerCase())
+        && (!year || String(pc.year_of_manufacture || "") === String(year));
+    }) || null;
+  }
+  return null;
+}
+
 export async function listMyEditRequests(employeeId) {
   const { data, error } = await vdb()
     .from("vdb_edit_requests")

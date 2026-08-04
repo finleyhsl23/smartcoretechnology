@@ -31,7 +31,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { listRecentVehicles, getVehicleByRegistration, searchVehiclesByMakeModelYear, lookupRegistration, BODY_VARIANTS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { listRecentVehicles, getVehicleByRegistration, searchVehiclesByMakeModelYear, lookupRegistration, BODY_VARIANTS, listEditRequests, findPendingNewVehicleMatch } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
   import { esc, setInner, loadingState, emptyState, errorState, modal, toast } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
@@ -203,6 +203,15 @@
         return;
       }
 
+      // No exact reg match, and no vehicle exists to add yet — but someone
+      // may have already suggested this exact one. Point them at that
+      // instead of inviting a duplicate suggestion.
+      const pendingMatch = await findPendingMatch({ registration: reg });
+      if (pendingMatch) {
+        renderPendingMatch(resultEl, pendingMatch, isManagerOrAbove);
+        return;
+      }
+
       // No exact reg match — look this reg up via DVSA to find its
       // make/model/year, then check whether we already hold any vehicle
       // matching that make/model/year. Fleets are often bought as identical
@@ -224,6 +233,35 @@
       resultEl.innerHTML = "";
       toast("error", "Search failed", e.message);
     }
+  }
+
+  // Wraps listEditRequests + findPendingNewVehicleMatch so both search modes
+  // share one lookup. Never blocks the search on failure — worst case, a
+  // pending duplicate just doesn't get flagged.
+  async function findPendingMatch(criteria) {
+    try {
+      const pending = await listEditRequests({ status: "pending" });
+      return findPendingNewVehicleMatch(pending, criteria);
+    } catch {
+      return null;
+    }
+  }
+
+  function renderPendingMatch(resultEl, request, isManagerOrAbove) {
+    const pc = request.proposed_changes || {};
+    const variantLabel = BODY_VARIANTS.find(b => b.key === pc.body_variant)?.label;
+    const title = [pc.make, pc.model, pc.year_of_manufacture].filter(Boolean).join(" ");
+    const reviewHref = isManagerOrAbove
+      ? `${BASE}/edit-requests.html?request=${esc(request.id)}`
+      : `${BASE}/my-requests.html`;
+    resultEl.innerHTML = `
+      <div class="card" style="margin-top:14px;border-color:var(--warn)">
+        ${variantLabel ? `<span class="veh-card-reg">${esc(variantLabel)}</span>` : ""}
+        <div class="veh-card-title" style="${variantLabel ? "margin-top:10px" : "margin-top:0"}">${esc(title || "Vehicle suggestion")}</div>
+        <p style="margin:10px 0 12px;font-size:13px" class="text-muted">There's already a pending suggestion for this vehicle${isManagerOrAbove ? "" : " from you"} — it hasn't been approved yet.</p>
+        <a class="btn btn-primary" href="${reviewHref}">${isManagerOrAbove ? "Review It" : "View Status"} →</a>
+      </div>`;
+    window.lucide?.createIcons?.();
   }
 
   // If the vehicles already on file for this make/model/year are all one
@@ -300,6 +338,11 @@
     try {
       const matches = await searchVehiclesByMakeModelYear({ make, model, year });
       if (!matches.length) {
+        const pendingMatch = await findPendingMatch({ make, model, year });
+        if (pendingMatch) {
+          renderPendingMatch(resultEl, pendingMatch, isManagerOrAbove);
+          return;
+        }
         const params = new URLSearchParams();
         if (make) params.set("make", make);
         if (model) params.set("model", model);

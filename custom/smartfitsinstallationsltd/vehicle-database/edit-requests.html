@@ -44,6 +44,7 @@
   const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
   const params = new URLSearchParams(location.search);
   const vehicleFilter = params.get("vehicle");
+  const requestParam = params.get("request");
   let _profile, _tier, _statusFilter = "pending", _searchQuery = "", _vehiclesById = {}, _employeesById = {}, _lastRequests = [];
 
   try {
@@ -57,6 +58,10 @@
       setInner("body", permissionDeniedState("Only Senior Regional Engineering Managers, Owners and Admins can review change requests."));
     } else {
       await render();
+      // Arrived here from a "Review It" link on a pending-duplicate notice —
+      // jump straight to that request instead of making them find it in the
+      // list, which may not even be showing (different status filter, etc).
+      if (requestParam) openReview(requestParam);
     }
   } catch (e) {
     if (!document.body.innerHTML.includes("vdb-state")) {
