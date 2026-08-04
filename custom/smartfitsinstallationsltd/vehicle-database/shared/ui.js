@@ -41,9 +41,8 @@ export function modal(html, { size = "" } = {}) {
   overlay.className = "modal-overlay";
   overlay.innerHTML = `<div class="modal ${size}" role="dialog" aria-modal="true">${html}</div>`;
   document.body.appendChild(overlay);
-  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+  overlay.addEventListener("click", e => { if (e.target === overlay || e.target.closest(".modal-close")) overlay.remove(); });
   overlay.addEventListener("keydown", e => { if (e.key === "Escape") overlay.remove(); });
-  overlay.querySelectorAll(".modal-close").forEach(btn => btn.addEventListener("click", () => overlay.remove()));
   return overlay;
 }
 
