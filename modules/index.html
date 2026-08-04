@@ -670,11 +670,18 @@ async function fetchData() {
   // All real shop modules (used for "available to add" section) — published only
   const { data: shopMods } = await sb
     .from('marketplace_modules')
-    .select('slug, name, monthly_price, is_flat_rate')
+    .select('slug, name, monthly_price, is_flat_rate, module_url')
     .neq('slug', 'smartcore-core')
     .eq('status', 'published')
     .order('name');
   state.shopModules = shopMods || [];
+  // Overlay any database-defined URLs on top of the hardcoded CATALOG
+  (shopMods || []).forEach(m => {
+    if (m.module_url) {
+      if (CATALOG[m.slug]) CATALOG[m.slug].href = m.module_url;
+      else CATALOG[m.slug] = { name: m.name, desc: '', icon: '📦', color: 'blue', href: m.module_url };
+    }
+  });
 
   if (!state.companyId) return;
 

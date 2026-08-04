@@ -1785,7 +1785,12 @@
         const flags = [m.featured?"Featured":"",m.popular?"Popular":"",m.recommended?"Recommended":""].filter(Boolean).join(", ") || "—";
         const statusClass = m.status==="published"?"success":m.status==="draft"?"warning":"";
         return `<tr>
-          <td><b>${esc(m.name)}</b><br><span class="text-xs muted">${esc(m.slug)}</span></td>
+          <td>
+            <b>${esc(m.name)}</b>
+            ${m.is_private ? `<span class="tag" style="background:rgba(245,158,11,.15);color:#fbbf24;border-color:rgba(245,158,11,.3);font-size:10px;margin-left:6px">🔒 Private</span>` : ''}
+            <br><span class="text-xs muted">${esc(m.is_private && m.private_page_slug ? `/shop/private/${m.private_page_slug}/` : m.slug)}</span>
+            ${m.is_private && m.private_company_name ? `<br><span class="text-xs muted">For: ${esc(m.private_company_name)}</span>` : ''}
+          </td>
           <td>${esc(m.category)}</td>
           <td>£${Number(m.monthly_price||0).toFixed(2)}</td>
           <td>£${Number(m.yearly_price||0).toFixed(2)}</td>
@@ -1841,6 +1846,7 @@
           <div class="grid md:grid-cols-2 gap-3">
             <div><label class="label">Module Name *</label><input id="mName" class="inp" value="${esc(m?.name||"")}" oninput="updateMktPreview()" /></div>
             <div><label class="label">Slug (URL-safe, unique) *</label><input id="mSlug" class="inp" value="${esc(m?.slug||"")}" placeholder="holiday-management" /></div>
+            <div class="md:col-span-2"><label class="label">Module URL <span style="font-weight:400;color:var(--muted)">— where the module lives (e.g. /custom/acme/vehicle-db/ or https://…)</span></label><input id="mUrl" class="inp" value="${esc(m?.module_url||"")}" placeholder="/custom/clientname/module-name/" /></div>
             <div><label class="label">Category *</label>
               <select id="mCat" class="inp">
                 ${CATEGORIES.map(c=>`<option value="${esc(c)}" ${m?.category===c?"selected":""}>${esc(c)}</option>`).join("")}
@@ -1895,6 +1901,28 @@
               <label class="flex gap-2 items-center"><input type="checkbox" id="mRecommended" ${m?.recommended?"checked":""}> Recommended</label>
               <label class="flex gap-2 items-center"><input type="checkbox" id="mSizePricing" ${m?.size_pricing?"checked":""}> Size-based pricing</label>
               <label class="flex gap-2 items-center"><input type="checkbox" id="mFlatRate" ${m?.is_flat_rate?"checked":""}> Flat rate (ignore size)</label>
+              <label class="flex gap-2 items-center"><input type="checkbox" id="mPrivate" ${m?.is_private?"checked":""} onchange="togglePrivateFields()"> 🔒 Private (client-only)</label>
+            </div>
+            <div id="mPrivateFields" class="md:col-span-2" style="display:${m?.is_private?"block":"none"};margin-top:8px;padding:16px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:12px">
+              <div class="label" style="color:#fbbf24;margin-bottom:12px">🔒 Private Module — generates a hidden checkout page</div>
+              <div class="grid md:grid-cols-2 gap-3">
+                <div>
+                  <label class="label">Client Company Name *</label>
+                  <input id="mPrivateCompany" class="inp" placeholder="Acme Ltd" value="${esc(m?.private_company_name||"")}" oninput="autoPrivateSlug()" />
+                </div>
+                <div>
+                  <label class="label">Client Email (optional — for access control)</label>
+                  <input id="mPrivateEmail" class="inp" type="email" placeholder="jane@acmeltd.co.uk" value="${esc(m?.private_client_email||"")}" />
+                </div>
+                <div class="md:col-span-2">
+                  <label class="label">Private Page Slug</label>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="color:var(--muted);font-size:13px;white-space:nowrap">/shop/private/</span>
+                    <input id="mPrivateSlug" class="inp" placeholder="acme-custom-module" value="${esc(m?.private_page_slug||"")}" style="flex:1" oninput="this.dataset.manuallyEdited='1'" />
+                  </div>
+                  ${m?.private_page_slug ? `<div style="margin-top:6px;font-size:12px;color:var(--muted)">Share this link with your client: <a href="/shop/private/${esc(m.private_page_slug)}/" target="_blank" style="color:#3b82f6">/shop/private/${esc(m.private_page_slug)}/</a></div>` : '<div style="margin-top:6px;font-size:12px;color:var(--muted)">Auto-generated from company name — edit if needed.</div>'}
+                </div>
+              </div>
             </div>
           </div>
           <div class="flex gap-3 mt-6">
@@ -1916,6 +1944,19 @@
       `;
       panel.style.display = 'block';
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    window.togglePrivateFields = function() {
+      const on = document.getElementById('mPrivate')?.checked;
+      document.getElementById('mPrivateFields').style.display = on ? 'block' : 'none';
+    };
+
+    window.autoPrivateSlug = function() {
+      const slugEl = document.getElementById('mPrivateSlug');
+      const company = document.getElementById('mPrivateCompany')?.value.trim() || '';
+      const moduleName = document.getElementById('mName')?.value.trim() || '';
+      const combined = (company + (moduleName ? '-' + moduleName : '')).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+      if (slugEl && !slugEl.dataset.manuallyEdited) slugEl.value = combined;
     };
 
     window.syncYearlyPrice = function syncYearlyPrice() {
@@ -1968,6 +2009,11 @@
         recommended: q('#mRecommended')?.checked || false,
         size_pricing: q('#mSizePricing')?.checked || false,
         is_flat_rate: q('#mFlatRate')?.checked || false,
+        module_url: q('#mUrl')?.value.trim() || null,
+        is_private: q('#mPrivate')?.checked || false,
+        private_company_name: q('#mPrivateCompany')?.value.trim() || null,
+        private_client_email: q('#mPrivateEmail')?.value.trim() || null,
+        private_page_slug: q('#mPrivateSlug')?.value.trim().toLowerCase().replace(/\s+/g,'-') || null,
       };
       if (!payload.name || !payload.slug) return alert("Name and slug are required.");
       const result = id
