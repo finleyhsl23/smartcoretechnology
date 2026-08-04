@@ -32,11 +32,9 @@ export const FIELD_GROUPS = [
     color: "blue",
     fields: [
       { key: "registration",        label: "Registration", required: true },
-      { key: "vin",                 label: "VIN" },
       { key: "make",                label: "Make" },
       { key: "model",               label: "Model" },
       { key: "year_of_manufacture", label: "Year", type: "number" },
-      { key: "colour",              label: "Colour" },
       { key: "fuel_type",           label: "Fuel Type" },
     ],
   },
