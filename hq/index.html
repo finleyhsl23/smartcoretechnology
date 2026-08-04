@@ -78,6 +78,7 @@
     .warning{background:rgba(245,158,11,.15);border-color:rgba(245,158,11,.3);color:#fcd34d}
     .inp,.select,textarea{
       width:100%;
+      min-width:0;
       color:var(--text);
       background:rgba(0,0,0,.3);
       border:1px solid var(--line);
@@ -86,7 +87,9 @@
       outline:none;
       font-family:inherit;
       font-size:14px;
+      text-overflow:ellipsis;
     }
+    .inp:focus{text-overflow:clip}
     textarea{min-height:100px;resize:vertical}
     .inp:focus,.select:focus,textarea:focus{border-color:rgba(59,130,246,.5);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
     .label{display:block;font-size:11px;color:var(--muted);font-weight:700;margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em}
@@ -218,7 +221,6 @@
 
     const modules = [
       ["dashboard", "Dashboard", "Your profile and overview"],
-      ["customers", "Customer Portal Manager", "Companies and packages"],
       ["marketplace", "Marketplace", "Module catalogue & orders"],
       ["orders", "Orders", "Review and approve orders"],
       ["core", "SmartCore Core", "Provisioned companies & employees"],
@@ -869,7 +871,7 @@
       shell(
         "Payments & Finance",
         "Track transactions, invoices, income, expenses and profit.",
-        `<button class="btn" onclick="exportTransactionsCsv()">Export CSV</button><button class="btn primary" onclick="openTransactionForm()">+ Add Transaction</button><button class="btn primary" onclick="openInvoiceBuilder()">Generate Invoice</button>`,
+        `<button class="btn" onclick="exportTransactionsCsv()">Export CSV</button><button class="btn primary" onclick="openTransactionForm()">+ Add Transaction</button><button class="btn primary" onclick="openInvoiceBuilder()">Generate Invoice</button><button class="btn" onclick="openRecurringManager()">⟳ Recurring</button>`,
         `
           <div class="grid lg:grid-cols-3 gap-3">
             <select id="yearFilter" class="inp"><option value="all">All time</option>${Array.from(new Set(state.transactions.map((tx) => parseDateOnly(tx.transaction_date)?.getFullYear()).filter(Boolean))).sort((a,b)=>b-a).map((year)=>`<option value="${year}">${year}</option>`).join("")}</select>
@@ -1159,6 +1161,95 @@
       win.print();
     };
     window.printModalInvoice = window.printInvoice;
+
+    window.openRecurringManager = async function openRecurringManager() {
+      const { data: subs } = await sb.from("marketplace_subscriptions").select("*, smartcore_core_companies(company_name)").order("created_at", { ascending: false });
+      const rows = subs || [];
+      const totalMRR = rows.filter(s => s.status === "active" && s.billing_type === "monthly").reduce((sum, s) => sum + Number(s.amount || 0), 0);
+      const totalARR = rows.filter(s => s.status === "active" && s.billing_type === "yearly").reduce((sum, s) => sum + Number(s.amount || 0), 0);
+      openModal(
+        "Recurring Subscriptions",
+        "Active subscriptions from approved marketplace orders.",
+        `
+          <div class="grid sm:grid-cols-3 gap-3 mb-5">
+            <div class="card p-4"><div class="text-xs muted">Monthly Recurring Revenue</div><div class="text-2xl font-extrabold mt-1">${money(totalMRR)}<span class="text-sm muted font-normal">/mo</span></div></div>
+            <div class="card p-4"><div class="text-xs muted">Annual Recurring Revenue</div><div class="text-2xl font-extrabold mt-1">${money(totalARR)}<span class="text-sm muted font-normal">/yr</span></div></div>
+            <div class="card p-4"><div class="text-xs muted">Active Subscriptions</div><div class="text-2xl font-extrabold mt-1">${rows.filter(s => s.status === "active").length}</div></div>
+          </div>
+          <button class="btn primary mb-4" onclick="openAddRecurring()">+ Add Subscription</button>
+          <div class="overflow-auto">
+            <table>
+              <thead><tr><th>Company</th><th>Description</th><th>Amount</th><th>Billing</th><th>Next Due</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody>
+                ${rows.map(s => `
+                  <tr>
+                    <td><b>${esc(s.smartcore_core_companies?.company_name || s.company_name || "—")}</b></td>
+                    <td>${esc(s.description || s.module_name || "—")}</td>
+                    <td><b>${money(s.amount)}</b></td>
+                    <td>${esc(s.billing_type || "monthly")}</td>
+                    <td>${esc(s.next_billing_date ? formatDate(s.next_billing_date) : "—")}</td>
+                    <td><span class="tag ${s.status === "active" ? "success" : s.status === "cancelled" ? "danger" : "warning"}">${esc(s.status || "active")}</span></td>
+                    <td><div class="flex gap-2">
+                      <button class="btn" onclick="toggleSubStatus('${s.id}','${s.status || "active"}')">${s.status === "active" ? "Pause" : "Activate"}</button>
+                      <button class="btn danger" onclick="deleteSub('${s.id}')">Delete</button>
+                    </div></td>
+                  </tr>
+                `).join("") || `<tr><td colspan="7" class="muted">No subscriptions yet.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        `
+      );
+    };
+
+    window.openAddRecurring = function openAddRecurring() {
+      openModal("Add Recurring Subscription", "Manually add a subscription not tied to an order.", `
+        <div class="grid md:grid-cols-2 gap-3">
+          <div><label class="label">Company</label><select id="recCompany" class="inp"><option value="">Select company</option>${state.companies.map(c => `<option value="${c.id}">${esc(c.company_name)}</option>`).join("")}</select></div>
+          <div><label class="label">Description</label><input id="recDesc" class="inp" placeholder="SmartCore CRM Enterprise" /></div>
+          <div><label class="label">Amount (£)</label><input id="recAmount" class="inp" type="number" step="0.01" min="0" /></div>
+          <div><label class="label">Billing Type</label><select id="recBilling" class="inp"><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></div>
+          <div><label class="label">Start / Next Billing Date</label><input id="recDate" class="inp" type="date" value="${todayIso()}" /></div>
+        </div>
+        <button class="btn primary mt-5 w-full" onclick="saveRecurring()">Save Subscription</button>
+      `);
+    };
+
+    window.saveRecurring = async function saveRecurring() {
+      const payload = {
+        company_id: $("recCompany").value || null,
+        description: $("recDesc").value.trim() || null,
+        amount: num($("recAmount").value),
+        billing_type: $("recBilling").value,
+        next_billing_date: $("recDate").value || null,
+        status: "active",
+        created_by: state.user?.id || null
+      };
+      if (!payload.amount) return alert("Amount is required.");
+      let result = await sb.from("marketplace_subscriptions").insert(payload);
+      if (result.error) {
+        // fallback without optional cols
+        const fb = { amount: payload.amount, billing_type: payload.billing_type, status: "active" };
+        if (payload.description) fb.description = payload.description;
+        result = await sb.from("marketplace_subscriptions").insert(fb);
+      }
+      if (result.error) return alert(result.error.message);
+      openRecurringManager();
+    };
+
+    window.toggleSubStatus = async function toggleSubStatus(id, current) {
+      const next = current === "active" ? "paused" : "active";
+      const { error } = await sb.from("marketplace_subscriptions").update({ status: next }).eq("id", id);
+      if (error) return alert(error.message);
+      openRecurringManager();
+    };
+
+    window.deleteSub = async function deleteSub(id) {
+      if (!confirm("Delete this subscription?")) return;
+      const { error } = await sb.from("marketplace_subscriptions").delete().eq("id", id);
+      if (error) return alert(error.message);
+      openRecurringManager();
+    };
 
     function renderCalendar() {
       const cursor = state.calendarCursor || new Date();
