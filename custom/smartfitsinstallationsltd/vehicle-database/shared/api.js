@@ -188,16 +188,6 @@ export async function getVehicleByRegistration(reg) {
   return data;
 }
 
-export async function getVehicleByVin(vin) {
-  const { data, error } = await vdb()
-    .from("vdb_vehicles")
-    .select("*")
-    .ilike("vin", vin.trim())
-    .maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
 // ── Known registrations log (one vehicle profile can cover several plates
 // bought as an identical fleet batch) ────────────────────────────────────
 export async function listVehicleRegistrations(vehicleId) {

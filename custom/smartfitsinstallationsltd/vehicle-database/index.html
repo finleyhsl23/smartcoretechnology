@@ -31,7 +31,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { listRecentVehicles, getVehicleByRegistration, getVehicleByVin, searchVehiclesByMakeModelYear, lookupRegistration, BODY_VARIANTS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { listRecentVehicles, getVehicleByRegistration, searchVehiclesByMakeModelYear, lookupRegistration, BODY_VARIANTS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
   import { esc, setInner, loadingState, emptyState, errorState, modal, toast } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
@@ -133,7 +133,6 @@
       <div class="modal-body">
         <div class="pill-row">
           <button class="pill active" data-mode="reg" type="button">By Registration</button>
-          <button class="pill" data-mode="vin" type="button">By VIN</button>
           <button class="pill" data-mode="mmy" type="button">By Make, Model &amp; Year</button>
         </div>
 
@@ -146,17 +145,6 @@
             </div>
           </div>
           <div id="findRegResult"></div>
-        </div>
-
-        <div data-panel="vin" style="display:none">
-          <div class="form-row">
-            <label class="form-label" for="findVin">VIN</label>
-            <div style="display:flex;gap:8px">
-              <input type="text" id="findVin" class="form-input" style="text-transform:uppercase" placeholder="e.g. WBA12345678901234" autocomplete="off"/>
-              <button class="btn btn-primary" id="findVinBtn" type="button" style="white-space:nowrap"><i data-lucide="search"></i> Search</button>
-            </div>
-          </div>
-          <div id="findVinResult"></div>
         </div>
 
         <div data-panel="mmy" style="display:none">
@@ -185,11 +173,6 @@
     regInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); runRegSearch(); } });
     regInput.focus();
 
-    const vinInput = overlay.querySelector("#findVin");
-    const runVinSearch = () => searchByVin(overlay, vinInput.value.trim());
-    overlay.querySelector("#findVinBtn").addEventListener("click", runVinSearch);
-    vinInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); runVinSearch(); } });
-
     const runMmySearch = () => searchByMakeModelYear(overlay);
     overlay.querySelector("#findMmyBtn").addEventListener("click", runMmySearch);
     ["#findMake", "#findModel", "#findYear"].forEach(sel => {
@@ -197,33 +180,6 @@
     });
   }
 
-  async function searchByVin(overlay, vin) {
-    const resultEl = overlay.querySelector("#findVinResult");
-    if (!vin) { toast("error", "Enter a VIN first"); return; }
-    resultEl.innerHTML = loadingState("Searching…");
-    try {
-      const existing = await getVehicleByVin(vin);
-      if (!existing) {
-        resultEl.innerHTML = `
-          <div class="card" style="margin-top:14px;border-color:var(--warn)">
-            <p style="margin:0">No vehicle found with that VIN. Try searching by registration instead.</p>
-          </div>`;
-        return;
-      }
-      const title = [existing.make, existing.model, existing.year_of_manufacture].filter(Boolean).join(" ");
-      const variantLabel = BODY_VARIANTS.find(b => b.key === existing.body_variant)?.label;
-      resultEl.innerHTML = `
-        <div class="card" style="margin-top:14px">
-          ${variantLabel ? `<span class="veh-card-reg">${esc(variantLabel)}</span>` : ""}
-          <div class="veh-card-title" style="${variantLabel ? "margin-top:10px" : "margin-top:0"}">${esc(title || "Make/model not set")}</div>
-          <a class="btn btn-primary" style="margin-top:12px" href="${BASE}/vehicle-detail.html?id=${esc(existing.id)}">View Vehicle →</a>
-        </div>`;
-      window.lucide?.createIcons?.();
-    } catch (e) {
-      resultEl.innerHTML = "";
-      toast("error", "Search failed", e.message);
-    }
-  }
 
   async function searchByRegistration(overlay, reg, isManagerOrAbove) {
     const resultEl = overlay.querySelector("#findRegResult");
