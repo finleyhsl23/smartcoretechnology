@@ -308,6 +308,12 @@ function setBilling(b) {
   updatePriceDisplay();
 }
 
+function genRef() {
+  const year = new Date().getFullYear();
+  const rand = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6);
+  return `SC-${year}-${rand}`;
+}
+
 async function submitOrder() {
   const btn = document.getElementById('submitBtn');
   const err = document.getElementById('formErr');
@@ -335,37 +341,44 @@ async function submitOrder() {
   const m = MODULE;
   const price = billing === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
 
+  // Same pattern as the public shop checkout (shop/checkout.html): insert
+  // the order directly via Supabase, then hand off to the payment page with
+  // its id. The old flow here posted to /api/marketplace-order expecting a
+  // checkout_url/order_reference back — that endpoint only ever sends
+  // confirmation emails for an order that already exists, so neither field
+  // was ever present, and the redirect fell through to a template literal
+  // with an undefined order_reference in it.
   try {
-    const res = await fetch('/api/marketplace-order', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contact_name:   `${first} ${last}`,
-        company_name:   company,
-        email:          email.toLowerCase(),
-        phone:          phone || null,
-        accounts_email: accounts ? accounts.toLowerCase() : null,
-        billing_type:   billing,
-        modules:        [m],
-        subtotal:       price,
-        discount_amount: 0,
-        total:          price,
-        size_tier:      'standard',
-        size_multiplier: 1,
-        source:         'private',
-        private_slug:   PAGE_SLUG,
-      }),
-    });
+    const { data: insertedRows, error } = await sb.from('marketplace_orders').insert({
+      order_reference: genRef(),
+      company_name:    company,
+      contact_name:    `${first} ${last}`,
+      email:           email.toLowerCase(),
+      accounts_email:  accounts ? accounts.toLowerCase() : null,
+      phone:           phone || null,
+      modules: [{
+        id:            m.id,
+        slug:          m.slug,
+        name:          m.name,
+        monthly_price: m.monthly_price,
+        is_flat_rate:  !!m.is_flat_rate,
+        yearly_price:  m.yearly_price,
+        price,
+      }],
+      billing_type:    billing,
+      size_tier:       'standard',
+      size_multiplier: 1,
+      subtotal:        price,
+      discount_amount: 0,
+      total:           price,
+      status:          'pending_payment',
+    }).select('id');
 
-    const json = await res.json();
-    if (!res.ok || json.error) throw new Error(json.error || 'Order failed');
+    if (error) throw new Error(error.message);
+    const orderId = insertedRows?.[0]?.id;
+    if (!orderId) throw new Error('Order could not be created.');
 
-    // Redirect to Stripe checkout
-    if (json.checkout_url) {
-      window.location.href = json.checkout_url;
-    } else {
-      window.location.href = `/shop/order-confirmed.html?ref=${json.order_reference}`;
-    }
+    window.location.href = `/shop/payment.html?order_id=${encodeURIComponent(orderId)}`;
   } catch (e) {
     err.textContent = e.message || 'Something went wrong. Please try again or email support@smartcoretechnology.co.uk.';
     err.style.display = 'block';
