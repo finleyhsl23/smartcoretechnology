@@ -173,7 +173,7 @@
     regInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); runRegSearch(); } });
     regInput.focus();
 
-    const runMmySearch = () => searchByMakeModelYear(overlay);
+    const runMmySearch = () => searchByMakeModelYear(overlay, isManagerOrAbove);
     overlay.querySelector("#findMmyBtn").addEventListener("click", runMmySearch);
     ["#findMake", "#findModel", "#findYear"].forEach(sel => {
       overlay.querySelector(sel).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); runMmySearch(); } });
@@ -227,9 +227,7 @@
   }
 
   function renderRegNotFound(resultEl, reg, isManagerOrAbove, similar, looked) {
-    const createBtn = isManagerOrAbove
-      ? `<a class="btn btn-primary" href="${BASE}/vehicle-form.html?registration=${esc(reg)}"><i data-lucide="plus"></i> Create Vehicle</a>`
-      : "";
+    const createBtn = `<a class="btn btn-primary" href="${BASE}/vehicle-form.html?registration=${esc(reg)}"><i data-lucide="plus"></i> ${isManagerOrAbove ? "Create Vehicle" : "Add This Vehicle"}</a>`;
 
     // Finding no exact reg match doesn't actually matter when the same
     // make/model/year is already on file — the install details (wiring,
@@ -254,7 +252,7 @@
     } else {
       resultEl.innerHTML = `
         <div class="card" style="margin-top:14px;border-color:var(--warn)">
-          <p style="margin:0${createBtn ? " 0 12px" : ""}">No vehicle found with registration <strong>${esc(reg.toUpperCase())}</strong>${isManagerOrAbove ? "." : ". Ask a Senior Regional Engineering Manager to add it."}</p>
+          <p style="margin:0 0 12px">No vehicle found with registration <strong>${esc(reg.toUpperCase())}</strong>.${isManagerOrAbove ? "" : " You can add it yourself — it'll go to a Senior Regional Engineering Manager for review before it appears."}</p>
           ${createBtn}
         </div>`;
     }
@@ -265,7 +263,7 @@
     window.lucide?.createIcons?.();
   }
 
-  async function searchByMakeModelYear(overlay) {
+  async function searchByMakeModelYear(overlay, isManagerOrAbove) {
     const resultEl = overlay.querySelector("#findMmyResult");
     const make = overlay.querySelector("#findMake").value.trim();
     const model = overlay.querySelector("#findModel").value.trim();
@@ -276,10 +274,16 @@
     try {
       const matches = await searchVehiclesByMakeModelYear({ make, model, year });
       if (!matches.length) {
+        const params = new URLSearchParams();
+        if (make) params.set("make", make);
+        if (model) params.set("model", model);
+        if (year) params.set("year", year);
         resultEl.innerHTML = `
           <div class="card" style="border-color:var(--warn)">
-            <p style="margin:0">No vehicles found for that make, model and year. Search by registration to add a new one.</p>
+            <p style="margin:0 0 12px">No vehicles found for that make, model and year.</p>
+            <a class="btn btn-primary" href="${BASE}/vehicle-form.html?${params.toString()}"><i data-lucide="plus"></i> ${isManagerOrAbove ? "Create Vehicle" : "Add This Vehicle"}</a>
           </div>`;
+        window.lucide?.createIcons?.();
         return;
       }
       resultEl.innerHTML = matches.map(v => {

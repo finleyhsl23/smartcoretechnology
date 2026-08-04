@@ -34,6 +34,7 @@
   import {
     getVehicle, createVehicle, updateVehicle, lookupRegistration, getVehicleByRegistration, FIELD_GROUPS,
     listVehiclePhotos, uploadVehiclePhoto, deleteVehiclePhoto, getPhotoUrl, BODY_VARIANTS,
+    createNewVehicleRequest, uploadRequestPhoto,
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
@@ -45,19 +46,24 @@
   const vehicleId = params.get("id");
   const isEdit = !!vehicleId;
   const prefillReg = params.get("registration") || "";
+  const prefillMake = params.get("make") || "";
+  const prefillModel = params.get("model") || "";
+  const prefillYear = params.get("year") || "";
   let _profile, _tier, _vehicle = {};
   let _existingPhotos = [];
-  let _stagedPhotos = []; // add mode only: [{ id, category, file, previewUrl }] uploaded after createVehicle succeeds
+  let _stagedPhotos = []; // add mode only: [{ id, category, file, previewUrl }] uploaded after createVehicle/request succeeds
+  let _canDirectCreate = false; // manager/admin creates the vehicle immediately; employees submit a request instead
 
   try {
     const { profile, tier } = await requireModuleAccess();
     _profile = profile; _tier = tier;
+    _canDirectCreate = tier === "owner_admin" || tier === "manager";
     renderNav("home", profile, tier);
     initMobileNav();
     initTopbar();
 
-    if (tier !== "owner_admin" && tier !== "manager") {
-      setInner("body", permissionDeniedState("Only Senior Regional Engineering Managers, Owners and Admins can add or directly edit vehicles. If you spotted something wrong, use \"Suggest a Change\" on the vehicle's page instead."));
+    if (isEdit && !_canDirectCreate) {
+      setInner("body", permissionDeniedState("Only Senior Regional Engineering Managers, Owners and Admins can directly edit vehicles. If you spotted something wrong, use \"Suggest a Change\" on the vehicle's page instead."));
     } else {
       await render();
     }
@@ -79,16 +85,27 @@
         return;
       }
     }
-    document.getElementById("pageTitle").textContent = isEdit ? "Edit Vehicle" : "Add Vehicle";
+    document.getElementById("pageTitle").textContent = isEdit ? "Edit Vehicle" : (_canDirectCreate ? "Add Vehicle" : "Suggest a New Vehicle");
     draw();
   }
 
   function draw() {
     const v = _vehicle;
+    if (!isEdit) {
+      if (prefillMake && !v.make) v.make = prefillMake;
+      if (prefillModel && !v.model) v.model = prefillModel;
+      if (prefillYear && !v.year_of_manufacture) v.year_of_manufacture = Number(prefillYear);
+    }
+    const pageTitle = isEdit ? "Edit Vehicle" : (_canDirectCreate ? "Add Vehicle" : "Suggest a New Vehicle");
+    const pageIntro = isEdit
+      ? "Registration/VIN identify the vehicle; everything else is install reference data for engineers."
+      : (_canDirectCreate
+        ? "Registration/VIN identify the vehicle; everything else is install reference data for engineers."
+        : "Fill in what you know — a Senior Regional Engineering Manager will review before it's added to the database.");
 
     const html = `
       <a class="back-link" href="${isEdit ? `${BASE}/vehicle-detail.html?id=${esc(vehicleId)}` : `${BASE}/index.html`}"><i data-lucide="arrow-left"></i> ${isEdit ? "Back to vehicle" : "Back to search"}</a>
-      <div class="page-head"><div><h2>${isEdit ? "Edit Vehicle" : "Add Vehicle"}</h2><p>Registration/VIN identify the vehicle; everything else is install reference data for engineers.</p></div></div>
+      <div class="page-head"><div><h2>${esc(pageTitle)}</h2><p>${esc(pageIntro)}</p></div></div>
 
       <form id="vehForm">
         <div class="section-header"><div class="section-header-icon"><i data-lucide="id-card"></i></div><h3>Vehicle Identity</h3></div>
@@ -129,7 +146,7 @@
           </div>
         `).join("")}
 
-        <button type="submit" class="btn btn-primary" id="saveBtn"><i data-lucide="save"></i> ${isEdit ? "Save Changes" : "Add Vehicle"}</button>
+        <button type="submit" class="btn btn-primary" id="saveBtn"><i data-lucide="${isEdit || _canDirectCreate ? "save" : "send"}"></i> ${isEdit ? "Save Changes" : (_canDirectCreate ? "Add Vehicle" : "Submit for Review")}</button>
       </form>
     `;
     setInner("body", html);
@@ -519,7 +536,7 @@
         await updateVehicle(vehicleId, patch, _profile.id);
         toast("success", "Vehicle updated");
         window.location.href = `${BASE}/vehicle-detail.html?id=${vehicleId}`;
-      } else {
+      } else if (_canDirectCreate) {
         const created = await createVehicle(patch, _profile.id);
         for (const p of _stagedPhotos) {
           try { await uploadVehiclePhoto(created.id, p.category, p.file, _profile.id); }
@@ -527,6 +544,17 @@
         }
         toast("success", "Vehicle added");
         window.location.href = `${BASE}/vehicle-detail.html?id=${created.id}`;
+      } else {
+        // Employees can't insert into vdb_vehicles directly — this goes into
+        // the same review queue as a field-edit suggestion, just with the
+        // whole vehicle as the "proposed changes" and no vehicle_id yet.
+        const request = await createNewVehicleRequest({ requested_by: _profile.id, proposed_changes: patch });
+        for (const p of _stagedPhotos) {
+          try { await uploadRequestPhoto(request.id, p.category, p.file); }
+          catch (err) { toast("error", `Couldn't upload a photo (${p.category.replace(/_/g, " ")})`, err.message); }
+        }
+        toast("success", "Submitted for review", "A Senior Regional Engineering Manager will review your suggested vehicle shortly.");
+        window.location.href = `${BASE}/my-requests.html`;
       }
     } catch (e2) {
       btn.disabled = false;

@@ -31,7 +31,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { listMyEditRequests, withdrawEditRequest, fieldLabel } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { listMyEditRequests, withdrawEditRequest, fieldLabel, BODY_VARIANTS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { sb } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/supabase.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
@@ -58,9 +58,9 @@
     setInner("body", loadingState("Loading your requests…"));
     try {
       const requests = await listMyEditRequests(_profile.id);
-      const vehicleIds = [...new Set(requests.map(r => r.vehicle_id))];
+      const vehicleIds = [...new Set(requests.map(r => r.vehicle_id).filter(Boolean))];
       const { data: vehicles } = vehicleIds.length
-        ? await sb().schema("smartfitsinstallationsltd").from("vdb_vehicles").select("id, registration, make, model").in("id", vehicleIds)
+        ? await sb().schema("smartfitsinstallationsltd").from("vdb_vehicles").select("id, make, model, body_variant").in("id", vehicleIds)
         : { data: [] };
       const vehicleById = Object.fromEntries((vehicles || []).map(v => [v.id, v]));
       draw(requests, vehicleById);
@@ -83,14 +83,31 @@
     }
 
     list.innerHTML = requests.map(r => {
-      const veh = vehicleById[r.vehicle_id];
-      const vehTitle = veh ? `${veh.registration}${veh.make ? " — " + [veh.make, veh.model].filter(Boolean).join(" ") : ""}` : "Vehicle deleted";
+      const isNewVehicle = r.request_type === "new_vehicle";
+      let vehTitle;
+      if (isNewVehicle) {
+        const pc = r.proposed_changes || {};
+        const variantLabel = BODY_VARIANTS.find(b => b.key === pc.body_variant)?.label;
+        const title = [pc.make, pc.model].filter(Boolean).join(" ");
+        vehTitle = [variantLabel, title].filter(Boolean).join(" — ") || "New vehicle";
+      } else {
+        const veh = vehicleById[r.vehicle_id];
+        if (!veh) { vehTitle = "Vehicle deleted"; }
+        else {
+          const variantLabel = BODY_VARIANTS.find(b => b.key === veh.body_variant)?.label;
+          const title = [veh.make, veh.model].filter(Boolean).join(" ");
+          vehTitle = [variantLabel, title].filter(Boolean).join(" — ") || "Make/model not set";
+        }
+      }
       const fieldCount = Object.keys(r.proposed_changes || {}).length;
+      // A new-vehicle request only gets a vehicle_id once approved — before
+      // that (or if denied) there's no vehicle profile to link to.
+      const clickable = !!r.vehicle_id;
       return `
-        <div class="request-row" data-vehicle="${esc(r.vehicle_id)}">
+        <div class="request-row" ${clickable ? `data-vehicle="${esc(r.vehicle_id)}" style="cursor:pointer"` : ""}>
           <div class="request-info">
-            <div class="request-title">${esc(vehTitle)}</div>
-            <div class="request-meta">${fieldCount} field${fieldCount === 1 ? "" : "s"} changed · Submitted ${esc(timeAgo(r.created_at))}${r.status !== "pending" ? ` · Reviewed ${esc(timeAgo(r.reviewed_at))}` : ""}</div>
+            <div class="request-title">${isNewVehicle ? `<span class="badge badge-blue" style="margin-right:8px">New Vehicle</span>` : ""}${esc(vehTitle)}</div>
+            <div class="request-meta">${fieldCount} field${fieldCount === 1 ? "" : "s"}${isNewVehicle ? " submitted" : " changed"} · Submitted ${esc(timeAgo(r.created_at))}${r.status !== "pending" ? ` · Reviewed ${esc(timeAgo(r.reviewed_at))}` : ""}</div>
             ${r.review_note ? `<div class="request-meta" style="margin-top:4px">Reviewer note: ${esc(r.review_note)}</div>` : ""}
           </div>
           ${statusBadge(r.status)}
@@ -98,7 +115,7 @@
         </div>`;
     }).join("");
 
-    list.querySelectorAll(".request-row").forEach(row => {
+    list.querySelectorAll(".request-row[data-vehicle]").forEach(row => {
       row.addEventListener("click", () => { window.location.href = `${BASE}/vehicle-detail.html?id=${row.dataset.vehicle}`; });
     });
     list.querySelectorAll("[data-withdraw]").forEach(btn => {

@@ -75,6 +75,7 @@ export const FIELD_GROUPS = [
 export const ALL_FIELD_KEYS = FIELD_GROUPS.flatMap(g => g.fields.map(f => f.key));
 
 export function fieldLabel(key) {
+  if (key === "body_variant") return "Body Variant";
   for (const g of FIELD_GROUPS) {
     const f = g.fields.find(x => x.key === key);
     if (f) return f.label;
@@ -347,6 +348,21 @@ export async function createEditRequest({ vehicle_id, requested_by, proposed_cha
   return data;
 }
 
+// Suggesting a brand new vehicle (not editing an existing one) — an employee
+// can't insert into vdb_vehicles directly (that requires manager tier), so
+// this goes through the same review queue as a field-edit request, just with
+// no vehicle_id yet and the full vehicle carried in proposed_changes.
+// approveEditRequest() creates the real vdb_vehicles row once accepted.
+export async function createNewVehicleRequest({ requested_by, proposed_changes, request_note = "" }) {
+  const { data, error } = await vdb()
+    .from("vdb_edit_requests")
+    .insert({ vehicle_id: null, request_type: "new_vehicle", requested_by, proposed_changes, request_note: request_note || null })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 export async function withdrawEditRequest(id) {
   const { error } = await vdb().from("vdb_edit_requests").delete().eq("id", id);
   if (error) throw error;
@@ -388,26 +404,37 @@ export async function deleteRequestPhoto(photoId, storagePath) {
 }
 
 /**
- * Approves an edit request: applies the proposed field patch to the vehicle,
- * re-parents any proposed photos from their pending/ storage path to the
- * vehicle's permanent path (so they become visible to every employee, not
- * just the manager/requester), and marks the request approved. Runs entirely
- * under the calling manager's own RLS rights — no elevated RPC needed.
+ * Approves an edit request. For a field-edit request, applies the proposed
+ * patch to the existing vehicle. For a new-vehicle request (request_type ===
+ * "new_vehicle", vehicle_id null) creates the vehicle for the first time —
+ * this is the only path an employee's vehicle suggestion can ever actually
+ * land in vdb_vehicles, since inserting there directly requires manager
+ * tier. Either way, any proposed photos are re-parented from their pending/
+ * storage path to the vehicle's permanent path, and the request row is
+ * stamped approved (with vehicle_id backfilled for new-vehicle requests, so
+ * "My Suggested Changes" can link straight to the resulting profile). Runs
+ * entirely under the calling manager's own RLS rights — no elevated RPC
+ * needed.
  */
 export async function approveEditRequest(request, reviewerEmployeeId, reviewNote = "") {
-  if (Object.keys(request.proposed_changes || {}).length) {
+  let vehicleId = request.vehicle_id;
+
+  if (request.request_type === "new_vehicle") {
+    const created = await createVehicle(request.proposed_changes || {}, reviewerEmployeeId);
+    vehicleId = created.id;
+  } else if (Object.keys(request.proposed_changes || {}).length) {
     await updateVehicle(request.vehicle_id, request.proposed_changes, reviewerEmployeeId);
   }
 
   const photos = await listRequestPhotos(request.id);
   for (const photo of photos) {
     const ext = (photo.storage_path.split(".").pop() || "jpg").toLowerCase();
-    const newPath = `${request.vehicle_id}/${crypto.randomUUID()}.${ext}`;
+    const newPath = `${vehicleId}/${crypto.randomUUID()}.${ext}`;
     const { error: moveErr } = await sb().storage.from(PHOTO_BUCKET).move(photo.storage_path, newPath);
     if (moveErr) throw moveErr;
 
     const { error: insErr } = await vdb().from("vdb_vehicle_photos").insert({
-      vehicle_id: request.vehicle_id,
+      vehicle_id: vehicleId,
       category: photo.category,
       storage_path: newPath,
       caption: photo.caption,
@@ -418,7 +445,7 @@ export async function approveEditRequest(request, reviewerEmployeeId, reviewNote
 
   const { error } = await vdb()
     .from("vdb_edit_requests")
-    .update({ status: "approved", reviewed_by: reviewerEmployeeId, review_note: reviewNote || null })
+    .update({ status: "approved", reviewed_by: reviewerEmployeeId, review_note: reviewNote || null, vehicle_id: vehicleId })
     .eq("id", request.id);
   if (error) throw error;
 }

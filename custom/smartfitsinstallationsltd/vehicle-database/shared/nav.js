@@ -8,15 +8,18 @@ function navLinksFor(tier) {
   const isManagerOrAbove = tier === "owner_admin" || tier === "manager";
   const links = [
     { id: "home", icon: "search", label: "Search Vehicles", href: `${BASE}/index.html` },
-    { id: "leaderboard", icon: "trophy", label: "Leaderboard", href: `${BASE}/leaderboard.html` },
+    { id: "leaderboard", icon: "trophy", label: "Top Contributors", href: `${BASE}/leaderboard.html` },
   ];
   if (tier === "employee") {
     links.push({ id: "my-requests", icon: "send", label: "My Suggested Changes", href: `${BASE}/my-requests.html` });
   }
-  // Always shown so their existence is visible — greyed out (and inert) for
-  // anyone below manager tier rather than hidden entirely.
-  links.push({ id: "edit-requests", icon: "list-checks", label: "Review Change Requests", href: `${BASE}/edit-requests.html`, disabled: !isManagerOrAbove });
-  links.push({ id: "settings", icon: "settings", label: "Settings", href: `${BASE}/settings.html`, disabled: tier !== "owner_admin" });
+  // Manager/Admin-only pages — normal employees don't get these at all,
+  // not even greyed out, rather than showing them something they can never
+  // use.
+  if (isManagerOrAbove) {
+    links.push({ id: "edit-requests", icon: "list-checks", label: "Review Change Requests", href: `${BASE}/edit-requests.html` });
+    links.push({ id: "settings", icon: "settings", label: "Settings", href: `${BASE}/settings.html`, disabled: tier !== "owner_admin" });
+  }
   return links;
 }
 
