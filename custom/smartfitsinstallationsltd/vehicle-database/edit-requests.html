@@ -33,7 +33,7 @@
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
   import {
     listEditRequests, getEditRequest, listRequestPhotos, getPhotoUrl, approveEditRequest, denyEditRequest,
-    getEmployeesByIds, fieldLabel, categoryLabel,
+    getEmployeesByIds, fieldLabel, categoryLabel, BODY_VARIANTS,
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { sb } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/supabase.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
@@ -44,7 +44,7 @@
   const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
   const params = new URLSearchParams(location.search);
   const vehicleFilter = params.get("vehicle");
-  let _profile, _tier, _statusFilter = "pending", _vehiclesById = {}, _employeesById = {};
+  let _profile, _tier, _statusFilter = "pending", _searchQuery = "", _vehiclesById = {}, _employeesById = {}, _lastRequests = [];
 
   try {
     const { profile, tier } = await requireModuleAccess();
@@ -85,7 +85,24 @@
     }
   }
 
+  function vehicleLabel(veh) {
+    if (!veh) return "Vehicle deleted";
+    const variantLabel = BODY_VARIANTS.find(b => b.key === veh.body_variant)?.label;
+    const title = [veh.make, veh.model].filter(Boolean).join(" ");
+    return [variantLabel, title].filter(Boolean).join(" — ") || "Make/model not set";
+  }
+
+  function matchesSearch(r) {
+    if (!_searchQuery) return true;
+    const q = _searchQuery.toLowerCase();
+    const veh = _vehiclesById[r.vehicle_id];
+    const requester = _employeesById[r.requested_by];
+    const vehName = veh ? [veh.make, veh.model].filter(Boolean).join(" ") : "";
+    return vehName.toLowerCase().includes(q) || (requester?.full_name || "").toLowerCase().includes(q);
+  }
+
   function draw(requests) {
+    _lastRequests = requests;
     const html = `
       <div class="page-head"><div>
         <h2>Review Change Requests</h2>
@@ -93,6 +110,12 @@
       </div></div>
       <div class="pill-row">
         ${["pending", "approved", "denied", "all"].map(s => `<button class="pill ${_statusFilter === s ? "active" : ""}" data-status="${s}">${s[0].toUpperCase() + s.slice(1)}</button>`).join("")}
+      </div>
+      <div class="form-row" style="margin-top:12px">
+        <div style="display:flex;gap:8px">
+          <input type="text" id="reqSearch" class="form-input" placeholder="Search by vehicle name or employee name…" autocomplete="off" value="${esc(_searchQuery)}"/>
+          <button class="btn btn-primary" id="reqSearchBtn" type="button" style="white-space:nowrap"><i data-lucide="search"></i> Search</button>
+        </div>
       </div>
       <div id="list"></div>
     `;
@@ -102,9 +125,24 @@
       btn.addEventListener("click", async () => { _statusFilter = btn.dataset.status; await render(); });
     });
 
+    const searchInput = document.getElementById("reqSearch");
+    const runSearch = () => { _searchQuery = searchInput.value.trim(); renderList(); };
+    document.getElementById("reqSearchBtn").addEventListener("click", runSearch);
+    searchInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); runSearch(); } });
+
+    renderList();
+  }
+
+  function renderList() {
     const list = document.getElementById("list");
+    const requests = _lastRequests.filter(matchesSearch);
     if (!requests.length) {
-      list.innerHTML = emptyState({ icon: "list-checks", title: "Nothing here", message: `No ${_statusFilter === "all" ? "" : _statusFilter + " "}requests found.` });
+      list.innerHTML = emptyState({
+        icon: "list-checks",
+        title: "Nothing here",
+        message: _searchQuery ? "No requests match that search." : `No ${_statusFilter === "all" ? "" : _statusFilter + " "}requests found.`,
+      });
+      window.lucide?.createIcons?.();
       return;
     }
 
@@ -115,7 +153,7 @@
       return `
         <div class="request-row" data-id="${esc(r.id)}">
           <div class="request-info">
-            <div class="request-title">${veh ? esc(veh.registration) : "Vehicle deleted"}${veh?.make ? ` — ${esc([veh.make, veh.model].filter(Boolean).join(" "))}` : ""}</div>
+            <div class="request-title">${esc(vehicleLabel(veh))}</div>
             <div class="request-meta">Suggested by ${esc(requester?.full_name || "Unknown")} · ${fieldCount} field${fieldCount === 1 ? "" : "s"} changed · ${esc(timeAgo(r.created_at))}</div>
           </div>
           ${statusBadge(r.status)}
@@ -150,7 +188,7 @@
 
     const overlay = modal(`
       <div class="modal-header">
-        <h3>${veh ? esc(veh.registration) : "Vehicle deleted"} — Suggested Change</h3>
+        <h3>${esc(vehicleLabel(veh))} — Suggested Change</h3>
         <button class="btn modal-close" aria-label="Close"><i data-lucide="x"></i></button>
       </div>
       <div class="modal-body">
