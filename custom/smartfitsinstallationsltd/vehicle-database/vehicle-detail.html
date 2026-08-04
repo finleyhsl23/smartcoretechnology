@@ -33,7 +33,7 @@
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
   import {
     getVehicle, deleteVehicle, listVehiclePhotos, getPhotoUrl, uploadVehiclePhoto, deleteVehiclePhoto,
-    listEditRequestsForVehicle, FIELD_GROUPS, PHOTO_CATEGORIES, categoryLabel, BODY_VARIANTS,
+    listEditRequestsForVehicle, FIELD_GROUPS, categoryLabel, BODY_VARIANTS,
     listVehicleRegistrations, addVehicleRegistration, removeVehicleRegistration, getEmployeesByIds,
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
@@ -115,6 +115,21 @@
           </a>
         </div>` : ""}
 
+      <div class="section-header">
+        <div class="section-header-icon"><i data-lucide="camera"></i></div>
+        <h3>Vehicle Photos</h3>
+      </div>
+      <div class="field-grid" style="margin-bottom:24px">
+        <div class="field-item">
+          <div class="field-item-label">Front of Vehicle</div>
+          <div class="field-item-photos" data-photo-cat="front" style="margin-top:6px"></div>
+        </div>
+        <div class="field-item">
+          <div class="field-item-label">Back of Vehicle</div>
+          <div class="field-item-photos" data-photo-cat="back" style="margin-top:6px"></div>
+        </div>
+      </div>
+
       ${FIELD_GROUPS.map(group => `
         <div class="section-header">
           <div class="section-header-icon"><i data-lucide="${groupIcon(group.title)}"></i></div>
@@ -125,15 +140,21 @@
             <div class="field-item">
               <div class="field-item-label">${esc(f.label)}</div>
               <div class="field-item-value ${v[f.key] ? "" : "empty"}">${v[f.key] ? esc(v[f.key]) : "Not recorded"}</div>
+              ${f.photoCategory ? `<div class="field-item-photos" data-photo-cat="${esc(f.photoCategory)}"></div>` : ""}
             </div>`).join("")}
         </div>
       `).join("")}
 
       <div class="section-header">
-        <div class="section-header-icon"><i data-lucide="camera"></i></div>
-        <h3>Photos</h3>
+        <div class="section-header-icon"><i data-lucide="image"></i></div>
+        <h3>Other Photos</h3>
       </div>
-      <div id="photoSection"></div>
+      <div class="field-grid" style="margin-bottom:24px">
+        <div class="field-item">
+          <div class="field-item-label">General / Other</div>
+          <div class="field-item-photos" data-photo-cat="general" style="margin-top:6px"></div>
+        </div>
+      </div>
 
       <div class="section-header">
         <div class="section-header-icon"><i data-lucide="hash"></i></div>
@@ -145,7 +166,7 @@
       <p class="text-muted" style="margin-top:24px;font-size:12px">Added ${fmtDate(v.created_at)} · Last updated ${fmtDate(v.updated_at)}</p>
     `;
     setInner("body", html);
-    renderPhotos(isManagerOrAbove);
+    renderAllPhotoBlocks(isManagerOrAbove);
     renderRegistrationsSection(isManagerOrAbove);
 
     document.getElementById("deleteBtn")?.addEventListener("click", () => {
@@ -173,45 +194,50 @@
     return "clipboard-list";
   }
 
-  function renderPhotos(isManagerOrAbove) {
-    const section = document.getElementById("photoSection");
-    const byCategory = Object.fromEntries(PHOTO_CATEGORIES.map(c => [c.key, _photos.filter(p => p.category === c.key)]));
+  // Every field with a photoCategory gets its own small photo block right
+  // where it's used (embedded via a data-photo-cat container), rather than
+  // one big gallery disconnected from the text it illustrates. This renders
+  // every such container currently in the DOM in one pass.
+  function renderAllPhotoBlocks(isManagerOrAbove) {
+    document.querySelectorAll("[data-photo-cat]").forEach(container => {
+      renderPhotoCategoryBlock(container, container.dataset.photoCat, isManagerOrAbove);
+    });
+  }
 
-    section.innerHTML = PHOTO_CATEGORIES.map(cat => `
-      <div class="photo-cat-block">
-        <div class="photo-cat-title">${esc(cat.label)}</div>
-        <div class="photo-grid" data-cat="${esc(cat.key)}">
-          ${byCategory[cat.key].map(p => `<div class="photo-thumb" data-photo-id="${esc(p.id)}" data-path="${esc(p.storage_path)}"><img data-src loading="lazy" alt="${esc(cat.label)}"/>${isManagerOrAbove ? `<span class="photo-remove" data-remove="${esc(p.id)}" data-path="${esc(p.storage_path)}"><i data-lucide="x"></i></span>` : ""}</div>`).join("")}
-          ${isManagerOrAbove ? `<label class="photo-add-btn"><i data-lucide="upload"></i>Add<input type="file" accept="image/*" data-upload-cat="${esc(cat.key)}" hidden/></label>` : ""}
-        </div>
-      </div>`).join("");
+  function renderPhotoCategoryBlock(container, catKey, isManagerOrAbove) {
+    if (!container) return;
+    const catPhotos = _photos.filter(p => p.category === catKey);
+    if (!catPhotos.length && !isManagerOrAbove) { container.innerHTML = ""; return; }
 
+    container.innerHTML = `
+      <div class="photo-grid">
+        ${catPhotos.map(p => `<div class="photo-thumb" data-photo-id="${esc(p.id)}" data-path="${esc(p.storage_path)}"><img data-src loading="lazy" alt="${esc(categoryLabel(catKey))}"/>${isManagerOrAbove ? `<span class="photo-remove" data-remove="${esc(p.id)}" data-path="${esc(p.storage_path)}"><i data-lucide="x"></i></span>` : ""}</div>`).join("")}
+        ${isManagerOrAbove ? `<label class="photo-add-btn"><i data-lucide="upload"></i>Add<input type="file" accept="image/*" data-upload-cat="${esc(catKey)}" hidden/></label>` : ""}
+      </div>`;
     window.lucide?.createIcons?.();
-    loadThumbnails();
+    loadThumbnailsIn(container);
 
-    section.querySelectorAll("[data-upload-cat]").forEach(input => {
-      input.addEventListener("change", async () => {
-        const file = input.files?.[0];
-        if (!file) return;
-        try {
-          await uploadVehiclePhoto(_vehicle.id, input.dataset.uploadCat, file, _profile.id);
-          toast("success", "Photo uploaded");
-          _photos = await listVehiclePhotos(_vehicle.id);
-          renderPhotos(isManagerOrAbove);
-        } catch (e) {
-          toast("error", "Upload failed", e.message);
-        }
-      });
+    container.querySelector("[data-upload-cat]")?.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        await uploadVehiclePhoto(_vehicle.id, catKey, file, _profile.id);
+        toast("success", "Photo uploaded");
+        _photos = await listVehiclePhotos(_vehicle.id);
+        renderAllPhotoBlocks(isManagerOrAbove);
+      } catch (err) {
+        toast("error", "Upload failed", err.message);
+      }
     });
 
-    section.querySelectorAll("[data-remove]").forEach(btn => {
+    container.querySelectorAll("[data-remove]").forEach(btn => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         confirmDialog("Remove photo?", "This photo will be permanently deleted.", async () => {
           try {
             await deleteVehiclePhoto(btn.dataset.remove, btn.dataset.path);
             _photos = _photos.filter(p => p.id !== btn.dataset.remove);
-            renderPhotos(isManagerOrAbove);
+            renderAllPhotoBlocks(isManagerOrAbove);
           } catch (err) {
             toast("error", "Couldn't remove photo", err.message);
           }
@@ -219,7 +245,7 @@
       });
     });
 
-    section.querySelectorAll(".photo-thumb").forEach(thumb => {
+    container.querySelectorAll(".photo-thumb").forEach(thumb => {
       thumb.addEventListener("click", async () => {
         try {
           const url = await getPhotoUrl(thumb.dataset.path);
@@ -232,8 +258,8 @@
     });
   }
 
-  async function loadThumbnails() {
-    const thumbs = document.querySelectorAll(".photo-thumb[data-path]");
+  async function loadThumbnailsIn(container) {
+    const thumbs = container.querySelectorAll(".photo-thumb[data-path]");
     for (const thumb of thumbs) {
       try {
         const url = await getPhotoUrl(thumb.dataset.path);

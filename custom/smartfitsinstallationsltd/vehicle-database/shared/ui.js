@@ -1,5 +1,18 @@
 // UI helpers for the Smartfits Vehicle Installations Database
 
+// Staged photos (add-a-vehicle / suggest-a-change flows) sit in memory as
+// File objects until the parent row exists and they can actually be
+// uploaded — which on a long multi-photo form can be minutes later, and on
+// mobile Safari often involves backgrounding the tab to use the Camera app
+// between shots. Safari can silently invalidate a File's underlying handle
+// after that, so reading its bytes into a plain in-memory Blob the moment
+// it's picked (rather than only when finally uploaded) avoids uploads
+// failing with a generic "Load failed" once the user gets to Save/Submit.
+export async function freezeFile(file) {
+  const buf = await file.arrayBuffer();
+  return new File([buf], file.name, { type: file.type });
+}
+
 export function esc(s) {
   return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }

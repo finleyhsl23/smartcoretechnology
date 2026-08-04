@@ -33,7 +33,7 @@
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
   import {
     listEditRequests, getEditRequest, listRequestPhotos, getPhotoUrl, approveEditRequest, denyEditRequest,
-    getEmployeesByIds, fieldLabel, categoryLabel, BODY_VARIANTS,
+    getEmployeesByIds, fieldLabel, categoryLabel, fieldPhotoCategory, BODY_VARIANTS,
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { sb } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/supabase.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
@@ -208,6 +208,34 @@
 
     const photoUrls = await Promise.all(photos.map(async p => ({ ...p, url: await getPhotoUrl(p.storage_path).catch(() => "") })));
 
+    // Show each field's proposed photo(s) right under that field, rather than
+    // in one disconnected gallery — easier to review a wiring photo next to
+    // the location text it's illustrating. Anything left over (front/back,
+    // "general", or a photo whose field wasn't itself changed) still shows,
+    // just in a fallback section so nothing goes missing.
+    const usedPhotoCategories = new Set();
+    const changesHtml = changes.map(([key, newVal]) => {
+      const cat = fieldPhotoCategory(key);
+      const catPhotos = cat ? photoUrls.filter(p => p.category === cat) : [];
+      if (cat) usedPhotoCategories.add(cat);
+      const photoHtml = catPhotos.length ? `
+        <div class="photo-grid" style="grid-column:1/-1;margin:2px 0 8px">
+          ${catPhotos.map(p => `<div class="photo-thumb"><img src="${esc(p.url)}" alt="${esc(categoryLabel(p.category))}"/></div>`).join("")}
+        </div>` : "";
+      return (isNewVehicle ? `
+        <div class="diff-row">
+          <div class="diff-label">${esc(fieldLabel(key))}</div>
+          <div class="diff-new" style="grid-column:2 / -1">${esc(displayValue(key, newVal) || "(empty)")}</div>
+        </div>` : `
+        <div class="diff-row">
+          <div class="diff-label">${esc(fieldLabel(key))}</div>
+          <div class="diff-old">${esc(veh?.[key] || "(empty)")}</div>
+          <div class="diff-arrow"><i data-lucide="arrow-right"></i></div>
+          <div class="diff-new">${esc(newVal || "(empty)")}</div>
+        </div>`) + photoHtml;
+    }).join("");
+    const leftoverPhotos = photoUrls.filter(p => !usedPhotoCategories.has(p.category));
+
     const overlay = modal(`
       <div class="modal-header">
         <h3>${esc(requestTitle(request))} — ${isNewVehicle ? "New Vehicle Suggestion" : "Suggested Change"}</h3>
@@ -219,25 +247,13 @@
 
         ${changes.length ? `
           <h4 style="margin:0 0 8px">${isNewVehicle ? "Proposed Vehicle Details" : "Field Changes"}</h4>
-          <div style="margin-bottom:18px">
-            ${changes.map(([key, newVal]) => isNewVehicle ? `
-              <div class="diff-row">
-                <div class="diff-label">${esc(fieldLabel(key))}</div>
-                <div class="diff-new" style="grid-column:2 / -1">${esc(displayValue(key, newVal) || "(empty)")}</div>
-              </div>` : `
-              <div class="diff-row">
-                <div class="diff-label">${esc(fieldLabel(key))}</div>
-                <div class="diff-old">${esc(veh?.[key] || "(empty)")}</div>
-                <div class="diff-arrow"><i data-lucide="arrow-right"></i></div>
-                <div class="diff-new">${esc(newVal || "(empty)")}</div>
-              </div>`).join("")}
-          </div>
+          <div style="margin-bottom:18px">${changesHtml}</div>
         ` : `<p class="text-muted">No field changes proposed.</p>`}
 
-        ${photoUrls.length ? `
-          <h4 style="margin:0 0 8px">Proposed Photos</h4>
+        ${leftoverPhotos.length ? `
+          <h4 style="margin:0 0 8px">${leftoverPhotos.some(p => p.category === "front" || p.category === "back") ? "Vehicle Photos" : "Other Photos"}</h4>
           <div class="photo-grid" style="margin-bottom:18px">
-            ${photoUrls.map(p => `<div class="photo-thumb"><img src="${esc(p.url)}" alt="${esc(categoryLabel(p.category))}" title="${esc(categoryLabel(p.category))}"/></div>`).join("")}
+            ${leftoverPhotos.map(p => `<div class="photo-thumb"><img src="${esc(p.url)}" alt="${esc(categoryLabel(p.category))}" title="${esc(categoryLabel(p.category))}"/></div>`).join("")}
           </div>
         ` : ""}
 

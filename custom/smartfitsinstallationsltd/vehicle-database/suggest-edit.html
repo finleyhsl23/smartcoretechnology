@@ -34,7 +34,7 @@
   import { getVehicle, createEditRequest, uploadRequestPhoto, FIELD_GROUPS, PHOTO_CATEGORIES } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
-  import { esc, setInner, loadingState, errorState, toast } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+  import { esc, setInner, loadingState, errorState, toast, freezeFile } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
 
   initTheme();
   const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
@@ -127,16 +127,17 @@
   // created, since storage RLS keys off an existing pending request id.
   function wirePhotoStaging() {
     document.querySelectorAll("[data-stage-cat]").forEach(input => {
-      input.addEventListener("change", () => {
+      input.addEventListener("change", async () => {
         const file = input.files?.[0];
         if (!file) return;
+        const frozen = await freezeFile(file);
         const category = input.dataset.stageCat;
-        _pendingPhotos.push({ category, file });
+        _pendingPhotos.push({ category, file: frozen });
         const grid = input.closest(".photo-grid");
         const thumb = document.createElement("div");
         thumb.className = "photo-thumb";
         const img = document.createElement("img");
-        img.src = URL.createObjectURL(file);
+        img.src = URL.createObjectURL(frozen);
         thumb.appendChild(img);
         grid.insertBefore(thumb, input.closest("label"));
         input.value = "";

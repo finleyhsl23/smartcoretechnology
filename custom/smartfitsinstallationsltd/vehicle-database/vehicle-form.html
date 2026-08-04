@@ -38,7 +38,7 @@
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
-  import { esc, setInner, loadingState, errorState, toast, confirmDialog, permissionDeniedState, modal } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+  import { esc, setInner, loadingState, errorState, toast, confirmDialog, permissionDeniedState, modal, freezeFile } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
 
   initTheme();
   const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
@@ -240,7 +240,8 @@
           toast("error", "Upload failed", err.message);
         }
       } else {
-        _stagedPhotos.push({ id: crypto.randomUUID(), category, file, previewUrl: URL.createObjectURL(file) });
+        const frozen = await freezeFile(file);
+        _stagedPhotos.push({ id: crypto.randomUUID(), category, file: frozen, previewUrl: URL.createObjectURL(frozen) });
         renderPhotoStrip(category);
       }
     });
@@ -356,10 +357,10 @@
             <button type="button" class="btn" id="wizBack">Back</button>
             <button type="button" class="btn btn-primary" id="wizNext" ${frontFile ? "" : "disabled"}>Continue</button>
           </div>`;
-        content.querySelector("#wizFrontInput").addEventListener("change", (e) => {
+        content.querySelector("#wizFrontInput").addEventListener("change", async (e) => {
           const file = e.target.files?.[0];
           if (!file) return;
-          frontFile = file; frontPreview = URL.createObjectURL(file);
+          frontFile = await freezeFile(file); frontPreview = URL.createObjectURL(frontFile);
           renderWizStep();
         });
         content.querySelector("#wizBack").addEventListener("click", () => { step = 1; renderWizStep(); });
@@ -376,10 +377,10 @@
             <button type="button" class="btn" id="wizBack">Back</button>
             <button type="button" class="btn btn-primary" id="wizSave" ${backFile ? "" : "disabled"}>Save</button>
           </div>`;
-        content.querySelector("#wizBackInput").addEventListener("change", (e) => {
+        content.querySelector("#wizBackInput").addEventListener("change", async (e) => {
           const file = e.target.files?.[0];
           if (!file) return;
-          backFile = file; backPreview = URL.createObjectURL(file);
+          backFile = await freezeFile(file); backPreview = URL.createObjectURL(backFile);
           renderWizStep();
         });
         content.querySelector("#wizBack").addEventListener("click", () => { step = 2; renderWizStep(); });

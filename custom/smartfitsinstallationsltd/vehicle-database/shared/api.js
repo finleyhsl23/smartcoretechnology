@@ -4,6 +4,21 @@ import { SMARTFITS_COMPANY_ID } from "./auth.js";
 const PHOTO_BUCKET = "smartfits-vehicle-database-photos";
 const SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
 
+// Photo uploads are the flakiest thing this app does over a phone's
+// connection — one retry after a short pause clears most transient network
+// blips without the user having to redo anything.
+async function uploadWithRetry(path, file) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const { error } = await sb().storage.from(PHOTO_BUCKET).upload(path, file, {
+      contentType: file.type || "image/jpeg",
+      upsert: false,
+    });
+    if (!error) return;
+    if (attempt === 2) throw error;
+    await new Promise(r => setTimeout(r, 800));
+  }
+}
+
 // ── Field + category definitions (shared across every page so the form,
 // detail view, and diff view can never drift out of sync) ──────────────────
 export const PHOTO_CATEGORIES = [
@@ -83,6 +98,17 @@ export function fieldLabel(key) {
 
 export function categoryLabel(key) {
   return PHOTO_CATEGORIES.find(c => c.key === key)?.label || key;
+}
+
+// Which photo category (if any) a field is paired with, so a field's photos
+// can be shown right alongside it instead of in a separate, disconnected
+// gallery.
+export function fieldPhotoCategory(key) {
+  for (const g of FIELD_GROUPS) {
+    const f = g.fields.find(x => x.key === key);
+    if (f?.photoCategory) return f.photoCategory;
+  }
+  return null;
 }
 
 export function normalizeReg(reg) {
@@ -270,11 +296,7 @@ export async function uploadVehiclePhoto(vehicleId, category, file, uploadedByEm
   const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
   const path = `${vehicleId}/${crypto.randomUUID()}.${ext}`;
 
-  const { error: upErr } = await sb().storage.from(PHOTO_BUCKET).upload(path, file, {
-    contentType: file.type || "image/jpeg",
-    upsert: false,
-  });
-  if (upErr) throw upErr;
+  await uploadWithRetry(path, file);
 
   const { data, error } = await vdb()
     .from("vdb_vehicle_photos")
@@ -380,11 +402,7 @@ export async function uploadRequestPhoto(requestId, category, file, caption = ""
   const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
   const path = `pending/${requestId}/${crypto.randomUUID()}.${ext}`;
 
-  const { error: upErr } = await sb().storage.from(PHOTO_BUCKET).upload(path, file, {
-    contentType: file.type || "image/jpeg",
-    upsert: false,
-  });
-  if (upErr) throw upErr;
+  await uploadWithRetry(path, file);
 
   const { data, error } = await vdb()
     .from("vdb_edit_request_photos")
