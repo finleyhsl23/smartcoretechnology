@@ -236,9 +236,11 @@
 <script>
 const sb = supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
 
-// Read slug from URL path: /shop/private/<slug>/
-const pathParts = location.pathname.replace(/\/+$/,'').split('/');
-const PAGE_SLUG = pathParts[pathParts.length - 1];
+// Read slug from ?slug= query param first, then fall back to URL path
+const _qSlug = new URLSearchParams(location.search).get('slug');
+const _pathParts = location.pathname.replace(/\/+$/,'').split('/');
+const _pathSlug = _pathParts[_pathParts.length - 1];
+const PAGE_SLUG = _qSlug || (_pathSlug !== 'private' ? _pathSlug : '');
 
 let MODULE = null;
 let billing = 'monthly';
@@ -330,42 +332,50 @@ async function submitOrder() {
   }
 
   btn.disabled = true;
-  btn.textContent = 'Redirecting to payment…';
+  btn.textContent = 'Creating order…';
 
   const m = MODULE;
   const price = billing === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+  const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
 
   try {
-    const res = await fetch('/api/marketplace-order', {
+    // Step 1: insert order into Supabase
+    const ref = 'SC-' + new Date().getFullYear() + '-' + Math.random().toString(36).slice(2,8).toUpperCase();
+    const { data: rows, error: insertErr } = await sb.from('marketplace_orders').insert({
+      order_reference:  ref,
+      company_name:     company,
+      contact_name:     `${first} ${last}`,
+      email:            email.toLowerCase(),
+      accounts_email:   accounts ? accounts.toLowerCase() : null,
+      phone:            phone || null,
+      modules:          [{ id: m.id, slug: m.slug || '', name: m.name, monthly_price: m.monthly_price, yearly_price: m.yearly_price, price }],
+      billing_type:     billing,
+      size_tier:        'standard',
+      size_multiplier:  1,
+      subtotal:         price,
+      discount_percent: 0,
+      discount_amount:  0,
+      annual_discount_amount: 0,
+      total:            price,
+      status:           'pending_payment',
+    }).select('id');
+
+    if (insertErr) throw new Error(insertErr.message);
+    const orderId = rows?.[0]?.id;
+    if (!orderId) throw new Error('Order creation failed — no ID returned');
+
+    // Step 2: create Stripe checkout session
+    btn.textContent = 'Redirecting to payment…';
+    const stripeRes = await fetch('/api/stripe-checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contact_name:   `${first} ${last}`,
-        company_name:   company,
-        email:          email.toLowerCase(),
-        phone:          phone || null,
-        accounts_email: accounts ? accounts.toLowerCase() : null,
-        billing_type:   billing,
-        modules:        [m],
-        subtotal:       price,
-        discount_amount: 0,
-        total:          price,
-        size_tier:      'standard',
-        size_multiplier: 1,
-        source:         'private',
-        private_slug:   PAGE_SLUG,
-      }),
+      body: JSON.stringify({ order_id: orderId }),
     });
 
-    const json = await res.json();
-    if (!res.ok || json.error) throw new Error(json.error || 'Order failed');
+    const stripeJson = await stripeRes.json();
+    if (!stripeRes.ok || stripeJson.error) throw new Error(stripeJson.error || 'Payment setup failed');
 
-    // Redirect to Stripe checkout
-    if (json.checkout_url) {
-      window.location.href = json.checkout_url;
-    } else {
-      window.location.href = `/shop/order-confirmed.html?ref=${json.order_reference}`;
-    }
+    window.location.href = stripeJson.checkout_url || stripeJson.url;
   } catch (e) {
     err.textContent = e.message || 'Something went wrong. Please try again or email support@smartcoretechnology.co.uk.';
     err.style.display = 'block';
