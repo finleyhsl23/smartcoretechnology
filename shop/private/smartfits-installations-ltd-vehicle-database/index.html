@@ -310,6 +310,12 @@ function setBilling(b) {
   updatePriceDisplay();
 }
 
+function genRef() {
+  const year = new Date().getFullYear();
+  const rand = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6);
+  return `SC-${year}-${rand}`;
+}
+
 async function submitOrder() {
   const btn = document.getElementById('submitBtn');
   const err = document.getElementById('formErr');
@@ -336,46 +342,47 @@ async function submitOrder() {
 
   const m = MODULE;
   const price = billing === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
-  const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
 
+  // Same pattern as the public shop checkout (shop/checkout.html): insert
+  // the order directly via Supabase, then hand off to /shop/payment.html
+  // with its id — that page is the one that knows how to turn an order into
+  // a Stripe subscription (via /api/stripe-checkout) and mount the embedded
+  // Payment Element. /api/stripe-checkout itself only ever returns a
+  // {client_secret}, not a checkout_url/url, so calling it directly from
+  // here and redirecting to its result would hit the exact same "undefined"
+  // bug this was meant to fix, just one step further along.
   try {
-    // Step 1: insert order into Supabase
-    const ref = 'SC-' + new Date().getFullYear() + '-' + Math.random().toString(36).slice(2,8).toUpperCase();
-    const { data: rows, error: insertErr } = await sb.from('marketplace_orders').insert({
-      order_reference:  ref,
-      company_name:     company,
-      contact_name:     `${first} ${last}`,
-      email:            email.toLowerCase(),
-      accounts_email:   accounts ? accounts.toLowerCase() : null,
-      phone:            phone || null,
-      modules:          [{ id: m.id, slug: m.slug || '', name: m.name, monthly_price: m.monthly_price, yearly_price: m.yearly_price, price }],
-      billing_type:     billing,
-      size_tier:        'standard',
-      size_multiplier:  1,
-      subtotal:         price,
-      discount_percent: 0,
-      discount_amount:  0,
-      annual_discount_amount: 0,
-      total:            price,
-      status:           'pending_payment',
+    const { data: insertedRows, error } = await sb.from('marketplace_orders').insert({
+      order_reference: genRef(),
+      company_name:    company,
+      contact_name:    `${first} ${last}`,
+      email:           email.toLowerCase(),
+      accounts_email:  accounts ? accounts.toLowerCase() : null,
+      phone:           phone || null,
+      modules: [{
+        id:            m.id,
+        slug:          m.slug || '',
+        name:          m.name,
+        monthly_price: m.monthly_price,
+        is_flat_rate:  !!m.is_flat_rate,
+        yearly_price:  m.yearly_price,
+        price,
+      }],
+      billing_type:    billing,
+      size_tier:       'standard',
+      size_multiplier: 1,
+      subtotal:        price,
+      discount_amount: 0,
+      total:           price,
+      status:          'pending_payment',
     }).select('id');
 
-    if (insertErr) throw new Error(insertErr.message);
-    const orderId = rows?.[0]?.id;
-    if (!orderId) throw new Error('Order creation failed — no ID returned');
+    if (error) throw new Error(error.message);
+    const orderId = insertedRows?.[0]?.id;
+    if (!orderId) throw new Error('Order could not be created.');
 
-    // Step 2: create Stripe checkout session
     btn.textContent = 'Redirecting to payment…';
-    const stripeRes = await fetch('/api/stripe-checkout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: orderId }),
-    });
-
-    const stripeJson = await stripeRes.json();
-    if (!stripeRes.ok || stripeJson.error) throw new Error(stripeJson.error || 'Payment setup failed');
-
-    window.location.href = stripeJson.checkout_url || stripeJson.url;
+    window.location.href = `/shop/payment.html?order_id=${encodeURIComponent(orderId)}`;
   } catch (e) {
     err.textContent = e.message || 'Something went wrong. Please try again or email support@smartcoretechnology.co.uk.';
     err.style.display = 'block';
