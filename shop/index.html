@@ -773,15 +773,16 @@
       position:fixed;inset:0;z-index:400;
       background:rgba(0,0,0,.96);
       display:none;align-items:center;justify-content:center;
-      cursor:zoom-out;
     }
     #lightbox.visible{display:flex}
     #lightbox img{
-      max-width:92vw;max-height:92vh;
+      max-width:88vw;max-height:88vh;
       border-radius:10px;object-fit:contain;
       box-shadow:0 32px 80px rgba(0,0,0,.8);
       pointer-events:none;
+      transition:opacity .15s;
     }
+    #lightbox img.fade{opacity:0}
     .lightbox-close{
       position:fixed;top:20px;right:20px;
       width:36px;height:36px;border-radius:50%;
@@ -791,6 +792,24 @@
       transition:background .15s;z-index:401;
     }
     .lightbox-close:hover{background:rgba(255,255,255,.22)}
+    .lightbox-nav{
+      position:fixed;top:50%;transform:translateY(-50%);
+      width:44px;height:44px;border-radius:50%;
+      background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);
+      color:#fff;font-size:20px;cursor:pointer;
+      display:flex;align-items:center;justify-content:center;
+      transition:background .15s,opacity .15s;z-index:401;
+      user-select:none;
+    }
+    .lightbox-nav:hover{background:rgba(255,255,255,.24)}
+    .lightbox-nav.hidden{opacity:0;pointer-events:none}
+    #lightboxPrev{left:20px}
+    #lightboxNext{right:20px}
+    .lightbox-counter{
+      position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+      font-size:12px;font-weight:600;color:rgba(255,255,255,.5);
+      letter-spacing:.06em;z-index:401;
+    }
 
     /* ── Responsive ──────────────────────────────────────── */
     @media(max-width:600px){
@@ -949,9 +968,12 @@
 </div>
 
 <!-- LIGHTBOX -->
-<div id="lightbox" onclick="closeLightbox()">
+<div id="lightbox" onclick="lightboxBgClick(event)">
   <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+  <button class="lightbox-nav" id="lightboxPrev" onclick="lightboxStep(-1)">&#8249;</button>
   <img id="lightboxImg" src="" alt="" />
+  <button class="lightbox-nav" id="lightboxNext" onclick="lightboxStep(1)">&#8250;</button>
+  <div class="lightbox-counter" id="lightboxCounter"></div>
 </div>
 
 <script>
@@ -1296,14 +1318,18 @@ function _renderGroupDetail(item) {
 
   $id('detailBody').innerHTML = `<div class="detail-layout">
     <div class="detail-left">
-      ${item.thumbnail_url ? `<div class="detail-hero"><img src="${esc(item.thumbnail_url)}" alt="${esc(item.name)}" onclick="openLightbox('${esc(item.thumbnail_url)}')" /></div>` : ''}
+      ${item.thumbnail_url ? `<div class="detail-hero"><img src="${esc(item.thumbnail_url)}" alt="${esc(item.name)}" onclick="openLightbox('${esc(item.thumbnail_url)}',[${[item.thumbnail_url,...(selVer.screenshots||[])].map(s=>`'${esc(s)}'`).join(',')}])" style="cursor:zoom-in" /></div>` : ''}
 
       <!-- Screenshots (per selected tier) -->
       ${Array.isArray(selVer.screenshots) && selVer.screenshots.length ? `
         <div class="detail-section">
           <div class="detail-section-title">Screenshots</div>
           <div class="screenshot-grid">
-            ${selVer.screenshots.map(s=>`<div class="screenshot-thumb" onclick="openLightbox('${esc(s)}')"><img src="${esc(s)}" alt="screenshot" loading="lazy" /></div>`).join('')}
+            ${selVer.screenshots.map((s,i)=>{
+              const gallery=[...(item.thumbnail_url?[item.thumbnail_url]:[]),...selVer.screenshots];
+              const idx=item.thumbnail_url?i+1:i;
+              return `<div class="screenshot-thumb" onclick="openLightbox('${esc(s)}',[${gallery.map(g=>`'${esc(g)}'`).join(',')}])"><img src="${esc(s)}" alt="screenshot" loading="lazy" /></div>`;
+            }).join('')}
           </div>
         </div>` : ''}
 
@@ -1490,7 +1516,7 @@ function openDetail(id) {
       <!-- Hero image -->
       ${m.thumbnail_url ? `
         <div class="detail-hero">
-          <img src="${esc(m.thumbnail_url)}" alt="${esc(m.name)}" onclick="openLightbox('${esc(m.thumbnail_url)}')" />
+          <img src="${esc(m.thumbnail_url)}" alt="${esc(m.name)}" style="cursor:zoom-in" onclick="openLightbox('${esc(m.thumbnail_url)}',[${[m.thumbnail_url,...shots].map(s=>`'${esc(s)}'`).join(',')}])" />
         </div>` : ''}
 
       <!-- Screenshots -->
@@ -1498,7 +1524,7 @@ function openDetail(id) {
         <div class="detail-section">
           <div class="detail-section-title">Screenshots</div>
           <div class="screenshot-grid">
-            ${shots.map(s=>`<div class="screenshot-thumb" onclick="openLightbox('${esc(s)}')"><img src="${esc(s)}" alt="screenshot" loading="lazy" /></div>`).join('')}
+            ${shots.map((s,i)=>{const gallery=[...(m.thumbnail_url?[m.thumbnail_url]:[]),...shots];return `<div class="screenshot-thumb" onclick="openLightbox('${esc(s)}',[${gallery.map(g=>`'${esc(g)}'`).join(',')}])"><img src="${esc(s)}" alt="screenshot" loading="lazy" /></div>`;}).join('')}
           </div>
         </div>` : ''}
 
@@ -1613,21 +1639,54 @@ function renderVideo(url) {
 }
 
 // ── Lightbox ──────────────────────────────────────────────
-function openLightbox(src) {
-  $id('lightboxImg').src = src;
+let _lbGallery = [];
+let _lbIndex   = 0;
+
+function openLightbox(src, gallery) {
+  _lbGallery = Array.isArray(gallery) && gallery.length ? gallery : [src];
+  _lbIndex   = _lbGallery.indexOf(src);
+  if (_lbIndex < 0) _lbIndex = 0;
+  _renderLightbox();
   $id('lightbox').classList.add('visible');
   document.body.style.overflow = 'hidden';
 }
+function _renderLightbox() {
+  const img = $id('lightboxImg');
+  img.src = _lbGallery[_lbIndex];
+  const prev = $id('lightboxPrev');
+  const next = $id('lightboxNext');
+  const counter = $id('lightboxCounter');
+  prev.classList.toggle('hidden', _lbGallery.length <= 1 || _lbIndex === 0);
+  next.classList.toggle('hidden', _lbGallery.length <= 1 || _lbIndex === _lbGallery.length - 1);
+  counter.textContent = _lbGallery.length > 1 ? `${_lbIndex + 1} / ${_lbGallery.length}` : '';
+}
+function lightboxStep(dir) {
+  const next = _lbIndex + dir;
+  if (next < 0 || next >= _lbGallery.length) return;
+  const img = $id('lightboxImg');
+  img.classList.add('fade');
+  setTimeout(() => {
+    _lbIndex = next;
+    _renderLightbox();
+    img.classList.remove('fade');
+  }, 120);
+}
+function lightboxBgClick(e) {
+  if (e.target === $id('lightbox') || e.target === $id('lightboxImg')) closeLightbox();
+}
 function closeLightbox() {
   $id('lightbox').classList.remove('visible');
-  // Restore overflow only if detail is also closed
   if (!$id('detail').classList.contains('visible')) {
     document.body.style.overflow = '';
   }
 }
 document.addEventListener('keydown', e => {
+  if ($id('lightbox').classList.contains('visible')) {
+    if (e.key === 'Escape')     { closeLightbox(); return; }
+    if (e.key === 'ArrowLeft')  { lightboxStep(-1); return; }
+    if (e.key === 'ArrowRight') { lightboxStep(1);  return; }
+  }
   if (e.key === 'Escape') {
-    if ($id('lightbox').classList.contains('visible')) { closeLightbox(); return; }
     if ($id('detail').classList.contains('visible'))   { closeDetail();   return; }
     if ($id('basketOverlay').classList.contains('visible')) { closeBasket(); return; }
   }
