@@ -45,7 +45,7 @@
   // it's just not something Owner/Admin needs to think about when adding one.
   const DEFAULT_DEPARTMENT_ID = "52a3c1d6-c0e9-4ada-bf59-15d4268a6d33";
 
-  let _profile, _employees = [], _managerRoster = [], _jobTitleInput;
+  let _profile, _employees = [], _managerRoster = [], _deptFilter = null, _jobTitleInput;
 
   try {
     const { profile, tier, settings: navSettings } = await requireModuleAccess();
@@ -70,6 +70,10 @@
       _employees = employees;
       const rosterIds = new Set(settings.manager_employee_ids || []);
       _managerRoster = _employees.filter(e => rosterIds.has(e.id));
+      // Same department scope as the "which engineer would you like to
+      // audit today?" picker on the home page — an empty list there means
+      // unrestricted, so job titles come from everyone in that case too.
+      _deptFilter = settings.visible_department_ids?.length ? new Set(settings.visible_department_ids) : null;
       draw();
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
@@ -77,7 +81,12 @@
   }
 
   function draw() {
-    const jobTitles = [...new Set(_employees.map(e => e.job_title).filter(Boolean))].sort();
+    const jobTitles = [...new Set(
+      _employees
+        .filter(e => !_deptFilter || _deptFilter.has(e.department_id))
+        .map(e => e.job_title)
+        .filter(Boolean)
+    )].sort();
 
     const html = `
       <div class="page-head">
