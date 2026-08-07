@@ -31,7 +31,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
-  import { listSmartfitsEmployees, getAuditSettings, setEngineerManagers, setEmployeeArchived, updateEmployeeJobTitle } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { listSmartfitsEmployees, getAuditSettings, setEngineerManagers, setEmployeeArchived, updateEmployeeDetails } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { sb } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/supabase.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
@@ -190,7 +190,7 @@
     `;
 
     listEl.querySelectorAll("[data-edit]").forEach(btn => {
-      btn.addEventListener("click", () => openEditJobTitleModal(btn.dataset.edit, btn.dataset.name, btn.dataset.title));
+      btn.addEventListener("click", () => openEditModal(btn.dataset.edit, btn.dataset.name, btn.dataset.title));
     });
 
     listEl.querySelectorAll("[data-archive]").forEach(btn => {
@@ -235,10 +235,14 @@
     });
   }
 
-  function openEditJobTitleModal(employeeId, name, currentTitle) {
+  function openEditModal(employeeId, name, currentTitle) {
     const overlay = modal(`
-      <div class="modal-header"><h3>Edit job title — ${esc(name)}</h3><button class="btn modal-close">✕</button></div>
+      <div class="modal-header"><h3>Edit contractor</h3><button class="btn modal-close">✕</button></div>
       <div class="modal-body">
+        <div class="form-row">
+          <label class="form-label" for="editFullName">Full name</label>
+          <input type="text" id="editFullName" class="form-input" value="${esc(name)}"/>
+        </div>
         <div class="form-row" style="margin-bottom:0">
           <label class="form-label">Job title</label>
           <div id="editJobTitleDropdown"></div>
@@ -246,7 +250,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn modal-close">Cancel</button>
-        <button class="btn btn-primary" id="saveJobTitleBtn">Save</button>
+        <button class="btn btn-primary" id="saveEditBtn">Save</button>
       </div>
     `);
     const editInput = initTextTypeahead(overlay.querySelector("#editJobTitleDropdown"), {
@@ -254,14 +258,16 @@
       value: currentTitle,
       placeholder: "e.g. Field Engineer",
     });
-    overlay.querySelector("#saveJobTitleBtn").addEventListener("click", async () => {
+    overlay.querySelector("#saveEditBtn").addEventListener("click", async () => {
+      const fullName = overlay.querySelector("#editFullName").value.trim();
+      if (!fullName) { toast("error", "Enter a full name"); return; }
       try {
-        await updateEmployeeJobTitle(employeeId, editInput.getValue());
+        await updateEmployeeDetails(employeeId, { full_name: fullName, job_title: editInput.getValue() });
         overlay.remove();
-        toast("success", "Job title updated");
+        toast("success", "Contractor updated");
         await render();
       } catch (e) {
-        toast("error", "Couldn't update job title", e.message);
+        toast("error", "Couldn't update contractor", e.message);
       }
     });
   }

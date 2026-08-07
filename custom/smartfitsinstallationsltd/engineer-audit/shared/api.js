@@ -72,10 +72,10 @@ export async function setEmployeeArchived(employeeId, archived) {
   if (error) throw error;
 }
 
-export async function updateEmployeeJobTitle(employeeId, jobTitle) {
+export async function updateEmployeeDetails(employeeId, { full_name, job_title }) {
   const { error } = await sb()
     .from("core_employees")
-    .update({ job_title: jobTitle || null })
+    .update({ full_name: full_name.trim(), job_title: job_title || null })
     .eq("id", employeeId);
   if (error) throw error;
 }
