@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Vehicle Check — Convoy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/convoy/shared/convoy.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Vehicle Check</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content" style="max-width:640px"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireConvoyAccess } from "/systems/convoy/shared/auth.js";
+  import { vehicles, checklists, checks, settings as settingsApi, signedUrl } from "/systems/convoy/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/convoy/shared/nav.js";
+  import { initTheme } from "/systems/convoy/shared/theme.js";
+  import { getCurrentPosition } from "/systems/convoy/shared/geo.js";
+  import { renderPhotoCaptureStep } from "/systems/convoy/shared/camera.js";
+  import { esc, toast, loadingState, errorState, setInner } from "/systems/convoy/shared/ui.js";
+
+  initTheme();
+  let _profile = null, _companyId = null;
+  let _vehicle = null, _template = null, _check = null, _settings = null;
+  let _startGeo = null;
+
+  try {
+    const { profile, admin } = await requireConvoyAccess();
+    _profile = profile; _companyId = profile.company_id;
+    renderNav("check", profile, { admin });
+    initMobileNav(); initTopbar();
+    _settings = await settingsApi.get(_companyId);
+    await bootstrap();
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Convoy", message: e.message }));
+  }
+
+  async function bootstrap() {
+    setInner("body", loadingState("Loading…"));
+    const vehicleId = new URLSearchParams(location.search).get("vehicle");
+    const [vehicleList, templates] = await Promise.all([
+      vehicles.list(_companyId, { status: "active" }),
+      checklists.ensureDefault(_companyId, _profile.id),
+    ]);
+    if (!vehicleList.length) {
+      return setInner("body", `<div class="card">No active vehicles found. Add a vehicle first.</div>`);
+    }
+    if (vehicleId) {
+      _vehicle = vehicleList.find(v => v.id === vehicleId) || null;
+    }
+    renderSetupForm(vehicleList, templates);
+  }
+
+  function renderSetupForm(vehicleList, templates) {
+    setInner("body", `
+      <div class="card">
+        <h2 style="margin-top:0">Start a Vehicle Check</h2>
+        <p class="text-muted" style="font-size:13px">You'll need to photograph each required panel of the vehicle in person — have your camera ready.</p>
+        <div class="form-field">
+          <label class="form-label">Vehicle</label>
+          <select class="form-select" id="fVehicle">
+            ${vehicleList.map(v => `<option value="${esc(v.id)}" ${_vehicle?.id === v.id ? "selected" : ""}>${esc(v.registration)} — ${esc([v.make, v.model].filter(Boolean).join(" "))}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Check type</label>
+          <select class="form-select" id="fType">
+            <option value="pre_use">Pre-use (before driving)</option>
+            <option value="return">Return (after driving)</option>
+            <option value="ad_hoc">Ad-hoc</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Checklist</label>
+          <select class="form-select" id="fTemplate">
+            ${templates.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-field"><label class="form-label">Current mileage (optional)</label><input class="form-input" type="number" id="fMileage"/></div>
+        <button class="btn btn-primary btn-block btn-lg" id="startBtn"><i data-lucide="play"></i> Start Check</button>
+      </div>
+    `);
+
+    document.getElementById("startBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("startBtn");
+      btn.disabled = true; btn.innerHTML = `<i data-lucide="loader"></i> Getting your location…`;
+      window.lucide?.createIcons?.();
+      _vehicle = vehicleList.find(v => v.id === document.getElementById("fVehicle").value);
+      _template = templates.find(t => t.id === document.getElementById("fTemplate").value);
+      const checkType = document.getElementById("fType").value;
+      const mileage = document.getElementById("fMileage").value ? Number(document.getElementById("fMileage").value) : null;
+
+      _startGeo = await getCurrentPosition();
+      try {
+        const resumed = await checks.findActive(_profile.id, _vehicle.id);
+        _check = resumed || await checks.start({
+          companyId: _companyId, vehicleId: _vehicle.id, driverEmployeeId: _profile.id,
+          templateId: _template.id, checkType, mileage, start: _startGeo,
+        });
+        renderWalkaround();
+      } catch (e) {
+        toast("error", "Couldn't start check", e.message);
+        btn.disabled = false; btn.innerHTML = `<i data-lucide="play"></i> Start Check`;
+        window.lucide?.createIcons?.();
+      }
+    });
+  }
+
+  function renderWalkaround() {
+    const items = _check.items;
+    const doneCount = items.filter(it => it.passed != null && (!it.requires_photo || it.photo_id)).length;
+    const currentIndex = items.findIndex(it => it.passed == null || (it.requires_photo && !it.photo_id));
+
+    const gpsBanner = _startGeo
+      ? `<div class="walk-gps-banner ${_startGeo.accuracy <= 50 ? "ok" : "warn"}"><i data-lucide="map-pin"></i> Location captured (±${Math.round(_startGeo.accuracy)}m accuracy)</div>`
+      : `<div class="walk-gps-banner warn"><i data-lucide="map-pin-off"></i> Location unavailable — this check will be flagged for review.</div>`;
+
+    const html = `
+      ${gpsBanner}
+      <div class="sl-checklist-progress"><div class="sl-checklist-progress-bar" style="width:${Math.round((doneCount / items.length) * 100)}%"></div></div>
+      <p class="text-muted" style="font-size:12.5px;margin-top:-6px">${doneCount} of ${items.length} items complete</p>
+      <div id="itemsList">${items.map((it, i) => itemCard(it, i, currentIndex)).join("")}</div>
+      ${currentIndex === -1 ? `<div id="attestArea"></div>` : ""}
+    `;
+    setInner("body", html);
+    wireItemButtons(currentIndex);
+    if (currentIndex === -1) renderAttestation();
+  }
+
+  function itemCard(it, index, currentIndex) {
+    const done = it.passed != null && (!it.requires_photo || it.photo_id);
+    const locked = index > currentIndex && currentIndex !== -1;
+    const cls = done ? (it.passed ? "done" : "failed") : "";
+    return `
+      <div class="walk-item ${cls}" data-item-id="${esc(it.id)}" style="${locked ? "opacity:.45" : ""}">
+        <div class="walk-item-head">
+          <div>
+            <div class="walk-item-label">${esc(it.label)}</div>
+            <div class="walk-item-zone">${esc(it.zone.replace(/_/g, " "))}${it.requires_photo ? " · Photo required" : ""}</div>
+          </div>
+          ${done ? `<i data-lucide="${it.passed ? "check-circle" : "x-circle"}" style="width:22px;height:22px;color:var(--${it.passed ? "good" : "bad"})"></i>` : ""}
+        </div>
+        ${it.photo?.storage_path ? `<img class="walk-item-thumb" data-thumb="${esc(it.id)}" alt="${esc(it.label)} photo"/>` : ""}
+        ${!done && index === currentIndex ? itemActionArea(it) : ""}
+      </div>`;
+  }
+
+  function itemActionArea(it) {
+    if (it.requires_photo && !it.photo_id) {
+      return `<div id="camHost-${esc(it.id)}"><button class="btn btn-primary" data-take-photo="${esc(it.id)}"><i data-lucide="camera"></i> Take Photo</button></div>`;
+    }
+    return `
+      <div class="walk-pass-fail">
+        <button class="btn" data-pass="${esc(it.id)}"><i data-lucide="check"></i> Pass</button>
+        <button class="btn" data-fail="${esc(it.id)}"><i data-lucide="x"></i> Fail — Report Defect</button>
+      </div>
+      <textarea class="form-textarea" style="margin-top:8px" placeholder="Notes (optional)" data-notes="${esc(it.id)}"></textarea>`;
+  }
+
+  function wireItemButtons(currentIndex) {
+    window.lucide?.createIcons?.();
+    document.querySelectorAll("[data-thumb]").forEach(async (img) => {
+      const it = _check.items.find(i => i.id === img.dataset.thumb);
+      const url = await signedUrl(it.photo.storage_path);
+      if (url) img.src = url;
+    });
+
+    const takeBtn = document.querySelector("[data-take-photo]");
+    if (takeBtn) {
+      takeBtn.addEventListener("click", () => {
+        const itemId = takeBtn.dataset.takePhoto;
+        const host = document.getElementById(`camHost-${itemId}`);
+        renderPhotoCaptureStep(host, {
+          title: "Photograph this part of the vehicle",
+          onCancel: () => renderWalkaround(),
+          onCaptured: async (capture) => {
+            host.innerHTML = `<p class="text-muted">Uploading…</p>`;
+            try {
+              const geo = await getCurrentPosition();
+              await checks.uploadItemPhoto(_companyId, _check.id, itemId, capture, geo);
+              const fresh = await refreshCheck();
+              renderWalkaround();
+            } catch (e) {
+              toast("error", "Couldn't upload photo", e.message);
+              renderWalkaround();
+            }
+          },
+        });
+      });
+    }
+
+    document.querySelectorAll("[data-pass]").forEach(btn => btn.addEventListener("click", () => setResult(btn.dataset.pass, true)));
+    document.querySelectorAll("[data-fail]").forEach(btn => btn.addEventListener("click", () => setResult(btn.dataset.fail, false)));
+  }
+
+  async function setResult(itemId, passed) {
+    const notes = document.querySelector(`[data-notes="${itemId}"]`)?.value || "";
+    try {
+      await checks.setItemResult(itemId, { passed, notes });
+      await refreshCheck();
+      renderWalkaround();
+    } catch (e) {
+      toast("error", "Couldn't save item", e.message);
+    }
+  }
+
+  async function refreshCheck() {
+    _check = await checks.get(_check.id);
+    return _check;
+  }
+
+  function renderAttestation() {
+    setInner("attestArea", `
+      <div class="walk-attest">
+        <h3 style="margin-top:0">Confirm & Submit</h3>
+        <p class="text-muted" style="font-size:13px">By submitting, you confirm you have personally and physically inspected this vehicle just now.</p>
+        <div class="form-field"><label class="form-label">Type your full name to confirm</label><input class="form-input" id="fAttest" placeholder="${esc(_profile.full_name || "")}"/></div>
+        <div id="waitNote" class="form-hint"></div>
+        <button class="btn btn-primary btn-block btn-lg" id="submitBtn" disabled><i data-lucide="send"></i> Submit Check</button>
+      </div>
+    `);
+
+    const minSeconds = _settings?.min_walkaround_seconds ?? 45;
+    const startedAt = new Date(_check.started_at).getTime();
+    const submitBtn = document.getElementById("submitBtn");
+    const waitNote = document.getElementById("waitNote");
+
+    function tick() {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      const remaining = minSeconds - elapsed;
+      if (remaining > 0) {
+        submitBtn.disabled = true;
+        waitNote.textContent = `Please take a moment to double-check the vehicle — you can submit in ${remaining}s.`;
+      } else {
+        submitBtn.disabled = false;
+        waitNote.textContent = "";
+        clearInterval(timer);
+      }
+    }
+    tick();
+    const timer = setInterval(tick, 1000);
+
+    submitBtn.addEventListener("click", async () => {
+      const name = document.getElementById("fAttest").value.trim();
+      if (!name) return toast("error", "Please type your name to confirm");
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<i data-lucide="loader"></i> Submitting…`;
+      window.lucide?.createIcons?.();
+      try {
+        const endGeo = await getCurrentPosition();
+        const result = await checks.submit(_check.id, { latitude: endGeo?.latitude, longitude: endGeo?.longitude, accuracy: endGeo?.accuracy, attestedName: name });
+        window.location.href = `check-detail.html?id=${_check.id}`;
+      } catch (e) {
+        toast("error", "Couldn't submit check", e.message);
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `<i data-lucide="send"></i> Submit Check`;
+        window.lucide?.createIcons?.();
+      }
+    });
+  }
+</script>
+</body>
+</html>

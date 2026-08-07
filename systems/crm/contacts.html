@@ -55,18 +55,36 @@ try {
 async function loadAndRender(search="", status="") {
   setInner("content", loading());
   try {
-    const res = await contacts.list({ search, status, limit: 200 });
+    const res = await contacts.list({ limit: 500 });
     allContacts = res.data;
-    renderTable(allContacts);
+    renderTable(allContacts, search, status);
   } catch(e) { toast("bad","Load error",e.message); }
 }
 
-function renderTable(rows) {
+function filterAndRender() {
+  const search = (document.getElementById("searchInput")?.value || "").toLowerCase();
+  const status = document.getElementById("statusFilter")?.value || "";
+  const filtered = allContacts.filter(c => {
+    const matchSearch = !search || (c.name||"").toLowerCase().includes(search) || (c.email||"").toLowerCase().includes(search);
+    const matchStatus = !status || c.status === status;
+    return matchSearch && matchStatus;
+  });
+  const tbody = document.getElementById("contactsTbody");
+  if (!tbody) return;
+  tbody.innerHTML = filtered.length
+    ? filtered.map(row).join("")
+    : `<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--text3)">No contacts found</td></tr>`;
+  document.getElementById("contactCount").textContent = `${filtered.length} contact${filtered.length !== 1 ? "s" : ""}`;
+  tbody.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
+  tbody.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => delContact(b.dataset.id, b.dataset.name)));
+}
+
+function renderTable(rows, initSearch="", initStatus="") {
   document.getElementById("content").innerHTML = `
     <div class="page-header">
       <div class="page-header-left">
         <h1>Contacts</h1>
-        <p>${rows.length} contact${rows.length !== 1 ? "s" : ""}</p>
+        <p id="contactCount">${rows.length} contact${rows.length !== 1 ? "s" : ""}</p>
       </div>
       <div class="page-header-actions">
         <button class="btn btn-primary" id="addBtn">+ Add Contact</button>
@@ -76,12 +94,12 @@ function renderTable(rows) {
     <div class="filter-bar">
       <div class="search-input-wrap">
         <span class="search-icon">🔍</span>
-        <input class="search-input" type="text" placeholder="Search by name or email…" id="searchInput"/>
+        <input class="search-input" type="text" placeholder="Search by name or email…" id="searchInput" value="${esc(initSearch)}"/>
       </div>
       <select class="filter-select" id="statusFilter">
         <option value="">All</option>
-        <option value="active">Active</option>
-        <option value="inactive">Inactive</option>
+        <option value="active" ${initStatus==="active"?"selected":""}>Active</option>
+        <option value="inactive" ${initStatus==="inactive"?"selected":""}>Inactive</option>
       </select>
     </div>
 
@@ -99,7 +117,7 @@ function renderTable(rows) {
               <th>Actions</th>
             </tr>
           </thead>
-          <tbody id="tblBody">
+          <tbody id="contactsTbody">
             ${rows.length === 0
               ? `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">👥</div><h3>No contacts yet</h3><p>Add your first contact to get started.</p></div></td></tr>`
               : rows.map(c => row(c)).join("")}
@@ -109,8 +127,8 @@ function renderTable(rows) {
     </div>`;
 
   document.getElementById("addBtn").onclick = () => openModal();
-  document.getElementById("searchInput").addEventListener("input", debounce(e => loadAndRender(e.target.value, document.getElementById("statusFilter").value), 300));
-  document.getElementById("statusFilter").addEventListener("change", e => loadAndRender(document.getElementById("searchInput").value, e.target.value));
+  document.getElementById("searchInput").addEventListener("input", filterAndRender);
+  document.getElementById("statusFilter").addEventListener("change", filterAndRender);
   document.querySelectorAll(".edit-btn").forEach(b => b.addEventListener("click", () => openModal(b.dataset.id)));
   document.querySelectorAll(".del-btn").forEach(b => b.addEventListener("click", () => delContact(b.dataset.id, b.dataset.name)));
 }

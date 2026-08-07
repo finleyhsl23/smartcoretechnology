@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script>try{var t=localStorage.getItem("flexiTheme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Programs — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+<style>
+.tpl-days{display:flex;gap:3px;margin-top:10px}
+.tpl-day{flex:1;height:6px;border-radius:3px;background:var(--fx-line)}
+.tpl-day.train{background:var(--fx-accent)}
+.tpl-day.rest{background:var(--fx-line-hi)}
+.tpl-meta{font-size:11.5px;color:var(--fx-text3);margin-top:8px}
+.tpl-actions{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Programs</h1><div class="fx-topbar-sub">Build a weekly plan once, reuse it with any client</div></div>
+      <div class="fx-topbar-spacer"></div>
+      <button class="fx-btn fx-btn-primary" id="newTemplateBtn">+ New Generic Program</button>
+    </header>
+    <main class="fx-content">
+
+      <div class="fx-section-head" style="margin-top:0"><h2>Program Templates</h2></div>
+      <div class="fx-grid fx-grid-3" id="templateGrid" style="margin-bottom:36px"></div>
+
+      <div class="fx-section-head">
+        <h2>Assigned Programs</h2>
+        <div class="fx-section-head-spacer"></div>
+        <select class="fx-select" id="statusFilter" style="max-width:160px">
+          <option value="">All statuses</option>
+          <option value="active">Active</option><option value="draft">Draft</option><option value="completed">Completed</option><option value="archived">Archived</option>
+        </select>
+      </div>
+      <div class="fx-table-wrap">
+        <table class="fx-table">
+          <thead><tr><th>Program</th><th>Client</th><th>Status</th><th>Start</th><th>End</th></tr></thead>
+          <tbody id="programsBody"><tr><td colspan="5" style="text-align:center;padding:24px;color:var(--fx-text3)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="fx-modal" id="newTemplateModal">
+  <div class="fx-modal-box" style="max-width:720px">
+    <div class="fx-modal-head"><h3>New Generic Program</h3><button class="fx-modal-close" data-close-new>✕</button></div>
+    <p style="font-size:12.5px;color:var(--fx-text3);margin-bottom:14px">Creates a 7-day weekly plan — you'll fill in each day (or mark it a rest day) next.</p>
+    <div class="fx-field"><label>Name</label><input class="fx-input" id="tplName" placeholder="e.g. Beginner Full Body"/></div>
+    <div class="fx-field" style="max-width:none"><label>Description</label><textarea class="fx-textarea" id="tplDesc" style="min-height:110px"></textarea></div>
+    <div class="fx-form-msg" id="tplMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="createTplBtn">Create &amp; Build Week</button>
+  </div>
+</div>
+
+<div class="fx-modal" id="assignModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>Assign to Client</h3><button class="fx-modal-close" data-close-assign>✕</button></div>
+    <p style="font-size:12.5px;color:var(--fx-text3);margin-bottom:14px" id="assignSub"></p>
+    <div class="fx-field"><label>Client</label><select class="fx-select" id="assignClient"></select></div>
+    <div class="fx-form-msg" id="assignMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="confirmAssignBtn">Assign</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDate, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient, enhanceSelect, initials } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "programs" });
+renderNav({ activeKey: "programs", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+enhanceSelect(document.getElementById("statusFilter"));
+
+// ---- Program templates ----
+async function loadTemplates() {
+  const { data: templates } = await sb().from("smartcore_flexi_programs").select("*").eq("is_template", true).order("created_at", { ascending: false });
+  const grid = document.getElementById("templateGrid");
+  if (!templates?.length) { grid.innerHTML = emptyState("🗓️", "No program templates yet", "Create a generic weekly plan above to reuse across clients."); return; }
+
+  const workoutsByProgram = {};
+  for (const t of templates) {
+    const { data } = await sb().from("smartcore_flexi_workouts").select("id, is_rest_day").eq("program_id", t.id).order("order_index");
+    workoutsByProgram[t.id] = data || [];
+  }
+
+  grid.innerHTML = templates.map(t => {
+    const days = workoutsByProgram[t.id];
+    const trainDays = days.filter(d => !d.is_rest_day).length;
+    const restDays = days.length - trainDays;
+    return `
+      <div class="fx-card fx-card-flush">
+        <div class="fx-tile" style="background:${tileGradient(t.id)};border-radius:0">
+          <div class="fx-tile-eyebrow">Template</div>
+          <div class="fx-tile-title">${escapeHtml(t.name)}</div>
+        </div>
+        <div style="padding:16px">
+          ${t.description ? `<div style="font-size:12px;color:var(--fx-text3);margin-bottom:4px">${escapeHtml(t.description)}</div>` : ""}
+          <div class="tpl-days">${days.length ? days.map(d => `<div class="tpl-day ${d.is_rest_day ? "rest" : "train"}"></div>`).join("") : `<div class="tpl-day"></div>`}</div>
+          <div class="tpl-meta">${days.length ? `${trainDays} training day${trainDays===1?"":"s"} · ${restDays} rest day${restDays===1?"":"s"}` : "No days set up yet"}</div>
+          <div class="tpl-actions">
+            <a class="fx-btn fx-btn-sm" href="program-detail.html?id=${t.id}">Edit Week</a>
+            <button class="fx-btn fx-btn-sm fx-btn-primary" data-assign="${t.id}" data-name="${escapeHtml(t.name)}">Assign to Client</button>
+            <button class="fx-btn fx-btn-sm fx-btn-danger" data-del-tpl="${t.id}">Delete</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  grid.querySelectorAll("[data-del-tpl]").forEach(btn => btn.addEventListener("click", async () => {
+    if (!confirm("Delete this template? This won't affect clients it's already been assigned to.")) return;
+    await sb().from("smartcore_flexi_programs").delete().eq("id", btn.dataset.delTpl);
+    loadTemplates();
+  }));
+  grid.querySelectorAll("[data-assign]").forEach(btn => btn.addEventListener("click", () => openAssign(btn.dataset.assign, btn.dataset.name)));
+}
+
+document.getElementById("newTemplateBtn").addEventListener("click", () => {
+  document.getElementById("tplName").value = "";
+  document.getElementById("tplDesc").value = "";
+  document.getElementById("tplMsg").textContent = "";
+  openModal("newTemplateModal");
+});
+document.querySelectorAll("[data-close-new]").forEach(b => b.addEventListener("click", () => closeModal("newTemplateModal")));
+document.getElementById("createTplBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("tplName").value.trim();
+  if (!name) { showMessage("tplMsg", "Name is required.", "error"); return; }
+  setLoading(e.target, true, "Creating…");
+  const { data: program, error } = await sb().from("smartcore_flexi_programs").insert({
+    company_id: profile.company_id, trainer_id: profile.id, name,
+    description: document.getElementById("tplDesc").value.trim() || null,
+    status: "active", is_template: true, client_id: null,
+  }).select().single();
+  if (error) { setLoading(e.target, false); showMessage("tplMsg", error.message, "error"); return; }
+
+  const days = Array.from({ length: 7 }, (_, i) => ({
+    program_id: program.id, name: `Day ${i + 1}`, day_label: `Day ${i + 1}`, order_index: i, is_rest_day: false,
+  }));
+  const { error: wErr } = await sb().from("smartcore_flexi_workouts").insert(days);
+  setLoading(e.target, false);
+  if (wErr) { showMessage("tplMsg", wErr.message, "error"); return; }
+  location.href = `program-detail.html?id=${program.id}`;
+});
+
+// ---- Assign to client ----
+async function openAssign(templateId, name) {
+  document.getElementById("assignSub").textContent = `Copy "${name}" into a new program for one of your clients.`;
+  document.getElementById("assignMsg").textContent = "";
+  const { data: clients } = await sb().from("smartcore_flexi_clients").select("id, full_name").eq("status", "active").order("full_name");
+  const sel = document.getElementById("assignClient");
+  sel.innerHTML = (clients || []).map(c => `<option value="${c.id}">${escapeHtml(c.full_name)}</option>`).join("") || `<option value="">No active clients</option>`;
+  enhanceSelect(sel, { placeholder: "Search clients…" });
+  document.getElementById("confirmAssignBtn").dataset.template = templateId;
+  openModal("assignModal");
+}
+document.querySelectorAll("[data-close-assign]").forEach(b => b.addEventListener("click", () => closeModal("assignModal")));
+document.getElementById("confirmAssignBtn").addEventListener("click", async (e) => {
+  const templateId = e.target.dataset.template;
+  const clientId = document.getElementById("assignClient").value;
+  if (!clientId) { showMessage("assignMsg", "Choose a client.", "error"); return; }
+  setLoading(e.target, true, "Assigning…");
+  try {
+    const { data: template } = await sb().from("smartcore_flexi_programs").select("*").eq("id", templateId).single();
+    const { data: newProgram, error: pErr } = await sb().from("smartcore_flexi_programs").insert({
+      company_id: profile.company_id, client_id: clientId, trainer_id: profile.id,
+      name: template.name, description: template.description, status: "active", is_template: false,
+    }).select().single();
+    if (pErr) throw pErr;
+
+    const { data: templateWorkouts } = await sb().from("smartcore_flexi_workouts").select("*").eq("program_id", templateId).order("order_index");
+    for (const w of (templateWorkouts || [])) {
+      const { data: newWorkout, error: wErr } = await sb().from("smartcore_flexi_workouts").insert({
+        program_id: newProgram.id, name: w.name, day_label: w.day_label, order_index: w.order_index, is_rest_day: w.is_rest_day, notes: w.notes,
+      }).select().single();
+      if (wErr) throw wErr;
+      const { data: exercises } = await sb().from("smartcore_flexi_workout_exercises").select("*").eq("workout_id", w.id).order("order_index");
+      if (exercises?.length) {
+        const { error: exErr } = await sb().from("smartcore_flexi_workout_exercises").insert(exercises.map(ex => ({
+          workout_id: newWorkout.id, exercise_id: ex.exercise_id, order_index: ex.order_index,
+          target_sets: ex.target_sets, target_reps: ex.target_reps, target_weight_kg: ex.target_weight_kg, rest_seconds: ex.rest_seconds,
+        })));
+        if (exErr) throw exErr;
+      }
+    }
+    setLoading(e.target, false);
+    closeModal("assignModal");
+    toast(`Assigned — program created for this client`, "success");
+    loadPrograms();
+  } catch (err) {
+    setLoading(e.target, false);
+    showMessage("assignMsg", err.message || "Something went wrong.", "error");
+  }
+});
+
+// ---- Assigned programs table ----
+let all = [];
+async function loadPrograms() {
+  const { data } = await sb().from("smartcore_flexi_programs").select("*, smartcore_flexi_clients(full_name)").eq("is_template", false).order("created_at", { ascending: false });
+  all = data || [];
+  renderPrograms();
+}
+function renderPrograms() {
+  const status = document.getElementById("statusFilter").value;
+  const rows = all.filter(p => !status || p.status === status);
+  const body = document.getElementById("programsBody");
+  const badge = { draft: "fx-badge-grey", active: "fx-badge-green", completed: "fx-badge-blue", archived: "fx-badge-grey" };
+  body.innerHTML = !rows.length ? `<tr><td colspan="5">${emptyState("🏋️", "No assigned programs yet", "Assign a template above, or create one from a client's page.")}</td></tr>` : rows.map(p => `
+    <tr onclick="location.href='program-detail.html?id=${p.id}'">
+      <td><strong>${escapeHtml(p.name)}</strong></td>
+      <td>
+        ${p.client_id ? `
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="fx-avatar" style="width:26px;height:26px;font-size:10.5px;background:${tileGradient(p.client_id)}">${initials(p.smartcore_flexi_clients?.full_name)}</div>
+            ${escapeHtml(p.smartcore_flexi_clients?.full_name || "—")}
+          </div>
+        ` : "—"}
+      </td>
+      <td><span class="fx-badge ${badge[p.status]}">${p.status}</span></td>
+      <td>${fmtDate(p.start_date)}</td>
+      <td>${fmtDate(p.end_date)}</td>
+    </tr>
+  `).join("");
+}
+document.getElementById("statusFilter").addEventListener("change", renderPrograms);
+
+await loadTemplates();
+await loadPrograms();
+</script>
+</body>
+</html>

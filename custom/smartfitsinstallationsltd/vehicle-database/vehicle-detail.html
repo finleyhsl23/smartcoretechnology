@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Vehicle — SmartCore Vehicle Installations Database</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/vehicledb.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="vdb-shell">
+  <nav class="vdb-sidebar" id="vdbNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="vdb-main">
+    <div class="vdb-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1 id="pageTitle">Vehicle</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="vdb-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
+  import {
+    getVehicle, deleteVehicle, listVehiclePhotos, getPhotoUrl, uploadVehiclePhoto, deleteVehiclePhoto,
+    listEditRequestsForVehicle, FIELD_GROUPS, categoryLabel, BODY_VARIANTS,
+    listVehicleRegistrations, addVehicleRegistration, removeVehicleRegistration, getEmployeesByIds,
+  } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
+  import { esc, setInner, loadingState, errorState, toast, confirmDialog, modal, fmtDate } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+
+  initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
+  const params = new URLSearchParams(location.search);
+  const vehicleId = params.get("id");
+  let _profile, _tier, _vehicle, _photos = [], _registrations = [], _regEmployees = [];
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    _profile = profile; _tier = tier;
+    renderNav("home", profile, tier);
+    initMobileNav();
+    initTopbar();
+
+    if (!vehicleId) {
+      setInner("body", errorState({ title: "No vehicle specified", message: "Go back and pick a vehicle from search." }));
+    } else {
+      await render();
+    }
+  } catch (e) {
+    if (!document.body.innerHTML.includes("vdb-state")) {
+      setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+    }
+  }
+
+  async function render() {
+    setInner("body", loadingState("Loading vehicle…"));
+    try {
+      const [vehicle, photos, openRequests, registrations] = await Promise.all([
+        getVehicle(vehicleId),
+        listVehiclePhotos(vehicleId),
+        (_tier === "owner_admin" || _tier === "manager") ? listEditRequestsForVehicle(vehicleId) : [],
+        listVehicleRegistrations(vehicleId),
+      ]);
+      if (!vehicle) {
+        setInner("body", errorState({ title: "Vehicle not found", message: "It may have been deleted." }));
+        return;
+      }
+      _vehicle = vehicle;
+      _photos = photos;
+      _registrations = registrations;
+      _regEmployees = await getEmployeesByIds(registrations.map(r => r.added_by).filter(Boolean));
+      document.getElementById("pageTitle").textContent = [vehicle.make, vehicle.model].filter(Boolean).join(" ") || vehicle.registration;
+      draw(openRequests.filter(r => r.status === "pending").length);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load vehicle", message: e.message }));
+    }
+  }
+
+  function draw(pendingCount) {
+    const isManagerOrAbove = _tier === "owner_admin" || _tier === "manager";
+    const v = _vehicle;
+    const title = [v.make, v.model].filter(Boolean).join(" ") || "Make/model not set";
+
+    const html = `
+      <a class="back-link" href="${BASE}/index.html"><i data-lucide="arrow-left"></i> Back to search</a>
+      <div class="page-head">
+        <div>
+          ${v.body_variant ? `<span class="badge badge-blue">${esc(BODY_VARIANTS.find(b => b.key === v.body_variant)?.label || v.body_variant)}</span>` : ""}
+          <h2 style="margin-top:${v.body_variant ? "10px" : "0"}">${esc(title)}</h2>
+          <p>${[v.year_of_manufacture, v.fuel_type].filter(Boolean).map(esc).join(" · ") || "No further identity details recorded."}</p>
+        </div>
+        <div class="page-head-actions">
+          ${!isManagerOrAbove ? `<a class="btn btn-primary" href="${BASE}/suggest-edit.html?vehicle=${esc(v.id)}"><i data-lucide="edit-3"></i> Suggest a Change</a>` : ""}
+          ${isManagerOrAbove ? `<a class="btn" href="${BASE}/vehicle-form.html?id=${esc(v.id)}"><i data-lucide="pencil"></i> Edit</a>` : ""}
+          ${_tier === "owner_admin" ? `<button class="btn btn-danger" id="deleteBtn"><i data-lucide="trash-2"></i> Delete</button>` : ""}
+        </div>
+      </div>
+
+      ${isManagerOrAbove && pendingCount ? `
+        <div class="card" style="margin-bottom:18px;border-color:var(--warn)">
+          <a href="${BASE}/edit-requests.html?vehicle=${esc(v.id)}" style="color:var(--warn);font-weight:700;display:flex;align-items:center;gap:8px">
+            <i data-lucide="bell"></i> ${pendingCount} pending change request${pendingCount === 1 ? "" : "s"} awaiting review for this vehicle
+          </a>
+        </div>` : ""}
+
+      <div class="section-header">
+        <div class="section-header-icon"><i data-lucide="camera"></i></div>
+        <h3>Vehicle Photos</h3>
+      </div>
+      <div class="field-grid" style="margin-bottom:24px">
+        <div class="field-item">
+          <div class="field-item-label">Front of Vehicle</div>
+          <div class="field-item-photos" data-photo-cat="front" style="margin-top:6px"></div>
+        </div>
+        <div class="field-item">
+          <div class="field-item-label">Back of Vehicle</div>
+          <div class="field-item-photos" data-photo-cat="back" style="margin-top:6px"></div>
+        </div>
+      </div>
+
+      ${FIELD_GROUPS.map(group => `
+        <div class="section-header">
+          <div class="section-header-icon"><i data-lucide="${groupIcon(group.title)}"></i></div>
+          <h3>${esc(group.title)}</h3>
+        </div>
+        <div class="field-grid">
+          ${group.fields.filter(f => f.key !== "registration").map(f => `
+            <div class="field-item">
+              <div class="field-item-label">${esc(f.label)}</div>
+              <div class="field-item-value ${v[f.key] ? "" : "empty"}">${v[f.key] ? esc(v[f.key]) : "Not recorded"}</div>
+              ${f.photoCategory ? `<div class="field-item-photos" data-photo-cat="${esc(f.photoCategory)}"></div>` : ""}
+            </div>`).join("")}
+        </div>
+      `).join("")}
+
+      <div class="section-header">
+        <div class="section-header-icon"><i data-lucide="image"></i></div>
+        <h3>Other Photos</h3>
+      </div>
+      <div class="field-grid" style="margin-bottom:24px">
+        <div class="field-item">
+          <div class="field-item-label">General / Other</div>
+          <div class="field-item-photos" data-photo-cat="general" style="margin-top:6px"></div>
+        </div>
+      </div>
+
+      <div class="section-header">
+        <div class="section-header-icon"><i data-lucide="hash"></i></div>
+        <h3>Registration History</h3>
+      </div>
+      <p class="text-muted" style="margin:-10px 0 14px;font-size:13px">Every registration plate matched to this exact vehicle — fleets are often bought as identical batches, so more than one is normal.</p>
+      <div id="registrationsSection"></div>
+
+      <p class="text-muted" style="margin-top:24px;font-size:12px">Added ${fmtDate(v.created_at)} · Last updated ${fmtDate(v.updated_at)}</p>
+    `;
+    setInner("body", html);
+    renderAllPhotoBlocks(isManagerOrAbove);
+    renderRegistrationsSection(isManagerOrAbove);
+
+    document.getElementById("deleteBtn")?.addEventListener("click", () => {
+      confirmDialog(
+        "Delete this vehicle?",
+        `This permanently removes ${title} (${v.registration}) and all of its photos. This cannot be undone.`,
+        async () => {
+          try {
+            await deleteVehicle(v.id);
+            toast("success", "Vehicle deleted");
+            window.location.href = `${BASE}/index.html`;
+          } catch (e2) {
+            toast("error", "Couldn't delete", e2.message);
+          }
+        },
+        { confirmLabel: "Delete" }
+      );
+    });
+  }
+
+  function groupIcon(title) {
+    if (title.includes("Identity")) return "id-card";
+    if (title.includes("Wiring")) return "zap";
+    if (title.includes("Placement")) return "map-pin";
+    return "clipboard-list";
+  }
+
+  // Every field with a photoCategory gets its own small photo block right
+  // where it's used (embedded via a data-photo-cat container), rather than
+  // one big gallery disconnected from the text it illustrates. This renders
+  // every such container currently in the DOM in one pass.
+  function renderAllPhotoBlocks(isManagerOrAbove) {
+    document.querySelectorAll("[data-photo-cat]").forEach(container => {
+      renderPhotoCategoryBlock(container, container.dataset.photoCat, isManagerOrAbove);
+    });
+  }
+
+  function renderPhotoCategoryBlock(container, catKey, isManagerOrAbove) {
+    if (!container) return;
+    const catPhotos = _photos.filter(p => p.category === catKey);
+    if (!catPhotos.length && !isManagerOrAbove) { container.innerHTML = ""; return; }
+
+    container.innerHTML = `
+      <div class="photo-grid">
+        ${catPhotos.map(p => `<div class="photo-thumb" data-photo-id="${esc(p.id)}" data-path="${esc(p.storage_path)}"><img data-src loading="lazy" alt="${esc(categoryLabel(catKey))}"/>${isManagerOrAbove ? `<span class="photo-remove" data-remove="${esc(p.id)}" data-path="${esc(p.storage_path)}"><i data-lucide="x"></i></span>` : ""}</div>`).join("")}
+        ${isManagerOrAbove ? `<label class="photo-add-btn"><i data-lucide="upload"></i>Add<input type="file" accept="image/*" data-upload-cat="${esc(catKey)}" hidden/></label>` : ""}
+      </div>`;
+    window.lucide?.createIcons?.();
+    loadThumbnailsIn(container);
+
+    container.querySelector("[data-upload-cat]")?.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        await uploadVehiclePhoto(_vehicle.id, catKey, file, _profile.id);
+        toast("success", "Photo uploaded");
+        _photos = await listVehiclePhotos(_vehicle.id);
+        renderAllPhotoBlocks(isManagerOrAbove);
+      } catch (err) {
+        toast("error", "Upload failed", err.message);
+      }
+    });
+
+    container.querySelectorAll("[data-remove]").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        confirmDialog("Remove photo?", "This photo will be permanently deleted.", async () => {
+          try {
+            await deleteVehiclePhoto(btn.dataset.remove, btn.dataset.path);
+            _photos = _photos.filter(p => p.id !== btn.dataset.remove);
+            renderAllPhotoBlocks(isManagerOrAbove);
+          } catch (err) {
+            toast("error", "Couldn't remove photo", err.message);
+          }
+        }, { confirmLabel: "Remove" });
+      });
+    });
+
+    container.querySelectorAll(".photo-thumb").forEach(thumb => {
+      thumb.addEventListener("click", async () => {
+        try {
+          const url = await getPhotoUrl(thumb.dataset.path);
+          const overlay = modal(`<img src="${esc(url)}" style="max-width:100%;border-radius:10px;display:block"/>`, {});
+          overlay.className += " photo-lightbox-overlay";
+        } catch (err) {
+          toast("error", "Couldn't load photo", err.message);
+        }
+      });
+    });
+  }
+
+  async function loadThumbnailsIn(container) {
+    const thumbs = container.querySelectorAll(".photo-thumb[data-path]");
+    for (const thumb of thumbs) {
+      try {
+        const url = await getPhotoUrl(thumb.dataset.path);
+        const img = thumb.querySelector("img");
+        if (img) img.src = url;
+      } catch { /* non-fatal */ }
+    }
+  }
+
+  function renderRegistrationsSection(isManagerOrAbove) {
+    const container = document.getElementById("registrationsSection");
+    if (!container) return;
+    const employeeName = id => _regEmployees.find(e => e.id === id)?.full_name || "Unknown";
+
+    container.innerHTML = `
+      <div class="card">
+        ${_registrations.map(r => `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line2)">
+            <div>
+              <span class="veh-card-reg" style="font-size:12px">${esc(r.registration)}</span>
+              <span class="text-muted" style="font-size:12px;margin-left:10px">Added by ${esc(employeeName(r.added_by))} · ${esc(fmtDate(r.added_at))}</span>
+            </div>
+            ${isManagerOrAbove && _registrations.length > 1 ? `<button type="button" class="btn" data-remove-reg="${esc(r.id)}" style="padding:5px 10px" title="Remove"><i data-lucide="x"></i></button>` : ""}
+          </div>`).join("")}
+        ${isManagerOrAbove ? `<button type="button" class="btn" id="addRegBtn" style="margin-top:14px"><i data-lucide="plus"></i> Add Registration</button>` : ""}
+      </div>`;
+    window.lucide?.createIcons?.();
+
+    document.getElementById("addRegBtn")?.addEventListener("click", () => openAddRegistrationModal(isManagerOrAbove));
+    container.querySelectorAll("[data-remove-reg]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        confirmDialog("Remove this registration?", "It'll no longer be matched to this vehicle when searched by that plate.", async () => {
+          try {
+            await removeVehicleRegistration(btn.dataset.removeReg);
+            _registrations = _registrations.filter(r => r.id !== btn.dataset.removeReg);
+            renderRegistrationsSection(isManagerOrAbove);
+          } catch (err) {
+            toast("error", "Couldn't remove", err.message);
+          }
+        }, { confirmLabel: "Remove" });
+      });
+    });
+  }
+
+  function openAddRegistrationModal(isManagerOrAbove) {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Add a Registration</h3><button class="btn modal-close" aria-label="Close"><i data-lucide="x"></i></button></div>
+      <div class="modal-body">
+        <p class="text-muted" style="margin-bottom:12px">Log another plate seen on this exact vehicle — same make, model, year and variant.</p>
+        <div class="form-row">
+          <label class="form-label" for="newRegInput">Registration</label>
+          <input type="text" id="newRegInput" class="form-input" style="text-transform:uppercase" placeholder="e.g. AB12 CDE" autocomplete="off"/>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-primary" id="saveRegBtn">Add</button></div>
+    `, {});
+    window.lucide?.createIcons?.();
+    const input = overlay.querySelector("#newRegInput");
+    input.focus();
+    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); overlay.querySelector("#saveRegBtn").click(); } });
+
+    overlay.querySelector("#saveRegBtn").addEventListener("click", async () => {
+      const reg = input.value.trim();
+      if (!reg) { toast("error", "Enter a registration"); return; }
+      try {
+        const created = await addVehicleRegistration(_vehicle.id, reg, _profile.id);
+        _registrations.push(created);
+        if (!_regEmployees.find(e => e.id === _profile.id)) _regEmployees.push(_profile);
+        overlay.remove();
+        renderRegistrationsSection(isManagerOrAbove);
+        toast("success", "Registration added");
+      } catch (e) {
+        const message = /duplicate key/i.test(e.message) ? "That registration is already logged — it may already be used on another vehicle." : e.message;
+        toast("error", "Couldn't add", message);
+      }
+    });
+  }
+</script>
+</body>
+</html>

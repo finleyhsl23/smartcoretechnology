@@ -1,4 +1,5 @@
 import { requireAdminPageAccess } from '../../shared/guards.js';
+import { supabase } from '../../shared/supabase.js';
 import {
   getEmployeesByCompany, updateEmployee, deactivateEmployee, reactivateEmployee,
   sendEmployeeInvite, getDepartments, createDepartment, deleteDepartment,
@@ -60,6 +61,12 @@ async function init() {
 
   // Inject onboarding questions modal
   injectOnboardingModal();
+
+  // Export button
+  const exportBtn = document.getElementById('exportEmpBtn');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', exportEmployeesToExcel);
+  }
 }
 
 function populateSidebar(company) {
@@ -1397,5 +1404,57 @@ function addEmpBack() {
 
 function openModal(id) { document.getElementById(id)?.classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id)?.classList.add('hidden'); }
+
+async function exportEmployeesToExcel() {
+  const btn = document.getElementById('exportEmpBtn');
+  const original = btn.textContent;
+  btn.textContent = 'Exporting...';
+  btn.disabled = true;
+
+  try {
+    const sfDb = supabase.schema('smartfitsinstallationsltd');
+    const { data, error } = await sfDb.rpc('get_employees');
+
+    if (error) throw error;
+    if (!data || !data.length) {
+      showMessage('exportEmpBtn', 'No employee data found.', 'error');
+      return;
+    }
+
+    const cols = [
+      'employee_code','title','full_name','pronouns','gender','dob','nationality',
+      'job_title','employment_type','notice_period','start_date',
+      'personal_email','work_email','personal_phone',
+      'ni_number','passport_number','passport_expiry_date','driving_licence_number',
+      'address_line1','address_line2','city','county','postcode','country',
+      'emergency_contact_name','emergency_contact_relationship','emergency_contact_email','emergency_contact_phone',
+      'emergency_contact_name_2','emergency_contact_relationship_2','emergency_contact_email_2','emergency_contact_phone_2',
+    ];
+
+    const header = cols.join(',');
+    const rows = data.map(emp => cols.map(col => {
+      const val = emp[col] ?? '';
+      const s = String(val);
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(','));
+
+    const csv = [header, ...rows].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `employees-export-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('Export failed: ' + (e.message || 'Unknown error'));
+  } finally {
+    btn.textContent = original;
+    btn.disabled = false;
+  }
+}
 
 init();

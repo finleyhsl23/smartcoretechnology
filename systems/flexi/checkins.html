@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script>try{var t=localStorage.getItem("flexiTheme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Check-Ins — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Check-Ins &amp; Habits</h1><div class="fx-topbar-sub">Scheduled check-ins and daily habit tracking</div></div>
+      <div class="fx-topbar-spacer"></div>
+      <button class="fx-btn fx-btn-primary" id="addBtn">+ Send Check-In</button>
+    </header>
+    <main class="fx-content">
+      <div class="fx-table-wrap">
+        <table class="fx-table">
+          <thead><tr><th>Client</th><th>Title</th><th>Due</th><th>Status</th></tr></thead>
+          <tbody id="body"><tr><td colspan="4" style="text-align:center;padding:24px;color:var(--fx-text3)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="fx-modal" id="addModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>Send Check-In</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div class="fx-field"><label>Client</label><select class="fx-select" id="ciClient"></select></div>
+    <div class="fx-field"><label>Title</label><input class="fx-input" id="ciTitle" value="Weekly Check-In"/></div>
+    <div class="fx-field"><label>Due date</label><input class="fx-input" id="ciDue" type="date"/></div>
+    <div class="fx-form-msg" id="ciMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="saveCiBtn">Send</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDate, setLoading, showMessage, openModal, closeModal, toast, emptyState, enhanceSelect, tileGradient, initials } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "checkins" });
+renderNav({ activeKey: "checkins", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+async function load() {
+  const { data } = await sb().from("smartcore_flexi_checkins").select("*, smartcore_flexi_clients(full_name)").order("due_date", { ascending: false });
+  const body = document.getElementById("body");
+  body.innerHTML = !data?.length ? `<tr><td colspan="4">${emptyState("✅", "No check-ins sent yet", "")}</td></tr>` : data.map(c => `
+    <tr onclick="location.href='client-detail.html?id=${c.client_id}&tab=checkins&checkin=${c.id}'">
+      <td>
+        <div style="display:flex;align-items:center;gap:9px">
+          <div class="fx-avatar" style="width:26px;height:26px;font-size:10.5px;background:${tileGradient(c.client_id)}">${initials(c.smartcore_flexi_clients?.full_name)}</div>
+          <strong>${escapeHtml(c.smartcore_flexi_clients?.full_name || "—")}</strong>
+        </div>
+      </td>
+      <td>${escapeHtml(c.title)}</td>
+      <td>${fmtDate(c.due_date)}</td>
+      <td><span class="fx-badge ${c.submitted_at ? "fx-badge-green" : "fx-badge-amber"}">${c.submitted_at ? "Submitted" : "Pending"}</span></td>
+    </tr>
+  `).join("");
+}
+
+document.getElementById("addBtn").addEventListener("click", async () => {
+  const { data: clients } = await sb().from("smartcore_flexi_clients").select("id, full_name").eq("status", "active").order("full_name");
+  document.getElementById("ciClient").innerHTML = (clients || []).map(c => `<option value="${c.id}">${escapeHtml(c.full_name)}</option>`).join("") || `<option value="">No active clients</option>`;
+  enhanceSelect(document.getElementById("ciClient"), { placeholder: "Search clients…" });
+  const due = new Date(); due.setDate(due.getDate() + 7);
+  document.getElementById("ciDue").value = due.toISOString().slice(0,10);
+  document.getElementById("ciMsg").textContent = "";
+  openModal("addModal");
+});
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));
+document.getElementById("saveCiBtn").addEventListener("click", async (e) => {
+  const client_id = document.getElementById("ciClient").value;
+  if (!client_id) { showMessage("ciMsg", "Choose a client.", "error"); return; }
+  setLoading(e.target, true, "Sending…");
+  const { error } = await sb().from("smartcore_flexi_checkins").insert({
+    company_id: profile.company_id, client_id, trainer_id: profile.id,
+    title: document.getElementById("ciTitle").value.trim() || "Check-In",
+    due_date: document.getElementById("ciDue").value,
+  });
+  setLoading(e.target, false);
+  if (error) { showMessage("ciMsg", error.message, "error"); return; }
+  closeModal("addModal");
+  toast("Check-in sent", "success");
+  load();
+});
+
+load();
+</script>
+</body>
+</html>

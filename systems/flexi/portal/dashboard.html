@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script>try{var t=localStorage.getItem("flexiTheme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Home — Flexi</title>
+<link rel="stylesheet" href="../shared/flexi.css"/>
+<style>
+.fx-period-toggle{display:inline-flex;border:1px solid var(--fx-line);border-radius:9px;overflow:hidden;flex-shrink:0}
+.fx-period-toggle button{padding:7px 12px;font-size:11.5px;font-weight:700;border:none;background:var(--fx-card2);color:var(--fx-text3);cursor:pointer;transition:background .15s,color .15s}
+.fx-period-toggle button.on{background:var(--fx-grad);color:#fff}
+.fx-period-toggle button:hover:not(.on){background:var(--fx-bg2);color:var(--fx-text2)}
+.fx-prog-card{display:flex;flex-direction:column;gap:14px}
+.fx-prog-head{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800}
+.fx-prog-body{display:flex;align-items:center;gap:16px}
+.fx-ring{width:84px;height:84px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background 1s cubic-bezier(.16,1,.3,1)}
+.fx-ring-inner{width:64px;height:64px;border-radius:50%;background:var(--fx-card);display:flex;align-items:center;justify-content:center;flex-direction:column}
+.fx-ring-val{font-size:15px;font-weight:800;line-height:1.1}
+.fx-ring-sub{font-size:8.5px;color:var(--fx-text3);text-transform:uppercase;font-weight:700;letter-spacing:.04em}
+.fx-streak{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--fx-text2);background:var(--fx-card2);padding:5px 10px;border-radius:99px;margin-top:4px;white-space:nowrap}
+.fx-macro-bars{display:flex;flex-direction:column;gap:8px;flex:1;min-width:0}
+.fx-macro-bar-row{display:flex;align-items:center;gap:8px;font-size:11px}
+.fx-macro-bar-label{width:44px;flex-shrink:0;color:var(--fx-text3);font-weight:700}
+.fx-macro-bar-track{flex:1;height:6px;border-radius:99px;background:var(--fx-card2);overflow:hidden}
+.fx-macro-bar-fill{height:100%;border-radius:99px;transition:width .8s cubic-bezier(.16,1,.3,1)}
+.fx-macro-bar-num{width:64px;flex-shrink:0;text-align:right;color:var(--fx-text3);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-portal">
+  <div class="fx-portal-top">
+    <div style="flex:1"><h1 id="greeting">Hey</h1><div class="fx-topbar-sub" id="todayLabel"></div></div>
+    <button class="fx-icon-btn" id="themeToggle">🌙</button>
+  </div>
+  <div class="fx-portal-content">
+
+    <div class="fx-card" style="margin-bottom:16px" id="nextSessionCard"></div>
+
+    <div class="fx-grid fx-grid-2" style="margin-bottom:20px">
+      <div class="fx-card fx-stat"><div class="fx-stat-label">Weight</div><div class="fx-stat-val" id="statWeight" style="font-size:20px">—</div></div>
+      <div class="fx-card fx-stat"><div class="fx-stat-label">Workouts Done</div><div class="fx-stat-val" id="statWorkouts" style="font-size:20px">—</div></div>
+    </div>
+
+    <div id="checkinBanner"></div>
+
+    <div class="fx-section-head" style="margin:0 0 12px">
+      <h2 style="font-size:14.5px">Your Progress</h2>
+      <div class="fx-section-head-spacer"></div>
+      <div class="fx-period-toggle" id="progPeriod">
+        <button type="button" data-period="day" class="on">Daily</button>
+        <button type="button" data-period="week">Weekly</button>
+        <button type="button" data-period="month">Monthly</button>
+      </div>
+    </div>
+    <div class="fx-grid fx-grid-2" id="progCards" style="margin-bottom:20px"></div>
+
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <a href="nutrition.html" class="fx-card" style="display:flex;justify-content:space-between;align-items:center">🥗 Nutrition &amp; Food Log <span>→</span></a>
+      <a href="checkins.html" class="fx-card" style="display:flex;justify-content:space-between;align-items:center">✅ Check-Ins &amp; Habits <span>→</span></a>
+      <a href="waivers.html" class="fx-card" style="display:flex;justify-content:space-between;align-items:center">📝 Waivers <span>→</span></a>
+      <a href="community.html" class="fx-card" style="display:flex;justify-content:space-between;align-items:center">🏆 Community &amp; Challenges <span>→</span></a>
+    </div>
+
+  </div>
+  <nav class="fx-portal-tabs">
+    <a class="fx-portal-tab active" href="dashboard.html"><span class="fx-portal-tab-icon">🏠</span>Home</a>
+    <a class="fx-portal-tab" href="train.html"><span class="fx-portal-tab-icon">🏋️</span>Train</a>
+    <a class="fx-portal-tab" href="book.html"><span class="fx-portal-tab-icon">📅</span>Book</a>
+    <a class="fx-portal-tab" href="progress.html"><span class="fx-portal-tab-icon">📈</span>Progress</a>
+    <a class="fx-portal-tab" href="chat.html"><span class="fx-portal-tab-icon">💬</span>Chat</a>
+  </nav>
+</div>
+
+<script type="module">
+import { requireClientAccess, api } from "../shared/client-auth.js";
+import { revealApp, setupThemeToggle, fmtDateTime } from "../shared/ui.js";
+
+const client = await requireClientAccess();
+setupThemeToggle();
+revealApp();
+
+const firstName = (client.full_name || "").split(" ")[0] || "";
+document.getElementById("greeting").textContent = firstName ? `Hey, ${firstName}.` : "Hey.";
+document.getElementById("todayLabel").textContent = "Let's get your day started the Flexi way";
+
+const { next_booking, latest_weight, workout_count, due_checkins } = await api("dashboard_summary");
+
+document.getElementById("nextSessionCard").innerHTML = next_booking
+  ? `<div style="font-size:11px;color:var(--fx-text3);font-weight:700;text-transform:uppercase;margin-bottom:4px">Next Session</div><div style="font-size:15px;font-weight:700">${fmtDateTime(next_booking.starts_at)}</div>`
+  : `<div style="font-size:11px;color:var(--fx-text3);font-weight:700;text-transform:uppercase;margin-bottom:4px">Next Session</div><div style="font-size:13.5px;color:var(--fx-text3)">Nothing booked — head to Book to grab a slot.</div>`;
+
+document.getElementById("statWeight").textContent = latest_weight ? `${latest_weight} kg` : "—";
+document.getElementById("statWorkouts").textContent = workout_count ?? 0;
+
+if (due_checkins) {
+  document.getElementById("checkinBanner").innerHTML = `
+    <a href="checkins.html" class="fx-card" style="display:block;margin-bottom:16px;border-color:var(--fx-accent)">
+      <strong>✅ You have ${due_checkins} check-in${due_checkins > 1 ? "s" : ""} due</strong>
+      <div style="color:var(--fx-text3);font-size:12.5px;margin-top:4px">Tap to complete it now →</div>
+    </a>`;
+}
+
+// ---- Gamified progression ----
+const PERIOD_LABEL = { day: "today", week: "this week", month: "this month" };
+function ring(pct, color) {
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  return `<div class="fx-ring" style="background:conic-gradient(${color} ${p * 3.6}deg, var(--fx-card2) 0)">
+    <div class="fx-ring-inner"><div class="fx-ring-val">${p}%</div><div class="fx-ring-sub">${p >= 100 ? "Goal hit!" : "of goal"}</div></div>
+  </div>`;
+}
+function macroBar(label, done, goal, color) {
+  const pct = goal ? Math.min(100, Math.round((done / goal) * 100)) : 0;
+  return `<div class="fx-macro-bar-row">
+    <span class="fx-macro-bar-label">${label}</span>
+    <div class="fx-macro-bar-track"><div class="fx-macro-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+    <span class="fx-macro-bar-num">${Math.round(done)}/${Math.round(goal) || "—"}g</span>
+  </div>`;
+}
+
+async function loadProgression(period) {
+  const grid = document.getElementById("progCards");
+  grid.innerHTML = `<div class="fx-card" style="grid-column:1/-1;text-align:center;color:var(--fx-text3);padding:30px 0">Loading…</div>`;
+  const { workout, nutrition } = await api("progression_summary", { period });
+
+  const wPct = workout.goal ? (workout.done / workout.goal) * 100 : 0;
+  const workoutCard = `
+    <div class="fx-card fx-prog-card">
+      <div class="fx-prog-head">🏋️ Workouts</div>
+      <div class="fx-prog-body">
+        ${ring(wPct, "var(--fx-accent)")}
+        <div>
+          <div style="font-size:19px;font-weight:800">${workout.done} <span style="font-size:12px;font-weight:600;color:var(--fx-text3)">/ ${workout.goal} sessions</span></div>
+          <div style="font-size:12px;color:var(--fx-text3);margin-top:2px">Logged ${PERIOD_LABEL[period]}</div>
+          <div class="fx-streak">🔥 ${workout.streak_days}-day streak</div>
+        </div>
+      </div>
+    </div>`;
+
+  let nutritionCard;
+  if (nutrition) {
+    const calPct = nutrition.cal_goal ? (nutrition.cal_done / nutrition.cal_goal) * 100 : 0;
+    nutritionCard = `
+      <div class="fx-card fx-prog-card">
+        <div class="fx-prog-head">🥗 Nutrition</div>
+        <div class="fx-prog-body">
+          ${ring(calPct, "#16a34a")}
+          <div class="fx-macro-bars">
+            ${macroBar("Protein", nutrition.protein_done, nutrition.protein_goal, "#16a34a")}
+            ${macroBar("Carbs", nutrition.carbs_done, nutrition.carbs_goal, "#0ea5b7")}
+            ${macroBar("Fat", nutrition.fat_done, nutrition.fat_goal, "#8b5cf6")}
+          </div>
+        </div>
+        <div style="font-size:11.5px;color:var(--fx-text3)">${nutrition.days_logged}/${nutrition.days_total} day${nutrition.days_total > 1 ? "s" : ""} logged ${PERIOD_LABEL[period]}</div>
+      </div>`;
+  } else {
+    nutritionCard = `
+      <div class="fx-card fx-prog-card" style="justify-content:center;align-items:center;text-align:center;color:var(--fx-text3);gap:6px">
+        <div style="font-size:24px">🥗</div>
+        <div style="font-size:12.5px">No nutrition plan set yet — ask your trainer to add one.</div>
+      </div>`;
+  }
+
+  grid.innerHTML = workoutCard + nutritionCard;
+}
+
+let currentPeriod = "day";
+loadProgression(currentPeriod);
+document.getElementById("progPeriod").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-period]");
+  if (!btn || btn.classList.contains("on")) return;
+  document.querySelectorAll("#progPeriod button").forEach(b => b.classList.remove("on"));
+  btn.classList.add("on");
+  currentPeriod = btn.dataset.period;
+  loadProgression(currentPeriod);
+});
+</script>
+</body>
+</html>

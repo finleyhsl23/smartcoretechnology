@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Add / Edit Vehicle — SmartCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/vehicledb.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="vdb-shell">
+  <nav class="vdb-sidebar" id="vdbNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="vdb-main">
+    <div class="vdb-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1 id="pageTitle">Add Vehicle</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="vdb-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
+  import {
+    getVehicle, createVehicle, updateVehicle, lookupRegistration, getVehicleByRegistration, FIELD_GROUPS,
+    listVehiclePhotos, uploadVehiclePhoto, deleteVehiclePhoto, getPhotoUrl, BODY_VARIANTS,
+    createNewVehicleRequest, uploadRequestPhoto,
+  } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
+  import { esc, setInner, loadingState, errorState, toast, confirmDialog, permissionDeniedState, modal, freezeFile } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+
+  initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
+  const params = new URLSearchParams(location.search);
+  const vehicleId = params.get("id");
+  const isEdit = !!vehicleId;
+  const prefillReg = params.get("registration") || "";
+  const prefillMake = params.get("make") || "";
+  const prefillModel = params.get("model") || "";
+  const prefillYear = params.get("year") || "";
+  const prefillVariant = params.get("variant") || "";
+  let _profile, _tier, _vehicle = {};
+  let _existingPhotos = [];
+  let _stagedPhotos = []; // add mode only: [{ id, category, file, previewUrl }] uploaded after createVehicle/request succeeds
+  let _canDirectCreate = false; // manager/admin creates the vehicle immediately; employees submit a request instead
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    _profile = profile; _tier = tier;
+    _canDirectCreate = tier === "owner_admin" || tier === "manager";
+    renderNav("home", profile, tier);
+    initMobileNav();
+    initTopbar();
+
+    if (isEdit && !_canDirectCreate) {
+      setInner("body", permissionDeniedState("Only Senior Regional Engineering Managers, Owners and Admins can directly edit vehicles. If you spotted something wrong, use \"Suggest a Change\" on the vehicle's page instead."));
+    } else {
+      await render();
+    }
+  } catch (e) {
+    if (!document.body.innerHTML.includes("vdb-state")) {
+      setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+    }
+  }
+
+  async function render() {
+    if (isEdit) {
+      setInner("body", loadingState("Loading vehicle…"));
+      try {
+        _vehicle = await getVehicle(vehicleId);
+        if (!_vehicle) { setInner("body", errorState({ title: "Vehicle not found" })); return; }
+        _existingPhotos = await listVehiclePhotos(vehicleId);
+      } catch (e) {
+        setInner("body", errorState({ title: "Couldn't load vehicle", message: e.message }));
+        return;
+      }
+    }
+    document.getElementById("pageTitle").textContent = isEdit ? "Edit Vehicle" : (_canDirectCreate ? "Add Vehicle" : "Suggest a New Vehicle");
+    draw();
+  }
+
+  function draw() {
+    const v = _vehicle;
+    if (!isEdit) {
+      if (prefillMake && !v.make) v.make = prefillMake;
+      if (prefillModel && !v.model) v.model = prefillModel;
+      if (prefillYear && !v.year_of_manufacture) v.year_of_manufacture = Number(prefillYear);
+    }
+    const pageTitle = isEdit ? "Edit Vehicle" : (_canDirectCreate ? "Add Vehicle" : "Suggest a New Vehicle");
+    const pageIntro = isEdit
+      ? "Registration identifies the vehicle; everything else is install reference data for engineers."
+      : (_canDirectCreate
+        ? "Registration identifies the vehicle; everything else is install reference data for engineers."
+        : "Fill in what you know — a Senior Regional Engineering Manager will review before it's added to the database.");
+
+    const html = `
+      <a class="back-link" href="${isEdit ? `${BASE}/vehicle-detail.html?id=${esc(vehicleId)}` : `${BASE}/index.html`}"><i data-lucide="arrow-left"></i> ${isEdit ? "Back to vehicle" : "Back to search"}</a>
+      <div class="page-head"><div><h2>${esc(pageTitle)}</h2><p>${esc(pageIntro)}</p></div></div>
+
+      <form id="vehForm">
+        <div class="section-header"><div class="section-header-icon"><i data-lucide="id-card"></i></div><h3>Vehicle Identity</h3></div>
+        <div class="card" style="margin-bottom:24px">
+          <div class="vform-row" style="margin-bottom:20px">
+            <label class="form-label" for="f_registration">Registration *</label>
+            <div style="display:flex;gap:8px;align-items:stretch">
+              <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase;flex:1" value="${esc(v.registration || prefillReg)}" placeholder="e.g. AB12 CDE" autocomplete="off" required/>
+              <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> Reg Lookup</button>
+            </div>
+            <p class="text-muted" style="font-size:12px;margin-top:8px">Finish typing (or click away from) the registration and it'll check MOT history automatically — the button forces a re-check.</p>
+            <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:2px"></p>
+            <div id="dupStatus"></div>
+          </div>
+
+          <div class="vform-grid">
+            ${fieldInput({ key: "make", label: "Make" }, v)}
+            ${fieldInput({ key: "model", label: "Model" }, v)}
+            ${fieldInput({ key: "year_of_manufacture", label: "Year", type: "number" }, v)}
+            ${fieldInput({ key: "fuel_type", label: "Fuel Type" }, v)}
+          </div>
+
+          <div class="vform-row" style="margin-top:20px">
+            <label class="form-label">Body Variant *</label>
+            <p class="text-muted" style="font-size:12px;margin:0 0 10px">Standard or facelift, plus a front and back photo — a facelift usually changes how the front/rear look, so this makes the photos meaningful on their own.</p>
+            <div id="bodyVariantSummary"></div>
+          </div>
+        </div>
+
+        ${FIELD_GROUPS.slice(1).map(group => `
+          <div class="section-header"><div class="section-header-icon"><i data-lucide="${groupIcon(group.title)}"></i></div><h3>${esc(group.title)}</h3></div>
+          <div class="card" style="margin-bottom:24px">
+            <div class="vform-grid">
+              ${group.fields.map(f => fieldInput(f, v)).join("")}
+            </div>
+          </div>
+        `).join("")}
+
+        <button type="submit" class="btn btn-primary" id="saveBtn"><i data-lucide="${isEdit || _canDirectCreate ? "save" : "send"}"></i> ${isEdit ? "Save Changes" : (_canDirectCreate ? "Add Vehicle" : "Submit for Review")}</button>
+      </form>
+    `;
+    setInner("body", html);
+
+    document.getElementById("lookupBtn").addEventListener("click", () => doLookup());
+    document.getElementById("vehForm").addEventListener("submit", onSubmit);
+    wireRegistrationAutoLookup();
+
+    FIELD_GROUPS.flatMap(g => g.fields).filter(f => f.photoCategory).forEach(f => renderPhotoStrip(f.photoCategory));
+    renderBodyVariantSummary();
+
+    // Arrived here from the "Create Vehicle" link in the search modal, which
+    // only ever appears after that reg was already confirmed not to exist —
+    // run the MOT history lookup immediately rather than waiting on a
+    // keystroke that isn't coming.
+    if (prefillReg && !isEdit) handleRegistrationTyped(prefillReg);
+
+    // Arrived here from an "Add Facelift/Standard Version" prompt — the
+    // other body variant is already on file, so jump straight into the
+    // Configure wizard with this one pre-selected instead of making them
+    // click through to find it.
+    if (prefillVariant && !isEdit) openConfigureWizard();
+  }
+
+  function groupIcon(title) {
+    if (title.includes("Wiring")) return "zap";
+    if (title.includes("Placement")) return "map-pin";
+    return "clipboard-list";
+  }
+
+  function fieldInput(f, v) {
+    const value = v[f.key] ?? "";
+    const inputHtml = f.type === "textarea"
+      ? `<textarea id="f_${f.key}" class="form-input" data-field="${f.key}">${esc(value)}</textarea>`
+      : `<input type="${f.type === "number" ? "number" : "text"}" id="f_${f.key}" class="form-input" data-field="${f.key}" value="${esc(value)}"/>`;
+    const photoHtml = f.photoCategory ? `<div class="vform-field-photos" id="photoStrip_${f.photoCategory}"></div>` : "";
+    return `
+      <div class="vform-row">
+        <label class="form-label" for="f_${f.key}">${esc(f.label)}</label>
+        ${inputHtml}
+        ${photoHtml}
+      </div>`;
+  }
+
+  // ── Inline per-field photo attachment ────────────────────────────────────
+  // Editing an existing vehicle uploads/deletes photos immediately (the
+  // vehicle_id already exists). Adding a new one stages File objects locally
+  // (with an instant local preview) and uploads them right after the vehicle
+  // row is created in onSubmit — storage paths are keyed by vehicle_id, which
+  // doesn't exist yet.
+  async function renderPhotoStrip(category) {
+    const container = document.getElementById(`photoStrip_${category}`);
+    if (!container) return;
+    const existing = isEdit ? _existingPhotos.filter(p => p.category === category) : [];
+    const staged = _stagedPhotos.filter(p => p.category === category);
+
+    const thumbs = [...existing, ...staged];
+    container.innerHTML = `
+      ${thumbs.length ? `<div class="vform-photo-thumbs">
+        ${existing.map(p => `
+          <div class="photo-thumb photo-thumb-sm" data-existing-id="${esc(p.id)}">
+            <img loading="lazy" alt=""/>
+            <span class="photo-remove" data-remove-existing="${esc(p.id)}" data-path="${esc(p.storage_path)}"><i data-lucide="x"></i></span>
+          </div>`).join("")}
+        ${staged.map(p => `
+          <div class="photo-thumb photo-thumb-sm" data-staged-id="${esc(p.id)}">
+            <img src="${esc(p.previewUrl)}" alt=""/>
+            <span class="photo-remove" data-remove-staged="${esc(p.id)}"><i data-lucide="x"></i></span>
+          </div>`).join("")}
+      </div>` : ""}
+      <label class="btn photo-add-btn-wide"><i data-lucide="camera"></i> ${thumbs.length ? "Add another photo" : "Add photo"}<input type="file" accept="image/*" data-photo-cat="${esc(category)}" hidden/></label>
+    `;
+    window.lucide?.createIcons?.();
+
+    for (const p of existing) {
+      try {
+        const url = await getPhotoUrl(p.storage_path);
+        const img = container.querySelector(`[data-existing-id="${p.id}"] img`);
+        if (img) img.src = url;
+      } catch { /* thumbnail failing to load isn't fatal */ }
+    }
+
+    container.querySelector("[data-photo-cat]").addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (isEdit) {
+        try {
+          await uploadVehiclePhoto(vehicleId, category, file, _profile.id);
+          _existingPhotos = await listVehiclePhotos(vehicleId);
+          renderPhotoStrip(category);
+        } catch (err) {
+          toast("error", "Upload failed", err.message);
+        }
+      } else {
+        const frozen = await freezeFile(file);
+        _stagedPhotos.push({ id: crypto.randomUUID(), category, file: frozen, previewUrl: URL.createObjectURL(frozen) });
+        renderPhotoStrip(category);
+      }
+    });
+
+    container.querySelectorAll("[data-remove-existing]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        confirmDialog("Remove photo?", "This photo will be permanently deleted.", async () => {
+          try {
+            await deleteVehiclePhoto(btn.dataset.removeExisting, btn.dataset.path);
+            _existingPhotos = _existingPhotos.filter(p => p.id !== btn.dataset.removeExisting);
+            renderPhotoStrip(category);
+          } catch (err) {
+            toast("error", "Couldn't remove photo", err.message);
+          }
+        }, { confirmLabel: "Remove" });
+      });
+    });
+
+    container.querySelectorAll("[data-remove-staged]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _stagedPhotos = _stagedPhotos.filter(p => p.id !== btn.dataset.removeStaged);
+        renderPhotoStrip(category);
+      });
+    });
+  }
+
+  // ── Body Variant + front/back photo "Configure" wizard ───────────────────
+  // Standard vs facelift, then a front photo, then a back photo — captured
+  // together since a facelift usually changes the front/rear styling, so the
+  // photos only make sense once you know which variant they're showing.
+  // Renders in isolation (its own container) rather than via the full-form
+  // draw(), so it never wipes out anything the manager has typed elsewhere.
+  async function renderBodyVariantSummary() {
+    const container = document.getElementById("bodyVariantSummary");
+    if (!container) return;
+    const variant = _vehicle.body_variant;
+    const variantLabel = BODY_VARIANTS.find(b => b.key === variant)?.label;
+    const frontExisting = isEdit ? _existingPhotos.find(p => p.category === "front") : null;
+    const backExisting = isEdit ? _existingPhotos.find(p => p.category === "back") : null;
+    const frontStaged = _stagedPhotos.find(p => p.category === "front");
+    const backStaged = _stagedPhotos.find(p => p.category === "back");
+
+    if (!variant) {
+      container.innerHTML = `
+        <div class="card" style="border-color:var(--warn)">
+          <p style="margin:0 0 12px">Not configured yet — select Standard or Facelift and add front/back photos.</p>
+          <button type="button" class="btn btn-primary" id="configureBtn"><i data-lucide="settings"></i> Configure</button>
+        </div>`;
+    } else {
+      container.innerHTML = `
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span class="badge badge-blue">${esc(variantLabel)}</span>
+            ${variantThumb(frontExisting, frontStaged, "Front")}
+            ${variantThumb(backExisting, backStaged, "Back")}
+            <button type="button" class="btn" id="configureBtn" style="margin-left:auto"><i data-lucide="settings"></i> Reconfigure</button>
+          </div>
+        </div>`;
+      for (const [existing, label] of [[frontExisting, "front"], [backExisting, "back"]]) {
+        if (!existing) continue;
+        try {
+          const url = await getPhotoUrl(existing.storage_path);
+          const img = container.querySelector(`[data-existing-thumb="${label}"] img`);
+          if (img) img.src = url;
+        } catch { /* thumbnail failing to load isn't fatal */ }
+      }
+    }
+    window.lucide?.createIcons?.();
+    document.getElementById("configureBtn")?.addEventListener("click", openConfigureWizard);
+  }
+
+  function variantThumb(existing, staged, label) {
+    if (staged) return `<div class="photo-thumb photo-thumb-sm" title="${label}"><img src="${esc(staged.previewUrl)}" alt="${label}"/></div>`;
+    if (existing) return `<div class="photo-thumb photo-thumb-sm" data-existing-thumb="${label.toLowerCase()}" title="${label}"><img alt="${label}"/></div>`;
+    return `<div class="photo-thumb photo-thumb-sm" style="display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;font-weight:700">${label}</div>`;
+  }
+
+  function openConfigureWizard() {
+    let step = 1;
+    let variant = _vehicle.body_variant || (!isEdit ? prefillVariant : "") || null;
+    let frontFile = null, frontPreview = null;
+    let backFile = null, backPreview = null;
+
+    const overlay = modal(`<div id="wizContent"></div>`, {});
+
+    function renderWizStep() {
+      const content = overlay.querySelector("#wizContent");
+      const header = `<div class="modal-header"><h3>Configure Vehicle</h3><button class="btn modal-close" aria-label="Close"><i data-lucide="x"></i></button></div>`;
+
+      if (step === 1) {
+        content.innerHTML = `
+          ${header}
+          <div class="modal-body">
+            <p class="text-muted" style="margin-bottom:14px">Step 1 of 3 — Standard or facelift?</p>
+            <div class="pill-row">
+              ${BODY_VARIANTS.map(b => `<button type="button" class="pill ${variant === b.key ? "active" : ""}" data-variant="${esc(b.key)}">${esc(b.label)}</button>`).join("")}
+            </div>
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-primary" id="wizNext" ${variant ? "" : "disabled"}>Continue</button></div>`;
+        content.querySelectorAll("[data-variant]").forEach(btn => {
+          btn.addEventListener("click", () => { variant = btn.dataset.variant; renderWizStep(); });
+        });
+        content.querySelector("#wizNext").addEventListener("click", () => { step = 2; renderWizStep(); });
+      } else if (step === 2) {
+        content.innerHTML = `
+          ${header}
+          <div class="modal-body">
+            <p class="text-muted" style="margin-bottom:14px">Step 2 of 3 — Photo of the front</p>
+            ${frontPreview ? `<div class="photo-thumb" style="width:160px;height:160px;margin-bottom:14px"><img src="${esc(frontPreview)}" alt="Front"/></div>` : ""}
+            <label class="btn photo-add-btn-wide"><i data-lucide="camera"></i> ${frontPreview ? "Change photo" : "Choose photo"}<input type="file" accept="image/*" id="wizFrontInput" hidden/></label>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn" id="wizBack">Back</button>
+            <button type="button" class="btn btn-primary" id="wizNext" ${frontFile ? "" : "disabled"}>Continue</button>
+          </div>`;
+        content.querySelector("#wizFrontInput").addEventListener("change", async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          frontFile = await freezeFile(file); frontPreview = URL.createObjectURL(frontFile);
+          renderWizStep();
+        });
+        content.querySelector("#wizBack").addEventListener("click", () => { step = 1; renderWizStep(); });
+        content.querySelector("#wizNext").addEventListener("click", () => { step = 3; renderWizStep(); });
+      } else {
+        content.innerHTML = `
+          ${header}
+          <div class="modal-body">
+            <p class="text-muted" style="margin-bottom:14px">Step 3 of 3 — Photo of the back</p>
+            ${backPreview ? `<div class="photo-thumb" style="width:160px;height:160px;margin-bottom:14px"><img src="${esc(backPreview)}" alt="Back"/></div>` : ""}
+            <label class="btn photo-add-btn-wide"><i data-lucide="camera"></i> ${backPreview ? "Change photo" : "Choose photo"}<input type="file" accept="image/*" id="wizBackInput" hidden/></label>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn" id="wizBack">Back</button>
+            <button type="button" class="btn btn-primary" id="wizSave" ${backFile ? "" : "disabled"}>Save</button>
+          </div>`;
+        content.querySelector("#wizBackInput").addEventListener("change", async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          backFile = await freezeFile(file); backPreview = URL.createObjectURL(backFile);
+          renderWizStep();
+        });
+        content.querySelector("#wizBack").addEventListener("click", () => { step = 2; renderWizStep(); });
+        content.querySelector("#wizSave").addEventListener("click", async () => {
+          const saveBtn = content.querySelector("#wizSave");
+          saveBtn.disabled = true;
+          try {
+            if (isEdit) {
+              await updateVehicle(vehicleId, { body_variant: variant }, _profile.id);
+              await replaceSingularPhoto("front", frontFile);
+              await replaceSingularPhoto("back", backFile);
+              _existingPhotos = await listVehiclePhotos(vehicleId);
+            } else {
+              _stagedPhotos = _stagedPhotos.filter(p => p.category !== "front" && p.category !== "back");
+              _stagedPhotos.push({ id: crypto.randomUUID(), category: "front", file: frontFile, previewUrl: frontPreview });
+              _stagedPhotos.push({ id: crypto.randomUUID(), category: "back", file: backFile, previewUrl: backPreview });
+            }
+            _vehicle.body_variant = variant;
+            overlay.remove();
+            renderBodyVariantSummary();
+            toast("success", "Vehicle configured");
+          } catch (err) {
+            saveBtn.disabled = false;
+            toast("error", "Couldn't save configuration", err.message);
+          }
+        });
+      }
+      window.lucide?.createIcons?.();
+    }
+
+    renderWizStep();
+  }
+
+  // front/back are singular per vehicle — reconfiguring replaces whatever
+  // was there before rather than adding a second photo alongside it.
+  async function replaceSingularPhoto(category, file) {
+    const olds = _existingPhotos.filter(p => p.category === category);
+    for (const old of olds) {
+      try { await deleteVehiclePhoto(old.id, old.storage_path); } catch { /* best effort cleanup */ }
+    }
+    await uploadVehiclePhoto(vehicleId, category, file, _profile.id);
+  }
+
+  let _lookupTimer = null;
+  let _lastAutoCheckedReg = null;
+
+  // Fires on every keystroke in the registration field (debounced ~350ms —
+  // fast enough to feel instant without spamming a request per keystroke),
+  // and immediately on blur/tab-away with no wait at all. Checks whether
+  // this vehicle is already in our own database first (no point auto-filling
+  // a form for a duplicate — send them to the existing record instead), then
+  // runs the DVSA MOT history lookup automatically.
+  function wireRegistrationAutoLookup() {
+    const input = document.getElementById("f_registration");
+    input.addEventListener("input", () => {
+      clearTimeout(_lookupTimer);
+      const dupEl = document.getElementById("dupStatus");
+      const statusEl = document.getElementById("lookupStatus");
+      if (dupEl) dupEl.innerHTML = "";
+      if (statusEl) statusEl.textContent = "";
+
+      const normalized = input.value.toUpperCase().replace(/\s+/g, "");
+      if (normalized.length < 4) return;
+
+      _lookupTimer = setTimeout(() => handleRegistrationTyped(input.value), 350);
+    });
+    input.addEventListener("blur", () => {
+      clearTimeout(_lookupTimer);
+      const normalized = input.value.toUpperCase().replace(/\s+/g, "");
+      if (normalized.length >= 4) handleRegistrationTyped(input.value);
+    });
+  }
+
+  async function handleRegistrationTyped(reg) {
+    const normalized = reg.toUpperCase().replace(/\s+/g, "");
+    if (normalized === _lastAutoCheckedReg) return;
+    _lastAutoCheckedReg = normalized;
+
+    if (!isEdit) {
+      const dupEl = document.getElementById("dupStatus");
+      try {
+        const existing = await getVehicleByRegistration(reg);
+        if (existing) {
+          const title = [existing.make, existing.model].filter(Boolean).join(" ");
+          dupEl.innerHTML = `
+            <div class="card" style="border-color:var(--warn);margin-top:10px;padding:12px 14px">
+              <strong style="color:var(--warn)">Already in the database</strong>
+              <p style="margin:4px 0 10px;font-size:12.5px">${esc(existing.registration)}${title ? " — " + esc(title) : ""}</p>
+              <a class="btn" href="${BASE}/vehicle-detail.html?id=${esc(existing.id)}">View existing record →</a>
+            </div>`;
+          window.lucide?.createIcons?.();
+          return; // skip the DVSA autofill — this is a known duplicate
+        }
+        dupEl.innerHTML = "";
+      } catch { /* duplicate check failing shouldn't block the lookup */ }
+    }
+
+    await doLookup(reg, { silent: true });
+  }
+
+  async function doLookup(regOverride, { silent = false } = {}) {
+    const reg = (regOverride ?? document.getElementById("f_registration").value).trim();
+    const statusEl = document.getElementById("lookupStatus");
+    if (!reg) { if (!silent) toast("error", "Enter a registration first"); return; }
+    statusEl.textContent = "Looking up…";
+    try {
+      const result = await lookupRegistration(reg);
+      const year = result.manufactureYear || (result.manufactureDate || result.registrationDate || "").split(/[.-]/)[0];
+      if (result.make) document.getElementById("f_make").value = result.make;
+      if (result.model) document.getElementById("f_model").value = result.model;
+      if (year) document.getElementById("f_year_of_manufacture").value = year;
+      if (result.fuelType) document.getElementById("f_fuel_type").value = result.fuelType;
+      _vehicle.lookup_raw = result;
+      _vehicle.lookup_looked_up_at = new Date().toISOString();
+      statusEl.textContent = "Filled in from MOT history — check the details before saving.";
+      if (!silent) toast("success", "Details filled in", "Make, model, year and fuel type updated from MOT history.");
+    } catch (e) {
+      if (e.status === 404) {
+        // Expected for brand-new vehicles that haven't had a first MOT yet —
+        // not really an "error", so no toast when this fired automatically.
+        statusEl.textContent = e.message;
+        if (!silent) toast("info", "No MOT history found", e.message);
+      } else {
+        statusEl.textContent = "";
+        toast("error", "Lookup failed", e.message);
+      }
+    }
+  }
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    const registration = document.getElementById("f_registration").value.trim();
+    if (!registration) { toast("error", "Registration is required"); return; }
+    if (!_vehicle.body_variant) {
+      toast("error", "Body Variant is required", "Press Configure and select Standard or Facelift with front/back photos first.");
+      return;
+    }
+
+    const patch = { registration, body_variant: _vehicle.body_variant };
+    document.querySelectorAll("[data-field]").forEach(el => {
+      const key = el.dataset.field;
+      let val = el.value.trim();
+      if (el.type === "number") {
+        patch[key] = val ? Number(val) : null;
+      } else {
+        patch[key] = val || null;
+      }
+    });
+    if (_vehicle.lookup_raw) {
+      patch.lookup_raw = _vehicle.lookup_raw;
+      patch.lookup_looked_up_at = _vehicle.lookup_looked_up_at;
+    }
+
+    const btn = document.getElementById("saveBtn");
+    btn.disabled = true;
+    try {
+      if (isEdit) {
+        await updateVehicle(vehicleId, patch, _profile.id);
+        toast("success", "Vehicle updated");
+        window.location.href = `${BASE}/vehicle-detail.html?id=${vehicleId}`;
+      } else if (_canDirectCreate) {
+        const created = await createVehicle(patch, _profile.id);
+        for (const p of _stagedPhotos) {
+          try { await uploadVehiclePhoto(created.id, p.category, p.file, _profile.id); }
+          catch (err) { toast("error", `Couldn't upload a photo (${p.category.replace(/_/g, " ")})`, err.message); }
+        }
+        toast("success", "Vehicle added");
+        window.location.href = `${BASE}/vehicle-detail.html?id=${created.id}`;
+      } else {
+        // Employees can't insert into vdb_vehicles directly — this goes into
+        // the same review queue as a field-edit suggestion, just with the
+        // whole vehicle as the "proposed changes" and no vehicle_id yet.
+        const request = await createNewVehicleRequest({ requested_by: _profile.id, proposed_changes: patch });
+        for (const p of _stagedPhotos) {
+          try { await uploadRequestPhoto(request.id, p.category, p.file); }
+          catch (err) { toast("error", `Couldn't upload a photo (${p.category.replace(/_/g, " ")})`, err.message); }
+        }
+        toast("success", "Submitted for review", "A Senior Regional Engineering Manager will review your suggested vehicle shortly.");
+        window.location.href = `${BASE}/my-requests.html`;
+      }
+    } catch (e2) {
+      btn.disabled = false;
+      const message = /duplicate key.*registration/i.test(e2.message) ? "A vehicle with this registration already exists." : e2.message;
+      toast("error", "Couldn't save", message);
+    }
+  }
+</script>
+</body>
+</html>

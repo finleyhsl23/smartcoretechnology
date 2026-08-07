@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>My Suggested Changes — SmartCore</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/vehicledb.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="vdb-shell">
+  <nav class="vdb-sidebar" id="vdbNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="vdb-main">
+    <div class="vdb-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>My Suggested Changes</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="vdb-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
+  import { listMyEditRequests, withdrawEditRequest, fieldLabel, BODY_VARIANTS } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { sb } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/supabase.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
+  import { esc, setInner, loadingState, emptyState, errorState, toast, confirmDialog, timeAgo } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+
+  initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
+  let _profile;
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    _profile = profile;
+    renderNav("my-requests", profile, tier);
+    initMobileNav();
+    initTopbar();
+    await render();
+  } catch (e) {
+    if (!document.body.innerHTML.includes("vdb-state")) {
+      setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+    }
+  }
+
+  async function render() {
+    setInner("body", loadingState("Loading your requests…"));
+    try {
+      const requests = await listMyEditRequests(_profile.id);
+      const vehicleIds = [...new Set(requests.map(r => r.vehicle_id).filter(Boolean))];
+      const { data: vehicles } = vehicleIds.length
+        ? await sb().schema("smartfitsinstallationsltd").from("vdb_vehicles").select("id, make, model, body_variant").in("id", vehicleIds)
+        : { data: [] };
+      const vehicleById = Object.fromEntries((vehicles || []).map(v => [v.id, v]));
+      draw(requests, vehicleById);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load requests", message: e.message }));
+    }
+  }
+
+  function draw(requests, vehicleById) {
+    const html = `
+      <div class="page-head"><div><h2>My Suggested Changes</h2><p>Track the status of changes you've submitted for review.</p></div></div>
+      <div id="list"></div>
+    `;
+    setInner("body", html);
+
+    const list = document.getElementById("list");
+    if (!requests.length) {
+      list.innerHTML = emptyState({ icon: "send", title: "No requests yet", message: "Suggest a change from any vehicle's page and it'll show up here." });
+      return;
+    }
+
+    list.innerHTML = requests.map(r => {
+      const isNewVehicle = r.request_type === "new_vehicle";
+      let vehTitle;
+      if (isNewVehicle) {
+        const pc = r.proposed_changes || {};
+        const variantLabel = BODY_VARIANTS.find(b => b.key === pc.body_variant)?.label;
+        const title = [pc.make, pc.model].filter(Boolean).join(" ");
+        vehTitle = [variantLabel, title].filter(Boolean).join(" — ") || "New vehicle";
+      } else {
+        const veh = vehicleById[r.vehicle_id];
+        if (!veh) { vehTitle = "Vehicle deleted"; }
+        else {
+          const variantLabel = BODY_VARIANTS.find(b => b.key === veh.body_variant)?.label;
+          const title = [veh.make, veh.model].filter(Boolean).join(" ");
+          vehTitle = [variantLabel, title].filter(Boolean).join(" — ") || "Make/model not set";
+        }
+      }
+      const fieldCount = Object.keys(r.proposed_changes || {}).length;
+      // A new-vehicle request only gets a vehicle_id once approved — before
+      // that (or if denied) there's no vehicle profile to link to.
+      const clickable = !!r.vehicle_id;
+      return `
+        <div class="request-row" ${clickable ? `data-vehicle="${esc(r.vehicle_id)}" style="cursor:pointer"` : ""}>
+          <div class="request-info">
+            <div class="request-title">${isNewVehicle ? `<span class="badge badge-blue" style="margin-right:8px">New Vehicle</span>` : ""}${esc(vehTitle)}</div>
+            <div class="request-meta">${fieldCount} field${fieldCount === 1 ? "" : "s"}${isNewVehicle ? " submitted" : " changed"} · Submitted ${esc(timeAgo(r.created_at))}${r.status !== "pending" ? ` · Reviewed ${esc(timeAgo(r.reviewed_at))}` : ""}</div>
+            ${r.review_note ? `<div class="request-meta" style="margin-top:4px">Reviewer note: ${esc(r.review_note)}</div>` : ""}
+          </div>
+          ${statusBadge(r.status)}
+          ${r.status === "pending" ? `<button class="btn" data-withdraw="${esc(r.id)}" style="flex-shrink:0" onclick="event.stopPropagation()">Withdraw</button>` : ""}
+        </div>`;
+    }).join("");
+
+    list.querySelectorAll(".request-row[data-vehicle]").forEach(row => {
+      row.addEventListener("click", () => { window.location.href = `${BASE}/vehicle-detail.html?id=${row.dataset.vehicle}`; });
+    });
+    list.querySelectorAll("[data-withdraw]").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        confirmDialog("Withdraw this request?", "It will be removed and no longer awaiting review.", async () => {
+          try {
+            await withdrawEditRequest(btn.dataset.withdraw);
+            toast("success", "Request withdrawn");
+            await render();
+          } catch (err) {
+            toast("error", "Couldn't withdraw", err.message);
+          }
+        }, { confirmLabel: "Withdraw" });
+      });
+    });
+    window.lucide?.createIcons?.();
+  }
+
+  function statusBadge(status) {
+    if (status === "approved") return `<span class="badge badge-green">Approved</span>`;
+    if (status === "denied") return `<span class="badge badge-red">Denied</span>`;
+    return `<span class="badge badge-yellow">Pending</span>`;
+  }
+</script>
+</body>
+</html>

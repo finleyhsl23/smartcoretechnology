@@ -404,6 +404,9 @@ export async function onScheduled(event, env) {
         await sendEmail(resendKey, recipients, `Invoice ${invoiceNum} — ${o.company_name} — ${fmt(o.total)}${isYearly ? '/yr' : '/mo'}`, html);
       }
 
+      // Send Stripe invoice (best-effort)
+      try { await sendStripeInvoice(env, o, inv, modules, accountsEmail); } catch (e) { console.error('Stripe invoice error:', e.message); }
+
       // Advance next_billing_date
       const nextDate = isYearly ? addYear(periodStart) : addMonth(periodStart);
       await sbFetch(
@@ -416,6 +419,112 @@ export async function onScheduled(event, env) {
       console.error(`Invoice failed for order ${o.id}:`, err.message);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Stripe invoice
+// ---------------------------------------------------------------------------
+
+function stripeEncode(obj) {
+  return Object.entries(obj)
+    .filter(([, v]) => v !== null && v !== undefined)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join('&');
+}
+
+async function sendStripeInvoice(env, o, inv, modules, accountsEmail) {
+  const stripeKey = env.STRIPE_SECRET_KEY;
+  if (!stripeKey) return;
+
+  const STRIPE_BASE = 'https://api.stripe.com/v1';
+  const stripe = (method, path, body = null) => {
+    const opts = {
+      method,
+      headers: { Authorization: `Bearer ${stripeKey}`, 'Stripe-Version': '2023-10-16' },
+    };
+    if (body) {
+      opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+      opts.body = stripeEncode(body);
+    }
+    return fetch(`${STRIPE_BASE}${path}`, opts).then(async r => {
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message || `Stripe ${method} ${path} → ${r.status}`);
+      return d;
+    });
+  };
+
+  const multiplier = o.size_multiplier || 1;
+  const regular    = modules.filter(m => m.slug !== 'smartcore-core');
+
+  // Get or create Stripe customer
+  let customerId = o.stripe_customer_id;
+  const extraEmail = accountsEmail && accountsEmail.toLowerCase() !== o.email?.toLowerCase() ? accountsEmail : null;
+
+  if (!customerId) {
+    const customer = await stripe('POST', '/customers', {
+      email: o.email,
+      name:  o.company_name,
+      'metadata[order_reference]': o.order_reference,
+      'metadata[smartcore_order_id]': o.id,
+    });
+    customerId = customer.id;
+  }
+
+  // Add accounts email as extra recipient
+  if (extraEmail) {
+    await stripe('POST', `/customers/${customerId}`, {
+      'invoice_settings[extra_invoice_emails][0]': extraEmail,
+    });
+  }
+
+  // Create invoice
+  const stripeInv = await stripe('POST', '/invoices', {
+    customer:          customerId,
+    collection_method: 'send_invoice',
+    days_until_due:    3,
+    currency:          'gbp',
+    description:       `SmartCore subscription renewal — ${o.order_reference} (${inv.invoice_number})`,
+    'metadata[order_reference]':  o.order_reference,
+    'metadata[invoice_number]':   inv.invoice_number,
+    'metadata[billing_type]':     o.billing_type,
+  });
+
+  // Line items
+  await stripe('POST', '/invoiceitems', {
+    customer:    customerId,
+    invoice:     stripeInv.id,
+    currency:    'gbp',
+    unit_amount: 0,
+    quantity:    1,
+    description: 'SmartCore Core (included free)',
+  });
+
+  for (const m of regular) {
+    const base  = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+    const price = Math.round((base || 0) * (m.is_flat_rate ? 1 : multiplier) * 100);
+    await stripe('POST', '/invoiceitems', {
+      customer:    customerId,
+      invoice:     stripeInv.id,
+      currency:    'gbp',
+      unit_amount: price,
+      quantity:    1,
+      description: `${m.name} (${o.billing_type === 'yearly' ? 'annual' : 'monthly'} renewal)`,
+    });
+  }
+
+  if (o.discount_amount > 0) {
+    await stripe('POST', '/invoiceitems', {
+      customer:    customerId,
+      invoice:     stripeInv.id,
+      currency:    'gbp',
+      unit_amount: -Math.round(o.discount_amount * 100),
+      quantity:    1,
+      description: 'Package discount',
+    });
+  }
+
+  await stripe('POST', `/invoices/${stripeInv.id}/finalize`, {});
+  await stripe('POST', `/invoices/${stripeInv.id}/send`, {});
 }
 
 // Allow manual/worker trigger via GET

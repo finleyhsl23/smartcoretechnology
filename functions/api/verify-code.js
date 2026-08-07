@@ -16,7 +16,7 @@ const CORS = {
 export async function onRequestPost(context) {
   const { request, env } = context;
   try {
-    const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
+    const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_ROLE || env.SUPABASE_SERVICE_KEY;
     if (!serviceKey) return json({ error: 'Service not configured' }, 500);
 
     const { email, code, password } = await request.json();
@@ -25,7 +25,7 @@ export async function onRequestPost(context) {
     // Look up the verification code
     const r = await fetch(
       `${SUPABASE_URL}/rest/v1/verification_codes?email=eq.${encodeURIComponent(email)}&used=eq.false&order=created_at.desc&limit=1`,
-      { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}` } }
+      { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
     );
     const rows = await r.json();
     const row = rows?.[0];
@@ -44,8 +44,8 @@ export async function onRequestPost(context) {
       {
         method: 'PATCH',
         headers: {
-          apikey: SUPABASE_ANON,
-          Authorization: `Bearer ${SUPABASE_ANON}`,
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
           'Content-Type': 'application/json',
           Prefer: 'return=minimal',
         },

@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script>try{var t=localStorage.getItem("flexiTheme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Messages — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+<style>
+/* Full-screen layout — messages breaks out of the usual centered/capped
+   content column so the inbox behaves like a real chat app. */
+/* Rather than subtract a hardcoded "everything above this" pixel count
+   (which silently drifts stale whenever the topbar/utility-bar height
+   changes, leaving the inbox short of the bottom of the screen), pin
+   .fx-main to the viewport and let .fx-content/.msg-shell flex to fill
+   whatever's actually left. Self-adjusting, no magic numbers. */
+.fx-main{height:100vh;overflow:hidden}
+/* animation:none matters here, not just cosmetically: the shared
+   .fx-content rule's fx-fade-up animation uses fill-mode:both, which
+   leaves transform:translateY(0) permanently applied even after it
+   finishes. A non-"none" transform on an ancestor makes it the
+   containing block for any position:fixed descendant, which broke the
+   mobile full-screen chat overlay below (it was anchoring to .fx-content
+   instead of the viewport, so it didn't actually cover the header). */
+.fx-content{max-width:none;padding:20px 24px 0;display:flex;flex-direction:column;min-height:0;flex:1;animation:none}
+.fx-topbar{max-width:none;flex-shrink:0}
+.msg-shell{display:flex;gap:0;border:1px solid var(--fx-line);border-radius:var(--fx-radius);background:var(--fx-card);overflow:hidden;flex:1;min-height:0}
+.msg-list{width:300px;flex-shrink:0;border-right:1px solid var(--fx-line);overflow-y:auto;display:flex;flex-direction:column}
+.msg-search-wrap{padding:10px;border-bottom:1px solid var(--fx-line);position:sticky;top:0;background:var(--fx-card);z-index:1}
+.msg-list-item{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--fx-line);cursor:pointer}
+.msg-list-item:hover,.msg-list-item.active{background:var(--fx-card2)}
+.msg-list-name{font-size:13px;font-weight:700}
+.msg-list-preview{font-size:11.5px;color:var(--fx-text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
+.msg-pane{flex:1;display:flex;flex-direction:column;min-width:0}
+/* .fx-chat is shared with client-detail.html's embedded chat panel, where
+   a 60vh cap is correct — but here it's the only thing in .msg-pane and
+   needs to fill it exactly, or the input row stalls partway down the
+   shell instead of reaching its bottom edge. */
+.msg-pane .fx-chat{flex:1;min-height:0;max-height:none}
+.msg-pane-head{display:none;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--fx-line);flex-shrink:0}
+.msg-pane-head strong{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fx-chat-skel{background:var(--fx-card2);position:relative;overflow:hidden;color:transparent}
+.fx-chat-skel::after{
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,color-mix(in srgb, var(--fx-text) 8%, transparent),transparent);
+  animation:fx-chat-shimmer 1.3s ease-in-out infinite
+}
+@keyframes fx-chat-shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+/* Mobile: a 50/50 split with no room to type doesn't work on a phone —
+   show the conversation list full-screen, and only bring the chat pane
+   in (also full-screen, covering everything including the sidebar/topbar)
+   once a conversation is actually opened. */
+@media(max-width:760px){
+  .fx-content{padding:14px 14px 0}
+  .msg-shell{flex-direction:column}
+  .msg-list{width:100%;max-height:none;flex:1}
+  .msg-pane{display:none}
+  .msg-pane-head{display:flex}
+  .msg-shell.chat-open .msg-list{display:none}
+  .msg-shell.chat-open .msg-pane{display:flex;position:fixed;inset:0;z-index:200;background:var(--fx-card)}
+}
+</style>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Messages</h1><div class="fx-topbar-sub">Every client conversation in one inbox</div></div>
+    </header>
+    <main class="fx-content">
+      <div class="msg-shell">
+        <div class="msg-list">
+          <div class="msg-search-wrap"><input class="fx-input" id="convoSearch" placeholder="Search conversations…"/></div>
+          <div id="msgList" style="flex:1;overflow-y:auto"></div>
+        </div>
+        <div class="msg-pane">
+          <div class="msg-pane-head" id="msgPaneHead">
+            <button class="fx-icon-btn" id="closeChatBtn" title="Back to conversations">✕</button>
+            <div class="fx-avatar" id="msgPaneAvatar" style="width:30px;height:30px;font-size:11px"></div>
+            <strong id="msgPaneName"></strong>
+          </div>
+          <div class="fx-chat" id="chatMessages" style="flex:1"></div>
+          <div class="fx-chat-input">
+            <input class="fx-input" id="chatInput" placeholder="Select a client to start messaging…" disabled/>
+            <button class="fx-btn fx-btn-primary" id="sendBtn" disabled>Send</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle, refreshUnreadBadge } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, initials, toast, emptyState } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "messages" });
+renderNav({ activeKey: "messages", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+let activeClientId = new URLSearchParams(location.search).get("client");
+let orderedConvos = [];
+let byClientMsg = {};
+let unreadCounts = {};
+
+async function loadList() {
+  const { data: clients } = await sb().from("smartcore_flexi_clients").select("id, full_name").order("full_name");
+  const { data: msgs } = await sb().from("smartcore_flexi_messages").select("client_id, body, created_at, sender_type, read_at").order("created_at", { ascending: false });
+
+  byClientMsg = {};
+  (msgs || []).forEach(m => { if (!byClientMsg[m.client_id]) byClientMsg[m.client_id] = m; });
+  unreadCounts = {};
+  (msgs || []).forEach(m => { if (m.sender_type === "client" && !m.read_at) unreadCounts[m.client_id] = (unreadCounts[m.client_id] || 0) + 1; });
+
+  const rows = (clients || []).filter(c => byClientMsg[c.id]).sort((a,b) => new Date(byClientMsg[b.id].created_at) - new Date(byClientMsg[a.id].created_at));
+  const rest = (clients || []).filter(c => !byClientMsg[c.id]);
+  orderedConvos = [...rows, ...rest];
+
+  renderList();
+  const openedFromUrl = !!activeClientId;
+  if (!activeClientId && orderedConvos[0]) activeClientId = orderedConvos[0].id;
+  if (activeClientId) selectClient(activeClientId, openedFromUrl);
+}
+
+function renderList() {
+  const list = document.getElementById("msgList");
+  if (!orderedConvos.length) { list.innerHTML = emptyState("💬", "No clients yet", ""); return; }
+
+  const q = document.getElementById("convoSearch").value.trim().toLowerCase();
+  const filtered = !q ? orderedConvos : orderedConvos.filter(c =>
+    c.full_name.toLowerCase().includes(q) || (byClientMsg[c.id]?.body || "").toLowerCase().includes(q)
+  );
+
+  list.innerHTML = !filtered.length ? emptyState("🔍", "No conversations match", "") : filtered.map(c => `
+    <div class="msg-list-item ${c.id === activeClientId ? "active" : ""}" data-client="${c.id}">
+      <div class="fx-avatar">${initials(c.full_name)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="msg-list-name">${escapeHtml(c.full_name)}</div>
+        <div class="msg-list-preview">${byClientMsg[c.id] ? escapeHtml(byClientMsg[c.id].body) : "No messages yet"}</div>
+      </div>
+      ${unreadCounts[c.id] ? `<span class="fx-badge fx-badge-accent">${unreadCounts[c.id]}</span>` : ""}
+    </div>
+  `).join("");
+  list.querySelectorAll("[data-client]").forEach(el => el.addEventListener("click", () => selectClient(el.dataset.client, true)));
+}
+document.getElementById("convoSearch").addEventListener("input", renderList);
+
+document.getElementById("closeChatBtn").addEventListener("click", () => {
+  document.querySelector(".msg-shell").classList.remove("chat-open");
+});
+
+let selectRequestId = 0;
+function chatSkeletonHtml() {
+  return [180, 130, 150].map((w, i) => `
+    <div class="fx-bubble fx-chat-skel ${i === 1 ? "fx-bubble-mine" : "fx-bubble-theirs"}" style="width:${w}px;height:34px">&nbsp;</div>
+  `).join("");
+}
+
+const MSG_PAGE_SIZE = 100;
+let loadedMessages = []; // chronological, oldest first
+let oldestLoadedAt = null;
+let hasMoreOlder = false;
+let loadingMore = false;
+
+function bubbleHtml(m) {
+  return `
+    <div class="fx-bubble ${m.sender_type === "trainer" ? "fx-bubble-mine" : "fx-bubble-theirs"}">
+      ${escapeHtml(m.body)}<div class="fx-bubble-meta">${fmtDateTime(m.created_at)}</div>
+    </div>
+  `;
+}
+
+function renderMessages() {
+  const el = document.getElementById("chatMessages");
+  if (!loadedMessages.length) { el.innerHTML = emptyState("💬", "No messages yet", "Say hello!"); return; }
+  el.innerHTML = (hasMoreOlder ? `<button type="button" class="fx-btn fx-btn-sm" id="loadMoreBtn" style="align-self:center;margin-bottom:6px">Load older messages</button>` : "")
+    + loadedMessages.map(bubbleHtml).join("");
+  document.getElementById("loadMoreBtn")?.addEventListener("click", loadMoreMessages);
+}
+
+async function loadMoreMessages() {
+  if (loadingMore || !hasMoreOlder || !oldestLoadedAt || !activeClientId) return;
+  loadingMore = true;
+  const clientId = activeClientId;
+  const btn = document.getElementById("loadMoreBtn");
+  if (btn) { btn.textContent = "Loading…"; btn.disabled = true; }
+
+  const { data } = await sb().from("smartcore_flexi_messages").select("*")
+    .eq("client_id", clientId).lt("created_at", oldestLoadedAt)
+    .order("created_at", { ascending: false }).limit(MSG_PAGE_SIZE);
+  loadingMore = false;
+  if (clientId !== activeClientId) return; // switched conversations while this was in flight
+
+  const older = (data || []).slice().reverse();
+  hasMoreOlder = (data || []).length === MSG_PAGE_SIZE;
+  if (older[0]) oldestLoadedAt = older[0].created_at;
+  loadedMessages = [...older, ...loadedMessages];
+
+  const el = document.getElementById("chatMessages");
+  const prevScrollTop = el.scrollTop;
+  const prevScrollHeight = el.scrollHeight;
+  renderMessages();
+  el.scrollTop = prevScrollTop + (el.scrollHeight - prevScrollHeight);
+}
+
+async function selectClient(clientId, userOpened = false, showLoading = true) {
+  activeClientId = clientId;
+  document.querySelectorAll(".msg-list-item").forEach(el => el.classList.toggle("active", el.dataset.client === clientId));
+  document.getElementById("chatInput").disabled = false;
+  document.getElementById("sendBtn").disabled = false;
+
+  const client = orderedConvos.find(c => c.id === clientId);
+  document.getElementById("msgPaneName").textContent = client?.full_name || "";
+  document.getElementById("msgPaneAvatar").textContent = client ? initials(client.full_name) : "";
+  if (userOpened) document.querySelector(".msg-shell").classList.add("chat-open");
+
+  // A slower request for a conversation the trainer has since clicked away
+  // from must never clobber whatever loaded after it — otherwise switching
+  // chats quickly can flash the wrong person's messages back in.
+  const requestId = ++selectRequestId;
+  if (showLoading) document.getElementById("chatMessages").innerHTML = chatSkeletonHtml();
+
+  const { data } = await sb().from("smartcore_flexi_messages").select("*")
+    .eq("client_id", clientId).order("created_at", { ascending: false }).limit(MSG_PAGE_SIZE);
+  if (requestId !== selectRequestId) return;
+
+  loadedMessages = (data || []).slice().reverse();
+  hasMoreOlder = (data || []).length === MSG_PAGE_SIZE;
+  oldestLoadedAt = loadedMessages[0]?.created_at || null;
+  renderMessages();
+  const el = document.getElementById("chatMessages");
+  el.scrollTop = el.scrollHeight;
+
+  const hadUnread = unreadCounts[clientId] > 0;
+  await sb().from("smartcore_flexi_messages").update({ read_at: new Date().toISOString() }).eq("client_id", clientId).eq("sender_type", "client").is("read_at", null);
+  if (hadUnread) {
+    unreadCounts[clientId] = 0;
+    renderList();
+    refreshUnreadBadge();
+  }
+}
+
+document.getElementById("sendBtn").addEventListener("click", send);
+document.getElementById("chatInput").addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+async function send() {
+  if (!activeClientId) return;
+  const input = document.getElementById("chatInput");
+  const body = input.value.trim();
+  if (!body) return;
+  input.value = "";
+  const { error } = await sb().from("smartcore_flexi_messages").insert({
+    company_id: profile.company_id, client_id: activeClientId, sender_type: "trainer", sender_employee_id: profile.id, body,
+  });
+  if (error) { toast(error.message, "error"); return; }
+  selectClient(activeClientId, false, false);
+}
+
+loadList();
+</script>
+</body>
+</html>

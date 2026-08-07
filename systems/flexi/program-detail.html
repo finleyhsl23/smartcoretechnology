@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script>try{var t=localStorage.getItem("flexiTheme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Program Builder — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+<style>
+.pb-desc-field{max-width:none}
+.pb-desc-field textarea{min-height:70px}
+.unit-toggle{display:inline-flex;border:1px solid var(--fx-line);border-radius:9px;overflow:hidden;flex-shrink:0}
+.unit-toggle button{padding:8px 11px;font-size:11.5px;font-weight:700;border:none;background:var(--fx-card2);color:var(--fx-text3);cursor:pointer;transition:background .15s,color .15s}
+.unit-toggle button.on{background:var(--fx-grad);color:#fff}
+.unit-toggle button:hover:not(.on){background:var(--fx-bg2);color:var(--fx-text2)}
+
+.wk-card{margin-bottom:16px;transition:box-shadow .15s}
+.wk-head{display:flex;align-items:center;gap:12px;margin-bottom:4px}
+.wk-daybadge{width:34px;height:34px;border-radius:10px;background:var(--fx-grad);color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--fx-glow)}
+.wk-card.is-rest .wk-daybadge{background:var(--fx-card2);color:var(--fx-text3);box-shadow:none;border:1px solid var(--fx-line)}
+.wk-head input.wk-name{border:none;background:none;font-size:15px;font-weight:800;color:var(--fx-text);flex:1;padding:4px 2px;border-radius:6px;min-width:0}
+.wk-head input.wk-name:focus{outline:none;background:var(--fx-card2)}
+.wk-rest-toggle{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--fx-text3);cursor:pointer;user-select:none;flex-shrink:0}
+.wk-switch{position:relative;width:36px;height:20px;border-radius:99px;background:var(--fx-line-hi);transition:background .15s;flex-shrink:0}
+.wk-switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.wk-rest-toggle.on .wk-switch{background:var(--fx-accent)}
+.wk-rest-toggle.on .wk-switch::after{transform:translateX(16px)}
+.wk-rest-body{display:flex;align-items:center;gap:8px;padding:14px 0 6px;color:var(--fx-text3);font-size:13px}
+.wk-notes{margin-top:12px}
+.wk-notes textarea{min-height:44px;font-size:12.5px}
+
+.ex-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--fx-line);font-size:13px;flex-wrap:wrap}
+.ex-row:last-child{border-bottom:none}
+.ex-row strong{flex:1;min-width:120px;font-weight:700}
+.ex-row .ex-metric{color:var(--fx-text2);font-size:12.5px}
+.ex-add-row{display:flex;align-items:flex-end;gap:10px;margin-top:12px;padding-top:12px;border-top:1px dashed var(--fx-line);flex-wrap:wrap}
+.ex-add-field{display:flex;flex-direction:column;gap:4px}
+.ex-add-field label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--fx-text3)}
+.ex-add-field input{width:84px}
+.ex-add-field.ex-select-field{flex:1;min-width:180px}
+.ex-add-field.ex-select-field input{width:100%}
+
+.pb-savebar{position:sticky;bottom:0;margin-top:28px;padding:16px 0;background:linear-gradient(to top,var(--fx-bg) 60%,transparent);display:flex;justify-content:center}
+</style>
+</head>
+<body>
+
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1 id="programName">Program</h1><div class="fx-topbar-sub" id="programClientLink"></div></div>
+      <div class="fx-topbar-spacer"></div>
+      <div class="unit-toggle" id="unitToggle">
+        <button type="button" data-unit="metric">Metric</button>
+        <button type="button" data-unit="imperial">Imperial</button>
+      </div>
+      <select class="fx-select" id="statusSelect" style="max-width:140px">
+        <option value="draft">Draft</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option>
+      </select>
+    </header>
+    <main class="fx-content">
+      <div class="fx-field pb-desc-field"><label>Description</label><textarea class="fx-textarea" id="programDesc"></textarea></div>
+
+      <div class="fx-section-head"><h2>Weekly Plan</h2></div>
+      <div id="workoutsList"></div>
+
+      <div class="fx-card" style="max-width:420px">
+        <div class="fx-field"><label>Add another day</label><input class="fx-input" id="newWorkoutName" placeholder="e.g. Day 8 — Bonus"/></div>
+        <button class="fx-btn fx-btn-primary" id="addWorkoutBtn">+ Add Day</button>
+      </div>
+
+      <div class="pb-savebar">
+        <button class="fx-btn fx-btn-primary" id="saveAllBtn" style="min-width:240px">Save Changes</button>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, setLoading, toast, emptyState, enhanceSelect } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "programs" });
+renderNav({ activeKey: "programs", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+
+const programId = new URLSearchParams(location.search).get("id");
+if (!programId) { document.body.innerHTML = "<p style='padding:40px'>No program specified.</p>"; throw new Error("no id"); }
+
+// ---- Units ----
+const CARDIO_CATS = new Set(["cardio", "mobility"]);
+let unitSystem = localStorage.getItem("flexiUnitSystem") || "metric";
+function paintUnitToggle() {
+  document.querySelectorAll("#unitToggle button").forEach(b => b.classList.toggle("on", b.dataset.unit === unitSystem));
+}
+paintUnitToggle();
+document.querySelectorAll("#unitToggle button").forEach(b => b.addEventListener("click", () => {
+  unitSystem = b.dataset.unit;
+  localStorage.setItem("flexiUnitSystem", unitSystem);
+  paintUnitToggle();
+  loadWorkouts();
+}));
+const weightUnit = () => unitSystem === "metric" ? "kg" : "lbs";
+const speedUnit = () => unitSystem === "metric" ? "km/h" : "mph";
+const distUnit = () => unitSystem === "metric" ? "km" : "mi";
+const round1 = n => Math.round(n * 10) / 10;
+const kgToDisplay = kg => unitSystem === "metric" ? kg : round1(kg * 2.20462);
+const displayToKg = v => unitSystem === "metric" ? v : v / 2.20462;
+const kmhToDisplay = kmh => unitSystem === "metric" ? kmh : round1(kmh / 1.60934);
+const displayToKmh = v => unitSystem === "metric" ? v : v * 1.60934;
+const metersToDisplay = m => unitSystem === "metric" ? round1(m / 1000) : round1(m / 1609.34);
+const displayToMeters = v => unitSystem === "metric" ? v * 1000 : v * 1609.34;
+
+let exerciseLibrary = [];
+const { data: exData } = await sb().from("smartcore_flexi_exercises").select("id, name, category").order("name");
+exerciseLibrary = exData || [];
+const exCategory = id => exerciseLibrary.find(x => x.id === id)?.category;
+
+let program = null;
+async function loadProgram() {
+  const { data, error } = await sb().from("smartcore_flexi_programs").select("*, smartcore_flexi_clients(id, full_name)").eq("id", programId).single();
+  if (error || !data) { toast("Program not found", "error"); return; }
+  program = data;
+  document.getElementById("programName").textContent = program.name;
+  document.getElementById("programClientLink").innerHTML = program.is_template
+    ? `<span class="fx-badge fx-badge-accent">Generic Program Template</span>`
+    : `<a href="client-detail.html?id=${program.client_id}" style="color:var(--fx-accent)">${escapeHtml(program.smartcore_flexi_clients?.full_name || "")}</a>`;
+  document.getElementById("statusSelect").value = program.status;
+  document.getElementById("programDesc").value = program.description || "";
+}
+await loadProgram();
+revealApp();
+enhanceSelect(document.getElementById("statusSelect"));
+
+document.getElementById("statusSelect").addEventListener("change", async (e) => {
+  await sb().from("smartcore_flexi_programs").update({ status: e.target.value, updated_at: new Date().toISOString() }).eq("id", programId);
+  toast("Status updated", "success");
+});
+
+async function loadWorkouts() {
+  const { data: workouts } = await sb().from("smartcore_flexi_workouts").select("*").eq("program_id", programId).order("order_index");
+  const el = document.getElementById("workoutsList");
+  if (!workouts?.length) { el.innerHTML = emptyState("🗓️", "No days yet", "Add your first training day below."); return; }
+
+  const workoutExercises = {};
+  for (const w of workouts) {
+    if (w.is_rest_day) continue;
+    const { data } = await sb().from("smartcore_flexi_workout_exercises").select("*, smartcore_flexi_exercises(name, category)").eq("workout_id", w.id).order("order_index");
+    workoutExercises[w.id] = data || [];
+  }
+
+  el.innerHTML = workouts.map((w, i) => `
+    <div class="fx-card wk-card ${w.is_rest_day ? "is-rest" : ""}" data-workout="${w.id}">
+      <div class="wk-head">
+        <div class="wk-daybadge">${i + 1}</div>
+        <input class="wk-name" data-name="${w.id}" value="${escapeHtml(w.name)}"/>
+        <label class="wk-rest-toggle ${w.is_rest_day ? "on" : ""}" data-rest-toggle="${w.id}">
+          <span class="wk-switch"></span>Rest day
+        </label>
+        <button class="fx-btn fx-btn-sm fx-btn-danger" data-del-workout="${w.id}">Delete</button>
+      </div>
+      ${w.is_rest_day ? `
+        <div class="wk-rest-body">😴 Rest day — no training scheduled.</div>
+      ` : `
+        ${workoutExercises[w.id]?.length ? workoutExercises[w.id].map(we => {
+          const cardio = CARDIO_CATS.has(we.smartcore_flexi_exercises?.category);
+          const metric = cardio
+            ? [we.target_speed_kmh ? `${kmhToDisplay(we.target_speed_kmh)} ${speedUnit()}` : null, we.target_distance_m ? `${metersToDisplay(we.target_distance_m)} ${distUnit()}` : null].filter(Boolean).join(" · ") || "—"
+            : (we.target_weight_kg ? `${kgToDisplay(we.target_weight_kg)} ${weightUnit()}` : "—");
+          return `
+            <div class="ex-row">
+              <strong>${escapeHtml(we.smartcore_flexi_exercises?.name || "—")}</strong>
+              <span class="ex-metric">${we.target_sets ?? "—"} sets</span>
+              <span class="ex-metric">${escapeHtml(we.target_reps || "—")}</span>
+              <span class="ex-metric">${metric}</span>
+              <span class="ex-metric">${we.rest_seconds ? we.rest_seconds + "s rest" : "—"}</span>
+              <button class="fx-btn fx-btn-sm fx-btn-danger" data-del-ex="${we.id}">✕</button>
+            </div>
+          `;
+        }).join("") : `<p style="color:var(--fx-text3);font-size:12.5px;margin:6px 0 0">No exercises added yet.</p>`}
+        <div class="ex-add-row" data-add-row="${w.id}">
+          <div class="ex-add-field ex-select-field">
+            <label>Exercise</label>
+            <select class="fx-select" data-ex-select="${w.id}">
+              <option value="">Select exercise…</option>
+              ${exerciseLibrary.map(ex => `<option value="${ex.id}" data-category="${ex.category}">${escapeHtml(ex.name)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="ex-add-field"><label>Sets</label><input class="fx-input" type="number" data-ex-sets="${w.id}"/></div>
+          <div class="ex-add-field"><label>Reps</label><input class="fx-input" placeholder="8-10" data-ex-reps="${w.id}"/></div>
+          <div class="ex-add-field" data-field-weight="${w.id}"><label>Weight (${weightUnit()})</label><input class="fx-input" type="number" step="0.5" data-ex-weight="${w.id}"/></div>
+          <div class="ex-add-field" data-field-speed="${w.id}" style="display:none"><label>Speed (${speedUnit()})</label><input class="fx-input" type="number" step="0.1" data-ex-speed="${w.id}"/></div>
+          <div class="ex-add-field" data-field-distance="${w.id}" style="display:none"><label>Distance (${distUnit()})</label><input class="fx-input" type="number" step="0.1" data-ex-distance="${w.id}"/></div>
+          <div class="ex-add-field"><label>Rest (sec)</label><input class="fx-input" type="number" data-ex-rest="${w.id}"/></div>
+          <button class="fx-btn fx-btn-sm fx-btn-primary" data-add-ex="${w.id}">Add</button>
+        </div>
+        <div class="fx-field wk-notes"><label>Notes for this day</label><textarea class="fx-textarea" data-notes="${w.id}" placeholder="Coaching cues, tempo, anything to remember…">${escapeHtml(w.notes || "")}</textarea></div>
+      `}
+    </div>
+  `).join("");
+  el.querySelectorAll("[data-ex-select]").forEach(sel => {
+    enhanceSelect(sel, { placeholder: "Search exercises…" });
+    sel.addEventListener("change", () => {
+      const wid = sel.dataset.exSelect;
+      const cardio = CARDIO_CATS.has(exCategory(sel.value));
+      el.querySelector(`[data-field-weight="${wid}"]`).style.display = cardio ? "none" : "";
+      el.querySelector(`[data-field-speed="${wid}"]`).style.display = cardio ? "" : "none";
+      el.querySelector(`[data-field-distance="${wid}"]`).style.display = cardio ? "" : "none";
+    });
+  });
+
+  el.querySelectorAll("[data-rest-toggle]").forEach(toggle => toggle.addEventListener("click", async () => {
+    const wid = toggle.dataset.restToggle;
+    const goingRest = !toggle.classList.contains("on");
+    if (goingRest && workoutExercises[wid]?.length && !confirm("This day has exercises — mark it as a rest day anyway? The exercises stay saved but won't be shown.")) return;
+    await sb().from("smartcore_flexi_workouts").update({ is_rest_day: goingRest }).eq("id", wid);
+    loadWorkouts();
+  }));
+
+  el.querySelectorAll("[data-add-ex]").forEach(btn => btn.addEventListener("click", async () => {
+    const wid = btn.dataset.addEx;
+    const exercise_id = el.querySelector(`[data-ex-select="${wid}"]`).value;
+    if (!exercise_id) { toast("Choose an exercise", "error"); return; }
+    const cardio = CARDIO_CATS.has(exCategory(exercise_id));
+    const weightVal = parseFloat(el.querySelector(`[data-ex-weight="${wid}"]`).value);
+    const speedVal = parseFloat(el.querySelector(`[data-ex-speed="${wid}"]`).value);
+    const distVal = parseFloat(el.querySelector(`[data-ex-distance="${wid}"]`).value);
+    const { error } = await sb().from("smartcore_flexi_workout_exercises").insert({
+      workout_id: wid, exercise_id,
+      target_sets: parseInt(el.querySelector(`[data-ex-sets="${wid}"]`).value) || null,
+      target_reps: el.querySelector(`[data-ex-reps="${wid}"]`).value.trim() || null,
+      target_weight_kg: !cardio && weightVal ? round1(displayToKg(weightVal)) : null,
+      target_speed_kmh: cardio && speedVal ? round1(displayToKmh(speedVal)) : null,
+      target_distance_m: cardio && distVal ? Math.round(displayToMeters(distVal)) : null,
+      rest_seconds: parseInt(el.querySelector(`[data-ex-rest="${wid}"]`).value) || null,
+    });
+    if (error) { toast(error.message, "error"); return; }
+    loadWorkouts();
+  }));
+  el.querySelectorAll("[data-del-ex]").forEach(btn => btn.addEventListener("click", async () => {
+    await sb().from("smartcore_flexi_workout_exercises").delete().eq("id", btn.dataset.delEx);
+    loadWorkouts();
+  }));
+  el.querySelectorAll("[data-del-workout]").forEach(btn => btn.addEventListener("click", async () => {
+    if (!confirm("Delete this day and all its exercises?")) return;
+    await sb().from("smartcore_flexi_workouts").delete().eq("id", btn.dataset.delWorkout);
+    loadWorkouts();
+  }));
+}
+await loadWorkouts();
+
+document.getElementById("addWorkoutBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("newWorkoutName").value.trim();
+  if (!name) return;
+  setLoading(e.target, true, "Adding…");
+  const { count } = await sb().from("smartcore_flexi_workouts").select("id", { count: "exact", head: true }).eq("program_id", programId);
+  const { error } = await sb().from("smartcore_flexi_workouts").insert({ program_id: programId, name, order_index: count || 0 });
+  setLoading(e.target, false);
+  if (error) { toast(error.message, "error"); return; }
+  document.getElementById("newWorkoutName").value = "";
+  loadWorkouts();
+});
+
+document.getElementById("saveAllBtn").addEventListener("click", async (e) => {
+  setLoading(e.target, true, "Saving…");
+  try {
+    await sb().from("smartcore_flexi_programs").update({
+      description: document.getElementById("programDesc").value.trim() || null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", programId);
+
+    const nameInputs = document.querySelectorAll("[data-name]");
+    for (const input of nameInputs) {
+      const name = input.value.trim() || "Untitled day";
+      await sb().from("smartcore_flexi_workouts").update({ name }).eq("id", input.dataset.name);
+    }
+    const notesInputs = document.querySelectorAll("[data-notes]");
+    for (const textarea of notesInputs) {
+      await sb().from("smartcore_flexi_workouts").update({ notes: textarea.value.trim() || null }).eq("id", textarea.dataset.notes);
+    }
+  } catch (err) {
+    setLoading(e.target, false);
+    toast(err.message || "Something went wrong.", "error");
+    return;
+  }
+  setLoading(e.target, false);
+  toast("Program saved", "success");
+});
+</script>
+</body>
+</html>

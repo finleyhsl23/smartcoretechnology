@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Settings — SmartCore Vehicle Installations Database</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/vehicledb.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="vdb-shell">
+  <nav class="vdb-sidebar" id="vdbNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="vdb-main">
+    <div class="vdb-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Settings</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="vdb-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
+  import { listSmartfitsEmployees, getSettings, updateSettings } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
+  import { esc, setInner, loadingState, errorState, toast, permissionDeniedState, initTagInput } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+
+  initTheme();
+  let _profile, _employees = [], _managerTag, _managerIds = [];
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    _profile = profile;
+    renderNav("settings", profile, tier);
+    initMobileNav();
+    initTopbar();
+
+    if (tier !== "owner_admin") {
+      setInner("body", permissionDeniedState("Only Owners and Admins can change module settings."));
+    } else {
+      await render();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load settings", message: e.message }));
+  }
+
+  async function render() {
+    setInner("body", loadingState("Loading settings…"));
+    try {
+      const [employees, settings] = await Promise.all([listSmartfitsEmployees(), getSettings()]);
+      _employees = employees;
+      _managerIds = settings.manager_employee_ids || [];
+      draw();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load settings", message: e.message }));
+    }
+  }
+
+  function draw() {
+    const html = `
+      <div class="page-head"><div><h2>Module Settings</h2><p>Control who can add vehicles, edit them directly, and review suggested changes.</p></div></div>
+
+      <div class="card" style="max-width:520px">
+        <div class="form-row" style="margin-bottom:0">
+          <label class="form-label">Senior Regional Engineering Managers</label>
+          <p class="text-muted" style="font-size:12.5px;margin:0 0 10px">Anyone on this roster (plus Owners/Admins) can add vehicles, edit any vehicle's details directly, and approve or deny suggested changes from other employees. Type a name to add someone.</p>
+          <div id="managerTagInput"></div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="saveBtn" style="margin-top:18px"><i data-lucide="save"></i> Save Settings</button>
+    `;
+    setInner("body", html);
+
+    _managerTag = initTagInput(document.getElementById("managerTagInput"), {
+      options: _employees,
+      selected: _managerIds,
+      placeholder: "Search employees by name…",
+    });
+
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      try {
+        await updateSettings({ manager_employee_ids: _managerTag.getSelected() }, _profile.id);
+        toast("success", "Settings saved");
+      } catch (e) {
+        toast("error", "Couldn't save settings", e.message);
+      }
+    });
+  }
+</script>
+</body>
+</html>

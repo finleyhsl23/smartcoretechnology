@@ -111,9 +111,9 @@ export async function onRequestPost({ request, env }) {
         <tr>
           <td style="padding:36px 36px 24px">
             <h2 style="margin:0 0 8px;font-size:22px;font-weight:800;color:#0a0f2e">Welcome, ${name || 'there'}! 👋</h2>
-            <p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.6">Your customer portal account has been set up. You can now log in to view your projects, documents, and messages from <strong>${companyName}</strong>.</p>
+            <p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.6">Your customer portal account has been set up by <strong>${companyName}</strong>. You can log in to view your tickets, documents, quotes, and more.</p>
 
-            <div style="background:#f8f9fc;border-radius:12px;padding:20px 24px;margin-bottom:24px;border:1px solid #e5e7eb">
+            <div style="background:#f8f9fc;border-radius:12px;padding:20px 24px;margin-bottom:16px;border:1px solid #e5e7eb">
               <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#9ca3af;margin-bottom:14px">Your Login Details</div>
               <table cellpadding="0" cellspacing="0" width="100%">
                 <tr>
@@ -127,11 +127,23 @@ export async function onRequestPost({ request, env }) {
               </table>
             </div>
 
+            <div style="background:#fffbeb;border-radius:12px;padding:16px 20px;margin-bottom:24px;border:1px solid #fde68a">
+              <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#92400e;margin-bottom:10px">How to log in</div>
+              <ol style="margin:0;padding-left:20px;font-size:13px;color:#78350f;line-height:1.8">
+                <li>Click the <strong>Access Your Portal</strong> button below</li>
+                <li>Enter your email address: <strong>${email}</strong></li>
+                <li>Enter your password shown above</li>
+                <li>Click <strong>Sign In</strong></li>
+              </ol>
+              <p style="margin:10px 0 0;font-size:12px;color:#92400e">We recommend changing your password after your first login. Keep these details safe.</p>
+            </div>
+
             <table cellpadding="0" cellspacing="0" width="100%"><tr><td align="center">
               <a href="${portalUrl}" style="display:inline-block;background:${primaryColor};color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:99px;letter-spacing:.2px">Access Your Portal →</a>
             </td></tr></table>
+            <p style="margin:10px 0 0;font-size:12px;color:#9ca3af;text-align:center">Or paste this link into your browser:<br/><span style="color:#6b7280">${portalUrl}</span></p>
 
-            <p style="margin:24px 0 0;font-size:13px;color:#9ca3af;text-align:center">If you didn't expect this email, you can ignore it.</p>
+            <p style="margin:20px 0 0;font-size:13px;color:#9ca3af;text-align:center">If you didn't expect this email, you can ignore it.</p>
           </td>
         </tr>
         <!-- Footer -->

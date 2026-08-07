@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script>try{var t=localStorage.getItem("flexiTheme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Team — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+<style>
+.team-card{display:flex;align-items:center;gap:14px}
+.team-avatar{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:800;flex-shrink:0}
+.team-body{flex:1;min-width:0}
+.team-body strong{font-size:14px}
+.team-meta{font-size:11.5px;color:var(--fx-text3);text-transform:capitalize;margin-top:2px}
+.team-stat{font-size:11.5px;color:var(--fx-text3);margin-top:6px}
+</style>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Team</h1><div class="fx-topbar-sub">Trainers on your Flexi account and what they can access</div></div>
+      <div class="fx-topbar-spacer"></div>
+      <input class="fx-input" id="searchInput" placeholder="Search team…" style="max-width:200px"/>
+    </header>
+    <main class="fx-content">
+      <p style="color:var(--fx-text2);font-size:13px;margin-bottom:18px">Staff accounts are managed centrally in SmartCore (invite them from <a href="/modules/" style="color:var(--fx-accent)">Modules → Team</a>). Here you control what each trainer can do inside Flexi.</p>
+      <div class="fx-grid fx-grid-3" id="grid"></div>
+    </main>
+  </div>
+</div>
+
+<div class="fx-modal" id="permModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3 id="permName">Permissions</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div id="permList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="savePermBtn">Save</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess, isAdmin } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, openModal, closeModal, toast, emptyState, tileGradient, initials } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "team" });
+renderNav({ activeKey: "team", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+const ALL_PERMS = [
+  ["flexi.view_clients","View clients"],["flexi.manage_clients","Manage clients"],
+  ["flexi.manage_programs","Manage programs"],["flexi.manage_exercises","Manage exercise library"],
+  ["flexi.manage_bookings","Manage bookings"],["flexi.manage_classes","Manage classes"],
+  ["flexi.send_messages","Send messages"],["flexi.manage_nutrition","Manage nutrition"],
+  ["flexi.manage_checkins","Manage check-ins"],["flexi.manage_packages","Manage packages & payments"],
+  ["flexi.manage_waivers","Manage waivers"],["flexi.manage_community","Manage community"],
+  ["flexi.manage_locations","Manage locations"],["flexi.export_reports","Export reports"],
+];
+
+let rows = [];
+async function load() {
+  const { data } = await sb().from("core_employees").select("id, full_name, role, auth_user_id").eq("company_id", profile.company_id).order("full_name");
+  const staff = data || [];
+  rows = await Promise.all(staff.map(async s => {
+    const { count: clientCount } = await sb().from("smartcore_flexi_clients").select("id", { count: "exact", head: true }).eq("trainer_id", s.id);
+    return { ...s, clientCount: clientCount || 0 };
+  }));
+  render();
+}
+function render() {
+  const q = document.getElementById("searchInput").value.trim().toLowerCase();
+  const list = !q ? rows : rows.filter(s => s.full_name.toLowerCase().includes(q));
+  const grid = document.getElementById("grid");
+  grid.innerHTML = !list.length ? emptyState("👤", "No team members found", "") : list.map(s => `
+    <div class="fx-card team-card">
+      <div class="team-avatar" style="background:${tileGradient(s.id)}">${initials(s.full_name)}</div>
+      <div class="team-body">
+        <strong>${escapeHtml(s.full_name)}</strong>${s.id === profile.id ? " (you)" : ""}
+        <div class="team-meta">${escapeHtml(s.role)}</div>
+        <div class="team-stat">${s.clientCount} client${s.clientCount === 1 ? "" : "s"} assigned</div>
+        <div style="margin-top:10px">
+          ${isAdmin(s)
+            ? '<span class="fx-badge fx-badge-accent">Full access (admin)</span>'
+            : `<button class="fx-btn fx-btn-sm" data-edit="${s.id}" data-name="${escapeHtml(s.full_name)}">Edit Access</button>`}
+        </div>
+      </div>
+    </div>
+  `).join("");
+  grid.querySelectorAll("[data-edit]").forEach(btn => btn.addEventListener("click", () => openPermModal(btn.dataset.edit, btn.dataset.name)));
+}
+document.getElementById("searchInput").addEventListener("input", render);
+
+async function openPermModal(employeeId, name) {
+  document.getElementById("permName").textContent = `${name} — Access`;
+  const { data: grants } = await sb().from("smartcore_flexi_permission_grants").select("permission").eq("employee_id", employeeId);
+  const granted = new Set((grants || []).map(g => g.permission));
+
+  document.getElementById("permList").innerHTML = ALL_PERMS.map(([key, label]) => `
+    <label class="fx-checkbox-row"><input type="checkbox" data-perm="${key}" ${granted.has(key) ? "checked" : ""}/> ${label}</label>
+  `).join("");
+  document.getElementById("savePermBtn").dataset.employee = employeeId;
+  openModal("permModal");
+}
+
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("permModal")));
+document.getElementById("savePermBtn").addEventListener("click", async (e) => {
+  const employeeId = e.target.dataset.employee;
+  const checked = [...document.querySelectorAll("#permList input:checked")].map(el => el.dataset.perm);
+  await sb().from("smartcore_flexi_permission_grants").delete().eq("employee_id", employeeId);
+  if (checked.length) {
+    await sb().from("smartcore_flexi_permission_grants").insert(checked.map(permission => ({
+      company_id: profile.company_id, employee_id: employeeId, permission, granted_by: profile.id,
+    })));
+  }
+  closeModal("permModal");
+  toast("Access updated", "success");
+  load();
+});
+
+load();
+</script>
+</body>
+</html>

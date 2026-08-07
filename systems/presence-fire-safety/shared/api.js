@@ -60,6 +60,14 @@ export const employees = {
     if (error) throw error;
     return data || [];
   },
+  /** Full data needed to render an ID card: photo, name, job title, code. */
+  async forIdCard(companyId, employeeId) {
+    const { data, error } = await sb().from("core_employees")
+      .select("id, full_name, job_title, employee_id, profile_picture_url")
+      .eq("company_id", companyId).eq("id", employeeId).maybeSingle();
+    if (error) throw error;
+    return data;
+  },
 };
 
 // ── Badges ───────────────────────────────────────────────────────────────
@@ -419,6 +427,37 @@ export const settings = {
     const { error } = await sb().rpc("presence_fire_safety_verify_kiosk_exit_pin", { p_company_id: companyId, p_pin: pin });
     if (error) throw new Error(error.message || "Incorrect PIN");
     return true;
+  },
+
+  /** Company logo for the ID card template. Public bucket, one object per
+   *  company at a stable path — upsert overwrites on re-upload.
+   *  Reads the file into bytes immediately rather than handing the raw
+   *  File/Blob to the client's upload() call — Safari can invalidate a
+   *  <input type="file">'s selected File once the input's value is reset,
+   *  which produced an empty request body ("No content provided") if the
+   *  caller cleared the input before this async upload finished. */
+  // Goes through a server-side Function (service-role upload) rather than a
+  // direct client -> Supabase Storage call — the direct upload kept failing
+  // RLS in the field for reasons that couldn't be reproduced even with an
+  // identical simulated auth context server-side, so this sidesteps it.
+  // Permission is still checked server-side via the caller's own token.
+  // Sent as the raw file body (not FormData/multipart) — the Function's
+  // request.formData() call was failing with "No initial boundary string"
+  // as its very first operation, so multipart is avoided entirely here.
+  async uploadIdCardLogo(companyId, file) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) throw new Error("Not signed in");
+    const res = await fetch("/api/presence-fire-safety/upload-logo", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": file.type,
+      },
+      body: file,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Upload failed");
+    return data.url;
   },
 };
 

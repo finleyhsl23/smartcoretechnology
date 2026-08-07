@@ -14,6 +14,7 @@ const ADMIN_EMAIL   = 'support@smartcoretechnology.co.uk';
 const FROM          = 'SmartCore <noreply@smartcoretechnology.co.uk>';
 const FROM_BILLING  = 'SmartCore Billing <noreply@smartcoretechnology.co.uk>';
 const SITE          = 'https://smartcoretechnology.co.uk';
+const STRIPE_BASE   = 'https://api.stripe.com/v1';
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -54,7 +55,15 @@ export async function onRequestPost(context) {
     });
 
     const modules = parseModules(o.modules);
-    const oFull   = { ...o, subscription_start_date: today, next_billing_date: nextBilling };
+
+    // Pull accounts_team_email from the company record (set during onboarding)
+    let accountsTeamEmail = o.accounts_email || null;
+    try {
+      const coRows = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(o.email)}&select=accounts_team_email&limit=1`);
+      if (coRows?.[0]?.accounts_team_email) accountsTeamEmail = coRows[0].accounts_team_email;
+    } catch (_) {}
+
+    const oFull = { ...o, subscription_start_date: today, next_billing_date: nextBilling, accounts_email: accountsTeamEmail };
 
     // Provision modules (best-effort)
     try { await provisionModules(env, o); } catch (e) { console.error('provision error:', e); }
@@ -62,8 +71,14 @@ export async function onRequestPost(context) {
     // Provision CRM extras (best-effort)
     try { await provisionCRM(env, o); } catch (e) { console.error('crm provision error:', e); }
 
+    // Provision Flexi (best-effort)
+    try { await provisionFlexi(env, o); } catch (e) { console.error('flexi provision error:', e); }
+
     // Send welcome email with PDF invoice attached (best-effort)
     try { await sendWelcomeWithInvoice(env, oFull, modules, today); } catch (e) { console.error('email error:', e); }
+
+    // Send Stripe invoice to customer (best-effort)
+    try { await sendStripeInvoice(env, o, modules); } catch (e) { console.error('stripe invoice error:', e); }
 
     return json({
       success:  true,
@@ -214,6 +229,84 @@ async function provisionCRM(env, o) {
 }
 
 // ---------------------------------------------------------------------------
+// Flexi Provisioning
+// ---------------------------------------------------------------------------
+const FLEXI_SIZE_TIER_MAP = {
+  'micro':      'starter',
+  'small':      'starter',
+  'medium':     'pro',
+  'large':      'business',
+  'enterprise': 'enterprise',
+};
+
+const FLEXI_ALL_PERMS = [
+  'flexi.view_clients','flexi.manage_clients','flexi.manage_programs',
+  'flexi.manage_exercises','flexi.manage_bookings','flexi.manage_classes',
+  'flexi.send_messages','flexi.manage_nutrition','flexi.manage_checkins',
+  'flexi.manage_packages','flexi.manage_waivers','flexi.manage_community',
+  'flexi.manage_locations','flexi.export_reports',
+];
+
+async function provisionFlexi(env, o) {
+  const modules = parseModules(o.modules);
+  if (!modules.find(m => m.slug === 'flexi')) return;
+
+  // Find company by email
+  const byEmail = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(o.email)}&select=id&limit=1`);
+  const scCompany = byEmail?.[0];
+
+  // Also look up in the `companies` table (used by Flexi auth)
+  const companiesRows = await dbGet(env, `/companies?owner_user_id=eq.${enc(o.auth_user_id || '')}&select=id&limit=1`);
+  const company = companiesRows?.[0] || scCompany;
+  if (!company?.id) return;
+
+  const tier = 'enterprise';
+
+  // Upsert company_modules row
+  await fetch(`${env.SUPABASE_URL}/rest/v1/company_modules`, {
+    method: 'POST',
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify({
+      company_id:   company.id,
+      module_key:   'flexi',
+      enabled:      true,
+      tier,
+      activated_at: new Date().toISOString(),
+    }),
+  });
+
+  // Grant full permissions to the owner's core_employees record
+  if (o.auth_user_id) {
+    const empRows = await dbGet(env, `/core_employees?company_id=eq.${enc(company.id)}&auth_user_id=eq.${enc(o.auth_user_id)}&select=id&limit=1`);
+    const emp = empRows?.[0];
+    if (emp?.id) {
+      for (const perm of FLEXI_ALL_PERMS) {
+        await fetch(`${env.SUPABASE_URL}/rest/v1/smartcore_flexi_permission_grants`, {
+          method: 'POST',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=ignore-duplicates,return=minimal',
+          },
+          body: JSON.stringify({
+            company_id:  company.id,
+            employee_id: emp.id,
+            permission:  perm,
+            granted_by:  emp.id,
+          }),
+        });
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Email: single welcome email with PDF invoice attachment
 // ---------------------------------------------------------------------------
 async function sendWelcomeWithInvoice(env, o, modules, today) {
@@ -254,27 +347,28 @@ async function sendWelcomeWithInvoice(env, o, modules, today) {
   // Save invoice record best-effort — don't let a DB failure block the email
   try { await dbPost(env, '/marketplace_invoices', inv, false); } catch (e) { console.error('invoice insert error:', e); }
 
-  const pdfBase64 = buildInvoicePdf(inv, o, modules);
-  const html      = welcomeHtml(o, modules, inv);
+  const html = welcomeHtml(o, modules, inv);
+
+  const resendKey = env.RESEND_API_KEY || env.RESEND_SMARTCORE_SHOP;
+  if (!resendKey) throw new Error('No Resend API key configured (tried RESEND_API_KEY, RESEND_SMARTCORE_SHOP)');
+
+  // Build PDF attachment — skip if generation fails to avoid blocking the email
+  let attachments = [];
+  try {
+    const pdfBase64 = buildInvoicePdf(inv, o, modules);
+    attachments = [{ filename: `SmartCore-Invoice-${inv.invoice_number}.pdf`, content: pdfBase64, content_type: 'application/pdf' }];
+  } catch (pdfErr) {
+    console.error('PDF generation failed, sending without attachment:', pdfErr);
+  }
 
   const recipients = [...new Set([o.email, o.accounts_email].filter(Boolean))];
+  const body = { from: FROM, to: recipients, subject: `Welcome to SmartCore — ${o.order_reference}`, html };
+  if (attachments.length) body.attachments = attachments;
+
   const emailRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: {
-      Authorization:  `Bearer ${env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from:    FROM,
-      to:      recipients,
-      subject: `Welcome to SmartCore — ${o.order_reference}`,
-      html,
-      attachments: [{
-        filename:     `SmartCore-Invoice-${inv.invoice_number}.pdf`,
-        content:      pdfBase64,
-        content_type: 'application/pdf',
-      }],
-    }),
+    headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
   if (!emailRes.ok) {
     const errText = await emailRes.text();
@@ -391,7 +485,122 @@ function buildInvoicePdf(inv, o, modules) {
   pdf += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root 1 0 R >>\n';
   pdf += 'startxref\n' + xrefOffset + '\n%%EOF';
 
-  return btoa(pdf);
+  // btoa only handles Latin-1; use TextEncoder + base64 for safety
+  const bytes = new TextEncoder().encode(pdf);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+// ---------------------------------------------------------------------------
+// Stripe invoice
+// ---------------------------------------------------------------------------
+async function sendStripeInvoice(env, o, modules) {
+  const stripeKey = env.STRIPE_SECRET_KEY;
+  if (!stripeKey) return; // Stripe not configured
+
+  const stripe = (method, path, body = null) => {
+    const opts = {
+      method,
+      headers: { Authorization: `Bearer ${stripeKey}`, 'Stripe-Version': '2023-10-16' },
+    };
+    if (body) {
+      opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+      opts.body = stripeEncode(body);
+    }
+    return fetch(`${STRIPE_BASE}${path}`, opts).then(async r => {
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message || `Stripe ${method} ${path} → ${r.status}`);
+      return d;
+    });
+  };
+
+  const multiplier = o.size_multiplier || 1;
+  const interval   = o.billing_type === 'yearly' ? 'year' : 'month';
+  const regular    = modules.filter(m => m.slug !== 'smartcore-core');
+
+  // Get or create Stripe customer
+  let customerId = o.stripe_customer_id;
+  const extraEmails = o.accounts_email && o.accounts_email.toLowerCase() !== o.email?.toLowerCase()
+    ? [o.accounts_email]
+    : [];
+  if (!customerId) {
+    const customerBody = {
+      email: o.email,
+      name:  o.company_name,
+      metadata: { order_reference: o.order_reference, smartcore_order_id: o.id },
+    };
+    extraEmails.forEach((e, i) => { customerBody[`invoice_settings[custom_fields][${i}][name]`] = 'Accounts'; });
+    if (extraEmails.length) customerBody['invoice_settings[footer]'] = `CC: ${extraEmails.join(', ')}`;
+    const customer = await stripe('POST', '/customers', customerBody);
+    customerId = customer.id;
+  }
+  // Add accounts email as extra recipient if present
+  if (extraEmails.length) {
+    await stripe('POST', `/customers/${customerId}`, {
+      'invoice_settings[extra_invoice_emails][0]': extraEmails[0],
+    });
+  }
+
+  // Create a one-off invoice (not subscription-linked) marked as already paid
+  const inv = await stripe('POST', '/invoices', {
+    customer:           customerId,
+    collection_method:  'send_invoice',
+    days_until_due:     0,
+    currency:           'gbp',
+    description:        `SmartCore subscription — ${o.order_reference}`,
+    'metadata[order_reference]': o.order_reference,
+    'metadata[billing_type]':    o.billing_type,
+  });
+
+  // Add a line item per module
+  const coreItem = await stripe('POST', '/invoiceitems', {
+    customer:   customerId,
+    invoice:    inv.id,
+    currency:   'gbp',
+    unit_amount: 0,
+    quantity:   1,
+    description: 'SmartCore Core (included free)',
+  });
+
+  for (const m of regular) {
+    const isFlat = !!m.is_flat_rate;
+    const base   = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+    const price  = Math.round((base || 0) * (isFlat ? 1 : multiplier) * 100); // pence
+    await stripe('POST', '/invoiceitems', {
+      customer:    customerId,
+      invoice:     inv.id,
+      currency:    'gbp',
+      unit_amount: price,
+      quantity:    1,
+      description: `${m.name} (${o.billing_type === 'yearly' ? 'annual' : 'monthly'})`,
+    });
+  }
+
+  if (o.discount_amount > 0) {
+    await stripe('POST', '/invoiceitems', {
+      customer:    customerId,
+      invoice:     inv.id,
+      currency:    'gbp',
+      unit_amount: -Math.round(o.discount_amount * 100),
+      quantity:    1,
+      description: 'Package discount',
+    });
+  }
+
+  // Finalize and send — mark as paid since payment was collected via Stripe checkout
+  await stripe('POST', `/invoices/${inv.id}/finalize`, {});
+  await stripe('POST', `/invoices/${inv.id}/pay`, { paid_out_of_band: 'true' });
+  await stripe('POST', `/invoices/${inv.id}/send`, {});
+}
+
+function stripeEncode(obj, prefix = '') {
+  const parts = [];
+  for (const [k, v] of Object.entries(obj)) {
+    const key = prefix ? `${prefix}[${k}]` : k;
+    if (v !== null && v !== undefined) parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(v))}`);
+  }
+  return parts.join('&');
 }
 
 function encodeUtf8(str) {

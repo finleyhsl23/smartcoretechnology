@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script>try{var t=localStorage.getItem("flexiTheme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Settings — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Settings</h1><div class="fx-topbar-sub">Business profile &amp; billing preferences</div></div>
+    </header>
+    <main class="fx-content" style="max-width:620px">
+      <div class="fx-card" style="margin-bottom:20px">
+        <h3 style="margin-bottom:4px;font-size:14.5px">Trainer Code</h3>
+        <p style="color:var(--fx-text3);font-size:12.5px;margin-bottom:14px">Clients enter this once, before their email and passcode, so the app knows it's you. It's not a secret — share it freely (it's already in every welcome email).</p>
+        <div style="display:flex;gap:10px;align-items:center">
+          <div id="trainerCodeDisplay" style="flex:1;font-size:22px;font-weight:800;letter-spacing:4px;text-align:center;padding:14px;border-radius:12px;background:var(--fx-grad);color:#fff;box-shadow:var(--fx-glow)">—</div>
+          <button class="fx-btn fx-btn-sm" id="copyCodeBtn">Copy</button>
+        </div>
+        <div class="fx-form-msg" id="codeMsg"></div>
+      </div>
+
+      <div class="fx-card" style="margin-bottom:20px">
+        <h3 style="margin-bottom:14px;font-size:14.5px">Business Profile</h3>
+        <div class="fx-field"><label>Business name</label><input class="fx-input" id="bizName"/></div>
+        <div class="fx-form-row">
+          <div class="fx-field"><label>Currency</label>
+            <select class="fx-select" id="bizCurrency"><option value="GBP">£ GBP</option><option value="USD">$ USD</option><option value="EUR">€ EUR</option></select>
+          </div>
+          <div class="fx-field"><label>Timezone</label><input class="fx-input" id="bizTimezone" value="Europe/London"/></div>
+        </div>
+        <div class="fx-form-msg" id="bizMsg"></div>
+        <button class="fx-btn fx-btn-primary" id="saveBizBtn">Save Profile</button>
+      </div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, setLoading, showMessage, toast, enhanceSelect } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "settings" });
+renderNav({ activeKey: "settings", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+async function loadTrainerCode(force = false) {
+  const { data, error } = await sb().rpc("flexi_ensure_trainer_code", { p_company_id: profile.company_id, p_force: force });
+  if (error) { showMessage("codeMsg", error.message, "error"); return; }
+  document.getElementById("trainerCodeDisplay").textContent = data;
+}
+loadTrainerCode();
+document.getElementById("copyCodeBtn").addEventListener("click", () => {
+  navigator.clipboard.writeText(document.getElementById("trainerCodeDisplay").textContent);
+  toast("Copied", "success");
+});
+const { data: settings } = await sb().from("smartcore_flexi_settings").select("*").eq("company_id", profile.company_id).maybeSingle();
+document.getElementById("bizName").value = settings?.business_name || "";
+document.getElementById("bizCurrency").value = settings?.billing_currency || "GBP";
+enhanceSelect(document.getElementById("bizCurrency"));
+document.getElementById("bizTimezone").value = settings?.timezone || "Europe/London";
+
+document.getElementById("saveBizBtn").addEventListener("click", async (e) => {
+  setLoading(e.target, true, "Saving…");
+  const { error } = await sb().from("smartcore_flexi_settings").upsert({
+    company_id: profile.company_id,
+    business_name: document.getElementById("bizName").value.trim() || null,
+    billing_currency: document.getElementById("bizCurrency").value,
+    timezone: document.getElementById("bizTimezone").value.trim() || "Europe/London",
+    updated_at: new Date().toISOString(),
+  });
+  setLoading(e.target, false);
+  showMessage("bizMsg", error ? error.message : "Saved.", error ? "error" : "success");
+});
+</script>
+</body>
+</html>

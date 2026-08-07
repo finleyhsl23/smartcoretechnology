@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script>try{var t=localStorage.getItem("flexiTheme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Calendar — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+<style>
+.cal-wrap{max-width:1180px;margin:0 auto}
+.cal-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+.cal-month-label{font-size:19px;font-weight:800;letter-spacing:-.01em;min-width:190px}
+.cal-nav-group{display:flex;gap:6px}
+.cal-nav-btn{width:34px;height:34px;border-radius:9px;border:1px solid var(--fx-line);background:var(--fx-card2);color:var(--fx-text2);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:.15s}
+.cal-nav-btn:hover{background:var(--fx-bg2);color:var(--fx-text)}
+.cal-toolbar-spacer{flex:1}
+
+/* A 7-column grid has no natural way to shrink below its content's
+   minimum size (day number + event pills), so on a phone it was
+   silently overflowing off the right edge of the screen with nothing
+   to scroll it into view — .cal-grid-scroll below is what makes that
+   overflow reachable instead of just cut off. */
+.cal-grid-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.cal-grid{border:1px solid var(--fx-line);border-radius:16px;overflow:hidden;background:var(--fx-card)}
+.cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--fx-line);background:var(--fx-card2)}
+.cal-weekdays div{padding:10px 4px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--fx-text3);min-width:0}
+.cal-body{display:grid;grid-template-columns:repeat(7,1fr)}
+.cal-cell{
+  min-height:104px;min-width:0;border-right:1px solid var(--fx-line);border-bottom:1px solid var(--fx-line);
+  padding:7px;cursor:pointer;transition:background .15s;display:flex;flex-direction:column;gap:4px;position:relative
+}
+@media(max-width:700px){
+  /* .cal-grid clips its own content via overflow:hidden (for the rounded
+     corners) and, being a plain block, won't grow to fit an overflowing
+     child on its own — without this it silently clips the 600px-wide
+     grid down to the viewport before .cal-grid-scroll ever sees an
+     overflow to make scrollable. */
+  .cal-grid,.cal-weekdays,.cal-body{min-width:600px}
+}
+.cal-cell:nth-child(7n){border-right:none}
+.cal-cell:hover{background:var(--fx-card2)}
+.cal-cell.other-month{background:color-mix(in srgb, var(--fx-bg) 55%, transparent);opacity:.45}
+.cal-cell.other-month:hover{opacity:.7}
+.cal-daynum{font-size:12.5px;font-weight:700;color:var(--fx-text2);width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:50%}
+.cal-cell.today .cal-daynum{background:var(--fx-grad);color:#fff;box-shadow:var(--fx-glow)}
+.cal-events{display:flex;flex-direction:column;gap:3px;overflow:hidden}
+.cal-event-pill{
+  font-size:10.5px;font-weight:700;padding:2.5px 6px;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  background:var(--fx-accent-dim);color:var(--fx-accent-d);border-left:2.5px solid var(--fx-accent)
+}
+.cal-event-pill.class{background:rgba(99,102,241,.13);color:#6366f1;border-left-color:#6366f1}
+.cal-event-pill.cancelled{opacity:.5;text-decoration:line-through}
+.cal-more{font-size:10px;color:var(--fx-text3);font-weight:700;padding-left:6px}
+
+.day-event-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--fx-line);border-radius:12px;margin-bottom:8px;background:var(--fx-card2)}
+.day-event-time{font-weight:800;font-size:13px;width:58px;flex-shrink:0}
+.day-event-body{flex:1;min-width:0}
+.day-event-body strong{font-size:13.5px}
+.day-event-actions{display:flex;gap:6px;flex-shrink:0}
+.day-edit-form{display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--fx-line);gap:8px;flex-wrap:wrap}
+.day-edit-form.open{display:flex}
+</style>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Calendar</h1><div class="fx-topbar-sub">1:1 sessions &amp; classes, at a glance</div></div>
+      <div class="fx-topbar-spacer"></div>
+      <button class="fx-btn fx-btn-primary" id="bookBtn">+ Book Session</button>
+    </header>
+    <main class="fx-content">
+      <div class="cal-wrap">
+        <div class="cal-toolbar">
+          <div class="cal-nav-group">
+            <button class="cal-nav-btn" id="prevBtn">‹</button>
+            <button class="cal-nav-btn" id="nextBtn">›</button>
+          </div>
+          <div class="cal-month-label" id="monthLabel"></div>
+          <div class="cal-toolbar-spacer"></div>
+          <button class="fx-btn fx-btn-sm" id="todayBtn">Today</button>
+        </div>
+        <div class="cal-grid-scroll">
+          <div class="cal-grid">
+            <div class="cal-weekdays"><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div></div>
+            <div class="cal-body" id="calBody"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="fx-modal" id="dayModal">
+  <div class="fx-modal-box" style="max-width:480px">
+    <div class="fx-modal-head"><h3 id="dayModalTitle">Day</h3><button class="fx-modal-close" data-close-day>✕</button></div>
+    <div id="dayEventsList"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="addOnDayBtn" style="margin-top:6px">+ Book Session This Day</button>
+  </div>
+</div>
+
+<div class="fx-modal" id="bookModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>Book 1:1 Session</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div class="fx-field"><label>Client</label><select class="fx-select" id="bookClient"></select></div>
+    <div class="fx-form-row">
+      <div class="fx-field"><label>Date &amp; time</label><input class="fx-input" id="bookStart" type="datetime-local"/></div>
+      <div class="fx-field"><label>Duration (min)</label><input class="fx-input" id="bookDuration" type="number" value="60"/></div>
+    </div>
+    <div class="fx-form-msg" id="bookMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="confirmBookBtn">Confirm Booking</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtTime, fmtDate, setLoading, showMessage, openModal, closeModal, toast, enhanceSelect } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "bookings" });
+renderNav({ activeKey: "calendar", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+let cursor = new Date(); cursor.setDate(1); cursor.setHours(0,0,0,0);
+let monthBookings = [];
+let openDayKey = null;
+
+// toISOString() converts to UTC first, so a grid cell built at local
+// midnight (e.g. 00:00 BST) rolls back to the previous day once
+// converted (23:00 UTC the day before) - today's cell key would never
+// match dayKey(new Date()) in any positive-UTC-offset timezone, and
+// "today" would never highlight. Use local date components instead.
+function dayKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+function mondayStartOffset(jsDay) { return (jsDay + 6) % 7; } // 0=Mon..6=Sun
+
+function gridBounds() {
+  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const gridStart = new Date(first); gridStart.setDate(first.getDate() - mondayStartOffset(first.getDay()));
+  const last = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
+  const gridEnd = new Date(last); gridEnd.setDate(last.getDate() + (6 - mondayStartOffset(last.getDay())));
+  gridEnd.setHours(23,59,59,999);
+  return { gridStart, gridEnd };
+}
+
+async function load() {
+  document.getElementById("monthLabel").textContent = `${MONTH_NAMES[cursor.getMonth()]} ${cursor.getFullYear()}`;
+  const { gridStart, gridEnd } = gridBounds();
+  const { data } = await sb().from("smartcore_flexi_bookings")
+    .select("*, smartcore_flexi_clients(full_name)")
+    .gte("starts_at", gridStart.toISOString()).lte("starts_at", gridEnd.toISOString())
+    .order("starts_at");
+  monthBookings = data || [];
+  renderGrid();
+}
+
+function renderGrid() {
+  const { gridStart, gridEnd } = gridBounds();
+  const today = dayKey(new Date());
+  const byDay = {};
+  for (const b of monthBookings) {
+    const k = dayKey(new Date(b.starts_at));
+    (byDay[k] = byDay[k] || []).push(b);
+  }
+
+  const cells = [];
+  for (let d = new Date(gridStart); d <= gridEnd; d.setDate(d.getDate() + 1)) {
+    const k = dayKey(d);
+    const isOtherMonth = d.getMonth() !== cursor.getMonth();
+    const events = (byDay[k] || []);
+    const visible = events.slice(0, 3);
+    const extra = events.length - visible.length;
+    cells.push(`
+      <div class="cal-cell ${isOtherMonth ? "other-month" : ""} ${k === today ? "today" : ""}" data-day="${k}">
+        <div class="cal-daynum">${d.getDate()}</div>
+        <div class="cal-events">
+          ${visible.map(b => `<div class="cal-event-pill ${b.session_type === "class" ? "class" : ""} ${b.status === "cancelled" ? "cancelled" : ""}">${fmtTime(b.starts_at)} ${escapeHtml(b.smartcore_flexi_clients?.full_name || (b.session_type === "class" ? "Class" : "Session"))}</div>`).join("")}
+          ${extra > 0 ? `<div class="cal-more">+${extra} more</div>` : ""}
+        </div>
+      </div>
+    `);
+  }
+  document.getElementById("calBody").innerHTML = cells.join("");
+  document.querySelectorAll("[data-day]").forEach(cell => cell.addEventListener("click", () => openDay(cell.dataset.day, byDay[cell.dataset.day] || [])));
+}
+
+function openDay(key, events) {
+  openDayKey = key;
+  const d = new Date(key + "T00:00:00");
+  document.getElementById("dayModalTitle").textContent = d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+  const list = document.getElementById("dayEventsList");
+  events = events.slice().sort((a,b) => new Date(a.starts_at) - new Date(b.starts_at));
+  list.innerHTML = !events.length
+    ? `<p style="color:var(--fx-text3);font-size:13px;padding:8px 0 16px">Nothing scheduled this day.</p>`
+    : events.map(b => `
+      <div class="day-event-row" data-row="${b.id}" style="flex-direction:column;align-items:stretch">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="day-event-time fx-tabular">${fmtTime(b.starts_at)}</div>
+          <div class="day-event-body">
+            <strong>${escapeHtml(b.smartcore_flexi_clients?.full_name || "Class")}</strong>
+            ${b.session_type === "class" ? '<span class="fx-badge fx-badge-blue" style="margin-left:6px">class</span>' : ""}
+            <span class="fx-badge ${b.status === "cancelled" ? "fx-badge-red" : b.status === "completed" ? "fx-badge-green" : "fx-badge-accent"}" style="margin-left:6px">${b.status}</span>
+          </div>
+          <div class="day-event-actions">
+            ${b.status !== "cancelled" ? `<button class="fx-btn fx-btn-sm" data-toggle-edit="${b.id}">Edit</button>` : ""}
+            <button class="fx-btn fx-btn-sm fx-btn-danger" data-delete="${b.id}">Delete</button>
+          </div>
+        </div>
+        <div class="day-edit-form" id="edit-${b.id}">
+          <input class="fx-input" type="datetime-local" data-edit-start="${b.id}" style="max-width:210px" value="${toLocalInputValue(b.starts_at)}"/>
+          <button class="fx-btn fx-btn-sm fx-btn-primary" data-save-edit="${b.id}">Save</button>
+        </div>
+      </div>
+    `).join("");
+
+  list.querySelectorAll("[data-toggle-edit]").forEach(btn => btn.addEventListener("click", () => {
+    document.getElementById(`edit-${btn.dataset.toggleEdit}`).classList.toggle("open");
+  }));
+  list.querySelectorAll("[data-save-edit]").forEach(btn => btn.addEventListener("click", async () => {
+    const id = btn.dataset.saveEdit;
+    const input = list.querySelector(`[data-edit-start="${id}"]`);
+    const booking = events.find(b => b.id === id);
+    const newStart = new Date(input.value);
+    if (isNaN(newStart)) { toast("Pick a valid date & time", "error"); return; }
+    const durationMs = new Date(booking.ends_at) - new Date(booking.starts_at);
+    const newEnd = new Date(newStart.getTime() + (durationMs > 0 ? durationMs : 3600000));
+    const { error } = await sb().from("smartcore_flexi_bookings").update({ starts_at: newStart.toISOString(), ends_at: newEnd.toISOString() }).eq("id", id);
+    if (error) { toast(error.message, "error"); return; }
+    toast("Session rescheduled", "success");
+    closeModal("dayModal");
+    load();
+  }));
+  list.querySelectorAll("[data-delete]").forEach(btn => btn.addEventListener("click", async () => {
+    if (!confirm("Delete this session? This can't be undone.")) return;
+    const { error } = await sb().from("smartcore_flexi_bookings").delete().eq("id", btn.dataset.delete);
+    if (error) { toast(error.message, "error"); return; }
+    toast("Session deleted", "success");
+    closeModal("dayModal");
+    load();
+  }));
+
+  openModal("dayModal");
+}
+function toLocalInputValue(iso) {
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+document.querySelectorAll("[data-close-day]").forEach(b => b.addEventListener("click", () => closeModal("dayModal")));
+document.getElementById("addOnDayBtn").addEventListener("click", async () => {
+  closeModal("dayModal");
+  await openBookModal(openDayKey);
+});
+
+document.getElementById("prevBtn").addEventListener("click", () => { cursor.setMonth(cursor.getMonth() - 1); load(); });
+document.getElementById("nextBtn").addEventListener("click", () => { cursor.setMonth(cursor.getMonth() + 1); load(); });
+document.getElementById("todayBtn").addEventListener("click", () => { cursor = new Date(); cursor.setDate(1); cursor.setHours(0,0,0,0); load(); });
+
+async function openBookModal(prefillDayKey) {
+  const { data: clients } = await sb().from("smartcore_flexi_clients").select("id, full_name").eq("status", "active").order("full_name");
+  const sel = document.getElementById("bookClient");
+  sel.innerHTML = (clients || []).map(c => `<option value="${c.id}">${escapeHtml(c.full_name)}</option>`).join("") || `<option value="">No active clients</option>`;
+  enhanceSelect(sel, { placeholder: "Search clients…" });
+  document.getElementById("bookStart").value = prefillDayKey ? `${prefillDayKey}T09:00` : "";
+  document.getElementById("bookMsg").textContent = "";
+  openModal("bookModal");
+}
+document.getElementById("bookBtn").addEventListener("click", () => openBookModal(null));
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("bookModal")));
+document.getElementById("confirmBookBtn").addEventListener("click", async (e) => {
+  const client_id = document.getElementById("bookClient").value;
+  const start = document.getElementById("bookStart").value;
+  const duration = parseInt(document.getElementById("bookDuration").value) || 60;
+  if (!client_id || !start) { showMessage("bookMsg", "Choose a client and time.", "error"); return; }
+  const starts_at = new Date(start);
+  const ends_at = new Date(starts_at.getTime() + duration * 60000);
+  setLoading(e.target, true, "Booking…");
+  const { error } = await sb().from("smartcore_flexi_bookings").insert({
+    company_id: profile.company_id, client_id, trainer_id: profile.id,
+    starts_at: starts_at.toISOString(), ends_at: ends_at.toISOString(), session_type: "1:1", created_by: profile.id,
+  });
+  setLoading(e.target, false);
+  if (error) { showMessage("bookMsg", error.message, "error"); return; }
+  closeModal("bookModal");
+  toast("Session booked", "success");
+  load();
+});
+
+load();
+</script>
+</body>
+</html>

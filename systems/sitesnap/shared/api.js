@@ -1,0 +1,526 @@
+import { sb } from "./supabase.js";
+
+const BUCKET = "sitesnap-media";
+
+function throwIfError(error) { if (error) throw error; }
+
+// ── Projects ────────────────────────────────────────────────────────────
+export const projects = {
+  async list(companyId, { status = null } = {}) {
+    let q = sb().from("sitesnap_projects").select("*")
+      .eq("company_id", companyId).order("created_at", { ascending: false });
+    if (status) q = q.eq("status", status);
+    const { data, error } = await q;
+    throwIfError(error);
+    return data || [];
+  },
+
+  async get(id) {
+    const { data, error } = await sb().from("sitesnap_projects").select("*").eq("id", id).maybeSingle();
+    throwIfError(error);
+    return data;
+  },
+
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_projects").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+
+  async update(id, patch) {
+    const { data, error } = await sb().from("sitesnap_projects").update(patch).eq("id", id).select().single();
+    throwIfError(error);
+    return data;
+  },
+
+  async setStatus(id, status) {
+    const patch = { status };
+    if (status === "archived") patch.archived_at = new Date().toISOString();
+    return this.update(id, patch);
+  },
+
+  /** Counts of media / open tasks / checklist progress for a project. */
+  async stats(projectId) {
+    const [mediaRes, tasksRes, checklistsRes] = await Promise.all([
+      sb().from("sitesnap_media").select("id", { count: "exact", head: true }).eq("project_id", projectId),
+      sb().from("sitesnap_tasks").select("id", { count: "exact", head: true }).eq("project_id", projectId).neq("status", "done"),
+      sb().from("sitesnap_project_checklist_items")
+        .select("is_complete, sitesnap_project_checklists!inner(project_id)")
+        .eq("sitesnap_project_checklists.project_id", projectId),
+    ]);
+    const items = checklistsRes.data || [];
+    return {
+      mediaCount: mediaRes.count || 0,
+      openTasks: tasksRes.count || 0,
+      checklistTotal: items.length,
+      checklistDone: items.filter(i => i.is_complete).length,
+    };
+  },
+};
+
+// ── Project members ─────────────────────────────────────────────────────
+export const members = {
+  async listForProject(projectId) {
+    const { data, error } = await sb().from("sitesnap_project_members")
+      .select("*, core_employees!employee_id(id, full_name, work_email, role)")
+      .eq("project_id", projectId).order("added_at");
+    throwIfError(error);
+    return data || [];
+  },
+
+  async add(row) {
+    const { data, error } = await sb().from("sitesnap_project_members").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_project_members").delete().eq("id", id);
+    throwIfError(error);
+  },
+};
+
+// ── Media ────────────────────────────────────────────────────────────────
+export const media = {
+  async listForProject(projectId, { mediaType = null, limit = 200 } = {}) {
+    let q = sb().from("sitesnap_media")
+      .select("*, core_employees(full_name), sitesnap_media_tags(sitesnap_tags(id,name,color))")
+      .eq("project_id", projectId).order("taken_at", { ascending: false }).limit(limit);
+    if (mediaType) q = q.eq("media_type", mediaType);
+    const { data, error } = await q;
+    throwIfError(error);
+    return data || [];
+  },
+
+  async listRecentForCompany(companyId, limit = 12) {
+    const { data, error } = await sb().from("sitesnap_media")
+      .select("*, sitesnap_projects(name)")
+      .eq("company_id", companyId).order("created_at", { ascending: false }).limit(limit);
+    throwIfError(error);
+    return data || [];
+  },
+
+  async get(id) {
+    const { data, error } = await sb().from("sitesnap_media")
+      .select("*, core_employees(full_name), sitesnap_projects(name), sitesnap_media_tags(sitesnap_tags(id,name,color))")
+      .eq("id", id).maybeSingle();
+    throwIfError(error);
+    return data;
+  },
+
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_media").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+
+  async update(id, patch) {
+    const { data, error } = await sb().from("sitesnap_media").update(patch).eq("id", id).select().single();
+    throwIfError(error);
+    return data;
+  },
+
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_media").delete().eq("id", id);
+    throwIfError(error);
+  },
+
+  async uploadFile(path, file) {
+    const { error } = await sb().storage.from(BUCKET).upload(path, file, {
+      upsert: false, contentType: file.type || "application/octet-stream",
+    });
+    throwIfError(error);
+    return path;
+  },
+
+  async signedUrl(path, expiresIn = 3600) {
+    const { data, error } = await sb().storage.from(BUCKET).createSignedUrl(path, expiresIn);
+    throwIfError(error);
+    return data?.signedUrl || null;
+  },
+
+  async removeFile(path) {
+    const { error } = await sb().storage.from(BUCKET).remove([path]);
+    throwIfError(error);
+  },
+
+  async setTags(mediaId, tagIds) {
+    await sb().from("sitesnap_media_tags").delete().eq("media_id", mediaId);
+    if (tagIds.length) {
+      const { error } = await sb().from("sitesnap_media_tags").insert(tagIds.map(tag_id => ({ media_id: mediaId, tag_id })));
+      throwIfError(error);
+    }
+  },
+};
+
+export const comments = {
+  async list(mediaId) {
+    const { data, error } = await sb().from("sitesnap_media_comments")
+      .select("*, core_employees(full_name)").eq("media_id", mediaId).order("created_at");
+    throwIfError(error);
+    return data || [];
+  },
+  async add(row) {
+    const { data, error } = await sb().from("sitesnap_media_comments").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_media_comments").delete().eq("id", id);
+    throwIfError(error);
+  },
+};
+
+// ── Tags ─────────────────────────────────────────────────────────────────
+export const tags = {
+  async list(companyId) {
+    const { data, error } = await sb().from("sitesnap_tags").select("*").eq("company_id", companyId).order("name");
+    throwIfError(error);
+    return data || [];
+  },
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_tags").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_tags").delete().eq("id", id);
+    throwIfError(error);
+  },
+};
+
+// ── Checklist templates ─────────────────────────────────────────────────
+export const checklistTemplates = {
+  async list(companyId) {
+    const { data, error } = await sb().from("sitesnap_checklist_templates")
+      .select("*, sitesnap_checklist_template_items(*)").eq("company_id", companyId).order("created_at", { ascending: false });
+    throwIfError(error);
+    return (data || []).map(t => ({ ...t, sitesnap_checklist_template_items: (t.sitesnap_checklist_template_items || []).sort((a, b) => a.sort_order - b.sort_order) }));
+  },
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_checklist_templates").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async update(id, patch) {
+    const { error } = await sb().from("sitesnap_checklist_templates").update(patch).eq("id", id);
+    throwIfError(error);
+  },
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_checklist_templates").delete().eq("id", id);
+    throwIfError(error);
+  },
+  async addItem(row) {
+    const { data, error } = await sb().from("sitesnap_checklist_template_items").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async removeItem(id) {
+    const { error } = await sb().from("sitesnap_checklist_template_items").delete().eq("id", id);
+    throwIfError(error);
+  },
+};
+
+// ── Project checklists ───────────────────────────────────────────────────
+export const projectChecklists = {
+  async listForProject(projectId) {
+    const { data, error } = await sb().from("sitesnap_project_checklists")
+      .select("*, sitesnap_project_checklist_items(*)").eq("project_id", projectId).order("created_at");
+    throwIfError(error);
+    return (data || []).map(c => ({ ...c, sitesnap_project_checklist_items: (c.sitesnap_project_checklist_items || []).sort((a, b) => a.sort_order - b.sort_order) }));
+  },
+
+  async createFromTemplate({ projectId, companyId, template, createdBy }) {
+    const { data: checklist, error } = await sb().from("sitesnap_project_checklists").insert({
+      project_id: projectId, company_id: companyId, template_id: template?.id || null,
+      name: template?.name || "New checklist", created_by: createdBy,
+    }).select().single();
+    throwIfError(error);
+
+    const items = template?.sitesnap_checklist_template_items || [];
+    if (items.length) {
+      const { error: itemsErr } = await sb().from("sitesnap_project_checklist_items").insert(
+        items.map(i => ({ project_checklist_id: checklist.id, label: i.label, sort_order: i.sort_order, requires_photo: i.requires_photo }))
+      );
+      throwIfError(itemsErr);
+    }
+    return checklist;
+  },
+
+  async addItem(row) {
+    const { data, error } = await sb().from("sitesnap_project_checklist_items").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+
+  async toggleItem(id, isComplete, completedBy, mediaId = null) {
+    const patch = isComplete
+      ? { is_complete: true, completed_by: completedBy, completed_at: new Date().toISOString(), media_id: mediaId }
+      : { is_complete: false, completed_by: null, completed_at: null, media_id: null };
+    const { data, error } = await sb().from("sitesnap_project_checklist_items").update(patch).eq("id", id).select().single();
+    throwIfError(error);
+    return data;
+  },
+
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_project_checklists").delete().eq("id", id);
+    throwIfError(error);
+  },
+};
+
+// ── Daily logs ───────────────────────────────────────────────────────────
+export const dailyLogs = {
+  async listForProject(projectId) {
+    const { data, error } = await sb().from("sitesnap_daily_logs")
+      .select("*, core_employees(full_name)").eq("project_id", projectId).order("log_date", { ascending: false });
+    throwIfError(error);
+    return data || [];
+  },
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_daily_logs").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_daily_logs").delete().eq("id", id);
+    throwIfError(error);
+  },
+};
+
+// ── Tasks ────────────────────────────────────────────────────────────────
+export const tasks = {
+  async listForProject(projectId) {
+    const { data, error } = await sb().from("sitesnap_tasks")
+      .select("*, core_employees!sitesnap_tasks_assignee_employee_id_fkey(full_name), creator:core_employees!sitesnap_tasks_created_by_fkey(full_name), completer:core_employees!sitesnap_tasks_completed_by_fkey(full_name), sitesnap_media!task_id(id, storage_path, taken_at)")
+      .eq("project_id", projectId).order("created_at", { ascending: false });
+    throwIfError(error);
+    return data || [];
+  },
+  async listForCompany(companyId, { assigneeId = null, status = null } = {}) {
+    let q = sb().from("sitesnap_tasks")
+      .select("*, sitesnap_projects(name), core_employees!sitesnap_tasks_assignee_employee_id_fkey(full_name), creator:core_employees!sitesnap_tasks_created_by_fkey(full_name), completer:core_employees!sitesnap_tasks_completed_by_fkey(full_name), sitesnap_media!task_id(id, storage_path, taken_at)")
+      .eq("company_id", companyId).order("due_date", { ascending: true, nullsFirst: false });
+    if (assigneeId) q = q.eq("assignee_employee_id", assigneeId);
+    if (status) q = q.eq("status", status);
+    const { data, error } = await q;
+    throwIfError(error);
+    return data || [];
+  },
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_tasks").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async update(id, patch) {
+    const { data, error } = await sb().from("sitesnap_tasks").update(patch).eq("id", id).select().single();
+    throwIfError(error);
+    return data;
+  },
+  // Dedicated RPCs (rather than a raw RLS-filtered update) so an
+  // unauthorized attempt raises a clear message instead of PostgREST's
+  // opaque "Cannot coerce the result to a single JSON object" when the
+  // update quietly matches zero rows.
+  async complete(id) {
+    const { data, error } = await sb().rpc("sitesnap_complete_task", { p_task_id: id });
+    throwIfError(error);
+    return data;
+  },
+  async reopen(id) {
+    const { data, error } = await sb().rpc("sitesnap_reopen_task", { p_task_id: id });
+    throwIfError(error);
+    return { task: data.task, deletedPaths: data.deleted_paths || [] };
+  },
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_tasks").delete().eq("id", id);
+    throwIfError(error);
+  },
+};
+
+// ── Company employees (for pickers) ─────────────────────────────────────
+export const employees = {
+  async listForCompany(companyId) {
+    const { data, error } = await sb().from("core_employees")
+      .select("id, full_name, work_email, role").eq("company_id", companyId).order("full_name");
+    throwIfError(error);
+    return data || [];
+  },
+};
+
+// ── Settings ─────────────────────────────────────────────────────────────
+export const settings = {
+  async get(companyId) {
+    const { data, error } = await sb().from("sitesnap_settings").select("*").eq("company_id", companyId).maybeSingle();
+    throwIfError(error);
+    return data;
+  },
+  async upsert(row) {
+    const { data, error } = await sb().from("sitesnap_settings").upsert(row, { onConflict: "company_id" }).select().single();
+    throwIfError(error);
+    return data;
+  },
+};
+
+// ── Webhooks & API keys (integrations) ──────────────────────────────────
+export const webhooks = {
+  async list(companyId) {
+    const { data, error } = await sb().from("sitesnap_webhooks").select("*").eq("company_id", companyId).order("created_at", { ascending: false });
+    throwIfError(error);
+    return data || [];
+  },
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_webhooks").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async update(id, patch) {
+    const { error } = await sb().from("sitesnap_webhooks").update(patch).eq("id", id);
+    throwIfError(error);
+  },
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_webhooks").delete().eq("id", id);
+    throwIfError(error);
+  },
+};
+
+export const apiKeys = {
+  async list(companyId) {
+    const { data, error } = await sb().from("sitesnap_api_keys")
+      .select("id, label, key_prefix, created_at, last_used_at, revoked_at").eq("company_id", companyId).order("created_at", { ascending: false });
+    throwIfError(error);
+    return data || [];
+  },
+  async revoke(id) {
+    const { error } = await sb().from("sitesnap_api_keys").update({ revoked_at: new Date().toISOString() }).eq("id", id);
+    throwIfError(error);
+  },
+};
+
+// ── Audit log ────────────────────────────────────────────────────────────
+export const audit = {
+  async recent(companyId, limit = 20) {
+    const { data, error } = await sb().from("sitesnap_audit_logs")
+      .select("*, core_employees(full_name)").eq("company_id", companyId).order("created_at", { ascending: false }).limit(limit);
+    throwIfError(error);
+    return data || [];
+  },
+  async log({ companyId, actorEmployeeId, action, entityType, entityId, newValues = null }) {
+    // Best-effort — never block the calling action if this insert fails.
+    try {
+      await sb().from("sitesnap_audit_logs").insert({
+        company_id: companyId, actor_employee_id: actorEmployeeId, action,
+        entity_type: entityType, entity_id: entityId, new_values: newValues,
+      });
+    } catch { /* audit logging is non-critical */ }
+  },
+};
+
+// ── First-sign-in onboarding state ──────────────────────────────────────
+export const onboarding = {
+  async hasCompleted(employeeId) {
+    const { data, error } = await sb().from("sitesnap_onboarding_state")
+      .select("employee_id").eq("employee_id", employeeId).maybeSingle();
+    throwIfError(error);
+    return !!data;
+  },
+  async markComplete(row) {
+    const { error } = await sb().from("sitesnap_onboarding_state").insert(row);
+    throwIfError(error);
+  },
+};
+
+// ── Floor plans ──────────────────────────────────────────────────────────
+const FLOORPLAN_BUCKET = "sitesnap-floorplans";
+
+export const floorPlans = {
+  async getForProject(projectId) {
+    const { data, error } = await sb().from("sitesnap_floor_plans").select("*").eq("project_id", projectId).maybeSingle();
+    throwIfError(error);
+    return data;
+  },
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_floor_plans").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async update(id, patch) {
+    const { data, error } = await sb().from("sitesnap_floor_plans").update(patch).eq("id", id).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_floor_plans").delete().eq("id", id);
+    throwIfError(error);
+  },
+};
+
+export const floorPlanLevels = {
+  async listForPlan(floorPlanId) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_levels")
+      .select("*").eq("floor_plan_id", floorPlanId).order("sort_order");
+    throwIfError(error);
+    return data || [];
+  },
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_levels").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async update(id, patch) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_levels").update(patch).eq("id", id).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_floor_plan_levels").delete().eq("id", id);
+    throwIfError(error);
+  },
+  async uploadReference(path, file) {
+    const { error } = await sb().storage.from(FLOORPLAN_BUCKET).upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
+    throwIfError(error);
+    return path;
+  },
+  async removeReference(path) {
+    const { error } = await sb().storage.from(FLOORPLAN_BUCKET).remove([path]);
+    throwIfError(error);
+  },
+  async signedUrl(path, expiresIn = 3600) {
+    const { data, error } = await sb().storage.from(FLOORPLAN_BUCKET).createSignedUrl(path, expiresIn);
+    throwIfError(error);
+    return data?.signedUrl || null;
+  },
+};
+
+export const floorPlanElements = {
+  async listForLevel(levelId) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_elements").select("*").eq("level_id", levelId).order("created_at");
+    throwIfError(error);
+    return data || [];
+  },
+  async listRoomsForProject(projectId) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_elements")
+      .select("id, label, level_id, sitesnap_floor_plan_levels(name)")
+      .eq("project_id", projectId).eq("element_type", "room").order("created_at");
+    throwIfError(error);
+    return data || [];
+  },
+  async create(row) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_elements").insert(row).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async createMany(rows) {
+    if (!rows.length) return [];
+    const { data, error } = await sb().from("sitesnap_floor_plan_elements").insert(rows).select();
+    throwIfError(error);
+    return data || [];
+  },
+  async update(id, patch) {
+    const { data, error } = await sb().from("sitesnap_floor_plan_elements").update(patch).eq("id", id).select().single();
+    throwIfError(error);
+    return data;
+  },
+  async remove(id) {
+    const { error } = await sb().from("sitesnap_floor_plan_elements").delete().eq("id", id);
+    throwIfError(error);
+  },
+};

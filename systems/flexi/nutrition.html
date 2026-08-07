@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script>try{var t=localStorage.getItem("flexiTheme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Nutrition — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+<style>
+.nut-subnav{display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--fx-line)}
+.nut-subnav a{padding:10px 4px;font-size:13px;font-weight:700;color:var(--fx-text3);text-decoration:none;border-bottom:2px solid transparent;margin-right:18px}
+.nut-subnav a.active{color:var(--fx-accent-d);border-color:var(--fx-accent)}
+.np-card{position:relative;overflow:hidden}
+.np-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.np-macros{display:flex;gap:8px}
+.np-macro{flex:1;text-align:center;padding:8px 4px;border-radius:10px;background:var(--fx-card2)}
+.np-macro-val{font-size:15px;font-weight:800}
+.np-macro-label{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--fx-text3);margin-top:2px}
+.np-cals{font-size:22px;font-weight:800;text-align:center;margin-bottom:10px}
+.np-cals span{font-size:11px;font-weight:700;color:var(--fx-text3);text-transform:uppercase;display:block;margin-top:2px}
+</style>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Nutrition</h1><div class="fx-topbar-sub" id="countLabel">Active plans across all clients</div></div>
+      <div class="fx-topbar-spacer"></div>
+      <input class="fx-input" id="searchInput" placeholder="Search by client or plan…" style="max-width:220px"/>
+    </header>
+    <main class="fx-content">
+      <div class="nut-subnav">
+        <a href="nutrition.html" class="active">Plans</a>
+        <a href="nutrition-meals.html">Meal Library</a>
+      </div>
+      <div class="fx-grid fx-grid-3" id="grid"></div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, emptyState, tileGradient, initials } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "nutrition" });
+renderNav({ activeKey: "nutrition", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+
+const GOAL_GLOW = { lose: "0 0 0 1px rgba(245,158,11,.55),0 0 14px rgba(239,68,68,.22)", maintain: "0 0 0 1px rgba(14,165,183,.55),0 0 14px rgba(37,99,235,.22)", gain: "0 0 0 1px rgba(22,163,74,.55),0 0 14px rgba(13,148,136,.22)" };
+
+let all = [];
+function render() {
+  const q = document.getElementById("searchInput").value.trim().toLowerCase();
+  const rows = all.filter(p => !q || p.smartcore_flexi_clients?.full_name.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
+  document.getElementById("countLabel").textContent = `${all.length} active plan${all.length === 1 ? "" : "s"}`;
+  const grid = document.getElementById("grid");
+  grid.innerHTML = !rows.length ? emptyState("🥗", "No active nutrition plans found", "Create one from a client's page.") : rows.map(p => `
+    <a href="client-detail.html?id=${p.smartcore_flexi_clients?.id}&tab=nutrition" class="fx-card np-card" data-clickable style="${p.goal ? `box-shadow:${GOAL_GLOW[p.goal] || ""}` : ""}">
+      <div class="np-head">
+        <div class="fx-avatar" style="background:${tileGradient(p.client_id)}">${initials(p.smartcore_flexi_clients?.full_name)}</div>
+        <div style="min-width:0">
+          <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.smartcore_flexi_clients?.full_name || "—")}</strong>
+          <div style="font-size:11.5px;color:var(--fx-text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.name)}</div>
+        </div>
+        ${p.goal ? `<span class="fx-badge fx-badge-grey" style="text-transform:capitalize;margin-left:auto;flex-shrink:0">${escapeHtml(p.goal)}</span>` : ""}
+      </div>
+      <div class="np-cals">${p.daily_calories || "—"}<span>kcal / day</span></div>
+      <div class="np-macros">
+        <div class="np-macro"><div class="np-macro-val">${p.protein_g || 0}g</div><div class="np-macro-label">Protein</div></div>
+        <div class="np-macro"><div class="np-macro-val">${p.carbs_g || 0}g</div><div class="np-macro-label">Carbs</div></div>
+        <div class="np-macro"><div class="np-macro-val">${p.fat_g || 0}g</div><div class="np-macro-label">Fat</div></div>
+      </div>
+    </a>
+  `).join("");
+}
+document.getElementById("searchInput").addEventListener("input", render);
+
+const { data } = await sb().from("smartcore_flexi_nutrition_plans").select("*, smartcore_flexi_clients(id, full_name)").eq("active", true).order("created_at", { ascending: false });
+all = data || [];
+render();
+</script>
+</body>
+</html>

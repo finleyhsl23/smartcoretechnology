@@ -175,5 +175,61 @@ export async function onRequestPost({ request, env }) {
     return json({ success: true });
   }
 
+  // ── Media (portal customers can browse their company's media) ────────────────
+  const BUCKET = 'crm-media';
+
+  if (action === 'media_folders') {
+    if (!user.crm_company_id) return json({ folders: [] });
+    const { parent_folder_id } = body;
+    let url = `${SUPABASE_URL}/rest/v1/crm_media_folders?tenant_id=eq.${user.tenant_id}&company_id=eq.${user.crm_company_id}&order=name.asc`;
+    if (parent_folder_id) url += `&parent_folder_id=eq.${parent_folder_id}`;
+    else url += `&parent_folder_id=is.null`;
+    const res = await fetch(url, { headers: h });
+    return json({ folders: await res.json() });
+  }
+
+  if (action === 'media_files') {
+    if (!user.crm_company_id) return json({ files: [] });
+    const { folder_id } = body;
+    if (!folder_id) return json({ error: 'folder_id required' }, 400);
+    // Verify folder belongs to user's company
+    const fChk = await fetch(`${SUPABASE_URL}/rest/v1/crm_media_folders?id=eq.${folder_id}&company_id=eq.${user.crm_company_id}&tenant_id=eq.${user.tenant_id}&select=id&limit=1`, { headers: h });
+    const [folder] = await fChk.json();
+    if (!folder) return json({ error: 'Not found' }, 404);
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/crm_media_files?folder_id=eq.${folder_id}&tenant_id=eq.${user.tenant_id}&order=created_at.desc`, { headers: h });
+    return json({ files: await res.json() });
+  }
+
+  if (action === 'media_signed_url') {
+    if (!user.crm_company_id) return json({ error: 'Unauthorised' }, 403);
+    const { file_id } = body;
+    const fileRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_media_files?id=eq.${file_id}&tenant_id=eq.${user.tenant_id}&select=*&limit=1`, { headers: h });
+    const [file] = await fileRes.json();
+    if (!file) return json({ error: 'Not found' }, 404);
+    // Verify the folder belongs to user's company
+    const fChk = await fetch(`${SUPABASE_URL}/rest/v1/crm_media_folders?id=eq.${file.folder_id}&company_id=eq.${user.crm_company_id}&select=id&limit=1`, { headers: h });
+    const [folder] = await fChk.json();
+    if (!folder) return json({ error: 'Unauthorised' }, 403);
+
+    const signRes = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${BUCKET}/${file.storage_path}`, {
+      method: 'POST',
+      headers: { ...h, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expiresIn: 3600 }),
+    });
+    if (!signRes.ok) return json({ error: 'Failed to create signed URL' }, 500);
+    const { signedURL } = await signRes.json();
+    return json({ url: `${SUPABASE_URL}/storage/v1${signedURL}`, file });
+  }
+
+  // ── Staff directory ────────────────────────────────────────────────────────
+  if (action === 'directory') {
+    // Check if directory is enabled for this tenant
+    const settingsRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_settings?tenant_id=eq.${user.tenant_id}&select=directory_enabled&limit=1`, { headers: h });
+    const [settings] = await settingsRes.json();
+    if (!settings?.directory_enabled) return json({ entries: [], enabled: false });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/crm_directory?tenant_id=eq.${user.tenant_id}&order=sort_order.asc,name.asc`, { headers: h });
+    return json({ entries: await res.json(), enabled: true });
+  }
+
   return json({ error: 'Unknown action' }, 400);
 }

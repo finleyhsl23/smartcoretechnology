@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Hours — SiteSnap</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/sitesnap/shared/sitesnap.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Hours</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireSiteSnapAccess } from "/systems/sitesnap/shared/auth.js";
+  import { shifts } from "/systems/sitesnap/shared/shifts.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitesnap/shared/nav.js";
+  import { initTheme } from "/systems/sitesnap/shared/theme.js";
+  import { esc, fmtDateTime, loadingState, emptyState, errorState, permissionDeniedState, setInner } from "/systems/sitesnap/shared/ui.js";
+
+  initTheme();
+  let _profile = null, _companyId = null, _range = "week", _allShifts = [];
+  let _employeeRows = [], _projectRows = [];
+  let _view = "employee";
+  const _search = { employee: "", project: "", log: "" };
+  const VIEW_META = {
+    employee: { placeholder: "Search employees…" },
+    project: { placeholder: "Search projects…", intro: "Combined hours across every employee on that project — 2 people working 5 hours counts as 10 man-hours." },
+    log: { placeholder: "Search by employee or project…" },
+  };
+
+  try {
+    const { profile, admin, shift } = await requireSiteSnapAccess();
+    _profile = profile; _companyId = profile.company_id;
+    renderNav("hours", profile, { admin, shift });
+    initMobileNav();
+    initTopbar();
+
+    if (!admin) {
+      setInner("body", permissionDeniedState("Only Owners and Admins can view Hours."));
+    } else {
+      await load();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Hours", message: e.message || "" }));
+  }
+
+  function rangeBounds(range) {
+    const now = new Date();
+    const start = new Date(now);
+    if (range === "today") { start.setHours(0, 0, 0, 0); }
+    else if (range === "week") { const day = (start.getDay() + 6) % 7; start.setDate(start.getDate() - day); start.setHours(0, 0, 0, 0); }
+    else if (range === "month") { start.setDate(1); start.setHours(0, 0, 0, 0); }
+    else if (range === "year") { start.setMonth(0, 1); start.setHours(0, 0, 0, 0); }
+    return { from: start.toISOString(), to: now.toISOString() };
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading hours…"));
+    try {
+      let from = null, to = null;
+      if (_range === "custom") {
+        const fromEl = document.getElementById("customFrom"), toEl = document.getElementById("customTo");
+        from = fromEl?.value ? new Date(fromEl.value + "T00:00:00").toISOString() : null;
+        to = toEl?.value ? new Date(toEl.value + "T23:59:59").toISOString() : null;
+      } else {
+        const bounds = rangeBounds(_range);
+        from = bounds.from; to = bounds.to;
+      }
+      _allShifts = await shifts.listForCompany(_companyId, { from, to });
+      render();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load hours", message: e.message || "", retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", load);
+    }
+  }
+
+  function durationHours(s) {
+    const start = new Date(s.clock_in_at).getTime();
+    const end = s.clock_out_at ? new Date(s.clock_out_at).getTime() : Date.now();
+    return Math.max(0, (end - start) / 3600000);
+  }
+
+  // "7.5" reads as an amount of money before it reads as a duration —
+  // "7h 30m" doesn't need a second of translation.
+  function fmtHours(h) {
+    const totalMinutes = Math.round(h * 60);
+    const hh = Math.floor(totalMinutes / 60);
+    const mm = totalMinutes % 60;
+    return mm === 0 ? `${hh}h` : `${hh}h ${mm}m`;
+  }
+
+  function computeAggregates() {
+    const byEmployee = new Map();
+    const byProject = new Map();
+    for (const s of _allShifts) {
+      const hrs = durationHours(s);
+      const empName = s.core_employees?.full_name || "Unknown";
+      const projName = s.sitesnap_projects?.name || "Unknown";
+
+      const e = byEmployee.get(empName) || { hours: 0, shiftCount: 0 };
+      e.hours += hrs; e.shiftCount += 1;
+      byEmployee.set(empName, e);
+
+      const p = byProject.get(projName) || { hours: 0, employees: new Set() };
+      p.hours += hrs; p.employees.add(empName);
+      byProject.set(projName, p);
+    }
+    _employeeRows = [...byEmployee.entries()].sort((a, b) => b[1].hours - a[1].hours);
+    _projectRows = [...byProject.entries()].sort((a, b) => b[1].hours - a[1].hours);
+  }
+
+  function render() {
+    computeAggregates();
+    const totalHours = _employeeRows.reduce((sum, [, v]) => sum + v.hours, 0);
+
+    setInner("body", `
+      <div class="sl-page-head">
+        <div><h2>Hours</h2><p>Attendance and man-hours across all projects.</p></div>
+      </div>
+
+      <div class="sl-toolbar" style="margin-bottom:16px">
+        ${["today", "week", "month", "year", "custom"].map(r => `<button class="btn ${_range === r ? "btn-primary" : ""}" data-range="${r}">${{ today: "Today", week: "This Week", month: "This Month", year: "This Year", custom: "Custom" }[r]}</button>`).join("")}
+      </div>
+      ${_range === "custom" ? `
+      <div class="sl-toolbar" style="margin-bottom:16px">
+        <input type="date" class="form-input" id="customFrom" style="max-width:170px"/>
+        <span class="text-muted">to</span>
+        <input type="date" class="form-input" id="customTo" style="max-width:170px"/>
+        <button class="btn btn-primary" id="applyCustom">Apply</button>
+      </div>` : ""}
+
+      <div class="stat-grid" style="margin-bottom:16px">
+        <div class="stat-card"><div class="stat-value">${fmtHours(totalHours)}</div><div class="stat-label">Total Hours</div></div>
+        <div class="stat-card"><div class="stat-value">${_allShifts.length}</div><div class="stat-label">Shifts</div></div>
+        <div class="stat-card"><div class="stat-value">${_employeeRows.length}</div><div class="stat-label">Employees</div></div>
+      </div>
+
+      <div class="sl-tabs" role="tablist">
+        <button class="sl-tab ${_view === "employee" ? "active" : ""}" data-view="employee" role="tab"><i data-lucide="users" style="width:14px;height:14px;vertical-align:-2px"></i> Hours by Employee</button>
+        <button class="sl-tab ${_view === "project" ? "active" : ""}" data-view="project" role="tab"><i data-lucide="folder-kanban" style="width:14px;height:14px;vertical-align:-2px"></i> Man-Hours by Project</button>
+        <button class="sl-tab ${_view === "log" ? "active" : ""}" data-view="log" role="tab"><i data-lucide="list" style="width:14px;height:14px;vertical-align:-2px"></i> Shift Log</button>
+      </div>
+      <div id="viewBody"></div>
+    `);
+    window.lucide?.createIcons?.();
+    document.querySelectorAll("[data-range]").forEach(btn => btn.addEventListener("click", () => { _range = btn.dataset.range; if (_range === "custom") render(); else load(); }));
+    document.getElementById("applyCustom")?.addEventListener("click", load);
+    document.querySelectorAll(".sl-tab").forEach(btn => btn.addEventListener("click", () => { _view = btn.dataset.view; render(); }));
+    renderViewBody();
+  }
+
+  // Renders the card + search box once per tab switch; typing only ever
+  // touches #viewResults below, so the search input itself is never
+  // destroyed/recreated and never loses focus or cursor position.
+  function renderViewBody() {
+    const meta = VIEW_META[_view];
+    const host = document.getElementById("viewBody");
+    host.innerHTML = `
+      <div class="card">
+        ${meta.intro ? `<p class="text-muted" style="margin:0 0 12px">${meta.intro}</p>` : ""}
+        <div class="sl-search-wrap" style="max-width:280px;margin-bottom:14px">
+          <i data-lucide="search" class="sl-search-icon"></i>
+          <input class="form-input" id="viewSearch" placeholder="${esc(meta.placeholder)}" value="${esc(_search[_view])}" autocomplete="off"/>
+        </div>
+        <div id="viewResults"></div>
+      </div>`;
+    window.lucide?.createIcons?.();
+    document.getElementById("viewSearch").addEventListener("input", (e) => {
+      _search[_view] = e.target.value;
+      renderViewResults();
+    });
+    renderViewResults();
+  }
+
+  function renderViewResults() {
+    const results = document.getElementById("viewResults");
+    const q = _search[_view].trim().toLowerCase();
+
+    if (_view === "employee") {
+      const rows = q ? _employeeRows.filter(([name]) => name.toLowerCase().includes(q)) : _employeeRows;
+      results.innerHTML = _employeeRows.length === 0 ? `<p class="text-muted">No shifts in this period.</p>`
+        : rows.length === 0 ? `<p class="text-muted">No employees match "${esc(_search.employee)}".</p>` : `
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Shifts</th><th>Hours</th></tr></thead><tbody>
+          ${rows.map(([name, v]) => `<tr><td>${esc(name)}</td><td>${v.shiftCount}</td><td>${fmtHours(v.hours)}</td></tr>`).join("")}
+        </tbody></table></div>`;
+    } else if (_view === "project") {
+      const rows = q ? _projectRows.filter(([name]) => name.toLowerCase().includes(q)) : _projectRows;
+      results.innerHTML = _projectRows.length === 0 ? `<p class="text-muted">No shifts in this period.</p>`
+        : rows.length === 0 ? `<p class="text-muted">No projects match "${esc(_search.project)}".</p>` : `
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Project</th><th>Employees</th><th>Man-Hours</th></tr></thead><tbody>
+          ${rows.map(([name, v]) => `<tr><td>${esc(name)}</td><td>${v.employees.size}</td><td>${fmtHours(v.hours)}</td></tr>`).join("")}
+        </tbody></table></div>`;
+    } else {
+      const rows = q ? _allShifts.filter(s => (s.core_employees?.full_name || "").toLowerCase().includes(q) || (s.sitesnap_projects?.name || "").toLowerCase().includes(q)) : _allShifts;
+      results.innerHTML = _allShifts.length === 0 ? emptyState({ icon: "clock", title: "No shifts in this period" })
+        : rows.length === 0 ? `<p class="text-muted">No shifts match "${esc(_search.log)}".</p>` : `
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Project</th><th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Status</th></tr></thead><tbody>
+          ${rows.map(shiftRow).join("")}
+        </tbody></table></div>`;
+    }
+    window.lucide?.createIcons?.();
+  }
+
+  function shiftRow(s) {
+    const hrs = durationHours(s);
+    const statusLabel = s.status === "active" ? `<span class="badge badge-green">Active</span>`
+      : s.clock_out_reason === "auto_geofence" ? `<span class="badge badge-grey">Auto (left radius)</span>`
+      : `<span class="badge badge-blue">Closed</span>`;
+    return `<tr>
+      <td>${esc(s.core_employees?.full_name || "Unknown")}</td>
+      <td>${esc(s.sitesnap_projects?.name || "Unknown")}</td>
+      <td>${esc(fmtDateTime(s.clock_in_at))}</td>
+      <td>${s.clock_out_at ? esc(fmtDateTime(s.clock_out_at)) : "—"}</td>
+      <td>${fmtHours(hrs)}</td>
+      <td>${statusLabel}</td>
+    </tr>`;
+  }
+</script>
+</body>
+</html>

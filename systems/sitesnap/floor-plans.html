@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Floor Plans — SiteSnap</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/sitesnap/shared/sitesnap.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Floor Plans</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireSiteSnapAccess } from "/systems/sitesnap/shared/auth.js";
+  import { settings, projects, tasks, floorPlans, floorPlanLevels, floorPlanElements } from "/systems/sitesnap/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/sitesnap/shared/nav.js";
+  import { initTheme } from "/systems/sitesnap/shared/theme.js";
+  import { mountFloorPlanEditor, fitImageRect } from "/systems/sitesnap/shared/floorPlanEditor.js";
+  import { sb } from "/systems/sitesnap/shared/supabase.js";
+  import { esc, loadingState, emptyState, errorState, setInner, toast, modal, confirmDialog } from "/systems/sitesnap/shared/ui.js";
+
+  initTheme();
+  let _profile = null, _companyId = null, _admin = false;
+  let _project = null, _floorPlan = null, _levels = [], _activeLevelId = null, _elements = [], _projectTasks = [];
+  let _editor = null;
+  let _pickerProjects = [], _pickerSearch = "";
+  let _analyzeAbort = null;
+
+  const projectId = new URLSearchParams(location.search).get("project");
+
+  try {
+    const { profile, admin, shift } = await requireSiteSnapAccess();
+    _profile = profile; _companyId = profile.company_id; _admin = admin;
+    renderNav("floor-plans", profile, { admin, shift });
+    initMobileNav();
+    initTopbar();
+
+    const companySettings = await settings.get(_companyId);
+    if (companySettings?.floor_plans_enabled !== true) {
+      setInner("body", `
+        <div class="sl-page-head"><div><h2>Floor Plans</h2></div></div>
+        ${emptyState({
+          icon: "layout", title: "Floor Plans is turned off",
+          message: "An Owner or Admin needs to turn this on in Settings before it can be used.",
+          actionHtml: _admin ? `<a class="btn btn-primary" href="settings.html">Go to Settings →</a>` : "",
+        })}`);
+    } else if (!projectId) {
+      await renderProjectPicker();
+    } else {
+      await loadProjectPlan();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Floor Plans", message: e.message || "" }));
+  }
+
+  async function renderProjectPicker() {
+    setInner("body", loadingState("Loading projects…"));
+    _pickerProjects = await projects.list(_companyId, { status: "active" });
+    setInner("body", `
+      <div class="sl-page-head"><div><h2>Floor Plans</h2><p>Create floor plan for…</p></div></div>
+      <div class="card">
+        ${_pickerProjects.length === 0 ? `<p class="text-muted">No active projects yet.</p>` : `
+        <div class="sl-search-wrap" style="max-width:340px;margin-bottom:14px">
+          <i data-lucide="search" class="sl-search-icon"></i>
+          <input class="form-input" id="fpProjectSearch" placeholder="Search projects…" autocomplete="off"/>
+        </div>
+        <div id="fpProjectList"></div>`}
+      </div>`);
+    window.lucide?.createIcons?.();
+    document.getElementById("fpProjectSearch")?.addEventListener("input", (e) => {
+      _pickerSearch = e.target.value;
+      renderProjectPickerList();
+    });
+    renderProjectPickerList();
+  }
+
+  function renderProjectPickerList() {
+    const listEl = document.getElementById("fpProjectList");
+    if (!listEl) return;
+    const q = _pickerSearch.trim().toLowerCase();
+    const filtered = q ? _pickerProjects.filter(p => p.name.toLowerCase().includes(q)) : _pickerProjects;
+    listEl.innerHTML = filtered.length === 0
+      ? `<p class="text-muted">No projects match "${esc(_pickerSearch)}".</p>`
+      : `<div class="sl-gate-project-list">${filtered.map(p => `
+        <div class="sl-gate-project-card" data-project="${esc(p.id)}" style="cursor:pointer">
+          <div class="avatar avatar-sm">${esc(p.name.slice(0, 2).toUpperCase())}</div>
+          <div class="sl-gate-project-info"><div class="sl-gate-project-name">${esc(p.name)}</div></div>
+          <i data-lucide="chevron-right" style="width:16px;height:16px;color:var(--text3);flex-shrink:0"></i>
+        </div>`).join("")}</div>`;
+    window.lucide?.createIcons?.();
+    listEl.querySelectorAll("[data-project]").forEach(row => row.addEventListener("click", () => {
+      window.location.href = `floor-plans.html?project=${encodeURIComponent(row.dataset.project)}`;
+    }));
+  }
+
+  async function loadProjectPlan() {
+    setInner("body", loadingState("Loading floor plan…"));
+    try {
+      [_project, _floorPlan] = await Promise.all([projects.get(projectId), floorPlans.getForProject(projectId)]);
+      if (!_project) { setInner("body", errorState({ title: "Project not found" })); return; }
+      if (!_floorPlan) { renderNoPlan(); return; }
+      _levels = await floorPlanLevels.listForPlan(_floorPlan.id);
+      if (!_levels.length && _admin) {
+        const level = await floorPlanLevels.create({ floor_plan_id: _floorPlan.id, company_id: _companyId, project_id: projectId, name: "Ground Floor", sort_order: 0 });
+        _levels = [level];
+      }
+      _activeLevelId = _levels[0]?.id || null;
+      _projectTasks = await tasks.listForProject(projectId);
+      await renderPlan();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load floor plan", message: e.message || "" }));
+    }
+  }
+
+  function renderNoPlan() {
+    setInner("body", `
+      <div class="sl-page-head"><div><h2>Floor Plans</h2><a class="btn" href="floor-plans.html">Choose a different project</a></div></div>
+      ${emptyState({
+        icon: "layout", title: `No floor plan for ${esc(_project.name)}`,
+        message: _admin ? "Create one to start adding levels, walls, rooms and more." : "An Owner or Admin hasn't created one for this project yet.",
+        actionHtml: _admin ? `<button class="btn btn-primary" id="fpCreateBtn"><i data-lucide="plus"></i> Create Floor Plan</button>` : "",
+      })}`);
+    document.getElementById("fpCreateBtn")?.addEventListener("click", async () => {
+      _floorPlan = await floorPlans.create({ company_id: _companyId, project_id: projectId, name: _project.name, created_by: _profile.id });
+      const level = await floorPlanLevels.create({ floor_plan_id: _floorPlan.id, company_id: _companyId, project_id: projectId, name: "Ground Floor", sort_order: 0 });
+      _levels = [level];
+      _activeLevelId = level.id;
+      _projectTasks = await tasks.listForProject(projectId);
+      await renderPlan();
+    });
+  }
+
+  function roomStats(roomId) {
+    const roomTasks = _projectTasks.filter(t => t.room_element_id === roomId);
+    if (!roomTasks.length) return null;
+    const done = roomTasks.filter(t => t.status === "done").length;
+    const total = roomTasks.length;
+    return { done, total, color: done === 0 ? "red" : done === total ? "green" : "amber" };
+  }
+
+  async function renderPlan() {
+    const level = _levels.find(l => l.id === _activeLevelId);
+    setInner("body", `
+      <div class="sl-page-head">
+        <div><h2>${esc(_floorPlan.name)}</h2><p>${esc(_project.name)}</p></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          ${_admin ? `<button class="btn" id="fpToggleMeasurements"><i data-lucide="${_floorPlan.hide_measurements ? "eye" : "eye-off"}"></i> ${_floorPlan.hide_measurements ? "Show Measurements" : "Hide Measurements"}</button>` : ""}
+          <a class="btn" href="floor-plans.html">Choose a different project</a>
+        </div>
+      </div>
+      <div class="sl-fp-levels" id="fpLevels">
+        ${_levels.map(l => `<button class="sl-fp-level-tab ${l.id === _activeLevelId ? "active" : ""}" data-level="${esc(l.id)}">${esc(l.name)}</button>`).join("")}
+        ${_admin ? `<button class="sl-fp-level-tab" id="fpAddLevel"><i data-lucide="plus" style="width:12px;height:12px;vertical-align:-2px"></i> Add Level</button>` : ""}
+      </div>
+      <div class="sl-fp-legend">
+        <span><i style="background:#ef4444"></i> 0 done</span>
+        <span><i style="background:#f59e0b"></i> In progress</span>
+        <span><i style="background:#22c55e"></i> All done</span>
+        <span><i style="background:rgba(255,255,255,.2)"></i> No tasks assigned</span>
+      </div>
+      ${_admin ? `
+      <div class="card" style="margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <label class="btn" style="cursor:pointer;margin:0">
+          <i data-lucide="image"></i> ${level?.reference_image_path ? "Replace" : "Upload"} Reference Sketch
+          <input type="file" accept="image/*" id="fpRefUpload" style="display:none"/>
+        </label>
+        ${level?.reference_image_path ? `<button class="btn" id="fpRefRemove"><i data-lucide="x"></i> Remove Reference</button>` : ""}
+        ${level?.reference_image_path ? `<button class="btn btn-primary" id="fpAutoConvert"><i data-lucide="sparkles"></i> Auto-Convert with AI</button>` : ""}
+        <span class="text-muted" style="font-size:12px">Traces as a backdrop to draw over manually, or click Auto-Convert to have AI read the sketch and place walls/doors/windows/rooms for you — review and tidy up the result, it won't be perfect.</span>
+        ${_levels.length > 1 ? `<button class="btn btn-danger" id="fpDeleteLevel" style="margin-left:auto"><i data-lucide="trash-2"></i> Delete This Level</button>` : ""}
+      </div>` : ""}
+      <div class="card" id="fpCanvasHost"></div>
+    `);
+    window.lucide?.createIcons?.();
+
+    document.querySelectorAll("[data-level]").forEach(btn => btn.addEventListener("click", async () => {
+      _activeLevelId = btn.dataset.level;
+      await renderPlan();
+    }));
+    document.getElementById("fpAddLevel")?.addEventListener("click", openAddLevelModal);
+    document.getElementById("fpDeleteLevel")?.addEventListener("click", deleteActiveLevel);
+    document.getElementById("fpRefUpload")?.addEventListener("change", handleReferenceUpload);
+    document.getElementById("fpRefRemove")?.addEventListener("click", removeReference);
+    document.getElementById("fpAutoConvert")?.addEventListener("click", handleAutoConvert);
+    document.getElementById("fpToggleMeasurements")?.addEventListener("click", async () => {
+      const updated = await floorPlans.update(_floorPlan.id, { hide_measurements: !_floorPlan.hide_measurements });
+      _floorPlan.hide_measurements = updated.hide_measurements;
+      toast("success", _floorPlan.hide_measurements ? "Measurements hidden" : "Measurements shown");
+      await renderPlan();
+    });
+
+    _elements = level ? await floorPlanElements.listForLevel(level.id) : [];
+    let referenceImageUrl = null, referenceImageRect = null;
+    if (level?.reference_image_path) {
+      referenceImageUrl = await floorPlanLevels.signedUrl(level.reference_image_path).catch(() => null);
+      if (referenceImageUrl) referenceImageRect = await loadImageNaturalSize(referenceImageUrl).then(({ width, height }) => fitImageRect(width, height)).catch(() => null);
+    }
+
+    _editor?.destroy?.();
+    _editor = mountFloorPlanEditor(document.getElementById("fpCanvasHost"), {
+      elements: _elements,
+      pixelsPerMeter: level?.pixels_per_meter || 50,
+      referenceImageUrl,
+      referenceImageRect,
+      readOnly: !_admin,
+      hideMeasurements: !!_floorPlan.hide_measurements,
+      roomStats,
+      onRoomClick: (room) => {
+        const stats = roomStats(room.id);
+        toast("info", room.label || "Room", stats ? `${stats.done}/${stats.total} tasks done` : "No tasks assigned to this room yet.");
+      },
+      onCreate: async ({ element_type, geometry, label }) => {
+        return floorPlanElements.create({ level_id: level.id, company_id: _companyId, project_id: projectId, element_type, geometry, label });
+      },
+      onDelete: async (id) => {
+        await floorPlanElements.remove(id);
+      },
+    });
+  }
+
+  function openAddLevelModal() {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Add Level</h3><button class="modal-close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Level name *</label><input class="form-input" id="lvlName" placeholder="e.g. First Floor"/></div>
+        <div class="form-field"><label class="form-label">Scale (pixels per metre)</label><input type="number" min="1" class="form-input" id="lvlScale" value="50"/></div>
+        <div id="lvlError" class="form-error"></div>
+      </div>
+      <div class="modal-footer"><button class="btn" id="cancel">Cancel</button><button class="btn btn-primary" id="save">Add</button></div>
+    `);
+    overlay.querySelectorAll(".modal-close, #cancel").forEach(b => b.addEventListener("click", () => overlay.close()));
+    overlay.querySelector("#save").addEventListener("click", async () => {
+      const name = overlay.querySelector("#lvlName").value.trim();
+      if (!name) { overlay.querySelector("#lvlError").textContent = "Level name is required."; return; }
+      const scale = parseFloat(overlay.querySelector("#lvlScale").value) || 50;
+      const level = await floorPlanLevels.create({
+        floor_plan_id: _floorPlan.id, company_id: _companyId, project_id: projectId,
+        name, sort_order: _levels.length, pixels_per_meter: scale,
+      });
+      _levels.push(level);
+      _activeLevelId = level.id;
+      overlay.close();
+      await renderPlan();
+    });
+  }
+
+  function deleteActiveLevel() {
+    const level = _levels.find(l => l.id === _activeLevelId);
+    if (!level) return;
+    confirmDialog("Delete this level?", "This removes every wall, door, window and room drawn on it — this can't be undone.", async () => {
+      await floorPlanLevels.remove(level.id);
+      _levels = _levels.filter(l => l.id !== level.id);
+      _activeLevelId = _levels[0]?.id || null;
+      await renderPlan();
+    });
+  }
+
+  async function handleReferenceUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const level = _levels.find(l => l.id === _activeLevelId);
+    const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const path = `${_companyId}/${projectId}/${_floorPlan.id}/${level.id}.${ext}`;
+    try {
+      await floorPlanLevels.uploadReference(path, file);
+      const updated = await floorPlanLevels.update(level.id, { reference_image_path: path });
+      Object.assign(level, updated);
+      toast("success", "Reference image uploaded");
+      await renderPlan();
+    } catch (err) {
+      toast("error", "Couldn't upload image", err.message || "");
+    }
+  }
+
+  async function removeReference() {
+    const level = _levels.find(l => l.id === _activeLevelId);
+    if (!level?.reference_image_path) return;
+    await floorPlanLevels.removeReference(level.reference_image_path).catch(() => {});
+    const updated = await floorPlanLevels.update(level.id, { reference_image_path: null });
+    Object.assign(level, updated);
+    toast("success", "Reference removed");
+    await renderPlan();
+  }
+
+  function loadImageNaturalSize(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  // Sends the level's reference sketch to Claude, which reads the drawing
+  // and returns walls/doors/windows/rooms as coordinates normalized 0-1
+  // against the image itself. Mapped here into the exact canvas rect the
+  // image is displayed at (see fitImageRect) so the result lines up with
+  // what's on screen. This is a genuine best-effort AI read of a hand
+  // sketch, not precise CAD extraction — review what it places and clean
+  // up anything wrong with the normal delete/redraw tools.
+  function resetAutoConvertBtn() {
+    const btn = document.getElementById("fpAutoConvert");
+    if (!btn) return;
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="sparkles"></i> Auto-Convert with AI`;
+    window.lucide?.createIcons?.();
+  }
+
+  async function handleAutoConvert() {
+    const level = _levels.find(l => l.id === _activeLevelId);
+    if (!level?.reference_image_path) return;
+    const btn = document.getElementById("fpAutoConvert");
+    btn.disabled = true;
+    btn.textContent = "Analyzing…";
+
+    _analyzeAbort = new AbortController();
+    const overlay = document.createElement("div");
+    overlay.className = "sl-fp-analyzing-overlay";
+    overlay.innerHTML = `
+      <div class="sl-spinner"></div>
+      <p>Reading your sketch with AI — this can take a moment…</p>
+      <button type="button" class="btn btn-danger" id="fpAnalyzeCancel">Cancel</button>
+    `;
+    document.body.appendChild(overlay);
+    document.getElementById("fpAnalyzeCancel").addEventListener("click", () => _analyzeAbort?.abort());
+
+    try {
+      const url = await floorPlanLevels.signedUrl(level.reference_image_path);
+      const imgRes = await fetch(url, { signal: _analyzeAbort.signal });
+      const blob = await imgRes.blob();
+      const [imageBase64, { width, height }, { data: sessionData }] = await Promise.all([
+        blobToBase64(blob), loadImageNaturalSize(url), sb().auth.getSession(),
+      ]);
+      const rect = fitImageRect(width, height);
+
+      const res = await fetch("/api/sitesnap/analyze-floorplan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session.access_token}` },
+        body: JSON.stringify({ companyId: _companyId, imageBase64, mimeType: blob.type || "image/jpeg" }),
+        signal: _analyzeAbort.signal,
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error || "Could not analyze the sketch.");
+      if (!out.elements?.length) {
+        toast("error", "Nothing detected", "Try a clearer or higher-contrast sketch.");
+        resetAutoConvertBtn();
+        return;
+      }
+
+      const rows = out.elements.map(el => ({
+        level_id: level.id, company_id: _companyId, project_id: projectId,
+        element_type: el.type, label: el.label || null,
+        geometry: el.type === "room"
+          ? { x: rect.x + el.x * rect.width, y: rect.y + el.y * rect.height, width: el.width * rect.width, height: el.height * rect.height }
+          : { x1: rect.x + el.x1 * rect.width, y1: rect.y + el.y1 * rect.height, x2: rect.x + el.x2 * rect.width, y2: rect.y + el.y2 * rect.height },
+      }));
+
+      // If the sketch had legible measurements, calibrate this level's
+      // pixels-per-meter from them (averaged across every hint we got)
+      // instead of leaving whatever scale the level was created with.
+      const scaleSamples = [];
+      out.elements.forEach((el, i) => {
+        const geom = rows[i].geometry;
+        if (el.type === "room") {
+          if (el.real_width_m) scaleSamples.push(geom.width / el.real_width_m);
+          if (el.real_height_m) scaleSamples.push(geom.height / el.real_height_m);
+        } else if (el.real_length_m) {
+          const pxLen = Math.hypot(geom.x2 - geom.x1, geom.y2 - geom.y1);
+          scaleSamples.push(pxLen / el.real_length_m);
+        }
+      });
+
+      await floorPlanElements.createMany(rows);
+
+      if (scaleSamples.length) {
+        const avgScale = Math.round(scaleSamples.reduce((a, b) => a + b, 0) / scaleSamples.length);
+        if (avgScale > 0) {
+          await floorPlanLevels.update(level.id, { pixels_per_meter: avgScale });
+          level.pixels_per_meter = avgScale;
+        }
+      }
+
+      toast("success", `Added ${rows.length} elements`, scaleSamples.length
+        ? "Scale calibrated from measurements on the sketch. Check the layout over — AI reads aren't perfect."
+        : "Check them over — AI reads of sketches aren't perfect.");
+      await renderPlan();
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        toast("error", "Couldn't auto-convert", err.message || "");
+      }
+      resetAutoConvertBtn();
+    } finally {
+      overlay.remove();
+      _analyzeAbort = null;
+    }
+  }
+</script>
+</body>
+</html>

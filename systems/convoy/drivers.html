@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Drivers — Convoy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/convoy/shared/convoy.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Drivers</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireConvoyAccess } from "/systems/convoy/shared/auth.js";
+  import { drivers } from "/systems/convoy/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/convoy/shared/nav.js";
+  import { initTheme } from "/systems/convoy/shared/theme.js";
+  import { esc, fmtDate, daysUntil, toast, modal, loadingState, emptyState, errorState, setInner } from "/systems/convoy/shared/ui.js";
+
+  initTheme();
+  let _profile = null, _companyId = null;
+
+  try {
+    const { profile, admin } = await requireConvoyAccess();
+    _profile = profile; _companyId = profile.company_id;
+    renderNav("drivers", profile, { admin });
+    initMobileNav(); initTopbar();
+    await load();
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Convoy", message: e.message }));
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading drivers…"));
+    try {
+      const [licences, employees] = await Promise.all([drivers.list(_companyId), drivers.listCompanyEmployees(_companyId)]);
+      render(licences, employees);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load drivers", message: e.message, retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", load);
+    }
+  }
+
+  function render(licences, employees) {
+    const byEmployee = new Map(licences.map(l => [l.employee_id, l]));
+    const html = `
+      <div class="sl-page-head">
+        <div><h2>Driver Licence Checks</h2><p>Track licence expiry and points for every driver.</p></div>
+      </div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Driver</th><th>Licence No.</th><th>Points</th><th>Expiry</th><th>Last checked</th><th></th></tr></thead><tbody>
+        ${employees.map(e => {
+          const l = byEmployee.get(e.id);
+          const days = l?.expiry_date ? daysUntil(l.expiry_date) : null;
+          return `<tr>
+            <td>${esc(e.full_name)}</td>
+            <td>${esc(l?.licence_number || "—")}</td>
+            <td>${l?.points ?? "—"}</td>
+            <td>${l?.expiry_date ? esc(fmtDate(l.expiry_date)) + (days != null && days < 30 ? ` <span class="badge ${days < 0 ? "badge-red" : "badge-yellow"}">${days < 0 ? "Expired" : days + "d left"}</span>` : "") : "—"}</td>
+            <td>${l?.last_checked_at ? esc(fmtDate(l.last_checked_at)) : "Never"}</td>
+            <td><button class="btn" data-edit="${esc(e.id)}">Update</button></td>
+          </tr>`;
+        }).join("")}
+      </tbody></table></div>
+    `;
+    setInner("body", html);
+    document.querySelectorAll("[data-edit]").forEach(btn => btn.addEventListener("click", () => {
+      const emp = employees.find(e => e.id === btn.dataset.edit);
+      openModal(emp, byEmployee.get(emp.id));
+    }));
+  }
+
+  function openModal(employee, licence) {
+    const overlay = modal(`
+      <div class="modal-header"><h3>${esc(employee.full_name)}</h3><button class="modal-close" aria-label="Close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Licence number</label><input class="form-input" id="fNumber" value="${esc(licence?.licence_number || "")}"/></div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Points</label><input class="form-input" type="number" id="fPoints" value="${licence?.points ?? 0}"/></div>
+          <div class="form-field"><label class="form-label">Expiry date</label><input class="form-input" type="date" id="fExpiry" value="${licence?.expiry_date || ""}"/></div>
+        </div>
+        <div class="form-field"><label class="form-label">Categories (comma separated)</label><input class="form-input" id="fCategories" value="${esc((licence?.licence_categories || []).join(", "))}"/></div>
+        <div class="form-field"><label class="form-label">Notes</label><textarea class="form-textarea" id="fNotes">${esc(licence?.notes || "")}</textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="cancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">Save</button>
+      </div>
+    `);
+    document.getElementById("cancelBtn").addEventListener("click", () => overlay.close());
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      try {
+        await drivers.upsert(_companyId, employee.id, _profile.id, {
+          licence_number: document.getElementById("fNumber").value.trim() || null,
+          points: Number(document.getElementById("fPoints").value) || 0,
+          expiry_date: document.getElementById("fExpiry").value || null,
+          licence_categories: document.getElementById("fCategories").value.split(",").map(s => s.trim()).filter(Boolean),
+          notes: document.getElementById("fNotes").value.trim() || null,
+        });
+        toast("success", "Driver licence updated");
+        overlay.close();
+        load();
+      } catch (e) {
+        toast("error", "Couldn't save", e.message);
+      }
+    });
+  }
+</script>
+</body>
+</html>

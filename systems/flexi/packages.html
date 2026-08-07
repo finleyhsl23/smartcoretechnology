@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script>try{var t=localStorage.getItem("flexiTheme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Packages &amp; Payments — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Packages &amp; Payments</h1><div class="fx-topbar-sub">Your session bundles and revenue</div></div>
+      <div class="fx-topbar-spacer"></div>
+      <button class="fx-btn fx-btn-primary" id="addBtn">+ New Package</button>
+    </header>
+    <main class="fx-content">
+      <div class="fx-grid fx-grid-3" id="statsGrid" style="margin-bottom:28px"></div>
+      <div class="fx-section-head"><h2>Package Catalogue</h2></div>
+      <div class="fx-grid fx-grid-3" id="pkgGrid"></div>
+
+      <div class="fx-section-head"><h2>Recent Payments</h2></div>
+      <div class="fx-table-wrap">
+        <table class="fx-table"><thead><tr><th>Date</th><th>Client</th><th>Amount</th><th>Method</th><th>Status</th></tr></thead><tbody id="payBody"></tbody></table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="fx-modal" id="addModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>New Package</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div class="fx-field"><label>Name</label><input class="fx-input" id="pkgName" placeholder="e.g. 10-Session Pack"/></div>
+    <div class="fx-form-row">
+      <div class="fx-field"><label>Sessions included</label><input class="fx-input" id="pkgSessions" type="number" placeholder="Leave blank if unlimited"/></div>
+      <div class="fx-field"><label>Price (£)</label><input class="fx-input" id="pkgPrice" type="number" step="0.01"/></div>
+    </div>
+    <div class="fx-form-row">
+      <div class="fx-field"><label>Billing type</label>
+        <select class="fx-select" id="pkgBilling"><option value="one_off">One-off</option><option value="recurring">Recurring</option></select>
+      </div>
+      <div class="fx-field"><label>Validity (days)</label><input class="fx-input" id="pkgValidity" type="number" placeholder="Optional"/></div>
+    </div>
+    <div class="fx-form-msg" id="pkgMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="savePkgBtn">Create Package</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtMoney, fmtDate, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient, initials, enhanceSelect } from "./shared/ui.js";
+
+const { profile, tier } = await requireFlexiAccess({ feature: "packages" });
+renderNav({ activeKey: "packages", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+enhanceSelect(document.getElementById("pkgBilling"));
+
+async function loadStats() {
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
+  const { data: payments } = await sb().from("smartcore_flexi_payments").select("amount_pence, created_at").eq("status", "paid");
+  const thisMonth = (payments || []).filter(p => new Date(p.created_at) >= monthStart).reduce((s,p) => s + p.amount_pence, 0);
+  const allTime = (payments || []).reduce((s,p) => s + p.amount_pence, 0);
+  const { count: activePkgs } = await sb().from("smartcore_flexi_client_packages").select("id", { count: "exact", head: true }).eq("status", "active");
+  document.getElementById("statsGrid").innerHTML = `
+    <div class="fx-card fx-stat"><div class="fx-stat-label">Revenue This Month</div><div class="fx-stat-val">${fmtMoney(thisMonth)}</div></div>
+    <div class="fx-card fx-stat"><div class="fx-stat-label">Total Revenue Recorded</div><div class="fx-stat-val">${fmtMoney(allTime)}</div></div>
+    <div class="fx-card fx-stat"><div class="fx-stat-label">Active Client Packages</div><div class="fx-stat-val">${activePkgs ?? 0}</div></div>
+  `;
+}
+
+async function loadPackages() {
+  const { data } = await sb().from("smartcore_flexi_packages").select("*").order("created_at", { ascending: false });
+  const grid = document.getElementById("pkgGrid");
+  grid.innerHTML = !data?.length ? emptyState("◈", "No packages yet", "Create your first package above.") : data.map(p => `
+    <div class="fx-card fx-card-flush">
+      <div class="fx-tile" style="background:${tileGradient(p.id)};border-radius:0;min-height:96px">
+        <div class="fx-tile-eyebrow">${p.billing_type === "recurring" ? "Recurring" : "One-off"}</div>
+        <div class="fx-tile-title">${escapeHtml(p.name)}</div>
+        <div style="font-size:20px;font-weight:800;margin-top:6px;position:relative;z-index:1">${fmtMoney(p.price_pence, p.currency)}</div>
+      </div>
+      <div style="padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="color:var(--fx-text3);font-size:12.5px">${p.session_count ? p.session_count + " sessions" : "Unlimited sessions"}${p.validity_days ? " · " + p.validity_days + "d validity" : ""}</span>
+          <span class="fx-badge ${p.active ? "fx-badge-green" : "fx-badge-grey"}">${p.active ? "active" : "inactive"}</span>
+        </div>
+        <button class="fx-btn fx-btn-sm fx-btn-block" data-toggle="${p.id}" data-active="${p.active}">${p.active ? "Deactivate" : "Reactivate"}</button>
+      </div>
+    </div>
+  `).join("");
+  grid.querySelectorAll("[data-toggle]").forEach(btn => btn.addEventListener("click", async () => {
+    await sb().from("smartcore_flexi_packages").update({ active: btn.dataset.active !== "true" }).eq("id", btn.dataset.toggle);
+    loadPackages();
+  }));
+}
+
+async function loadPayments() {
+  const { data } = await sb().from("smartcore_flexi_payments").select("*, smartcore_flexi_clients(full_name)").order("created_at", { ascending: false }).limit(25);
+  const body = document.getElementById("payBody");
+  body.innerHTML = !data?.length ? `<tr><td colspan="5">${emptyState("💳", "No payments recorded yet", "")}</td></tr>` : data.map(p => `
+    <tr onclick="location.href='client-detail.html?id=${p.client_id}&tab=packages'">
+      <td>${fmtDate(p.created_at)}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="fx-avatar" style="width:26px;height:26px;font-size:10.5px;background:${tileGradient(p.client_id)}">${initials(p.smartcore_flexi_clients?.full_name)}</div>
+          ${escapeHtml(p.smartcore_flexi_clients?.full_name || "—")}
+        </div>
+      </td>
+      <td class="fx-tabular">${fmtMoney(p.amount_pence, p.currency)}</td>
+      <td>${escapeHtml(p.method)}</td>
+      <td><span class="fx-badge fx-badge-green">${p.status}</span></td>
+    </tr>
+  `).join("");
+}
+
+document.getElementById("addBtn").addEventListener("click", () => { document.getElementById("pkgMsg").textContent = ""; openModal("addModal"); });
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));
+document.getElementById("savePkgBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("pkgName").value.trim();
+  const price = parseFloat(document.getElementById("pkgPrice").value);
+  if (!name || !price) { showMessage("pkgMsg", "Name and price are required.", "error"); return; }
+  setLoading(e.target, true, "Creating…");
+  const { error } = await sb().from("smartcore_flexi_packages").insert({
+    company_id: profile.company_id, name,
+    session_count: parseInt(document.getElementById("pkgSessions").value) || null,
+    price_pence: Math.round(price * 100),
+    billing_type: document.getElementById("pkgBilling").value,
+    validity_days: parseInt(document.getElementById("pkgValidity").value) || null,
+  });
+  setLoading(e.target, false);
+  if (error) { showMessage("pkgMsg", error.message, "error"); return; }
+  closeModal("addModal");
+  toast("Package created", "success");
+  loadPackages();
+});
+
+loadStats();
+loadPackages();
+loadPayments();
+</script>
+</body>
+</html>

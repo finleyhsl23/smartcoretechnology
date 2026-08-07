@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SmartCore — Private Checkout</title>
+  <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png"/>
+  <script>
+    window.__SUPABASE_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+    window.__SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg0:#020617;--bg1:#06153a;--bg2:#0a1f52;
+      --line:rgba(255,255,255,.12);
+      --text:#eaf0ff;--muted:rgba(234,240,255,.65);
+      --accent:#78aaff;--accent-soft:rgba(120,170,255,.14);
+      --green:#22c55e;--green-soft:rgba(34,197,94,.14);
+      --amber:#fbbf24;
+    }
+    html,body{min-height:100%}
+    body{
+      background:var(--bg0);color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;
+    }
+    body::before{
+      content:'';position:fixed;inset:0;
+      background:radial-gradient(ellipse 80% 60% at 50% -10%,rgba(37,99,235,.18),transparent);
+      pointer-events:none;z-index:0;
+    }
+
+    /* Nav */
+    .nav{
+      position:sticky;top:0;z-index:50;
+      display:flex;align-items:center;justify-content:space-between;
+      padding:0 32px;height:60px;
+      background:rgba(2,6,23,.8);backdrop-filter:blur(16px);
+      border-bottom:1px solid var(--line);
+    }
+    .nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none}
+    .nav-brand img{width:30px;height:30px;border-radius:8px}
+    .nav-brand span{font-size:14px;font-weight:800;color:var(--text);letter-spacing:-.01em}
+    .private-badge{
+      font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+      background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);
+      color:var(--amber);border-radius:6px;padding:3px 10px;
+    }
+
+    /* Page */
+    .page{max-width:860px;margin:0 auto;padding:56px 24px 100px;position:relative;z-index:1}
+
+    /* Hero */
+    .hero-eyebrow{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+    .hero-title{font-size:38px;font-weight:900;letter-spacing:-.03em;line-height:1.1;margin-bottom:8px}
+    .hero-sub{font-size:15px;color:var(--muted);line-height:1.7;margin-bottom:40px;max-width:560px}
+
+    /* Module card */
+    .module-card{
+      background:rgba(6,21,58,.7);
+      border:1px solid var(--line);
+      border-radius:20px;
+      padding:32px 36px;
+      margin-bottom:32px;
+      display:flex;gap:24px;align-items:flex-start;
+    }
+    .module-icon{
+      width:60px;height:60px;border-radius:16px;flex-shrink:0;
+      background:linear-gradient(135deg,rgba(37,99,235,.35),rgba(99,102,241,.2));
+      border:1px solid rgba(99,130,255,.2);
+      display:flex;align-items:center;justify-content:center;font-size:28px;
+    }
+    .module-name{font-size:22px;font-weight:800;letter-spacing:-.02em;margin-bottom:6px}
+    .module-desc{font-size:14px;color:var(--muted);line-height:1.7;margin-bottom:16px}
+    .module-price{
+      display:inline-flex;align-items:baseline;gap:4px;
+      font-size:28px;font-weight:900;letter-spacing:-.03em;
+      color:var(--accent);
+    }
+    .module-price-period{font-size:14px;font-weight:500;color:var(--muted)}
+    .features-list{list-style:none;margin-top:16px;display:flex;flex-direction:column;gap:6px}
+    .features-list li{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}
+    .features-list li::before{content:'✓';color:var(--green);font-weight:700;flex-shrink:0}
+
+    /* Billing toggle */
+    .billing-toggle{
+      display:inline-flex;background:rgba(255,255,255,.06);border:1px solid var(--line);
+      border-radius:10px;padding:3px;margin-bottom:28px;
+    }
+    .billing-opt{
+      padding:7px 20px;border-radius:8px;font-size:13px;font-weight:600;
+      border:none;background:transparent;color:var(--muted);cursor:pointer;
+      transition:background .15s,color .15s;
+    }
+    .billing-opt.active{background:var(--accent-soft);color:var(--accent);border:1px solid rgba(120,170,255,.3)}
+    .saving-badge{
+      font-size:11px;font-weight:700;background:var(--green-soft);color:var(--green);
+      border-radius:5px;padding:2px 7px;margin-left:6px;
+    }
+
+    /* Checkout section */
+    .checkout-card{
+      background:rgba(6,21,58,.7);
+      border:1px solid var(--line);
+      border-radius:20px;padding:32px 36px;
+    }
+    .checkout-card h2{font-size:18px;font-weight:800;letter-spacing:-.02em;margin-bottom:20px}
+    .field{margin-bottom:16px}
+    .field label{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(234,240,255,.45);margin-bottom:7px}
+    .field input,.field select{
+      width:100%;background:rgba(255,255,255,.05);border:1px solid var(--line);
+      border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;
+      font-family:inherit;outline:none;
+      transition:border-color .2s,box-shadow .2s;
+    }
+    .field input:focus,.field select:focus{border-color:rgba(120,170,255,.5);box-shadow:0 0 0 3px rgba(120,170,255,.1)}
+    .field select option{background:#06153a}
+    .field-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .submit-btn{
+      width:100%;margin-top:8px;
+      background:linear-gradient(135deg,#2563eb,#4f46e5);
+      color:#fff;border:none;border-radius:12px;
+      padding:14px;font-size:15px;font-weight:700;font-family:inherit;
+      cursor:pointer;transition:opacity .2s,transform .1s;
+      letter-spacing:.01em;
+    }
+    .submit-btn:hover{opacity:.9}
+    .submit-btn:active{transform:scale(.98)}
+    .submit-btn:disabled{opacity:.4;cursor:not-allowed}
+    .secure-note{font-size:12px;color:var(--muted);text-align:center;margin-top:10px}
+    .err{
+      background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);
+      color:#fca5a5;border-radius:10px;padding:12px 16px;font-size:13px;
+      margin-bottom:16px;display:none;
+    }
+
+    /* States */
+    #loadingState,#notFoundState{text-align:center;padding:80px 24px}
+    .spinner{width:36px;height:36px;border-radius:50%;border:3px solid rgba(255,255,255,.08);border-top-color:var(--accent);animation:spin .8s linear infinite;margin:0 auto 16px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    @media(max-width:600px){
+      .nav{padding:0 16px}
+      .page{padding:32px 16px 80px}
+      .hero-title{font-size:26px}
+      .module-card{flex-direction:column;padding:20px}
+      .checkout-card{padding:20px}
+      .field-row{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a class="nav-brand" href="/">
+    <img src="/SmartCore Official Logos/SC Icon - Black Background.png" alt="SmartCore">
+    <span>SmartCore</span>
+  </a>
+  <span class="private-badge">🔒 Private</span>
+</nav>
+
+<div class="page">
+  <div id="loadingState">
+    <div class="spinner"></div>
+    <div style="color:var(--muted);font-size:14px">Loading your private page…</div>
+  </div>
+
+  <div id="notFoundState" style="display:none">
+    <div style="font-size:40px;margin-bottom:12px">🔒</div>
+    <div style="font-size:20px;font-weight:800;margin-bottom:8px">Page not found</div>
+    <div style="font-size:14px;color:var(--muted)">This private checkout link is invalid or has expired. Contact <a href="mailto:support@smartcoretechnology.co.uk" style="color:var(--accent)">support@smartcoretechnology.co.uk</a>.</div>
+  </div>
+
+  <div id="mainContent" style="display:none">
+    <div class="hero-eyebrow" id="heroEyebrow">Exclusive for</div>
+    <h1 class="hero-title" id="heroTitle">—</h1>
+    <p class="hero-sub" id="heroSub">—</p>
+
+    <div class="module-card">
+      <div class="module-icon" id="modIcon">📦</div>
+      <div style="flex:1;min-width:0">
+        <div class="module-name" id="modName">—</div>
+        <div class="module-desc" id="modDesc">—</div>
+        <div id="priceDisplay"></div>
+        <ul class="features-list" id="featuresList"></ul>
+      </div>
+    </div>
+
+    <div class="billing-toggle" id="billingToggle" style="display:none">
+      <button class="billing-opt active" id="btnMonthly" onclick="setBilling('monthly')">Monthly</button>
+      <button class="billing-opt" id="btnYearly" onclick="setBilling('yearly')">Annual <span class="saving-badge">Save 8%</span></button>
+    </div>
+
+    <div class="checkout-card">
+      <h2>Complete your order</h2>
+      <div class="err" id="formErr"></div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>First name *</label>
+          <input id="fFirst" type="text" placeholder="Jane" autocomplete="given-name"/>
+        </div>
+        <div class="field">
+          <label>Last name *</label>
+          <input id="fLast" type="text" placeholder="Smith" autocomplete="family-name"/>
+        </div>
+      </div>
+      <div class="field">
+        <label>Company name *</label>
+        <input id="fCompany" type="text" placeholder="Acme Ltd" autocomplete="organization"/>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Work email *</label>
+          <input id="fEmail" type="email" placeholder="jane@acmeltd.co.uk" autocomplete="email"/>
+        </div>
+        <div class="field">
+          <label>Phone number</label>
+          <input id="fPhone" type="tel" placeholder="+44 7700 000000" autocomplete="tel"/>
+        </div>
+      </div>
+      <div class="field">
+        <label>Accounts / billing email <span style="font-weight:400;text-transform:none;letter-spacing:0;color:rgba(234,240,255,.3)">Optional</span></label>
+        <input id="fAccountsEmail" type="email" placeholder="accounts@acmeltd.co.uk"/>
+      </div>
+
+      <button class="submit-btn" id="submitBtn" onclick="submitOrder()">
+        Proceed to payment →
+      </button>
+      <p class="secure-note">🔒 Secure checkout powered by Stripe</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const sb = supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
+
+// Read slug from ?slug= query param first, then fall back to URL path
+const _qSlug = new URLSearchParams(location.search).get('slug');
+const _pathParts = location.pathname.replace(/\/+$/,'').split('/');
+const _pathSlug = _pathParts[_pathParts.length - 1];
+const PAGE_SLUG = _qSlug || (_pathSlug !== 'private' ? _pathSlug : '');
+
+let MODULE = null;
+let billing = 'monthly';
+
+async function init() {
+  if (!PAGE_SLUG || PAGE_SLUG === 'private') {
+    showNotFound(); return;
+  }
+
+  const { data, error } = await sb
+    .from('marketplace_modules')
+    .select('*')
+    .eq('private_page_slug', PAGE_SLUG)
+    .eq('is_private', true)
+    .eq('status', 'published')
+    .single();
+
+  if (error || !data) { showNotFound(); return; }
+  MODULE = data;
+  render();
+}
+
+function render() {
+  const m = MODULE;
+  document.title = `SmartCore — ${m.name}`;
+
+  document.getElementById('heroEyebrow').textContent = m.private_company_name ? `Exclusive for ${m.private_company_name}` : 'Private module';
+  document.getElementById('heroTitle').textContent = m.name;
+  document.getElementById('heroSub').textContent = m.long_description || m.short_description || '';
+  document.getElementById('modName').textContent = m.name;
+  document.getElementById('modDesc').textContent = m.short_description || '';
+
+  // Pre-fill company if we know it
+  if (m.private_company_name) document.getElementById('fCompany').value = m.private_company_name;
+  if (m.private_client_email) document.getElementById('fEmail').value = m.private_client_email;
+
+  // Features
+  const fl = document.getElementById('featuresList');
+  (m.features || []).forEach(f => {
+    const li = document.createElement('li');
+    li.textContent = f;
+    fl.appendChild(li);
+  });
+
+  // Billing toggle — only show if both prices exist
+  const hasYearly = m.yearly_price && m.yearly_price > 0;
+  if (hasYearly) document.getElementById('billingToggle').style.display = 'inline-flex';
+
+  updatePriceDisplay();
+  document.getElementById('loadingState').style.display = 'none';
+  document.getElementById('mainContent').style.display = 'block';
+}
+
+function updatePriceDisplay() {
+  const m = MODULE;
+  const price = billing === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+  const period = billing === 'yearly' ? '/yr' : '/mo';
+  document.getElementById('priceDisplay').innerHTML =
+    `<div class="module-price">£${Number(price||0).toFixed(2)}<span class="module-price-period">${period}</span></div>`;
+  document.getElementById('submitBtn').textContent = `Proceed to payment — £${Number(price||0).toFixed(2)}${period} →`;
+}
+
+function setBilling(b) {
+  billing = b;
+  document.getElementById('btnMonthly').classList.toggle('active', b === 'monthly');
+  document.getElementById('btnYearly').classList.toggle('active', b === 'yearly');
+  updatePriceDisplay();
+}
+
+function genRef() {
+  const year = new Date().getFullYear();
+  const rand = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6);
+  return `SC-${year}-${rand}`;
+}
+
+async function submitOrder() {
+  const btn = document.getElementById('submitBtn');
+  const err = document.getElementById('formErr');
+  err.style.display = 'none';
+
+  const first   = document.getElementById('fFirst').value.trim();
+  const last    = document.getElementById('fLast').value.trim();
+  const company = document.getElementById('fCompany').value.trim();
+  const email   = document.getElementById('fEmail').value.trim();
+  const phone   = document.getElementById('fPhone').value.trim();
+  const accounts = document.getElementById('fAccountsEmail').value.trim();
+
+  if (!first || !last || !company || !email) {
+    err.textContent = 'Please fill in your name, company, and email.';
+    err.style.display = 'block'; return;
+  }
+  if (!email.includes('@')) {
+    err.textContent = 'Please enter a valid email address.';
+    err.style.display = 'block'; return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Creating order…';
+
+  const m = MODULE;
+  const price = billing === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
+
+  // Same pattern as the public shop checkout (shop/checkout.html): insert
+  // the order directly via Supabase, then hand off to /shop/payment.html
+  // with its id — that page is the one that knows how to turn an order into
+  // a Stripe subscription (via /api/stripe-checkout) and mount the embedded
+  // Payment Element. /api/stripe-checkout itself only ever returns a
+  // {client_secret}, not a checkout_url/url, so calling it directly from
+  // here and redirecting to its result would hit the exact same "undefined"
+  // bug this was meant to fix, just one step further along.
+  try {
+    const { data: insertedRows, error } = await sb.from('marketplace_orders').insert({
+      order_reference: genRef(),
+      company_name:    company,
+      contact_name:    `${first} ${last}`,
+      email:           email.toLowerCase(),
+      accounts_email:  accounts ? accounts.toLowerCase() : null,
+      phone:           phone || null,
+      modules: [{
+        id:            m.id,
+        slug:          m.slug || '',
+        name:          m.name,
+        monthly_price: m.monthly_price,
+        is_flat_rate:  !!m.is_flat_rate,
+        yearly_price:  m.yearly_price,
+        price,
+      }],
+      billing_type:    billing,
+      size_tier:       'standard',
+      size_multiplier: 1,
+      subtotal:        price,
+      discount_amount: 0,
+      total:           price,
+      status:          'pending_payment',
+    }).select('id');
+
+    if (error) throw new Error(error.message);
+    const orderId = insertedRows?.[0]?.id;
+    if (!orderId) throw new Error('Order could not be created.');
+
+    btn.textContent = 'Redirecting to payment…';
+    window.location.href = `/shop/payment.html?order_id=${encodeURIComponent(orderId)}`;
+  } catch (e) {
+    err.textContent = e.message || 'Something went wrong. Please try again or email support@smartcoretechnology.co.uk.';
+    err.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Proceed to payment →';
+  }
+}
+
+function showNotFound() {
+  document.getElementById('loadingState').style.display = 'none';
+  document.getElementById('notFoundState').style.display = 'block';
+}
+
+init();
+</script>
+</body>
+</html>

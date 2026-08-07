@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Vehicles — Convoy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/convoy/shared/convoy.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Vehicles</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireConvoyAccess, hasPermission } from "/systems/convoy/shared/auth.js";
+  import { vehicles } from "/systems/convoy/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/convoy/shared/nav.js";
+  import { initTheme } from "/systems/convoy/shared/theme.js";
+  import { mountLocationPicker, geocodeAddress } from "/systems/convoy/shared/mapPicker.js";
+  import {
+    esc, statusBadge, fmtDate, daysUntil, toast, modal,
+    loadingState, emptyState, errorState, setInner,
+  } from "/systems/convoy/shared/ui.js";
+
+  initTheme();
+  let _profile = null, _companyId = null, _admin = false;
+
+  try {
+    const { profile, admin } = await requireConvoyAccess();
+    _profile = profile; _companyId = profile.company_id; _admin = admin;
+    renderNav("vehicles", profile, { admin });
+    initMobileNav(); initTopbar();
+
+    if (new URLSearchParams(location.search).get("new") === "1" && (admin || hasPermission("convoy.manage_vehicles"))) {
+      openVehicleModal();
+    }
+
+    await load();
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Convoy", message: e.message }));
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading vehicles…"));
+    try {
+      const list = await vehicles.list(_companyId);
+      render(list);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load vehicles", message: e.message, retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", load);
+    }
+  }
+
+  function render(list) {
+    const canManage = _admin || hasPermission("convoy.manage_vehicles");
+    const html = `
+      <div class="sl-page-head">
+        <div><h2>Vehicles</h2><p>${list.length} vehicle${list.length === 1 ? "" : "s"} in the fleet.</p></div>
+        ${canManage ? `<button class="btn btn-primary" id="addBtn"><i data-lucide="plus"></i> Add Vehicle</button>` : ""}
+      </div>
+      ${list.length === 0
+        ? emptyState({ icon: "truck", title: "No vehicles yet", message: "Add your first vehicle to start doing daily checks.", actionHtml: canManage ? `<button class="btn btn-primary" id="emptyAddBtn">Add Vehicle</button>` : "" })
+        : `<div class="sl-project-grid">${list.map(vehicleCard).join("")}</div>`}
+    `;
+    setInner("body", html);
+    document.getElementById("addBtn")?.addEventListener("click", () => openVehicleModal());
+    document.getElementById("emptyAddBtn")?.addEventListener("click", () => openVehicleModal());
+    document.querySelectorAll("[data-vehicle-card]").forEach(el => {
+      el.addEventListener("click", () => { window.location.href = `vehicle-detail.html?id=${el.dataset.id}`; });
+    });
+  }
+
+  function vehicleCard(v) {
+    const compliance = [
+      v.mot_due && { l: "MOT", d: v.mot_due }, v.tax_due && { l: "Tax", d: v.tax_due },
+      v.insurance_due && { l: "Ins.", d: v.insurance_due }, v.service_due && { l: "Service", d: v.service_due },
+    ].filter(Boolean);
+    const soonest = compliance.map(c => daysUntil(c.d)).filter(d => d !== null).sort((a, b) => a - b)[0];
+    return `
+      <div class="sl-project-card" data-vehicle-card data-id="${esc(v.id)}" style="cursor:pointer">
+        <div class="sl-project-body">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <h3>${esc(v.registration)}</h3>
+            ${statusBadge(v.status)}
+          </div>
+          <div class="sl-project-meta"><i data-lucide="truck"></i> ${esc([v.make, v.model].filter(Boolean).join(" ") || v.vehicle_type)}</div>
+          ${v.driver ? `<div class="sl-project-meta"><i data-lucide="user"></i> ${esc(v.driver.full_name)}</div>` : ""}
+          <div class="sl-project-stats">
+            ${v.current_mileage != null ? `<span><i data-lucide="gauge"></i> ${esc(v.current_mileage)} mi</span>` : ""}
+            ${soonest != null ? `<span><i data-lucide="calendar"></i> ${soonest < 0 ? "Overdue" : `Due ${soonest}d`}</span>` : ""}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  let _picker = null;
+  function openVehicleModal(existing) {
+    const isEdit = !!existing;
+    const overlay = modal(`
+      <div class="modal-header"><h3>${isEdit ? "Edit Vehicle" : "Add Vehicle"}</h3><button class="modal-close" aria-label="Close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Registration</label><input class="form-input" id="fReg" value="${esc(existing?.registration || "")}"/></div>
+          <div class="form-field"><label class="form-label">Type</label>
+            <select class="form-select" id="fType">
+              ${["car","van","minibus","hgv","plant","other"].map(t => `<option value="${t}" ${existing?.vehicle_type === t ? "selected" : ""}>${t}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Make</label><input class="form-input" id="fMake" value="${esc(existing?.make || "")}"/></div>
+          <div class="form-field"><label class="form-label">Model</label><input class="form-input" id="fModel" value="${esc(existing?.model || "")}"/></div>
+        </div>
+        <div class="form-field"><label class="form-label">Current mileage</label><input class="form-input" type="number" id="fMileage" value="${existing?.current_mileage ?? ""}"/></div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">MOT due</label><input class="form-input" type="date" id="fMot" value="${existing?.mot_due || ""}"/></div>
+          <div class="form-field"><label class="form-label">Tax due</label><input class="form-input" type="date" id="fTax" value="${existing?.tax_due || ""}"/></div>
+        </div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Insurance due</label><input class="form-input" type="date" id="fIns" value="${existing?.insurance_due || ""}"/></div>
+          <div class="form-field"><label class="form-label">Service due</label><input class="form-input" type="date" id="fService" value="${existing?.service_due || ""}"/></div>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Depot / home location <span class="form-hint">(used to flag checks done away from base)</span></label>
+          <div class="sl-search-wrap" style="margin-bottom:8px">
+            <i data-lucide="search" class="sl-search-icon"></i>
+            <input class="form-input" id="fAddress" placeholder="Search an address…"/>
+          </div>
+          <div class="sl-location-map" id="mapHost"></div>
+          <div class="sl-location-coords" id="mapCoords">${existing?.depot_latitude ? `${existing.depot_latitude}, ${existing.depot_longitude}` : "No location set"}</div>
+        </div>
+        <div class="form-field"><label class="form-label">Geofence radius (metres)</label><input class="form-input" type="number" id="fRadius" value="${existing?.geofence_radius_m ?? 150}"/></div>
+        <div class="form-field"><label class="form-label">Notes</label><textarea class="form-textarea" id="fNotes">${esc(existing?.notes || "")}</textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="cancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">${isEdit ? "Save Changes" : "Add Vehicle"}</button>
+      </div>
+    `, { size: "wide" });
+
+    document.getElementById("cancelBtn").addEventListener("click", () => overlay.close());
+
+    let coords = existing?.depot_latitude ? { latitude: existing.depot_latitude, longitude: existing.depot_longitude } : null;
+    mountLocationPicker(document.getElementById("mapHost"), {
+      latitude: coords?.latitude, longitude: coords?.longitude,
+      onChange: (c) => { coords = c; document.getElementById("mapCoords").textContent = `${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)}`; },
+    }).then(p => { _picker = p; });
+
+    document.getElementById("fAddress").addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const loc = await geocodeAddress(e.target.value);
+      if (loc) { coords = loc; _picker?.setPosition(loc.latitude, loc.longitude); document.getElementById("mapCoords").textContent = `${loc.latitude.toFixed(6)}, ${loc.longitude.toFixed(6)}`; }
+      else toast("error", "Address not found");
+    });
+
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      const reg = document.getElementById("fReg").value.trim();
+      if (!reg) return toast("error", "Registration is required");
+      const payload = {
+        registration: reg.toUpperCase(),
+        vehicle_type: document.getElementById("fType").value,
+        make: document.getElementById("fMake").value.trim() || null,
+        model: document.getElementById("fModel").value.trim() || null,
+        current_mileage: document.getElementById("fMileage").value ? Number(document.getElementById("fMileage").value) : null,
+        mot_due: document.getElementById("fMot").value || null,
+        tax_due: document.getElementById("fTax").value || null,
+        insurance_due: document.getElementById("fIns").value || null,
+        service_due: document.getElementById("fService").value || null,
+        depot_latitude: coords?.latitude ?? null,
+        depot_longitude: coords?.longitude ?? null,
+        geofence_radius_m: Number(document.getElementById("fRadius").value) || 150,
+        notes: document.getElementById("fNotes").value.trim() || null,
+      };
+      try {
+        if (isEdit) await vehicles.update(existing.id, payload);
+        else await vehicles.create(_companyId, _profile.id, payload);
+        toast("success", isEdit ? "Vehicle updated" : "Vehicle added");
+        overlay.close();
+        load();
+      } catch (e) {
+        toast("error", "Couldn't save vehicle", e.message);
+      }
+    });
+  }
+</script>
+</body>
+</html>

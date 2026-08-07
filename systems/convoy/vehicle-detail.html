@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Vehicle — Convoy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/convoy/shared/convoy.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1 id="pageTitle">Vehicle</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireConvoyAccess, hasPermission } from "/systems/convoy/shared/auth.js";
+  import { vehicles, checks, defects, drivers } from "/systems/convoy/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/convoy/shared/nav.js";
+  import { initTheme } from "/systems/convoy/shared/theme.js";
+  import {
+    esc, statusBadge, severityBadge, integrityBadges, fmtDate, fmtDateTime, daysUntil, toast, modal,
+    loadingState, emptyState, errorState, setInner,
+  } from "/systems/convoy/shared/ui.js";
+
+  initTheme();
+  const vehicleId = new URLSearchParams(location.search).get("id");
+  let _profile = null, _companyId = null, _admin = false;
+
+  if (!vehicleId) {
+    document.getElementById("content").innerHTML = errorState({ title: "No vehicle specified" });
+  } else {
+    try {
+      const { profile, admin } = await requireConvoyAccess();
+      _profile = profile; _companyId = profile.company_id; _admin = admin;
+      renderNav("vehicles", profile, { admin });
+      initMobileNav(); initTopbar();
+      await load();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load Convoy", message: e.message }));
+    }
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading vehicle…"));
+    try {
+      const [vehicle, recentChecks, vehicleDefects, employees] = await Promise.all([
+        vehicles.get(vehicleId),
+        checks.listForCompany(_companyId, { vehicleId, limit: 20 }),
+        defects.list(_companyId, { vehicleId }),
+        drivers.listCompanyEmployees(_companyId),
+      ]);
+      document.getElementById("pageTitle").textContent = vehicle.registration;
+      render(vehicle, recentChecks, vehicleDefects, employees);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load vehicle", message: e.message, retryId: "retry" }));
+      document.getElementById("retry")?.addEventListener("click", load);
+    }
+  }
+
+  function render(v, checkList, defectList, employees) {
+    const canManage = _admin || hasPermission("convoy.manage_vehicles");
+    const compliance = [
+      { l: "MOT", d: v.mot_due }, { l: "Tax", d: v.tax_due },
+      { l: "Insurance", d: v.insurance_due }, { l: "Service", d: v.service_due },
+    ];
+
+    const html = `
+      <div class="sl-page-head">
+        <div>
+          <h2>${esc(v.registration)} ${statusBadge(v.status)}</h2>
+          <p>${esc([v.make, v.model].filter(Boolean).join(" ") || v.vehicle_type)}${v.driver ? " · Assigned to " + esc(v.driver.full_name) : ""}</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <a class="btn btn-primary" href="check.html?vehicle=${esc(v.id)}"><i data-lucide="camera"></i> Do a Check</a>
+          ${canManage ? `<button class="btn" id="editBtn"><i data-lucide="pencil"></i> Edit</button>` : ""}
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        ${compliance.map(c => {
+          const days = daysUntil(c.d);
+          return `<div class="stat-card ${days != null && days < 14 ? (days < 0 ? "bad" : "warn") : ""}">
+            <div class="stat-value" style="font-size:16px">${c.d ? esc(fmtDate(c.d)) : "—"}</div>
+            <div class="stat-label">${c.l}${days != null ? (days < 0 ? ` · Overdue ${Math.abs(days)}d` : ` · ${days}d left`) : ""}</div>
+          </div>`;
+        }).join("")}
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header-row"><h2>Open / Recent Defects</h2><a class="btn" href="defects.html?vehicle=${esc(v.id)}">All →</a></div>
+        ${defectList.length === 0 ? emptyState({ icon: "check-circle", title: "No defects reported" }) :
+          `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Title</th><th>Severity</th><th>Status</th><th>Reported</th></tr></thead><tbody>
+            ${defectList.slice(0, 8).map(d => `
+              <tr class="clickable" onclick="location.href='defect-detail.html?id=${esc(d.id)}'">
+                <td>${esc(d.title)}</td><td>${severityBadge(d.severity)}</td><td>${statusBadge(d.status)}</td><td>${esc(fmtDate(d.created_at))}</td>
+              </tr>`).join("")}
+          </tbody></table></div>`}
+      </div>
+
+      <div class="card">
+        <div class="card-header-row"><h2>Check History</h2><a class="btn" href="checks.html?vehicle=${esc(v.id)}">All →</a></div>
+        ${checkList.length === 0 ? emptyState({ icon: "clipboard-check", title: "No checks recorded yet" }) :
+          `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Date</th><th>Driver</th><th>Type</th><th>Result</th><th>Integrity</th></tr></thead><tbody>
+            ${checkList.map(c => `
+              <tr class="clickable" onclick="location.href='check-detail.html?id=${esc(c.id)}'">
+                <td>${esc(fmtDateTime(c.submitted_at))}</td>
+                <td>${esc(c.driver?.full_name || "—")}</td>
+                <td>${esc(c.check_type)}</td>
+                <td>${c.overall_result === "pass" ? statusBadge("resolved") : statusBadge("open")}</td>
+                <td><div class="integrity-flags">${integrityBadges(c.integrity_flags)}</div></td>
+              </tr>`).join("")}
+          </tbody></table></div>`}
+      </div>
+    `;
+    setInner("body", html);
+
+    document.getElementById("editBtn")?.addEventListener("click", () => openEditModal(v, employees));
+  }
+
+  function openEditModal(v, employees) {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Edit ${esc(v.registration)}</h3><button class="modal-close" aria-label="Close">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field"><label class="form-label">Status</label>
+          <select class="form-select" id="fStatus">
+            ${["active","vor","retired"].map(s => `<option value="${s}" ${v.status === s ? "selected" : ""}>${s.toUpperCase()}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-field"><label class="form-label">Assigned driver</label>
+          <select class="form-select" id="fDriver">
+            <option value="">— None —</option>
+            ${employees.map(e => `<option value="${esc(e.id)}" ${v.assigned_driver_id === e.id ? "selected" : ""}>${esc(e.full_name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-field"><label class="form-label">Current mileage</label><input class="form-input" type="number" id="fMileage" value="${v.current_mileage ?? ""}"/></div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">MOT due</label><input class="form-input" type="date" id="fMot" value="${v.mot_due || ""}"/></div>
+          <div class="form-field"><label class="form-label">Tax due</label><input class="form-input" type="date" id="fTax" value="${v.tax_due || ""}"/></div>
+        </div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Insurance due</label><input class="form-input" type="date" id="fIns" value="${v.insurance_due || ""}"/></div>
+          <div class="form-field"><label class="form-label">Service due</label><input class="form-input" type="date" id="fService" value="${v.service_due || ""}"/></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="cancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="saveBtn">Save Changes</button>
+      </div>
+    `);
+    document.getElementById("cancelBtn").addEventListener("click", () => overlay.close());
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      try {
+        await vehicles.update(v.id, {
+          status: document.getElementById("fStatus").value,
+          assigned_driver_id: document.getElementById("fDriver").value || null,
+          current_mileage: document.getElementById("fMileage").value ? Number(document.getElementById("fMileage").value) : null,
+          mot_due: document.getElementById("fMot").value || null,
+          tax_due: document.getElementById("fTax").value || null,
+          insurance_due: document.getElementById("fIns").value || null,
+          service_due: document.getElementById("fService").value || null,
+        });
+        toast("success", "Vehicle updated");
+        overlay.close();
+        load();
+      } catch (e) {
+        toast("error", "Couldn't save changes", e.message);
+      }
+    });
+  }
+</script>
+</body>
+</html>

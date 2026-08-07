@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Top Contributors — SmartCore Vehicle Installations Database</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/vehicledb.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="vdb-shell">
+  <nav class="vdb-sidebar" id="vdbNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="vdb-main">
+    <div class="vdb-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Top Contributors</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="vdb-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
+  import { listChangeRequestLeaderboard, getEmployeesByIds } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
+  import { esc, initials, setInner, loadingState, emptyState, errorState } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+
+  initTheme();
+
+  try {
+    const { profile, tier } = await requireModuleAccess();
+    renderNav("leaderboard", profile, tier);
+    initMobileNav();
+    initTopbar();
+    await render();
+  } catch (e) {
+    if (!document.body.innerHTML.includes("vdb-state")) {
+      setInner("body", errorState({ title: "Couldn't load Top Contributors", message: e.message }));
+    }
+  }
+
+  async function render() {
+    setInner("body", loadingState("Tallying submissions…"));
+    try {
+      const counts = await listChangeRequestLeaderboard();
+      const employees = await getEmployeesByIds(counts.map(c => c.employee_id));
+      const employeeById = Object.fromEntries(employees.map(e => [e.id, e]));
+
+      const ranked = counts
+        .map(c => ({ employee: employeeById[c.employee_id], count: Number(c.request_count) }))
+        .filter(r => r.employee);
+
+      draw(ranked);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load Top Contributors", message: e.message }));
+    }
+  }
+
+  function draw(ranked) {
+    const html = `
+      <div class="page-head">
+        <div>
+          <h2>Top Contributors</h2>
+          <p>Everyone who's helped keep the database accurate, ranked by suggested changes submitted.</p>
+        </div>
+      </div>
+      <div id="leaderboardList"></div>
+    `;
+    setInner("body", html);
+
+    const list = document.getElementById("leaderboardList");
+    if (!ranked.length) {
+      list.innerHTML = emptyState({
+        icon: "trophy",
+        title: "Nothing to rank yet",
+        message: "Once employees start suggesting changes to vehicles, the top contributors will show up here.",
+      });
+      return;
+    }
+
+    list.innerHTML = ranked.map((r, i) => {
+      const rank = i + 1;
+      const rankClass = rank === 1 ? "gold" : rank === 2 ? "silver" : rank === 3 ? "bronze" : "";
+      return `
+        <div class="leaderboard-row">
+          <div class="leaderboard-rank ${rankClass}">${rank}</div>
+          <div class="avatar avatar-md">${esc(initials(r.employee.full_name))}</div>
+          <div class="leaderboard-info">
+            <div class="leaderboard-name">${esc(r.employee.full_name)}</div>
+            <div class="leaderboard-meta">${esc(r.employee.job_title || "—")}</div>
+          </div>
+          <div class="leaderboard-score">${r.count}</div>
+        </div>`;
+    }).join("");
+    window.lucide?.createIcons?.();
+  }
+</script>
+</body>
+</html>

@@ -139,7 +139,11 @@
     tbody tr{cursor:pointer;transition:background .1s;}
     tbody tr:hover td{background:rgba(255,255,255,.03);}
     .emp-cell{display:flex;align-items:center;gap:12px;}
-    .avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,rgba(91,143,255,.5),rgba(14,165,255,.3));border:1px solid rgba(91,143,255,.35);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;}
+    .avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,rgba(91,143,255,.5),rgba(14,165,255,.3));border:1px solid rgba(91,143,255,.35);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;overflow:hidden;}
+    .avatar img,.emp-view-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;}
+    [data-av-upload]{position:relative;cursor:pointer;}
+    [data-av-upload]::after{content:'📷';position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;font-size:15px;opacity:0;transition:opacity .15s;}
+    [data-av-upload]:hover::after{opacity:1;}
     .emp-name{font-size:13px;font-weight:600;letter-spacing:-.01em;}
     .emp-title{font-size:11px;color:var(--muted);margin-top:1px;}
     .mono{font-family:'SF Mono',ui-monospace,monospace;font-size:11px;color:var(--muted);}
@@ -343,7 +347,7 @@
     .emp-view-card{width:min(880px,100%);height:min(800px,92vh);background:linear-gradient(145deg,#0d1020,#090c18);border:1px solid rgba(255,255,255,.09);border-radius:24px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 60px 140px rgba(0,0,0,.85);}
     .emp-view-head{padding:22px 28px 20px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
     .emp-view-hero{display:flex;align-items:center;gap:16px;}
-    .emp-view-avatar{width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,rgba(91,143,255,.5),rgba(14,165,255,.3));border:2px solid rgba(91,143,255,.3);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff;flex-shrink:0;}
+    .emp-view-avatar{width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,rgba(91,143,255,.5),rgba(14,165,255,.3));border:2px solid rgba(91,143,255,.3);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff;flex-shrink:0;overflow:hidden;}
     .emp-view-name{font-size:20px;font-weight:800;letter-spacing:-.04em;}
     .emp-view-sub{font-size:13px;color:var(--muted);margin-top:3px;}
     .emp-view-body{flex:1;overflow-y:auto;padding:24px 28px;display:grid;grid-template-columns:1fr 1fr;gap:16px;align-content:start;}
@@ -1387,7 +1391,11 @@ function renderMyProfile() {
 function openMyEdit() {
   const e = myEmpRecord;
   if(!e) return;
-  document.getElementById('mpEditAvatar').textContent = initials(e.full_name);
+  const mpAv = document.getElementById('mpEditAvatar');
+  setAvatarImg(mpAv, e);
+  mpAv.setAttribute('data-av-upload', '');
+  mpAv.title = 'Click to change photo';
+  mpAv.onclick = uploadMyAvatar;
   document.getElementById('mpEditName').textContent = e.full_name;
   document.getElementById('mp_pronouns').value = e.pronouns||'';
   document.getElementById('mp_dob').value = e.date_of_birth||'';
@@ -1539,7 +1547,7 @@ function renderTable(rows) {
       <tbody>${rows.map(e=>`
         <tr data-id="${e.id}">
           <td><div class="emp-cell">
-            <div class="avatar">${initials(e.full_name)}</div>
+            <div class="avatar">${avatarElHtml(e)}</div>
             <div><div class="emp-name">${esc(e.full_name)}</div><div class="emp-title">${esc(e.job_title||'')}</div></div>
           </div></td>
           <td><span class="mono">${esc(e.employee_id||'')}</span></td>
@@ -1561,7 +1569,17 @@ function openView(emp) {
   const shift = shiftPatterns.find(s=>s.id===emp.shift_pattern_id);
   const dept = emp.department?.name || emp.department_name || '—';
 
-  document.getElementById('evAvatar').textContent = initials(emp.full_name);
+  const evAv = document.getElementById('evAvatar');
+  setAvatarImg(evAv, emp);
+  if (['admin','owner'].includes(role)) {
+    evAv.setAttribute('data-av-upload', '');
+    evAv.title = 'Click to change photo';
+    evAv.onclick = () => uploadAvatarForEmp(emp);
+  } else {
+    evAv.removeAttribute('data-av-upload');
+    evAv.title = '';
+    evAv.onclick = null;
+  }
   document.getElementById('evName').textContent = emp.full_name;
   document.getElementById('evSub').textContent = [emp.job_title, dept].filter(v=>v&&v!=='—').join(' · ') || 'No title set';
 
@@ -2747,6 +2765,226 @@ function fmtDate(d){try{return new Date(d).toLocaleDateString('en-GB',{day:'2-di
 function fmtEmpType(t,c){if(t==='full_time')return'Full Time';if(t==='part_time')return'Part Time';return c||'Other';}
 
 init();
+
+// ── Avatar helpers ───────────────────────────────────────────────────────────
+function setAvatarImg(el, emp) {
+  el.innerHTML = '';
+  if (emp?.profile_picture_url) {
+    const img = document.createElement('img');
+    img.src = emp.profile_picture_url;
+    img.alt = emp.full_name || '';
+    img.onerror = () => { el.innerHTML = ''; el.textContent = initials(emp.full_name); };
+    el.appendChild(img);
+  } else {
+    el.textContent = initials(emp.full_name);
+  }
+}
+
+function avatarElHtml(emp) {
+  if (emp?.profile_picture_url) {
+    const safeUrl = emp.profile_picture_url.replace(/"/g, '%22');
+    return `<img src="${safeUrl}" alt="" onerror="this.outerHTML='${initials(emp.full_name)}'" />`;
+  }
+  return initials(emp.full_name);
+}
+
+// ── Crop modal ───────────────────────────────────────────────────────────────
+let _cropImg = null, _cropCb = null, _cropScale = 1, _cropMinScale = 1;
+let _cropOX = 0, _cropOY = 0, _cropDrag = false, _cropDX = 0, _cropDY = 0;
+const _CS = 280;
+
+function _showCrop(file, cb) {
+  _cropCb = cb;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    _cropImg = img;
+    _cropMinScale = Math.max(_CS / img.width, _CS / img.height);
+    _cropScale = _cropMinScale;
+    _cropOX = (_CS - img.width * _cropScale) / 2;
+    _cropOY = (_CS - img.height * _cropScale) / 2;
+    document.getElementById('cropZoom').value = 1;
+    _drawCrop();
+    const ov = document.getElementById('cropOverlay');
+    ov.style.display = 'flex';
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); toast('err','Bad image','Could not read the selected file.'); };
+  img.src = url;
+}
+
+function _drawCrop() {
+  const c = document.getElementById('cropCanvas');
+  c.width = _CS; c.height = _CS;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, _CS, _CS);
+  ctx.drawImage(_cropImg, _cropOX, _cropOY, _cropImg.width * _cropScale, _cropImg.height * _cropScale);
+}
+
+function _applyZoom(newS, px = _CS/2, py = _CS/2) {
+  newS = Math.max(_cropMinScale, Math.min(_cropMinScale * 4, newS));
+  _cropOX = px - (px - _cropOX) * (newS / _cropScale);
+  _cropOY = py - (py - _cropOY) * (newS / _cropScale);
+  _cropScale = newS;
+  document.getElementById('cropZoom').value = newS / _cropMinScale;
+  _drawCrop();
+}
+
+function applyCrop() {
+  const SIZE = 400;
+  const out = document.createElement('canvas');
+  out.width = SIZE; out.height = SIZE;
+  const ctx = out.getContext('2d');
+  ctx.beginPath();
+  ctx.arc(SIZE/2, SIZE/2, SIZE/2, 0, Math.PI*2);
+  ctx.clip();
+  const r = SIZE / _CS;
+  ctx.drawImage(_cropImg, _cropOX*r, _cropOY*r, _cropImg.width*_cropScale*r, _cropImg.height*_cropScale*r);
+  out.toBlob(blob => {
+    document.getElementById('cropOverlay').style.display = 'none';
+    if (_cropCb) _cropCb(blob);
+  }, 'image/jpeg', 0.92);
+}
+
+function cancelCrop() {
+  document.getElementById('cropOverlay').style.display = 'none';
+}
+
+// Wire up crop canvas interactions once DOM is ready
+(function setupCrop() {
+  document.addEventListener('DOMContentLoaded', () => {
+    const wrap = document.getElementById('cropWrap');
+    if (!wrap) return;
+
+    // Mouse
+    wrap.addEventListener('mousedown', e => {
+      _cropDrag = true; wrap.style.cursor = 'grabbing';
+      _cropDX = e.clientX - _cropOX; _cropDY = e.clientY - _cropOY;
+    });
+    window.addEventListener('mousemove', e => {
+      if (!_cropDrag) return;
+      _cropOX = e.clientX - _cropDX; _cropOY = e.clientY - _cropDY;
+      _drawCrop();
+    });
+    window.addEventListener('mouseup', () => { _cropDrag = false; wrap.style.cursor = 'grab'; });
+    wrap.addEventListener('wheel', e => {
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      _applyZoom(_cropScale * (1 - e.deltaY * 0.001), e.clientX - rect.left, e.clientY - rect.top);
+    }, { passive: false });
+
+    // Touch
+    let _lastDist = 0, _lastMX = 0, _lastMY = 0;
+    wrap.addEventListener('touchstart', e => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        _cropDrag = true;
+        _cropDX = e.touches[0].clientX - _cropOX; _cropDY = e.touches[0].clientY - _cropOY;
+      } else if (e.touches.length === 2) {
+        _cropDrag = false;
+        _lastDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+        _lastMX = (e.touches[0].clientX+e.touches[1].clientX)/2;
+        _lastMY = (e.touches[0].clientY+e.touches[1].clientY)/2;
+      }
+    }, { passive: false });
+    wrap.addEventListener('touchmove', e => {
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      if (e.touches.length === 1 && _cropDrag) {
+        _cropOX = e.touches[0].clientX - _cropDX; _cropOY = e.touches[0].clientY - _cropDY;
+        _drawCrop();
+      } else if (e.touches.length === 2) {
+        const dist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+        const mx = (e.touches[0].clientX+e.touches[1].clientX)/2 - rect.left;
+        const my = (e.touches[0].clientY+e.touches[1].clientY)/2 - rect.top;
+        if (_lastDist) _applyZoom(_cropScale * (dist / _lastDist), mx, my);
+        _lastDist = dist; _lastMX = mx; _lastMY = my;
+      }
+    }, { passive: false });
+    wrap.addEventListener('touchend', () => { _cropDrag = false; _lastDist = 0; });
+
+    // Zoom slider
+    document.getElementById('cropZoom').addEventListener('input', function() {
+      _applyZoom(_cropMinScale * parseFloat(this.value));
+    });
+  });
+})();
+
+function _triggerPick(inputId, cb) {
+  const inp = document.getElementById(inputId);
+  inp.value = '';
+  inp.onchange = () => { const f = inp.files[0]; if (f) _showCrop(f, cb); };
+  inp.click();
+}
+
+async function _doUpload(blob, employeeId) {
+  const form = new FormData();
+  form.append('file', blob, 'avatar.jpg');
+  if (employeeId) form.append('employee_id', employeeId);
+  const res = await fetch('/api/core/upload-avatar', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token },
+    body: form,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data.url;
+}
+
+function uploadAvatarForEmp(emp) {
+  _triggerPick('_avatarInput', async blob => {
+    try {
+      toast('info', 'Uploading…', 'Please wait');
+      const url = await _doUpload(blob, emp.id);
+      const idx = employees.findIndex(e => e.id === emp.id);
+      if (idx >= 0) employees[idx].profile_picture_url = url;
+      if (editingEmp?.id === emp.id) editingEmp = { ...editingEmp, profile_picture_url: url };
+      setAvatarImg(document.getElementById('evAvatar'), { ...emp, profile_picture_url: url });
+      renderTable(employees);
+      toast('ok', 'Photo updated', '');
+    } catch(e) { toast('err', 'Upload failed', e.message); }
+  });
+}
+
+function uploadMyAvatar() {
+  _triggerPick('_myAvatarInput', async blob => {
+    try {
+      toast('info', 'Uploading…', 'Please wait');
+      const url = await _doUpload(blob);
+      myEmpRecord = { ...myEmpRecord, profile_picture_url: url };
+      setAvatarImg(document.getElementById('mpEditAvatar'), myEmpRecord);
+      renderMyProfile();
+      toast('ok', 'Photo updated', '');
+    } catch(e) { toast('err', 'Upload failed', e.message); }
+  });
+}
 </script>
+<input type="file" id="_avatarInput" accept="image/*" style="display:none">
+<input type="file" id="_myAvatarInput" accept="image/*" style="display:none">
+
+<!-- CROP MODAL -->
+<div id="cropOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.88);align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#0d0d1a;border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:28px;width:min(360px,100%);text-align:center;">
+    <div style="font-size:15px;font-weight:800;color:#f5f5f7;margin-bottom:6px;">Crop Photo</div>
+    <div style="font-size:12px;color:rgba(255,255,255,.4);margin-bottom:18px;">Drag to reposition · scroll or pinch to zoom</div>
+    <div style="position:relative;width:280px;height:280px;margin:0 auto;border-radius:8px;overflow:hidden;background:#000;cursor:grab;touch-action:none;" id="cropWrap">
+      <canvas id="cropCanvas" style="position:absolute;top:0;left:0;"></canvas>
+      <svg style="position:absolute;inset:0;pointer-events:none;" width="280" height="280" viewBox="0 0 280 280">
+        <defs><mask id="cm"><rect width="280" height="280" fill="white"/><circle cx="140" cy="140" r="134" fill="black"/></mask></defs>
+        <rect width="280" height="280" fill="rgba(0,0,0,.55)" mask="url(#cm)"/>
+        <circle cx="140" cy="140" r="134" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="2" stroke-dasharray="6 4"/>
+      </svg>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin:18px 0 22px;">
+      <span style="font-size:13px;">🔍</span>
+      <input type="range" id="cropZoom" min="1" max="4" step="0.01" value="1" style="flex:1;accent-color:#5b8fff;">
+      <span style="font-size:16px;">🔍</span>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button onclick="cancelCrop()" style="flex:1;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#f5f5f7;font-size:14px;font-weight:600;cursor:pointer;">Cancel</button>
+      <button onclick="applyCrop()" style="flex:1;padding:12px;border-radius:12px;border:none;background:linear-gradient(135deg,#5b8fff,#3a6fef);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">Apply →</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

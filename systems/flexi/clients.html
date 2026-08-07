@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script>try{var t=localStorage.getItem("flexiTheme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Clients — Flexi</title>
+<link rel="stylesheet" href="shared/flexi.css"/>
+</head>
+<body>
+
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-shell">
+  <aside class="fx-sidebar" id="fxSidebar"></aside>
+  <div class="fx-main">
+    <header class="fx-topbar">
+      <button class="fx-nav-toggle" id="fxNavToggle">☰</button>
+      <div><h1>Clients</h1><div class="fx-topbar-sub" id="clientCountLabel"></div></div>
+      <div class="fx-topbar-spacer"></div>
+      <input class="fx-input" id="searchInput" placeholder="Search clients…" style="max-width:220px"/>
+      <select class="fx-select" id="statusFilter" style="max-width:140px">
+        <option value="active">Active</option>
+        <option value="paused">Paused</option>
+        <option value="archived">Archived</option>
+        <option value="">All</option>
+      </select>
+      <button class="fx-btn fx-btn-primary" id="addClientBtn">+ Add Client</button>
+    </header>
+    <main class="fx-content">
+      <div class="fx-table-wrap">
+        <table class="fx-table">
+          <thead><tr><th>Name</th><th>Trainer</th><th>Status</th><th>Goals</th><th>Joined</th></tr></thead>
+          <tbody id="clientsBody"><tr><td colspan="5" style="text-align:center;color:var(--fx-text3);padding:24px">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Add Client Modal -->
+<div class="fx-modal" id="addClientModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3>Add Client</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div class="fx-field"><label>Full name</label><input class="fx-input" id="newName"/></div>
+    <div class="fx-form-row">
+      <div class="fx-field"><label>Email <span class="fx-hint">— required, their login</span></label><input class="fx-input" id="newEmail" type="email"/></div>
+      <div class="fx-field"><label>Phone</label><input class="fx-input" id="newPhone"/></div>
+    </div>
+    <div class="fx-field"><label>Goals</label><textarea class="fx-textarea" id="newGoals" placeholder="e.g. Lose 5kg, build strength for a 5k"></textarea></div>
+    <div class="fx-field" id="trainerAssignField" style="display:none">
+      <label>Assign trainer</label>
+      <select class="fx-select" id="newTrainer"></select>
+    </div>
+    <p style="font-size:11.5px;color:var(--fx-text3);margin-bottom:14px">A 5-character passcode and your trainer code will be emailed to them automatically — no password to set up.</p>
+    <div class="fx-form-msg" id="addClientMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="saveClientBtn">Add Client</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireFlexiAccess, hasPermission } from "./shared/auth.js";
+import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
+import { sb } from "./shared/supabase.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDate, setLoading, showMessage, openModal, closeModal, emptyState, toast, enhanceSelect, tileGradient, initials } from "./shared/ui.js";
+
+const { profile, tier, admin } = await requireFlexiAccess({ feature: "clients" });
+renderNav({ activeKey: "clients", profile, tier });
+wireMobileNavToggle();
+setupThemeToggle();
+revealApp();
+enhanceSelect(document.getElementById("statusFilter"));
+
+let allClients = [];
+
+async function loadClients() {
+  const { data, error } = await sb()
+    .from("smartcore_flexi_clients")
+    .select("*, core_employees!trainer_id(full_name)")
+    .order("created_at", { ascending: false });
+  if (error) { toast(error.message, "error"); return; }
+  allClients = data || [];
+  render();
+}
+
+function render() {
+  const q = document.getElementById("searchInput").value.trim().toLowerCase();
+  const status = document.getElementById("statusFilter").value;
+  const rows = allClients.filter(c =>
+    (!status || c.status === status) &&
+    (!q || c.full_name.toLowerCase().includes(q) || (c.email || "").toLowerCase().includes(q))
+  );
+  document.getElementById("clientCountLabel").textContent = `${allClients.filter(c => c.status === "active").length} active · ${allClients.length} total`;
+
+  const body = document.getElementById("clientsBody");
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="5">${emptyState("👤", "No clients found", "Add your first client to get started.")}</td></tr>`;
+    return;
+  }
+  const statusBadge = { active: "fx-badge-green", paused: "fx-badge-amber", archived: "fx-badge-grey" };
+  body.innerHTML = rows.map(c => `
+    <tr onclick="location.href='client-detail.html?id=${c.id}'">
+      <td>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="fx-avatar" style="background:${tileGradient(c.id)};color:#fff;flex-shrink:0">${initials(c.full_name)}</div>
+          <div><strong>${escapeHtml(c.full_name)}</strong><div style="color:var(--fx-text3);font-size:12px">${escapeHtml(c.email || "")}</div></div>
+        </div>
+      </td>
+      <td>${escapeHtml(c.core_employees?.full_name || "Unassigned")}</td>
+      <td><span class="fx-badge ${statusBadge[c.status] || "fx-badge-grey"}">${escapeHtml(c.status)}</span></td>
+      <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(c.goals || "—")}</td>
+      <td>${fmtDate(c.created_at)}</td>
+    </tr>
+  `).join("");
+}
+
+document.getElementById("searchInput").addEventListener("input", render);
+document.getElementById("statusFilter").addEventListener("change", render);
+
+document.getElementById("addClientBtn").addEventListener("click", async () => {
+  document.getElementById("addClientMsg").textContent = "";
+  ["newName","newEmail","newPhone","newGoals"].forEach(id => document.getElementById(id).value = "");
+  if (admin) {
+    document.getElementById("trainerAssignField").style.display = "";
+    const { data: staff } = await sb().from("core_employees").select("id, full_name").eq("company_id", profile.company_id).order("full_name");
+    const sel = document.getElementById("newTrainer");
+    sel.innerHTML = `<option value="">Unassigned</option>` + (staff || []).map(s => `<option value="${s.id}">${escapeHtml(s.full_name)}</option>`).join("");
+    enhanceSelect(sel, { placeholder: "Search trainers…" });
+  }
+  openModal("addClientModal");
+});
+
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addClientModal")));
+
+document.getElementById("saveClientBtn").addEventListener("click", async (e) => {
+  const btn = e.target;
+  const full_name = document.getElementById("newName").value.trim();
+  const email = document.getElementById("newEmail").value.trim();
+  if (!full_name) { showMessage("addClientMsg", "Name is required.", "error"); return; }
+  if (!email || !email.includes("@")) { showMessage("addClientMsg", "A valid email is required — it's how they'll log in.", "error"); return; }
+  setLoading(btn, true, "Adding…");
+
+  const { data: { session } } = await sb().auth.getSession();
+  const res = await fetch("/api/flexi/add-client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({
+      full_name, email,
+      phone: document.getElementById("newPhone").value.trim() || null,
+      goals: document.getElementById("newGoals").value.trim() || null,
+      trainer_id: admin ? (document.getElementById("newTrainer").value || null) : undefined,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  setLoading(btn, false);
+  if (!res.ok) { showMessage("addClientMsg", data.error || "Failed to add client.", "error"); return; }
+
+  closeModal("addClientModal");
+  toast(data.emailSent ? "Client added — login details emailed" : `Client added — passcode ${data.passcode} (email not sent, share it manually)`, "success");
+  loadClients();
+});
+
+loadClients();
+</script>
+</body>
+</html>

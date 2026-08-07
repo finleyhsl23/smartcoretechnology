@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Defect — Convoy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/convoy/shared/convoy.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="sl-shell">
+  <nav class="sl-sidebar" id="slNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+  <div class="sl-main">
+    <div class="sl-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Defect</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="sl-content" id="content" style="max-width:720px"><div id="body"></div></div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireConvoyAccess, hasPermission } from "/systems/convoy/shared/auth.js";
+  import { defects, drivers, signedUrl } from "/systems/convoy/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar } from "/systems/convoy/shared/nav.js";
+  import { initTheme } from "/systems/convoy/shared/theme.js";
+  import { getCurrentPosition } from "/systems/convoy/shared/geo.js";
+  import { renderPhotoCaptureStep } from "/systems/convoy/shared/camera.js";
+  import { esc, fmtDateTime, severityBadge, statusBadge, toast, loadingState, errorState, setInner } from "/systems/convoy/shared/ui.js";
+
+  initTheme();
+  const defectId = new URLSearchParams(location.search).get("id");
+  let _profile = null, _companyId = null, _admin = false;
+
+  try {
+    const { profile, admin } = await requireConvoyAccess();
+    _profile = profile; _companyId = profile.company_id; _admin = admin;
+    renderNav("defects", profile, { admin });
+    initMobileNav(); initTopbar();
+    await load();
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load Convoy", message: e.message }));
+  }
+
+  async function load() {
+    setInner("body", loadingState("Loading defect…"));
+    try {
+      const [d, employees] = await Promise.all([defects.get(defectId), drivers.listCompanyEmployees(_companyId)]);
+      render(d, employees);
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load defect", message: e.message }));
+    }
+  }
+
+  async function render(d, employees) {
+    const canManage = _admin || hasPermission("convoy.manage_defects");
+    const html = `
+      <div class="sl-page-head">
+        <div>
+          <h2>${esc(d.title)}</h2>
+          <p>${esc(d.vehicle?.registration || "")} · Reported by ${esc(d.reporter?.full_name || "—")} · ${esc(fmtDateTime(d.created_at))}</p>
+        </div>
+        <div style="display:flex;gap:8px">${severityBadge(d.severity)}${statusBadge(d.status)}</div>
+      </div>
+
+      ${d.description ? `<div class="card" style="margin-bottom:16px"><p style="margin:0">${esc(d.description)}</p></div>` : ""}
+
+      ${d.source_item?.photo ? `<div class="card" style="margin-bottom:16px"><div class="card-header-row"><h2>Walkaround Photo</h2></div><p class="text-muted" style="font-size:12.5px;margin-top:-8px">Captured live during the vehicle check that raised this defect.</p><div class="sl-gallery"><div class="sl-media-tile"><img data-photo="${esc(d.source_item.photo.id)}" alt="Walkaround photo"/></div></div></div>` : ""}
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header-row"><h2>Photos</h2><button class="btn" id="addPhotoBtn"><i data-lucide="camera"></i> Add Photo</button></div>
+        <div id="camHost"></div>
+        ${d.photos?.length ? `<div class="sl-gallery" id="gallery">${d.photos.map(p => `<div class="sl-media-tile"><img data-photo="${esc(p.id)}" alt="Defect photo"/></div>`).join("")}</div>` : `<p class="text-muted">No additional photos.</p>`}
+      </div>
+
+      ${canManage ? `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header-row"><h2>Manage</h2></div>
+        <div class="form-row">
+          <div class="form-field"><label class="form-label">Status</label>
+            <select class="form-select" id="fStatus">
+              ${["open","in_progress","resolved"].map(s => `<option value="${s}" ${d.status === s ? "selected" : ""}>${s.replace("_", " ")}</option>`).join("")}
+            </select>
+          </div>
+          <div class="form-field"><label class="form-label">Assigned to</label>
+            <select class="form-select" id="fAssignee">
+              <option value="">— Unassigned —</option>
+              ${employees.map(e => `<option value="${esc(e.id)}" ${d.assigned_to === e.id ? "selected" : ""}>${esc(e.full_name)}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="form-field"><label class="form-label">Resolution notes</label><textarea class="form-textarea" id="fResolution">${esc(d.resolution_notes || "")}</textarea></div>
+        <button class="btn btn-primary" id="saveBtn">Save</button>
+      </div>` : ""}
+
+      <div class="card">
+        <div class="card-header-row"><h2>Comments</h2></div>
+        <div class="sl-comment-list" id="commentList">
+          ${d.comments.map(c => `<div class="sl-comment-row"><div class="avatar avatar-sm">${esc((c.author?.full_name || "?").slice(0,2))}</div><div class="sl-comment-body"><div class="sl-comment-author">${esc(c.author?.full_name || "Someone")} <span class="sl-comment-time">${esc(fmtDateTime(c.created_at))}</span></div>${esc(c.body)}</div></div>`).join("") || `<p class="text-muted">No comments yet.</p>`}
+        </div>
+        <div class="form-field" style="margin-top:14px"><textarea class="form-textarea" id="fComment" placeholder="Add a comment…"></textarea></div>
+        <button class="btn" id="commentBtn">Add Comment</button>
+      </div>
+    `;
+    setInner("body", html);
+
+    const allPhotos = [...(d.photos || []), ...(d.source_item?.photo ? [d.source_item.photo] : [])];
+    for (const p of allPhotos) {
+      const url = await signedUrl(p.storage_path);
+      const img = document.querySelector(`[data-photo="${p.id}"]`);
+      if (img && url) img.src = url;
+    }
+
+    document.getElementById("addPhotoBtn")?.addEventListener("click", () => {
+      const host = document.getElementById("camHost");
+      renderPhotoCaptureStep(host, {
+        title: "Photograph the defect",
+        onCancel: () => { host.innerHTML = ""; },
+        onCaptured: async (capture) => {
+          host.innerHTML = `<p class="text-muted">Uploading…</p>`;
+          try {
+            const geo = await getCurrentPosition();
+            await defects.uploadPhoto(d.company_id, d.id, capture.blob, geo);
+            toast("success", "Photo added");
+            load();
+          } catch (e) {
+            toast("error", "Couldn't upload photo", e.message);
+            host.innerHTML = "";
+          }
+        },
+      });
+    });
+
+    document.getElementById("saveBtn")?.addEventListener("click", async () => {
+      try {
+        await defects.update(d.id, {
+          status: document.getElementById("fStatus").value,
+          assigned_to: document.getElementById("fAssignee").value || null,
+          resolution_notes: document.getElementById("fResolution").value.trim() || null,
+          ...(document.getElementById("fStatus").value === "resolved" ? { resolved_by: _profile.id, resolved_at: new Date().toISOString() } : {}),
+        });
+        toast("success", "Defect updated");
+        load();
+      } catch (e) {
+        toast("error", "Couldn't save changes", e.message);
+      }
+    });
+
+    document.getElementById("commentBtn").addEventListener("click", async () => {
+      const body = document.getElementById("fComment").value.trim();
+      if (!body) return;
+      try {
+        await defects.addComment(d.id, _profile.id, body);
+        load();
+      } catch (e) {
+        toast("error", "Couldn't add comment", e.message);
+      }
+    });
+  }
+</script>
+</body>
+</html>

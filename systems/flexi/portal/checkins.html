@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script>try{var t=localStorage.getItem("flexiTheme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Check-Ins — Flexi</title>
+<link rel="stylesheet" href="../shared/flexi.css"/>
+</head>
+<body>
+<div id="fxLoader"><div class="fx-spinner"></div>Loading…</div>
+<div id="fxApp" style="display:none" class="fx-portal">
+  <div class="fx-portal-top">
+    <a href="dashboard.html" class="fx-icon-btn" style="display:flex;align-items:center;justify-content:center;text-decoration:none">←</a>
+    <div style="flex:1"><h1>Check-Ins</h1></div>
+    <button class="fx-icon-btn" id="themeToggle">🌙</button>
+  </div>
+  <div class="fx-portal-content">
+    <div class="fx-section-head" style="margin-top:0"><h2 style="font-size:14px">Daily Habits</h2></div>
+    <div id="habits" style="margin-bottom:24px"></div>
+
+    <div class="fx-section-head"><h2 style="font-size:14px">Scheduled Check-Ins</h2></div>
+    <div id="checkinsList"></div>
+  </div>
+  <nav class="fx-portal-tabs">
+    <a class="fx-portal-tab" href="dashboard.html"><span class="fx-portal-tab-icon">🏠</span>Home</a>
+    <a class="fx-portal-tab" href="train.html"><span class="fx-portal-tab-icon">🏋️</span>Train</a>
+    <a class="fx-portal-tab" href="book.html"><span class="fx-portal-tab-icon">📅</span>Book</a>
+    <a class="fx-portal-tab" href="progress.html"><span class="fx-portal-tab-icon">📈</span>Progress</a>
+    <a class="fx-portal-tab" href="chat.html"><span class="fx-portal-tab-icon">💬</span>Chat</a>
+  </nav>
+</div>
+
+<div class="fx-modal" id="ciModal">
+  <div class="fx-modal-box">
+    <div class="fx-modal-head"><h3 id="ciTitle">Check-In</h3><button class="fx-modal-close" data-close>✕</button></div>
+    <div id="ciQuestions" style="display:flex;flex-direction:column;gap:12px;margin-bottom:14px"></div>
+    <div class="fx-field"><label>Anything else? (optional)</label><textarea class="fx-textarea" id="ciNotes" placeholder="How this week went, anything you want your trainer to know…" style="min-height:60px"></textarea></div>
+    <div class="fx-field"><label>Photos (optional)</label><input class="fx-input" id="ciPhotos" type="file" accept="image/*" multiple/></div>
+    <div class="fx-form-msg" id="ciMsg"></div>
+    <button class="fx-btn fx-btn-primary fx-btn-block" id="submitCiBtn">Submit</button>
+  </div>
+</div>
+
+<script type="module">
+import { requireClientAccess, api } from "../shared/client-auth.js";
+import { revealApp, setupThemeToggle, escapeHtml, fmtDate, toast, openModal, closeModal, emptyState, setLoading, showMessage } from "../shared/ui.js";
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+const client = await requireClientAccess();
+setupThemeToggle();
+revealApp();
+
+async function loadHabits() {
+  const { habits, done_ids } = await api("habits_today");
+  const doneIds = new Set(done_ids || []);
+
+  const el = document.getElementById("habits");
+  el.innerHTML = !habits?.length ? emptyState("✅", "No habits set", "Your trainer hasn't added any yet.") : habits.map(h => `
+    <label class="fx-card fx-card-accent" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer">
+      <input type="checkbox" data-habit="${h.id}" ${doneIds.has(h.id) ? "checked" : ""}/>
+      <span>${escapeHtml(h.title)}</span>
+    </label>
+  `).join("");
+  el.querySelectorAll("[data-habit]").forEach(cb => cb.addEventListener("change", async () => {
+    try { await api("toggle_habit", { habit_id: cb.dataset.habit, completed: cb.checked }); }
+    catch (e) { toast(e.message, "error"); cb.checked = !cb.checked; }
+  }));
+}
+
+let checkinsCache = [];
+async function loadCheckins() {
+  const { checkins } = await api("checkins_list");
+  checkinsCache = checkins || [];
+  const el = document.getElementById("checkinsList");
+  el.innerHTML = !checkinsCache.length ? emptyState("✅", "No check-ins yet", "") : checkinsCache.map(c => `
+    <div class="fx-card fx-card-accent" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;${c.submitted_at ? "" : "cursor:pointer"}" ${c.submitted_at ? "" : `data-open="${c.id}"`}>
+      <div><strong>${escapeHtml(c.title)}</strong><div style="color:var(--fx-text3);font-size:12px">Due ${fmtDate(c.due_date)}</div></div>
+      <span class="fx-badge ${c.submitted_at ? "fx-badge-green" : "fx-badge-amber"}">${c.submitted_at ? "Submitted" : "Tap to complete"}</span>
+    </div>
+  `).join("");
+  el.querySelectorAll("[data-open]").forEach(card => card.addEventListener("click", () => openCheckin(card.dataset.open, checkinsCache.find(d => d.id === card.dataset.open))));
+}
+
+function openCheckin(id, checkin) {
+  document.getElementById("ciTitle").textContent = checkin.title;
+  const questions = checkin.questions || [];
+  document.getElementById("ciQuestions").innerHTML = questions.map((q, i) => `
+    <div class="fx-field"><label>${escapeHtml(q)}</label><textarea class="fx-textarea" data-q="${i}" style="min-height:50px"></textarea></div>
+  `).join("");
+  document.getElementById("ciNotes").value = "";
+  document.getElementById("ciPhotos").value = "";
+  document.getElementById("ciMsg").textContent = "";
+  document.getElementById("submitCiBtn").dataset.id = id;
+  document.getElementById("submitCiBtn").dataset.questions = JSON.stringify(questions);
+  openModal("ciModal");
+}
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("ciModal")));
+document.getElementById("submitCiBtn").addEventListener("click", async (e) => {
+  const btn = e.target;
+  const id = btn.dataset.id;
+  const questions = JSON.parse(btn.dataset.questions);
+  const responses = {};
+  questions.forEach((q, i) => { responses[q] = document.querySelector(`[data-q="${i}"]`).value.trim(); });
+  const notes = document.getElementById("ciNotes").value.trim() || null;
+  const files = Array.from(document.getElementById("ciPhotos").files || []);
+
+  setLoading(btn, true, "Submitting…");
+  try {
+    const photos = await Promise.all(files.map(fileToBase64));
+    await api("submit_checkin", { checkin_id: id, responses, notes, photos });
+  } catch (err) {
+    setLoading(btn, false);
+    showMessage("ciMsg", err.message, "error");
+    return;
+  }
+  setLoading(btn, false);
+  closeModal("ciModal");
+  toast("Check-in submitted", "success");
+  loadCheckins();
+});
+
+loadHabits();
+loadCheckins();
+</script>
+</body>
+</html>
