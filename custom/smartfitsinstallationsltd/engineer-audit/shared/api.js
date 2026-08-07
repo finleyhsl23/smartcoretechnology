@@ -47,14 +47,29 @@ export async function updateAuditSettings(patch, updatedByEmployeeId) {
 }
 
 // ── Employees (identity lives in public.core_employees) ────────────────
-export async function listSmartfitsEmployees() {
-  const { data, error } = await sb()
+// Archived employees are excluded by default — this is the shared source
+// behind the audit picker, leaderboard, Manage Assignments, and the mentor
+// picker, so archiving someone here hides them everywhere in the module in
+// one place. Pass includeArchived for pages (like Add Contractor's list)
+// that need to show archived people too.
+export async function listSmartfitsEmployees({ includeArchived = false } = {}) {
+  let query = sb()
     .from("core_employees")
-    .select("id, full_name, job_title, department_id, role")
+    .select("id, full_name, job_title, department_id, role, employment_type, is_archived")
     .eq("company_id", SMARTFITS_COMPANY_ID)
     .order("full_name");
+  if (!includeArchived) query = query.eq("is_archived", false);
+  const { data, error } = await query;
   if (error) throw error;
   return data || [];
+}
+
+export async function setEmployeeArchived(employeeId, archived) {
+  const { error } = await sb()
+    .from("core_employees")
+    .update({ is_archived: archived })
+    .eq("id", employeeId);
+  if (error) throw error;
 }
 
 export async function getEmployeesByIds(ids) {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Add Contractor — SmartCore Engineer Install Audit</title>
+  <title>Contractors — SmartCore Engineer Install Audit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
   <div class="eia-main">
     <div class="eia-topbar">
       <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
-      <h1>Add Contractor</h1>
+      <h1>Contractors</h1>
       <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
       <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
     </div>
@@ -31,13 +31,14 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
-  import { listSmartfitsEmployees, getAuditSettings, setEngineerManagers } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { listSmartfitsEmployees, getAuditSettings, setEngineerManagers, setEmployeeArchived } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { sb } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/supabase.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
-  import { esc, setInner, loadingState, errorState, toast, permissionDeniedState, initTextTypeahead } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+  import { esc, initials, setInner, loadingState, errorState, emptyState, toast, confirmDialog, permissionDeniedState, initTextTypeahead } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/engineer-audit";
 
   // New contractors default into the Field Engineers department so they
   // immediately show up in the audit picker / Manage Assignments like every
@@ -45,7 +46,7 @@
   // it's just not something Owner/Admin needs to think about when adding one.
   const DEFAULT_DEPARTMENT_ID = "52a3c1d6-c0e9-4ada-bf59-15d4268a6d33";
 
-  let _profile, _employees = [], _managerRoster = [], _deptFilter = null, _jobTitleInput;
+  let _profile, _employees = [], _contractors = [], _managerRoster = [], _deptFilter = null, _jobTitleInput;
 
   try {
     const { profile, tier, settings: navSettings } = await requireModuleAccess();
@@ -55,7 +56,7 @@
     initTopbar();
 
     if (tier !== "owner_admin") {
-      setInner("body", permissionDeniedState("Only Owners and Admins can add contractors."));
+      setInner("body", permissionDeniedState("Only Owners and Admins can manage contractors."));
     } else {
       await render();
     }
@@ -66,8 +67,13 @@
   async function render() {
     setInner("body", loadingState("Loading…"));
     try {
-      const [employees, settings] = await Promise.all([listSmartfitsEmployees(), getAuditSettings()]);
+      const [employees, allEmployees, settings] = await Promise.all([
+        listSmartfitsEmployees(),
+        listSmartfitsEmployees({ includeArchived: true }),
+        getAuditSettings(),
+      ]);
       _employees = employees;
+      _contractors = allEmployees.filter(e => e.employment_type === "contractor").sort((a, b) => a.full_name.localeCompare(b.full_name));
       const rosterIds = new Set(settings.manager_employee_ids || []);
       _managerRoster = _employees.filter(e => rosterIds.has(e.id));
       // Same department scope as the "which engineer would you like to
@@ -113,11 +119,21 @@
                   <input type="checkbox" value="${esc(m.id)}"/>
                   <span>${esc(m.full_name)}${m.job_title ? ` <small class="text-muted">(${esc(m.job_title)})</small>` : ""}</span>
                 </label>`).join("")}
-            </div>` : `<p class="text-muted" style="font-size:12.5px">Add Senior Regional Engineering Managers on the <a href="/custom/smartfitsinstallationsltd/engineer-audit/settings.html" style="color:var(--accent2)">Settings page</a> first.</p>`}
+            </div>` : `<p class="text-muted" style="font-size:12.5px">Add Senior Regional Engineering Managers on the <a href="${BASE}/settings.html" style="color:var(--accent2)">Settings page</a> first.</p>`}
         </div>
       </div>
 
       <button class="btn btn-primary" id="addBtn" style="margin-top:18px"><i data-lucide="user-plus"></i> Add Contractor</button>
+
+      <div class="page-head" style="margin-top:34px">
+        <h2>Current Contractors</h2>
+        <p>Archive hides someone from the audit picker, leaderboard, and Manage Assignments, but their profile stays reachable here. Delete permanently removes them and every audit, assignment, note, and record linked to them.</p>
+      </div>
+      <div class="search-wrap">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="text" id="contractorSearch" class="form-input" placeholder="Search by name or job title…" autocomplete="off"/>
+      </div>
+      <div id="contractorList"></div>
     `;
     setInner("body", html);
 
@@ -127,6 +143,91 @@
     });
 
     document.getElementById("addBtn").addEventListener("click", onAdd);
+
+    drawContractorList("");
+    document.getElementById("contractorSearch").addEventListener("input", e => drawContractorList(e.target.value));
+  }
+
+  function drawContractorList(query) {
+    const q = query.trim().toLowerCase();
+    const filtered = !q ? _contractors : _contractors.filter(c =>
+      (c.full_name || "").toLowerCase().includes(q) || (c.job_title || "").toLowerCase().includes(q)
+    );
+
+    const listEl = document.getElementById("contractorList");
+    if (!filtered.length) {
+      setInner("contractorList", emptyState({
+        icon: "hard-hat",
+        title: _contractors.length ? "No matches" : "No contractors yet",
+        message: _contractors.length ? "Try a different search." : "Contractors you add above will show up here.",
+      }));
+      return;
+    }
+
+    listEl.innerHTML = `
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Contractor</th><th>Job title</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            ${filtered.map(c => `
+              <tr>
+                <td style="display:flex;align-items:center;gap:10px">
+                  <div class="avatar avatar-sm">${esc(initials(c.full_name))}</div>
+                  ${esc(c.full_name)}
+                </td>
+                <td>${esc(c.job_title || "—")}</td>
+                <td><span class="badge ${c.is_archived ? "badge-grey" : "badge-green"}">${c.is_archived ? "Archived" : "Active"}</span></td>
+                <td style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+                  <a class="btn" href="${BASE}/employee.html?id=${esc(c.id)}">View Profile</a>
+                  <button class="btn" data-archive="${esc(c.id)}" data-next="${c.is_archived ? "false" : "true"}">${c.is_archived ? "Unarchive" : "Archive"}</button>
+                  <button class="btn btn-danger" data-delete="${esc(c.id)}" data-name="${esc(c.full_name)}">Delete</button>
+                </td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    listEl.querySelectorAll("[data-archive]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const archived = btn.dataset.next === "true";
+        btn.disabled = true;
+        try {
+          await setEmployeeArchived(btn.dataset.archive, archived);
+          toast("success", archived ? "Contractor archived" : "Contractor unarchived");
+          await render();
+        } catch (e) {
+          toast("error", "Couldn't update contractor", e.message);
+          btn.disabled = false;
+        }
+      });
+    });
+
+    listEl.querySelectorAll("[data-delete]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        confirmDialog(
+          "Delete this contractor?",
+          `Are you sure you'd like to permanently delete ${btn.dataset.name}? This will delete their profile and every audit, mentor assignment, performance note, disciplinary record, and training record linked to them. This can't be undone.`,
+          async () => {
+            try {
+              const { data: { session } } = await sb().auth.getSession();
+              const res = await fetch("/api/core/delete-employee", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+                body: JSON.stringify({ employee_id: btn.dataset.delete }),
+              });
+              const result = await res.json();
+              if (!res.ok) throw new Error(result.error || "Couldn't delete contractor");
+              toast("success", `${btn.dataset.name} deleted`);
+              await render();
+            } catch (e) {
+              toast("error", "Couldn't delete contractor", e.message);
+            }
+          },
+          { confirmLabel: "Delete Permanently" }
+        );
+      });
+    });
   }
 
   async function onAdd() {
@@ -158,7 +259,7 @@
       }
 
       toast("success", `${fullName} added`, mentorIds.length ? "Linked on Manage Assignments." : "");
-      window.location.href = "/custom/smartfitsinstallationsltd/engineer-audit/managers.html";
+      window.location.href = `${BASE}/managers.html`;
     } catch (e) {
       toast("error", "Couldn't add contractor", e.message);
       btn.disabled = false;
