@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Add Contractor — SmartCore Engineer Install Audit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/engineer-audit/shared/audit.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="eia-shell">
+  <nav class="eia-sidebar" id="eiaNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="eia-main">
+    <div class="eia-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Add Contractor</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="eia-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
+  import { listSmartfitsEmployees, getAuditSettings, setEngineerManagers } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { sb } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/supabase.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
+  import { esc, setInner, loadingState, errorState, toast, permissionDeniedState } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+
+  initTheme();
+
+  // New contractors default into the Field Engineers department so they
+  // immediately show up in the audit picker / Manage Assignments like every
+  // other field-based engineer — there's no department field on this form,
+  // it's just not something Owner/Admin needs to think about when adding one.
+  const DEFAULT_DEPARTMENT_ID = "52a3c1d6-c0e9-4ada-bf59-15d4268a6d33";
+
+  let _profile, _employees = [], _managerRoster = [];
+
+  try {
+    const { profile, tier, settings: navSettings } = await requireModuleAccess();
+    _profile = profile;
+    renderNav("contractors", profile, tier, navSettings);
+    initMobileNav();
+    initTopbar();
+
+    if (tier !== "owner_admin") {
+      setInner("body", permissionDeniedState("Only Owners and Admins can add contractors."));
+    } else {
+      await render();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+  }
+
+  async function render() {
+    setInner("body", loadingState("Loading…"));
+    try {
+      const [employees, settings] = await Promise.all([listSmartfitsEmployees(), getAuditSettings()]);
+      _employees = employees;
+      const rosterIds = new Set(settings.manager_employee_ids || []);
+      _managerRoster = _employees.filter(e => rosterIds.has(e.id));
+      draw();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+    }
+  }
+
+  function draw() {
+    const jobTitles = [...new Set(_employees.map(e => e.job_title).filter(Boolean))].sort();
+
+    const html = `
+      <div class="page-head">
+        <h2>Add Contractor</h2>
+        <p>Adds a new contractor as an employee record and links them to a mentor on Manage Assignments.</p>
+      </div>
+
+      <div class="card" style="max-width:520px">
+        <div class="form-row">
+          <label class="form-label" for="contractorName">Full name</label>
+          <input type="text" id="contractorName" class="form-input" placeholder="e.g. Chris Marsh" autocomplete="off"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="contractorJobTitle">Job title</label>
+          <input type="text" id="contractorJobTitle" class="form-input" list="jobTitleOptions" placeholder="e.g. Field Engineer" autocomplete="off"/>
+          <datalist id="jobTitleOptions">
+            ${jobTitles.map(t => `<option value="${esc(t)}"></option>`).join("")}
+          </datalist>
+        </div>
+        <div class="form-row" style="margin-bottom:0">
+          <label class="form-label">Mentor${_managerRoster.length ? "" : " (none set up yet)"}</label>
+          <p class="text-muted" style="font-size:12.5px;margin:0 0 10px">Optional. Select one or more — this creates the same assignment you'd make on Manage Assignments.</p>
+          ${_managerRoster.length ? `
+            <div class="mentor-checklist">
+              ${_managerRoster.map(m => `
+                <label class="cbdd-option" style="border:1px solid var(--border);border-radius:10px;margin-bottom:6px">
+                  <input type="checkbox" value="${esc(m.id)}"/>
+                  <span>${esc(m.full_name)}${m.job_title ? ` <small class="text-muted">(${esc(m.job_title)})</small>` : ""}</span>
+                </label>`).join("")}
+            </div>` : `<p class="text-muted" style="font-size:12.5px">Add Senior Regional Engineering Managers on the <a href="/custom/smartfitsinstallationsltd/engineer-audit/settings.html" style="color:var(--accent2)">Settings page</a> first.</p>`}
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="addBtn" style="margin-top:18px"><i data-lucide="user-plus"></i> Add Contractor</button>
+    `;
+    setInner("body", html);
+
+    document.getElementById("addBtn").addEventListener("click", onAdd);
+  }
+
+  async function onAdd() {
+    const fullName = document.getElementById("contractorName").value.trim();
+    if (!fullName) { toast("error", "Enter a full name"); return; }
+    const jobTitle = document.getElementById("contractorJobTitle").value.trim();
+    const mentorIds = [...document.querySelectorAll(".mentor-checklist input:checked")].map(cb => cb.value);
+
+    const btn = document.getElementById("addBtn");
+    btn.disabled = true;
+    try {
+      const { data: { session } } = await sb().auth.getSession();
+      const res = await fetch("/api/core/add-employee", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          full_name: fullName,
+          job_title: jobTitle || null,
+          department_id: DEFAULT_DEPARTMENT_ID,
+          employment_type: "contractor",
+          role: "employee",
+        }),
+      });
+      const emp = await res.json();
+      if (!res.ok) throw new Error(emp.error || "Couldn't add contractor");
+
+      if (mentorIds.length) {
+        await setEngineerManagers(emp.id, mentorIds, _profile.id);
+      }
+
+      toast("success", `${fullName} added`, mentorIds.length ? "Linked on Manage Assignments." : "");
+      window.location.href = "/custom/smartfitsinstallationsltd/engineer-audit/managers.html";
+    } catch (e) {
+      toast("error", "Couldn't add contractor", e.message);
+      btn.disabled = false;
+    }
+  }
+</script>
+</body>
+</html>

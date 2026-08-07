@@ -19,6 +19,7 @@ function navLinksFor(tier, settings) {
   }
   // Always shown so their existence is visible — greyed out (and inert) for
   // anyone who isn't Owner/Admin rather than hidden entirely.
+  links.push({ id: "contractors", icon: "user-plus", label: "Add Contractor", href: `${BASE}/contractors.html`, disabled: !isOwnerAdmin });
   links.push({ id: "managers", icon: "users-round", label: "Manage Assignments", href: `${BASE}/managers.html`, disabled: !isOwnerAdmin });
   links.push({ id: "settings", icon: "settings", label: "Settings", href: `${BASE}/settings.html`, disabled: !isOwnerAdmin });
   return links;
