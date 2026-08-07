@@ -35,7 +35,7 @@
   import { sb } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/supabase.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
-  import { esc, setInner, loadingState, errorState, toast, permissionDeniedState, initSearchableSelect } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+  import { esc, setInner, loadingState, errorState, toast, permissionDeniedState, initTextTypeahead } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
 
@@ -45,7 +45,7 @@
   // it's just not something Owner/Admin needs to think about when adding one.
   const DEFAULT_DEPARTMENT_ID = "52a3c1d6-c0e9-4ada-bf59-15d4268a6d33";
 
-  let _profile, _employees = [], _managerRoster = [], _jobTitleSelect;
+  let _profile, _employees = [], _managerRoster = [], _jobTitleInput;
 
   try {
     const { profile, tier, settings: navSettings } = await requireModuleAccess();
@@ -112,10 +112,9 @@
     `;
     setInner("body", html);
 
-    _jobTitleSelect = initSearchableSelect(document.getElementById("jobTitleDropdown"), {
+    _jobTitleInput = initTextTypeahead(document.getElementById("jobTitleDropdown"), {
       options: jobTitles,
-      placeholder: jobTitles.length ? "Select a job title…" : "No job titles on file yet",
-      searchPlaceholder: "Search job titles…",
+      placeholder: "e.g. Field Engineer",
     });
 
     document.getElementById("addBtn").addEventListener("click", onAdd);
@@ -124,7 +123,7 @@
   async function onAdd() {
     const fullName = document.getElementById("contractorName").value.trim();
     if (!fullName) { toast("error", "Enter a full name"); return; }
-    const jobTitle = _jobTitleSelect.getValue();
+    const jobTitle = _jobTitleInput.getValue();
     const mentorIds = [...document.querySelectorAll(".mentor-checklist input:checked")].map(cb => cb.value);
 
     const btn = document.getElementById("addBtn");

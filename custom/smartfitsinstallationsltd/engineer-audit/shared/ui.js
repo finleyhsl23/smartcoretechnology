@@ -218,67 +218,49 @@ export function initTagInput(container, { options, selected = [], labelKey = "fu
 }
 
 /**
- * Single-select searchable dropdown restricted to a fixed list of string
- * options — e.g. picking an existing job title with no free text allowed.
- * Same trigger/panel visual language as the department checkbox-dropdown
- * (.cbdd), but single-select with a type-to-filter search box instead of
- * checkboxes. Calls `onChange(value)` whenever a option is picked.
+ * Plain text box with a live filtered suggestion list underneath — e.g.
+ * typing a job title and having existing ones pop up as matches. Same
+ * suggestion-dropdown visuals as `initTagInput`, but a single free-typed
+ * value instead of multi-select chips; picking a suggestion just fills the
+ * box. Calls `onChange(value)` on every keystroke and on pick.
  */
-export function initSearchableSelect(container, { options, selected = "", placeholder = "Select…", searchPlaceholder = "Search…", emptyLabel = "No matches", onChange }) {
-  let value = selected;
-  container.classList.add("cbdd");
+export function initTextTypeahead(container, { options, value = "", placeholder = "", onChange }) {
+  container.classList.add("tag-input");
   container.innerHTML = `
-    <button type="button" class="cbdd-trigger" data-role="trigger">
-      <span data-role="label">${value ? esc(value) : placeholder}</span>
-      <i data-lucide="chevron-down"></i>
-    </button>
-    <div class="cbdd-panel" data-role="panel">
-      <input type="text" class="form-input" data-role="search" placeholder="${esc(searchPlaceholder)}" autocomplete="off" style="margin-bottom:6px"/>
-      <div data-role="options"></div>
-    </div>
+    <input type="text" class="form-input" data-role="input" placeholder="${esc(placeholder)}" autocomplete="off" value="${esc(value)}"/>
+    <div class="tag-suggestions" data-role="suggestions"></div>
   `;
 
-  const trigger = container.querySelector('[data-role="trigger"]');
-  const label = container.querySelector('[data-role="label"]');
-  const searchEl = container.querySelector('[data-role="search"]');
-  const optionsEl = container.querySelector('[data-role="options"]');
+  const inputEl = container.querySelector('[data-role="input"]');
+  const suggEl = container.querySelector('[data-role="suggestions"]');
 
-  function drawOptions(query) {
-    const q = query.trim().toLowerCase();
-    const matches = !q ? options : options.filter(o => o.toLowerCase().includes(q));
-    optionsEl.innerHTML = matches.length
-      ? matches.map(o => `<div class="cbdd-option" data-value="${esc(o)}">${esc(o)}</div>`).join("")
-      : `<div class="cbdd-option" style="cursor:default;color:var(--text3)">${esc(emptyLabel)}</div>`;
-    optionsEl.querySelectorAll("[data-value]").forEach(opt => {
-      opt.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        value = opt.dataset.value;
-        label.textContent = value;
-        container.classList.remove("open");
-        onChange?.(value);
-      });
-    });
+  function closeSuggestions() {
+    container.classList.remove("open");
+    suggEl.innerHTML = "";
   }
 
-  trigger.addEventListener("click", (e) => {
-    e.stopPropagation();
-    document.querySelectorAll(".cbdd.open").forEach(other => { if (other !== container) other.classList.remove("open"); });
-    container.classList.toggle("open");
-    if (container.classList.contains("open")) {
-      searchEl.value = "";
-      drawOptions("");
-      searchEl.focus();
-    }
-  });
-  searchEl.addEventListener("click", (e) => e.stopPropagation());
-  searchEl.addEventListener("input", () => drawOptions(searchEl.value));
-  document.addEventListener("click", (e) => {
-    if (!container.contains(e.target)) container.classList.remove("open");
-  });
-  container.addEventListener("keydown", (e) => { if (e.key === "Escape") container.classList.remove("open"); });
+  function openSuggestions(query) {
+    const q = query.trim().toLowerCase();
+    const matches = options.filter(o => o.toLowerCase().includes(q)).slice(0, 20);
+    if (!matches.length) { closeSuggestions(); return; }
+    suggEl.innerHTML = matches.map(o => `<div class="tag-suggestion-option" data-value="${esc(o)}">${esc(o)}</div>`).join("");
+    suggEl.querySelectorAll("[data-value]").forEach(opt => {
+      opt.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        inputEl.value = opt.dataset.value;
+        closeSuggestions();
+        onChange?.(inputEl.value);
+      });
+    });
+    container.classList.add("open");
+  }
 
-  window.lucide?.createIcons?.();
-  return { getValue: () => value };
+  inputEl.addEventListener("focus", () => openSuggestions(inputEl.value));
+  inputEl.addEventListener("input", () => { openSuggestions(inputEl.value); onChange?.(inputEl.value); });
+  inputEl.addEventListener("blur", () => setTimeout(closeSuggestions, 150));
+  inputEl.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSuggestions(); });
+
+  return { getValue: () => inputEl.value.trim() };
 }
 
 /**
