@@ -31,11 +31,11 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
-  import { listSmartfitsEmployees, getAuditSettings, setEngineerManagers, setEmployeeArchived } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { listSmartfitsEmployees, getAuditSettings, setEngineerManagers, setEmployeeArchived, updateEmployeeJobTitle } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
   import { sb } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/supabase.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
-  import { esc, initials, setInner, loadingState, errorState, emptyState, toast, confirmDialog, permissionDeniedState, initTextTypeahead } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+  import { esc, initials, setInner, loadingState, errorState, emptyState, toast, confirmDialog, modal, permissionDeniedState, initTextTypeahead } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
   const BASE = "/custom/smartfitsinstallationsltd/engineer-audit";
@@ -46,7 +46,7 @@
   // it's just not something Owner/Admin needs to think about when adding one.
   const DEFAULT_DEPARTMENT_ID = "52a3c1d6-c0e9-4ada-bf59-15d4268a6d33";
 
-  let _profile, _employees = [], _contractors = [], _managerRoster = [], _deptFilter = null, _jobTitleInput;
+  let _profile, _employees = [], _contractors = [], _managerRoster = [], _deptFilter = null, _jobTitleInput, _jobTitles = [];
 
   try {
     const { profile, tier, settings: navSettings } = await requireModuleAccess();
@@ -87,7 +87,7 @@
   }
 
   function draw() {
-    const jobTitles = [...new Set(
+    _jobTitles = [...new Set(
       _employees
         .filter(e => !_deptFilter || _deptFilter.has(e.department_id))
         .map(e => e.job_title)
@@ -138,7 +138,7 @@
     setInner("body", html);
 
     _jobTitleInput = initTextTypeahead(document.getElementById("jobTitleDropdown"), {
-      options: jobTitles,
+      options: _jobTitles,
       placeholder: "e.g. Field Engineer",
     });
 
@@ -179,6 +179,7 @@
                 <td><span class="badge ${c.is_archived ? "badge-grey" : "badge-green"}">${c.is_archived ? "Archived" : "Active"}</span></td>
                 <td style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
                   <a class="btn" href="${BASE}/employee.html?id=${esc(c.id)}">View Profile</a>
+                  <button class="btn" data-edit="${esc(c.id)}" data-name="${esc(c.full_name)}" data-title="${esc(c.job_title || "")}">Edit</button>
                   <button class="btn" data-archive="${esc(c.id)}" data-next="${c.is_archived ? "false" : "true"}">${c.is_archived ? "Unarchive" : "Archive"}</button>
                   <button class="btn btn-danger" data-delete="${esc(c.id)}" data-name="${esc(c.full_name)}">Delete</button>
                 </td>
@@ -187,6 +188,10 @@
         </table>
       </div>
     `;
+
+    listEl.querySelectorAll("[data-edit]").forEach(btn => {
+      btn.addEventListener("click", () => openEditJobTitleModal(btn.dataset.edit, btn.dataset.name, btn.dataset.title));
+    });
 
     listEl.querySelectorAll("[data-archive]").forEach(btn => {
       btn.addEventListener("click", async () => {
@@ -227,6 +232,37 @@
           { confirmLabel: "Delete Permanently" }
         );
       });
+    });
+  }
+
+  function openEditJobTitleModal(employeeId, name, currentTitle) {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Edit job title — ${esc(name)}</h3><button class="btn modal-close">✕</button></div>
+      <div class="modal-body">
+        <div class="form-row" style="margin-bottom:0">
+          <label class="form-label">Job title</label>
+          <div id="editJobTitleDropdown"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveJobTitleBtn">Save</button>
+      </div>
+    `);
+    const editInput = initTextTypeahead(overlay.querySelector("#editJobTitleDropdown"), {
+      options: _jobTitles,
+      value: currentTitle,
+      placeholder: "e.g. Field Engineer",
+    });
+    overlay.querySelector("#saveJobTitleBtn").addEventListener("click", async () => {
+      try {
+        await updateEmployeeJobTitle(employeeId, editInput.getValue());
+        overlay.remove();
+        toast("success", "Job title updated");
+        await render();
+      } catch (e) {
+        toast("error", "Couldn't update job title", e.message);
+      }
     });
   }
 
