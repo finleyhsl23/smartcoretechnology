@@ -35,7 +35,7 @@
   import { sb } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/supabase.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
-  import { esc, setInner, loadingState, errorState, toast, permissionDeniedState } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+  import { esc, setInner, loadingState, errorState, toast, permissionDeniedState, initSearchableSelect } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
 
   initTheme();
 
@@ -45,7 +45,7 @@
   // it's just not something Owner/Admin needs to think about when adding one.
   const DEFAULT_DEPARTMENT_ID = "52a3c1d6-c0e9-4ada-bf59-15d4268a6d33";
 
-  let _profile, _employees = [], _managerRoster = [];
+  let _profile, _employees = [], _managerRoster = [], _jobTitleSelect;
 
   try {
     const { profile, tier, settings: navSettings } = await requireModuleAccess();
@@ -91,11 +91,8 @@
           <input type="text" id="contractorName" class="form-input" placeholder="e.g. Chris Marsh" autocomplete="off"/>
         </div>
         <div class="form-row">
-          <label class="form-label" for="contractorJobTitle">Job title</label>
-          <input type="text" id="contractorJobTitle" class="form-input" list="jobTitleOptions" placeholder="e.g. Field Engineer" autocomplete="off"/>
-          <datalist id="jobTitleOptions">
-            ${jobTitles.map(t => `<option value="${esc(t)}"></option>`).join("")}
-          </datalist>
+          <label class="form-label">Job title</label>
+          <div id="jobTitleDropdown"></div>
         </div>
         <div class="form-row" style="margin-bottom:0">
           <label class="form-label">Mentor${_managerRoster.length ? "" : " (none set up yet)"}</label>
@@ -115,13 +112,19 @@
     `;
     setInner("body", html);
 
+    _jobTitleSelect = initSearchableSelect(document.getElementById("jobTitleDropdown"), {
+      options: jobTitles,
+      placeholder: jobTitles.length ? "Select a job title…" : "No job titles on file yet",
+      searchPlaceholder: "Search job titles…",
+    });
+
     document.getElementById("addBtn").addEventListener("click", onAdd);
   }
 
   async function onAdd() {
     const fullName = document.getElementById("contractorName").value.trim();
     if (!fullName) { toast("error", "Enter a full name"); return; }
-    const jobTitle = document.getElementById("contractorJobTitle").value.trim();
+    const jobTitle = _jobTitleSelect.getValue();
     const mentorIds = [...document.querySelectorAll(".mentor-checklist input:checked")].map(cb => cb.value);
 
     const btn = document.getElementById("addBtn");

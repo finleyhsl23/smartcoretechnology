@@ -218,6 +218,70 @@ export function initTagInput(container, { options, selected = [], labelKey = "fu
 }
 
 /**
+ * Single-select searchable dropdown restricted to a fixed list of string
+ * options — e.g. picking an existing job title with no free text allowed.
+ * Same trigger/panel visual language as the department checkbox-dropdown
+ * (.cbdd), but single-select with a type-to-filter search box instead of
+ * checkboxes. Calls `onChange(value)` whenever a option is picked.
+ */
+export function initSearchableSelect(container, { options, selected = "", placeholder = "Select…", searchPlaceholder = "Search…", emptyLabel = "No matches", onChange }) {
+  let value = selected;
+  container.classList.add("cbdd");
+  container.innerHTML = `
+    <button type="button" class="cbdd-trigger" data-role="trigger">
+      <span data-role="label">${value ? esc(value) : placeholder}</span>
+      <i data-lucide="chevron-down"></i>
+    </button>
+    <div class="cbdd-panel" data-role="panel">
+      <input type="text" class="form-input" data-role="search" placeholder="${esc(searchPlaceholder)}" autocomplete="off" style="margin-bottom:6px"/>
+      <div data-role="options"></div>
+    </div>
+  `;
+
+  const trigger = container.querySelector('[data-role="trigger"]');
+  const label = container.querySelector('[data-role="label"]');
+  const searchEl = container.querySelector('[data-role="search"]');
+  const optionsEl = container.querySelector('[data-role="options"]');
+
+  function drawOptions(query) {
+    const q = query.trim().toLowerCase();
+    const matches = !q ? options : options.filter(o => o.toLowerCase().includes(q));
+    optionsEl.innerHTML = matches.length
+      ? matches.map(o => `<div class="cbdd-option" data-value="${esc(o)}">${esc(o)}</div>`).join("")
+      : `<div class="cbdd-option" style="cursor:default;color:var(--text3)">${esc(emptyLabel)}</div>`;
+    optionsEl.querySelectorAll("[data-value]").forEach(opt => {
+      opt.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        value = opt.dataset.value;
+        label.textContent = value;
+        container.classList.remove("open");
+        onChange?.(value);
+      });
+    });
+  }
+
+  trigger.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.querySelectorAll(".cbdd.open").forEach(other => { if (other !== container) other.classList.remove("open"); });
+    container.classList.toggle("open");
+    if (container.classList.contains("open")) {
+      searchEl.value = "";
+      drawOptions("");
+      searchEl.focus();
+    }
+  });
+  searchEl.addEventListener("click", (e) => e.stopPropagation());
+  searchEl.addEventListener("input", () => drawOptions(searchEl.value));
+  document.addEventListener("click", (e) => {
+    if (!container.contains(e.target)) container.classList.remove("open");
+  });
+  container.addEventListener("keydown", (e) => { if (e.key === "Escape") container.classList.remove("open"); });
+
+  window.lucide?.createIcons?.();
+  return { getValue: () => value };
+}
+
+/**
  * Converts a raw average score (1 = good .. 3 = needs action) to a quality
  * percentage where higher is better: 1 -> 100%, 2 -> 50%, 3 -> 0%.
  */
