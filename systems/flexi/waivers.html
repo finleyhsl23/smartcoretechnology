@@ -51,6 +51,13 @@
   </div>
 </div>
 
+<div class="fx-modal" id="signatureModal">
+  <div class="fx-modal-box" style="max-width:380px">
+    <div class="fx-modal-head"><h3 id="sigModalTitle">Signature</h3><button class="fx-modal-close" data-close-sig>✕</button></div>
+    <img id="sigModalImg" src="" alt="Signature" style="width:100%;background:#fff;border-radius:10px;border:1px solid var(--fx-line)"/>
+  </div>
+</div>
+
 <script type="module">
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
@@ -110,18 +117,33 @@ async function render() {
 }
 
 document.querySelectorAll("[data-close-list]").forEach(b => b.addEventListener("click", () => closeModal("waiverListModal")));
+document.querySelectorAll("[data-close-sig]").forEach(b => b.addEventListener("click", () => closeModal("signatureModal")));
 
-function waiverListRow(client, signedAt) {
+function openSignature(url, name) {
+  document.getElementById("sigModalTitle").textContent = name || "Signature";
+  document.getElementById("sigModalImg").src = url;
+  openModal("signatureModal");
+}
+
+function waiverListRow(client, sig) {
   return `
-    <div class="wv-row" onclick="location.href='client-detail.html?id=${client.id}'">
+    <div class="wv-row" data-goto="${client.id}">
       <div class="fx-avatar" style="width:30px;height:30px;font-size:11px">${initials(client.full_name)}</div>
       <div style="flex:1;min-width:0">
         <div class="wv-row-name">${escapeHtml(client.full_name)}</div>
-        ${signedAt ? `<div class="wv-row-sub">Signed ${fmtDate(signedAt)}</div>` : ""}
+        ${sig ? `<div class="wv-row-sub">Signed ${fmtDate(sig.signed_at)}</div>` : ""}
       </div>
+      ${sig?.signature_image_url ? `<button type="button" class="fx-btn fx-btn-sm" data-view-sig="${escapeHtml(sig.signature_image_url)}" data-sig-name="${escapeHtml(sig.signature_name || client.full_name)}">View</button>` : ""}
     </div>
   `;
 }
+
+document.getElementById("waiverListBody").addEventListener("click", (e) => {
+  const viewBtn = e.target.closest("[data-view-sig]");
+  if (viewBtn) { e.stopPropagation(); openSignature(viewBtn.dataset.viewSig, viewBtn.dataset.sigName); return; }
+  const row = e.target.closest("[data-goto]");
+  if (row) location.href = `client-detail.html?id=${row.dataset.goto}`;
+});
 
 async function openWaiverList(waiver) {
   if (!waiver) return;
@@ -132,10 +154,10 @@ async function openWaiverList(waiver) {
 
   const [{ data: clients }, { data: sigs }] = await Promise.all([
     sb().from("smartcore_flexi_clients").select("id, full_name").eq("status", "active").order("full_name"),
-    sb().from("smartcore_flexi_waiver_signatures").select("client_id, signed_at").eq("waiver_id", waiver.id),
+    sb().from("smartcore_flexi_waiver_signatures").select("client_id, signed_at, signature_image_url, signature_name").eq("waiver_id", waiver.id),
   ]);
 
-  const sigByClient = new Map((sigs || []).map(s => [s.client_id, s.signed_at]));
+  const sigByClient = new Map((sigs || []).map(s => [s.client_id, s]));
   const signedClients = (clients || []).filter(c => sigByClient.has(c.id));
   const notSignedClients = (clients || []).filter(c => !sigByClient.has(c.id));
 

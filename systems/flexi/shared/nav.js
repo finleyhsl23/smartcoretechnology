@@ -1,5 +1,5 @@
-import { isFeatureEnabled, hasPermission, isAdmin, logout, wireEscapeButtons } from "./auth.js";
-import { initials } from "./ui.js";
+import { isFeatureEnabled, hasPermission, isAdmin, logout, wireEscapeButtons, backgroundMedia } from "./auth.js";
+import { initials, setupBackgroundMedia } from "./ui.js";
 import { sb } from "./supabase.js";
 
 export const ICON_ATTRS = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
@@ -86,6 +86,8 @@ export function renderNav({ activeKey, profile, tier }) {
 
   if (items.some(item => item.key === "messages")) refreshUnreadBadge();
   wireEscapeButtons();
+  const media = backgroundMedia();
+  setupBackgroundMedia(media.url, media.type);
 }
 
 // Total unread client-sent messages across every conversation this trainer
@@ -122,6 +124,7 @@ function renderUtilityBar(activeKey) {
       ${pageLabel ? `<span class="fx-utility-crumb-sep">/</span><span class="fx-utility-crumb">${pageLabel}</span>` : ""}
     </div>
     <div style="display:flex;align-items:center;gap:8px">
+      <button class="fx-icon-btn" id="fxMusicToggle" style="display:none" title="Mute background music">🔊</button>
       <button class="fx-icon-btn fx-theme-btn" title="Toggle theme">🌙</button>
       <button id="logoutBtn" class="fx-btn fx-btn-sm" title="Sign out">Sign out</button>
     </div>

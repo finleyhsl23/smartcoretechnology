@@ -13,7 +13,7 @@
   <div class="fx-portal-top">
     <a href="dashboard.html" class="fx-icon-btn" style="display:flex;align-items:center;justify-content:center;text-decoration:none">←</a>
     <div style="flex:1"><h1>Community</h1></div>
-    <button class="fx-icon-btn" id="themeToggle">🌙</button><button class="fx-icon-btn" id="clientLogoutBtn" title="Sign out">🚪</button>
+    <button class="fx-icon-btn" id="themeToggle">🌙</button><button class="fx-icon-btn" id="fxMusicToggle" style="display:none" title="Mute background music">🔊</button><button class="fx-icon-btn" id="clientLogoutBtn" title="Sign out">🚪</button>
   </div>
   <div class="fx-portal-content">
     <div class="fx-section-head" style="margin-top:0"><h2 style="font-size:14px">Challenges</h2></div>
@@ -37,12 +37,22 @@
 
 <script type="module">
 import { requireClientAccess, api, applyPortalFeatureGating } from "../shared/client-auth.js";
-import { revealApp, setupThemeToggle, escapeHtml, fmtDateTime, fmtDate, toast, emptyState } from "../shared/ui.js";
+import { revealApp, setupThemeToggle, setupBackgroundMedia, escapeHtml, fmtDateTime, fmtDate, toast, emptyState } from "../shared/ui.js";
 
 const client = await requireClientAccess();
 applyPortalFeatureGating(client.disabled_features);
+setupBackgroundMedia(client.background_media_url, client.background_media_type);
 setupThemeToggle();
 revealApp();
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 async function loadChallenges() {
   const { challenges } = await api("challenges_list");
@@ -57,12 +67,18 @@ async function loadChallenges() {
         <strong>${escapeHtml(ch.name)}</strong>
         <div style="color:var(--fx-text3);font-size:11.5px;margin:2px 0 10px">${fmtDate(ch.start_date)} – ${ch.end_date ? fmtDate(ch.end_date) : "ongoing"}</div>
         ${(entries || []).slice(0,5).map((e,i) => `
-          <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;${e.client_id === client.id ? "font-weight:700;color:var(--fx-accent)" : ""}">
-            <span>${i+1}. ${escapeHtml(e.smartcore_flexi_clients?.full_name || "—")}</span><span class="fx-tabular">${e.value} ${escapeHtml(ch.metric_label)}</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0;${e.client_id === client.id ? "font-weight:700;color:var(--fx-accent)" : ""}">
+            <span>${i+1}. ${escapeHtml(e.smartcore_flexi_clients?.full_name || "—")}</span>
+            <span style="display:flex;align-items:center;gap:8px">
+              ${e.media_url ? `<a href="${e.media_url}" target="_blank" rel="noopener" class="fx-btn fx-btn-sm">View</a>` : ""}
+              <span class="fx-tabular">${e.value} ${escapeHtml(ch.metric_label)}</span>
+            </span>
           </div>
         `).join("") || `<p style="color:var(--fx-text3);font-size:12px">No entries yet — be the first!</p>`}
-        <div style="display:flex;gap:8px;margin-top:10px">
-          <input class="fx-input" type="number" placeholder="Your ${ch.metric_label}" data-entry-input="${ch.id}" value="${mine?.value ?? ""}"/>
+        ${ch.requires_media ? `<p style="color:var(--fx-text3);font-size:11.5px;margin-top:10px">📷 A photo or video is required with your submission.</p>` : ""}
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <input class="fx-input" type="number" placeholder="Your ${ch.metric_label}" data-entry-input="${ch.id}" value="${mine?.value ?? ""}" style="flex:1;min-width:90px"/>
+          ${ch.requires_media ? `<input class="fx-input" type="file" accept="image/*,video/*" data-entry-media="${ch.id}" style="flex:1;min-width:140px"/>` : ""}
           <button class="fx-btn fx-btn-sm fx-btn-primary" data-entry-save="${ch.id}">Update</button>
         </div>
       </div>
@@ -72,7 +88,14 @@ async function loadChallenges() {
   el.querySelectorAll("[data-entry-save]").forEach(btn => btn.addEventListener("click", async () => {
     const chId = btn.dataset.entrySave;
     const value = parseFloat(el.querySelector(`[data-entry-input="${chId}"]`).value) || 0;
-    try { await api("update_challenge_entry", { challenge_id: chId, value }); } catch (e) { toast(e.message, "error"); return; }
+    const mediaInput = el.querySelector(`[data-entry-media="${chId}"]`);
+    const file = mediaInput?.files?.[0];
+    const payload = { challenge_id: chId, value };
+    if (file) {
+      try { payload.media_base64 = await fileToBase64(file); payload.media_type = file.type; }
+      catch { toast("Couldn't read that file — try again.", "error"); return; }
+    }
+    try { await api("update_challenge_entry", payload); } catch (e) { toast(e.message, "error"); return; }
     toast("Updated", "success");
     loadChallenges();
   }));

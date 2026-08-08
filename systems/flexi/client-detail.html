@@ -243,7 +243,7 @@
 </div>
 
 <script type="module">
-import { requireFlexiAccess } from "./shared/auth.js";
+import { requireFlexiAccess, disabledFeatures, TOGGLEABLE_FEATURES } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
 import { revealApp, setupThemeToggle, escapeHtml, fmtDate, fmtMoney, fmtDateTime, setLoading, showMessage, toast, openModal, closeModal, emptyState, tileGradient, enhanceSelect } from "./shared/ui.js";
@@ -280,6 +280,11 @@ revealApp();
 ["editStatus","mcSex","mcActivity","mcGoal","nutGoal","payMethod"].forEach(id => enhanceSelect(document.getElementById(id)));
 
 // ---- Tabs ----
+const disabled = new Set(disabledFeatures());
+document.querySelectorAll(".fx-tab[data-tab]").forEach(tab => {
+  if (TOGGLEABLE_FEATURES.includes(tab.dataset.tab) && disabled.has(tab.dataset.tab)) tab.style.display = "none";
+});
+
 document.querySelectorAll(".fx-tab").forEach(tab => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".fx-tab").forEach(t => t.classList.remove("active"));
@@ -299,7 +304,7 @@ function loadTab(name) {
 }
 const requestedTab = new URLSearchParams(location.search).get("tab");
 const requestedTabEl = requestedTab && document.querySelector(`.fx-tab[data-tab="${requestedTab}"]`);
-if (requestedTabEl) requestedTabEl.click(); else loadTab("overview");
+if (requestedTabEl && requestedTabEl.style.display !== "none") requestedTabEl.click(); else loadTab("overview");
 
 // ---- Overview ----
 async function loadOverview() {

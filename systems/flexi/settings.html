@@ -41,6 +41,18 @@
       </div>
 
       <div class="fx-card" style="margin-bottom:20px">
+        <h3 style="margin-bottom:4px;font-size:14.5px">Background Music</h3>
+        <p style="color:var(--fx-text3);font-size:12.5px;margin-bottom:14px">Upload a music or video file and it plays quietly in the background whenever anyone — you or a client — is using Flexi. Everyone gets a mute button in the top right.</p>
+        <div id="bgMediaCurrent" style="margin-bottom:12px"></div>
+        <input type="file" class="fx-input" id="bgMediaFile" accept="audio/*,video/*"/>
+        <div class="fx-form-msg" id="bgMediaMsg"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="fx-btn fx-btn-primary" id="uploadBgMediaBtn">Upload</button>
+          <button class="fx-btn fx-btn-sm" id="removeBgMediaBtn" style="display:none">Remove</button>
+        </div>
+      </div>
+
+      <div class="fx-card" style="margin-bottom:20px">
         <h3 style="margin-bottom:4px;font-size:14.5px">Features</h3>
         <p style="color:var(--fx-text3);font-size:12.5px;margin-bottom:6px">Turn off anything you don't use — it disappears from your menu and from your clients' app. You can turn it back on any time.</p>
         <div id="featureSwitches"></div>
@@ -88,6 +100,59 @@ document.getElementById("saveBizBtn").addEventListener("click", async (e) => {
   });
   setLoading(e.target, false);
   showMessage("bizMsg", error ? error.message : "Saved.", error ? "error" : "success");
+});
+
+function renderBgMediaCurrent(url, type) {
+  const el = document.getElementById("bgMediaCurrent");
+  const removeBtn = document.getElementById("removeBgMediaBtn");
+  if (!url) {
+    el.innerHTML = `<p style="color:var(--fx-text3);font-size:12.5px">No track set — the system stays silent.</p>`;
+    removeBtn.style.display = "none";
+    return;
+  }
+  el.innerHTML = `<p style="color:var(--fx-text2);font-size:12.5px">🎵 Currently playing a ${type === "video" ? "video" : "music"} file.</p>`;
+  removeBtn.style.display = "";
+}
+renderBgMediaCurrent(settings?.background_media_url, settings?.background_media_type);
+
+document.getElementById("uploadBgMediaBtn").addEventListener("click", async (e) => {
+  const file = document.getElementById("bgMediaFile").files[0];
+  if (!file) { showMessage("bgMediaMsg", "Choose a file first.", "error"); return; }
+  setLoading(e.target, true, "Uploading…");
+  try {
+    const ext = (file.name.split(".").pop() || "mp3").toLowerCase();
+    const path = `${profile.company_id}/branding/${Date.now()}.${ext}`;
+    const { error: upErr } = await sb().storage.from("flexi-media").upload(path, file, { upsert: true, contentType: file.type || "audio/mpeg" });
+    if (upErr) throw upErr;
+    const { data: signed, error: signErr } = await sb().storage.from("flexi-media").createSignedUrl(path, 60 * 60 * 24 * 365);
+    if (signErr) throw signErr;
+    const background_media_type = file.type.startsWith("video/") ? "video" : "audio";
+    const { error } = await sb().from("smartcore_flexi_settings").upsert({
+      company_id: profile.company_id,
+      background_media_url: signed.signedUrl,
+      background_media_type,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw error;
+    renderBgMediaCurrent(signed.signedUrl, background_media_type);
+    document.getElementById("bgMediaFile").value = "";
+    showMessage("bgMediaMsg", "Uploaded.", "success");
+  } catch (err) {
+    showMessage("bgMediaMsg", err.message || "Upload failed.", "error");
+  }
+  setLoading(e.target, false);
+});
+
+document.getElementById("removeBgMediaBtn").addEventListener("click", async () => {
+  const { error } = await sb().from("smartcore_flexi_settings").upsert({
+    company_id: profile.company_id,
+    background_media_url: null,
+    background_media_type: null,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) { showMessage("bgMediaMsg", error.message, "error"); return; }
+  renderBgMediaCurrent(null, null);
+  showMessage("bgMediaMsg", "Removed.", "success");
 });
 
 const FEATURE_META = {

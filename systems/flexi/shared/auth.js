@@ -7,6 +7,7 @@ let _profile = null;
 let _permissions = null;
 let _tier = "starter";
 let _disabledFeatures = [];
+let _backgroundMedia = { url: null, type: null };
 
 export function isAdmin(profile) {
   return ADMIN_ROLES.includes(profile?.role);
@@ -124,6 +125,10 @@ export function disabledFeatures() {
   return _disabledFeatures;
 }
 
+export function backgroundMedia() {
+  return _backgroundMedia;
+}
+
 // Combines the tier gate with the company's own on/off toggle — nav.js and
 // requireFlexiAccess() both defer to this rather than checking tier alone.
 export function isFeatureEnabled(tier, feature) {
@@ -169,10 +174,11 @@ export async function requireFlexiAccess({ feature } = {}) {
 
   const { data: settingsRow } = await sb()
     .from("smartcore_flexi_settings")
-    .select("disabled_features")
+    .select("disabled_features, background_media_url, background_media_type")
     .eq("company_id", profile.company_id)
     .maybeSingle();
   _disabledFeatures = settingsRow?.disabled_features || [];
+  _backgroundMedia = { url: settingsRow?.background_media_url || null, type: settingsRow?.background_media_type || null };
 
   const permissions = await getMyPermissions(profile.company_id);
   if (!permissions.length) {

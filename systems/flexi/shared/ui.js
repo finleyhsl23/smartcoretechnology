@@ -219,3 +219,48 @@ export function setupThemeToggle(storageKey = "flexiTheme") {
     sync();
   }));
 }
+
+// Persistent looping background music/video set per-company in Settings —
+// plays across every trainer page and every client-portal page (each a
+// full page load, so this re-attaches on every navigation rather than
+// carrying playback position across pages). Muted by default, both to
+// respect browser autoplay policy (autoplay only succeeds if muted) and so
+// it doesn't blast on first load — the visitor's own mute choice is then
+// remembered per device. No-ops (and hides the toggle button) if the
+// company hasn't set a track. Expects a `#fxMusicToggle` button already in
+// the DOM; only wires it, doesn't create it.
+export function setupBackgroundMedia(mediaUrl, mediaType, storageKey = "flexiMusicMuted") {
+  const btns = document.querySelectorAll("#fxMusicToggle");
+  if (!mediaUrl) { btns.forEach(b => b.style.display = "none"); return; }
+  btns.forEach(b => b.style.display = "");
+
+  let media = document.getElementById("fxBgMedia");
+  if (!media) {
+    media = document.createElement(mediaType === "video" ? "video" : "audio");
+    media.id = "fxBgMedia";
+    media.loop = true;
+    media.playsInline = true;
+    media.style.display = "none";
+    document.body.appendChild(media);
+  }
+  if (media.getAttribute("src") !== mediaUrl) media.src = mediaUrl;
+
+  media.muted = localStorage.getItem(storageKey) !== "0";
+  media.play().catch(() => {});
+
+  const sync = () => btns.forEach(b => {
+    b.textContent = media.muted ? "🔇" : "🔊";
+    b.title = media.muted ? "Unmute background music" : "Mute background music";
+  });
+  sync();
+  btns.forEach(btn => {
+    if (btn._wired) return;
+    btn._wired = true;
+    btn.addEventListener("click", () => {
+      media.muted = !media.muted;
+      if (!media.muted) media.play().catch(() => {});
+      localStorage.setItem(storageKey, media.muted ? "1" : "0");
+      sync();
+    });
+  });
+}

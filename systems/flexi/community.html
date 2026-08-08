@@ -41,6 +41,7 @@
       <div class="fx-field"><label>Start date</label><input class="fx-input" id="chStart" type="date"/></div>
       <div class="fx-field"><label>End date</label><input class="fx-input" id="chEnd" type="date"/></div>
     </div>
+    <label class="fx-checkbox-row" style="margin-bottom:14px"><input type="checkbox" id="chRequiresMedia"/> Require a photo or video with each submission</label>
     <div class="fx-form-msg" id="chMsg"></div>
     <button class="fx-btn fx-btn-primary fx-btn-block" id="saveChBtn">Create Challenge</button>
   </div>
@@ -128,13 +129,17 @@ async function loadChallenges() {
       <div class="fx-card" style="margin-bottom:16px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div><strong>${escapeHtml(ch.name)}</strong><div style="color:var(--fx-text3);font-size:12px;margin-top:2px">${fmtDate(ch.start_date)} – ${ch.end_date ? fmtDate(ch.end_date) : "ongoing"}</div></div>
+          ${ch.requires_media ? `<span class="fx-badge fx-badge-accent">📷 photo/video required</span>` : ""}
         </div>
         ${!entries?.length ? `<p style="color:var(--fx-text3);font-size:12.5px;margin-top:10px">No entries yet.</p>` : `
           <div style="margin-top:12px;display:flex;flex-direction:column;gap:6px">
             ${entries.map((e,i) => `
-              <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--fx-line)">
+              <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:6px 0;border-bottom:1px solid var(--fx-line)">
                 <span>${i+1}. ${escapeHtml(e.smartcore_flexi_clients?.full_name || "—")}</span>
-                <span class="fx-tabular" style="font-weight:700">${e.value} ${escapeHtml(ch.metric_label)}</span>
+                <span style="display:flex;align-items:center;gap:10px">
+                  ${e.media_url ? `<a href="${e.media_url}" target="_blank" rel="noopener" class="fx-btn fx-btn-sm">View</a>` : ""}
+                  <span class="fx-tabular" style="font-weight:700">${e.value} ${escapeHtml(ch.metric_label)}</span>
+                </span>
               </div>
             `).join("")}
           </div>
@@ -148,6 +153,7 @@ async function loadChallenges() {
 document.getElementById("addChallengeBtn").addEventListener("click", () => {
   document.getElementById("chMsg").textContent = "";
   document.getElementById("chStart").value = new Date().toISOString().slice(0,10);
+  document.getElementById("chRequiresMedia").checked = false;
   openModal("addModal");
 });
 document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => closeModal("addModal")));
@@ -160,6 +166,7 @@ document.getElementById("saveChBtn").addEventListener("click", async (e) => {
     metric_label: document.getElementById("chMetric").value.trim() || "Points",
     start_date: document.getElementById("chStart").value || new Date().toISOString().slice(0,10),
     end_date: document.getElementById("chEnd").value || null,
+    requires_media: document.getElementById("chRequiresMedia").checked,
   });
   setLoading(e.target, false);
   if (error) { showMessage("chMsg", error.message, "error"); return; }
