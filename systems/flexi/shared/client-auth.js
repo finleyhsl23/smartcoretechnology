@@ -62,8 +62,10 @@ function wireEscapeButtons() {
   if (btn && !btn._wired) {
     btn._wired = true;
     btn.addEventListener("click", () => {
-      clearSession();
-      window.location.href = LOGIN_URL;
+      if (confirm("Sign out?")) {
+        clearSession();
+        window.location.href = LOGIN_URL;
+      }
     });
   }
 }
