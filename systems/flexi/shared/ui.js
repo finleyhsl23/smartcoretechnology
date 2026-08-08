@@ -243,6 +243,7 @@ export function setupBackgroundMedia(tracks) {
 
   const VOLUME_KEY = "flexiMusicVolume";
   const TRACK_KEY = "flexiMusicTrackId";
+  const PAUSED_KEY = "flexiMusicPaused";
   const positionKeyFor = track => `flexiMusicPosition:${track.url}`;
 
   let media = document.getElementById("fxBgMedia");
@@ -292,6 +293,7 @@ export function setupBackgroundMedia(tracks) {
       <div class="fx-music-now">${escapeHtml(track?.name || "Untitled")}</div>
       <div class="fx-music-controls">
         <button type="button" class="fx-icon-btn" data-music-prev title="Previous track">⏮</button>
+        <button type="button" class="fx-icon-btn" data-music-playpause title="${media.paused ? "Play" : "Pause"}">${media.paused ? "▶" : "⏸"}</button>
         <button type="button" class="fx-icon-btn" data-music-next title="Next track">⏭</button>
       </div>
       <div class="fx-music-vol">
@@ -305,6 +307,14 @@ export function setupBackgroundMedia(tracks) {
     `;
     panel.querySelector("[data-music-prev]").addEventListener("click", () => loadTrack(currentIndex - 1));
     panel.querySelector("[data-music-next]").addEventListener("click", () => loadTrack(currentIndex + 1));
+    panel.querySelector("[data-music-playpause]").addEventListener("click", () => {
+      if (media.paused) {
+        media.play().then(() => { media.muted = storedVolume === 0; media.volume = storedVolume; }).catch(() => {});
+      } else {
+        media.pause();
+      }
+      localStorage.setItem(PAUSED_KEY, media.paused ? "1" : "0");
+    });
     panel.querySelector("[data-music-volume]").addEventListener("input", (e) => {
       storedVolume = parseInt(e.target.value, 10) / 100;
       media.muted = storedVolume === 0;
@@ -317,7 +327,7 @@ export function setupBackgroundMedia(tracks) {
     }));
   }
 
-  function loadTrack(index) {
+  function loadTrack(index, { respectPausedPref = false } = {}) {
     savePosition();
     currentIndex = ((index % tracks.length) + tracks.length) % tracks.length;
     const track = tracks[currentIndex];
@@ -337,10 +347,17 @@ export function setupBackgroundMedia(tracks) {
       if (!isNaN(saved) && saved > 0 && (!media.duration || saved < media.duration - 0.5)) {
         try { media.currentTime = saved; } catch {}
       }
-      media.play().then(() => {
+      // Only a fresh page load honours a previous "paused" choice — picking
+      // a track from the list or hitting skip always starts it playing.
+      if (respectPausedPref && localStorage.getItem(PAUSED_KEY) === "1") {
         media.muted = storedVolume === 0;
         media.volume = storedVolume;
-      }).catch(() => {});
+      } else {
+        media.play().then(() => {
+          media.muted = storedVolume === 0;
+          media.volume = storedVolume;
+        }).catch(() => {});
+      }
       renderPanel();
     };
     if (media.readyState >= 1) resume();
@@ -349,11 +366,25 @@ export function setupBackgroundMedia(tracks) {
 
   media.onended = () => { if (tracks.length > 1) loadTrack(currentIndex + 1); };
 
+  // Keeps the play/pause icon correct no matter what triggered the state
+  // change, without re-rendering (and so disrupting) the rest of the panel.
+  if (!media._playPauseWired) {
+    media._playPauseWired = true;
+    const syncPlayPauseIcon = () => {
+      const btn = panel.querySelector("[data-music-playpause]");
+      if (!btn) return;
+      btn.textContent = media.paused ? "▶" : "⏸";
+      btn.title = media.paused ? "Play" : "Pause";
+    };
+    media.addEventListener("play", syncPlayPauseIcon);
+    media.addEventListener("pause", syncPlayPauseIcon);
+  }
+
   clearInterval(media._posInterval);
   media._posInterval = setInterval(savePosition, 3000);
   window.addEventListener("pagehide", savePosition);
 
-  loadTrack(currentIndex);
+  loadTrack(currentIndex, { respectPausedPref: true });
 
   wraps.forEach(wrap => {
     const btn = wrap.querySelector("#fxMusicToggle");
