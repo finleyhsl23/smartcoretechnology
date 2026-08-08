@@ -45,6 +45,7 @@
         <p style="color:var(--fx-text3);font-size:12.5px;margin-bottom:14px">Upload a music or video file and it plays quietly in the background whenever anyone — you or a client — is using Flexi. Everyone gets a mute button in the top right.</p>
         <div id="bgMediaCurrent" style="margin-bottom:12px"></div>
         <input type="file" class="fx-input" id="bgMediaFile" accept="audio/*,video/*"/>
+        <p style="color:var(--fx-text3);font-size:11px;margin-top:6px">Accepts MP3, WAV, OGG, AAC, M4A, FLAC, WEBM, MP4, MOV, AVI, MKV, 3GP — up to 200MB.</p>
         <div class="fx-form-msg" id="bgMediaMsg"></div>
         <div style="display:flex;gap:8px;margin-top:10px">
           <button class="fx-btn fx-btn-primary" id="uploadBgMediaBtn">Upload</button>
@@ -115,9 +116,18 @@ function renderBgMediaCurrent(url, type) {
 }
 renderBgMediaCurrent(settings?.background_media_url, settings?.background_media_type);
 
+const ACCEPTED_MEDIA_LABELS = ["MP3", "WAV", "OGG", "AAC", "M4A", "FLAC", "WEBM (audio)", "MP4", "MOV", "WEBM (video)", "AVI", "MKV", "3GP"];
+const ACCEPTED_MEDIA_TYPES = new Set([
+  "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave", "audio/ogg", "audio/vorbis",
+  "audio/aac", "audio/mp4", "audio/x-m4a", "audio/flac", "audio/x-flac", "audio/webm",
+  "video/mp4", "video/quicktime", "video/webm", "video/x-msvideo", "video/x-matroska", "video/mpeg", "video/3gpp",
+]);
+const UNSUPPORTED_MEDIA_MSG = `That file type isn't supported. Accepted formats: ${ACCEPTED_MEDIA_LABELS.join(", ")}.`;
+
 document.getElementById("uploadBgMediaBtn").addEventListener("click", async (e) => {
   const file = document.getElementById("bgMediaFile").files[0];
   if (!file) { showMessage("bgMediaMsg", "Choose a file first.", "error"); return; }
+  if (file.type && !ACCEPTED_MEDIA_TYPES.has(file.type)) { showMessage("bgMediaMsg", UNSUPPORTED_MEDIA_MSG, "error"); return; }
   setLoading(e.target, true, "Uploading…");
   try {
     const ext = (file.name.split(".").pop() || "mp3").toLowerCase();
@@ -138,7 +148,8 @@ document.getElementById("uploadBgMediaBtn").addEventListener("click", async (e) 
     document.getElementById("bgMediaFile").value = "";
     showMessage("bgMediaMsg", "Uploaded.", "success");
   } catch (err) {
-    showMessage("bgMediaMsg", err.message || "Upload failed.", "error");
+    const isMimeError = /mime type/i.test(err.message || "");
+    showMessage("bgMediaMsg", isMimeError ? UNSUPPORTED_MEDIA_MSG : (err.message || "Upload failed."), "error");
   }
   setLoading(e.target, false);
 });
