@@ -32,12 +32,32 @@ async function handleAction({ request, env }) {
   const cid = client.id;
   const companyId = client.company_id;
 
+  const [settingsRow] = await sb(env, `/smartcore_flexi_settings?company_id=eq.${companyId}&select=disabled_features`);
+  const disabledFeatures = settingsRow?.disabled_features || [];
+
+  // Actions that belong to a feature the trainer can switch off in Settings.
+  // Blocked here too (not just hidden client-side) so a disabled feature
+  // can't be reached by calling the API directly.
+  const ACTION_FEATURE = {
+    active_programs: 'programs', workout_exercises: 'programs', log_workout: 'programs',
+    available_classes: 'classes', book_class: 'classes',
+    messages: 'messages', send_message: 'messages',
+    nutrition_plan: 'nutrition', meal_library_list: 'nutrition', food_logs_today: 'nutrition', log_food: 'nutrition',
+    habits_today: 'checkins', toggle_habit: 'checkins', checkins_list: 'checkins', submit_checkin: 'checkins',
+    waivers_list: 'waivers', sign_waiver: 'waivers',
+    challenges_list: 'community', update_challenge_entry: 'community', community_posts: 'community', post_community: 'community',
+  };
+  if (ACTION_FEATURE[action] && disabledFeatures.includes(ACTION_FEATURE[action])) {
+    return json({ error: 'This feature has been turned off by your trainer.' }, 403);
+  }
+
   // ── Identity ────────────────────────────────────────────────────────────
   if (action === 'me') {
     return json({
       client: {
         id: client.id, company_id: client.company_id, trainer_id: client.trainer_id,
         full_name: client.full_name, email: client.email, status: client.status,
+        disabled_features: disabledFeatures,
       },
     });
   }

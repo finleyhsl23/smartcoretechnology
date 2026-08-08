@@ -1,4 +1,4 @@
-import { tierHasFeature, hasPermission, isAdmin, logout, wireEscapeButtons } from "./auth.js";
+import { isFeatureEnabled, hasPermission, isAdmin, logout, wireEscapeButtons } from "./auth.js";
 import { initials } from "./ui.js";
 import { sb } from "./supabase.js";
 
@@ -51,7 +51,7 @@ export function renderNav({ activeKey, profile, tier }) {
   if (!container) return;
 
   const items = NAV_ITEMS.filter(item => {
-    if (item.feature && !tierHasFeature(tier, item.feature)) return false;
+    if (item.feature && !isFeatureEnabled(tier, item.feature)) return false;
     if (item.perm && !hasPermission(item.perm)) return false;
     return true;
   });

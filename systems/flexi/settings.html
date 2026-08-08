@@ -39,11 +39,18 @@
         <div class="fx-form-msg" id="bizMsg"></div>
         <button class="fx-btn fx-btn-primary" id="saveBizBtn">Save Profile</button>
       </div>
+
+      <div class="fx-card" style="margin-bottom:20px">
+        <h3 style="margin-bottom:4px;font-size:14.5px">Features</h3>
+        <p style="color:var(--fx-text3);font-size:12.5px;margin-bottom:6px">Turn off anything you don't use — it disappears from your menu and from your clients' app. You can turn it back on any time.</p>
+        <div id="featureSwitches"></div>
+        <div class="fx-form-msg" id="featuresMsg"></div>
+      </div>
     </main>
   </div>
 </div>
 <script type="module">
-import { requireFlexiAccess } from "./shared/auth.js";
+import { requireFlexiAccess, disabledFeatures, TOGGLEABLE_FEATURES } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
 import { revealApp, setupThemeToggle, setLoading, showMessage, toast, enhanceSelect } from "./shared/ui.js";
@@ -81,6 +88,54 @@ document.getElementById("saveBizBtn").addEventListener("click", async (e) => {
   });
   setLoading(e.target, false);
   showMessage("bizMsg", error ? error.message : "Saved.", error ? "error" : "success");
+});
+
+const FEATURE_META = {
+  programs: { label: "Programs", desc: "Workout programs & training plans" },
+  classes: { label: "Classes", desc: "Group class scheduling & attendance" },
+  messages: { label: "Messages", desc: "In-app chat between you and clients" },
+  nutrition: { label: "Nutrition", desc: "Meal plans, macros & food logging" },
+  checkins: { label: "Check-Ins & Habits", desc: "Weekly check-ins & habit tracking" },
+  packages: { label: "Packages & Payments", desc: "Client packages & payment tracking" },
+  waivers: { label: "Waivers", desc: "Waivers & PAR-Q signing" },
+  community: { label: "Community", desc: "Community feed & challenges" },
+};
+
+let currentDisabled = new Set(disabledFeatures());
+const switchesEl = document.getElementById("featureSwitches");
+switchesEl.innerHTML = TOGGLEABLE_FEATURES.map(key => {
+  const meta = FEATURE_META[key];
+  const on = !currentDisabled.has(key);
+  return `
+    <div class="fx-switch-row">
+      <div>
+        <div class="fx-switch-label">${meta.label}</div>
+        <div class="fx-switch-desc">${meta.desc}</div>
+      </div>
+      <label class="fx-switch">
+        <input type="checkbox" data-feature="${key}" ${on ? "checked" : ""}/>
+        <span class="fx-switch-track"></span>
+      </label>
+    </div>`;
+}).join("");
+
+switchesEl.querySelectorAll("input[type=checkbox]").forEach(input => {
+  input.addEventListener("change", async () => {
+    const key = input.dataset.feature;
+    if (input.checked) currentDisabled.delete(key); else currentDisabled.add(key);
+    const { error } = await sb().from("smartcore_flexi_settings").upsert({
+      company_id: profile.company_id,
+      disabled_features: Array.from(currentDisabled),
+      updated_at: new Date().toISOString(),
+    });
+    if (error) {
+      input.checked = !input.checked;
+      if (input.checked) currentDisabled.delete(key); else currentDisabled.add(key);
+      showMessage("featuresMsg", error.message, "error");
+    } else {
+      showMessage("featuresMsg", `${FEATURE_META[key].label} ${input.checked ? "turned on" : "turned off"}.`, "success");
+    }
+  });
 });
 </script>
 </body>
