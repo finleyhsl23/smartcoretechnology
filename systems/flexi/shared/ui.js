@@ -227,12 +227,9 @@ export function setupThemeToggle(storageKey = "flexiTheme") {
 // position to localStorage every few seconds and on page hide, then seek
 // to that spot on the next page's load, so it sounds continuous rather
 // than restarting from 0 every click. `loop = true` means it repeats from
-// the top once it plays through to the end. Muted by default, both to
-// respect browser autoplay policy (autoplay only succeeds if muted) and so
-// it doesn't blast on first load — the visitor's own mute choice is then
-// remembered per device. No-ops (and hides the toggle button) if the
-// company hasn't set a track. Expects a `#fxMusicToggle` button already in
-// the DOM; only wires it, doesn't create it.
+// the top once it plays through to the end. No-ops (and hides the toggle
+// button) if the company hasn't set a track. Expects a `#fxMusicToggle`
+// button already in the DOM; only wires it, doesn't create it.
 export function setupBackgroundMedia(mediaUrl, mediaType, storageKey = "flexiMusicMuted") {
   const btns = document.querySelectorAll("#fxMusicToggle");
   if (!mediaUrl) { btns.forEach(b => b.style.display = "none"); return; }
@@ -249,7 +246,21 @@ export function setupBackgroundMedia(mediaUrl, mediaType, storageKey = "flexiMus
   }
   if (media.getAttribute("src") !== mediaUrl) media.src = mediaUrl;
 
-  media.muted = localStorage.getItem(storageKey) !== "0";
+  const sync = () => btns.forEach(b => {
+    b.textContent = media.muted ? "🔇" : "🔊";
+    b.title = media.muted ? "Unmute background music" : "Mute background music";
+  });
+
+  // Browsers block *starting* playback with sound unless the visitor has
+  // already interacted with this page, but they don't re-check that once
+  // playback is already underway — so on every fresh page load we always
+  // start muted (guaranteed to be allowed to autoplay), then flip to
+  // unmuted right after play() actually succeeds if that's what the
+  // visitor chose on a previous page. Without this, "unmuted" silently
+  // never played at all on a fresh navigation and looked like it reset to
+  // muted every time.
+  const wantsUnmuted = localStorage.getItem(storageKey) === "0";
+  media.muted = true;
 
   const positionKey = `flexiMusicPosition:${mediaUrl}`;
   const resume = () => {
@@ -257,7 +268,10 @@ export function setupBackgroundMedia(mediaUrl, mediaType, storageKey = "flexiMus
     if (!isNaN(saved) && saved > 0 && (!media.duration || saved < media.duration - 0.5)) {
       try { media.currentTime = saved; } catch {}
     }
-    media.play().catch(() => {});
+    media.play().then(() => {
+      if (wantsUnmuted) media.muted = false;
+      sync();
+    }).catch(() => {});
   };
   if (media.readyState >= 1) resume();
   else media.addEventListener("loadedmetadata", resume, { once: true });
@@ -267,10 +281,6 @@ export function setupBackgroundMedia(mediaUrl, mediaType, storageKey = "flexiMus
   media._posInterval = setInterval(savePosition, 3000);
   window.addEventListener("pagehide", savePosition);
 
-  const sync = () => btns.forEach(b => {
-    b.textContent = media.muted ? "🔇" : "🔊";
-    b.title = media.muted ? "Unmute background music" : "Mute background music";
-  });
   sync();
   btns.forEach(btn => {
     if (btn._wired) return;
