@@ -104,6 +104,7 @@ if (due_checkins) {
 }
 
 // ---- Gamified progression ----
+const nutritionEnabled = !(client.disabled_features || []).includes("nutrition");
 const PERIOD_LABEL = { day: "today", week: "this week", month: "this month" };
 function ring(pct, color) {
   const p = Math.max(0, Math.min(100, Math.round(pct)));
@@ -127,7 +128,7 @@ async function loadProgression(period) {
 
   const wPct = workout.goal ? (workout.done / workout.goal) * 100 : 0;
   const workoutCard = `
-    <div class="fx-card fx-prog-card">
+    <div class="fx-card fx-prog-card"${nutritionEnabled ? "" : ' style="grid-column:1/-1"'}>
       <div class="fx-prog-head">🏋️ Workouts</div>
       <div class="fx-prog-body">
         ${ring(wPct, "var(--fx-accent)")}
@@ -138,6 +139,11 @@ async function loadProgression(period) {
         </div>
       </div>
     </div>`;
+
+  if (!nutritionEnabled) {
+    grid.innerHTML = workoutCard;
+    return;
+  }
 
   let nutritionCard;
   if (nutrition) {
