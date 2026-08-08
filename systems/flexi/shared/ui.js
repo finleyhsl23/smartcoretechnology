@@ -265,39 +265,56 @@ export function setupBackgroundMedia(tracks) {
     if (track && !isNaN(media.currentTime)) localStorage.setItem(positionKeyFor(track), String(media.currentTime));
   };
 
-  function renderPanels() {
-    wraps.forEach(wrap => {
-      const panel = wrap.querySelector(".fx-music-panel");
-      if (!panel) return;
-      const track = tracks[currentIndex];
-      panel.innerHTML = `
-        <div class="fx-music-now">${escapeHtml(track?.name || "Untitled")}</div>
-        <div class="fx-music-controls">
-          <button type="button" class="fx-icon-btn" data-music-prev title="Previous track">⏮</button>
-          <button type="button" class="fx-icon-btn" data-music-next title="Next track">⏭</button>
-        </div>
-        <div class="fx-music-vol">
-          <span>🔈</span>
-          <input type="range" min="0" max="100" value="${Math.round(storedVolume * 100)}" data-music-volume/>
-          <span>🔊</span>
-        </div>
-        ${tracks.length > 1 ? `<div class="fx-music-list">
-          ${tracks.map((t, i) => `<div class="fx-music-track${i === currentIndex ? " active" : ""}" data-music-track="${i}">${escapeHtml(t.name)}</div>`).join("")}
-        </div>` : ""}
-      `;
-      panel.querySelector("[data-music-prev]").addEventListener("click", () => loadTrack(currentIndex - 1));
-      panel.querySelector("[data-music-next]").addEventListener("click", () => loadTrack(currentIndex + 1));
-      panel.querySelector("[data-music-volume]").addEventListener("input", (e) => {
-        storedVolume = parseInt(e.target.value, 10) / 100;
-        media.muted = storedVolume === 0;
-        media.volume = storedVolume;
-        localStorage.setItem(VOLUME_KEY, String(storedVolume));
-      });
-      panel.querySelectorAll("[data-music-track]").forEach(row => row.addEventListener("click", () => {
-        const i = parseInt(row.dataset.musicTrack, 10);
-        if (i !== currentIndex) loadTrack(i);
-      }));
+  // A single panel appended directly to <body> with position:fixed and a
+  // very high z-index — rendered as a sibling of every other stacking
+  // context on the page instead of a descendant of the (sticky-positioned,
+  // animated) header bars, which each spin up their own stacking context
+  // and can otherwise paint over an absolutely-positioned popover no
+  // matter how high its own z-index is set. Positioned from the trigger
+  // button's live coordinates each time it opens.
+  let panel = document.getElementById("fxMusicPanel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "fxMusicPanel";
+    panel.className = "fx-music-panel";
+    document.body.appendChild(panel);
+  }
+
+  function positionPanel(btn) {
+    const rect = btn.getBoundingClientRect();
+    panel.style.top = `${rect.bottom + 8}px`;
+    panel.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+  }
+
+  function renderPanel() {
+    const track = tracks[currentIndex];
+    panel.innerHTML = `
+      <div class="fx-music-now">${escapeHtml(track?.name || "Untitled")}</div>
+      <div class="fx-music-controls">
+        <button type="button" class="fx-icon-btn" data-music-prev title="Previous track">⏮</button>
+        <button type="button" class="fx-icon-btn" data-music-next title="Next track">⏭</button>
+      </div>
+      <div class="fx-music-vol">
+        <span>🔈</span>
+        <input type="range" min="0" max="100" value="${Math.round(storedVolume * 100)}" data-music-volume/>
+        <span>🔊</span>
+      </div>
+      ${tracks.length > 1 ? `<div class="fx-music-list">
+        ${tracks.map((t, i) => `<div class="fx-music-track${i === currentIndex ? " active" : ""}" data-music-track="${i}">${escapeHtml(t.name)}</div>`).join("")}
+      </div>` : ""}
+    `;
+    panel.querySelector("[data-music-prev]").addEventListener("click", () => loadTrack(currentIndex - 1));
+    panel.querySelector("[data-music-next]").addEventListener("click", () => loadTrack(currentIndex + 1));
+    panel.querySelector("[data-music-volume]").addEventListener("input", (e) => {
+      storedVolume = parseInt(e.target.value, 10) / 100;
+      media.muted = storedVolume === 0;
+      media.volume = storedVolume;
+      localStorage.setItem(VOLUME_KEY, String(storedVolume));
     });
+    panel.querySelectorAll("[data-music-track]").forEach(row => row.addEventListener("click", () => {
+      const i = parseInt(row.dataset.musicTrack, 10);
+      if (i !== currentIndex) loadTrack(i);
+    }));
   }
 
   function loadTrack(index) {
@@ -324,7 +341,7 @@ export function setupBackgroundMedia(tracks) {
         media.muted = storedVolume === 0;
         media.volume = storedVolume;
       }).catch(() => {});
-      renderPanels();
+      renderPanel();
     };
     if (media.readyState >= 1) resume();
     else media.addEventListener("loadedmetadata", resume, { once: true });
@@ -339,29 +356,23 @@ export function setupBackgroundMedia(tracks) {
   loadTrack(currentIndex);
 
   wraps.forEach(wrap => {
-    if (!wrap.querySelector(".fx-music-panel")) {
-      const panel = document.createElement("div");
-      panel.className = "fx-music-panel";
-      wrap.appendChild(panel);
-    }
     const btn = wrap.querySelector("#fxMusicToggle");
     if (btn && !btn._wired) {
       btn._wired = true;
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        const open = wrap.classList.toggle("fx-music-open");
-        if (open) {
-          document.querySelectorAll("#fxMusicWrap.fx-music-open").forEach(w => { if (w !== wrap) w.classList.remove("fx-music-open"); });
-        }
+        const open = panel.classList.toggle("fx-music-open");
+        if (open) positionPanel(btn);
       });
     }
   });
   if (!document.body._musicOutsideClickWired) {
     document.body._musicOutsideClickWired = true;
     document.addEventListener("click", (e) => {
-      if (e.target.closest("#fxMusicWrap")) return;
-      document.querySelectorAll("#fxMusicWrap.fx-music-open").forEach(w => w.classList.remove("fx-music-open"));
+      if (e.target.closest("#fxMusicWrap") || e.target.closest("#fxMusicPanel")) return;
+      panel.classList.remove("fx-music-open");
     });
+    window.addEventListener("resize", () => panel.classList.remove("fx-music-open"));
   }
-  renderPanels();
+  renderPanel();
 }
