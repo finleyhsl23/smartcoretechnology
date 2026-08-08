@@ -221,9 +221,13 @@ export function setupThemeToggle(storageKey = "flexiTheme") {
 }
 
 // Persistent looping background music/video set per-company in Settings —
-// plays across every trainer page and every client-portal page (each a
-// full page load, so this re-attaches on every navigation rather than
-// carrying playback position across pages). Muted by default, both to
+// plays across every trainer page and every client-portal page. Each page
+// is a full reload (not an SPA), so the <audio>/<video> element itself
+// can't literally survive navigation — instead we checkpoint playback
+// position to localStorage every few seconds and on page hide, then seek
+// to that spot on the next page's load, so it sounds continuous rather
+// than restarting from 0 every click. `loop = true` means it repeats from
+// the top once it plays through to the end. Muted by default, both to
 // respect browser autoplay policy (autoplay only succeeds if muted) and so
 // it doesn't blast on first load — the visitor's own mute choice is then
 // remembered per device. No-ops (and hides the toggle button) if the
@@ -246,7 +250,22 @@ export function setupBackgroundMedia(mediaUrl, mediaType, storageKey = "flexiMus
   if (media.getAttribute("src") !== mediaUrl) media.src = mediaUrl;
 
   media.muted = localStorage.getItem(storageKey) !== "0";
-  media.play().catch(() => {});
+
+  const positionKey = `flexiMusicPosition:${mediaUrl}`;
+  const resume = () => {
+    const saved = parseFloat(localStorage.getItem(positionKey));
+    if (!isNaN(saved) && saved > 0 && (!media.duration || saved < media.duration - 0.5)) {
+      try { media.currentTime = saved; } catch {}
+    }
+    media.play().catch(() => {});
+  };
+  if (media.readyState >= 1) resume();
+  else media.addEventListener("loadedmetadata", resume, { once: true });
+
+  const savePosition = () => { if (!isNaN(media.currentTime)) localStorage.setItem(positionKey, String(media.currentTime)); };
+  clearInterval(media._posInterval);
+  media._posInterval = setInterval(savePosition, 3000);
+  window.addEventListener("pagehide", savePosition);
 
   const sync = () => btns.forEach(b => {
     b.textContent = media.muted ? "🔇" : "🔊";
