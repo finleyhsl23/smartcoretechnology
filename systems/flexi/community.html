@@ -47,6 +47,13 @@
   </div>
 </div>
 
+<div class="fx-modal" id="mediaModal">
+  <div class="fx-modal-box" style="max-width:480px">
+    <div class="fx-modal-head"><h3>Submission</h3><button class="fx-modal-close" data-close-media>✕</button></div>
+    <div id="mediaModalBody"></div>
+  </div>
+</div>
+
 <script type="module">
 import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
@@ -137,7 +144,7 @@ async function loadChallenges() {
               <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:6px 0;border-bottom:1px solid var(--fx-line)">
                 <span>${i+1}. ${escapeHtml(e.smartcore_flexi_clients?.full_name || "—")}</span>
                 <span style="display:flex;align-items:center;gap:10px">
-                  ${e.media_url ? `<a href="${e.media_url}" target="_blank" rel="noopener" class="fx-btn fx-btn-sm">View</a>` : ""}
+                  ${e.media_url ? `<button type="button" class="fx-btn fx-btn-sm" data-view-media="${escapeHtml(e.media_url)}" data-media-type="${e.media_type || ""}">View</button>` : ""}
                   <span class="fx-tabular" style="font-weight:700">${e.value} ${escapeHtml(ch.metric_label)}</span>
                 </span>
               </div>
@@ -149,6 +156,21 @@ async function loadChallenges() {
   }));
   el.innerHTML = blocks.join("");
 }
+
+document.getElementById("challenges").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-view-media]");
+  if (!btn) return;
+  const url = btn.dataset.viewMedia;
+  const isVideo = btn.dataset.mediaType === "video";
+  document.getElementById("mediaModalBody").innerHTML = isVideo
+    ? `<video src="${url}" controls autoplay style="width:100%;border-radius:10px;max-height:70vh"></video>`
+    : `<img src="${url}" alt="Submission" style="width:100%;border-radius:10px;max-height:70vh;object-fit:contain"/>`;
+  openModal("mediaModal");
+});
+document.querySelectorAll("[data-close-media]").forEach(b => b.addEventListener("click", () => {
+  closeModal("mediaModal");
+  document.getElementById("mediaModalBody").innerHTML = "";
+}));
 
 document.getElementById("addChallengeBtn").addEventListener("click", () => {
   document.getElementById("chMsg").textContent = "";

@@ -35,9 +35,16 @@
   </nav>
 </div>
 
+<div class="fx-modal" id="mediaModal">
+  <div class="fx-modal-box" style="max-width:420px">
+    <div class="fx-modal-head"><h3>Submission</h3><button class="fx-modal-close" data-close-media>✕</button></div>
+    <div id="mediaModalBody"></div>
+  </div>
+</div>
+
 <script type="module">
 import { requireClientAccess, api, applyPortalFeatureGating } from "../shared/client-auth.js";
-import { revealApp, setupThemeToggle, setupBackgroundMedia, escapeHtml, fmtDateTime, fmtDate, toast, emptyState } from "../shared/ui.js";
+import { revealApp, setupThemeToggle, setupBackgroundMedia, escapeHtml, fmtDateTime, fmtDate, toast, emptyState, openModal, closeModal } from "../shared/ui.js";
 
 const client = await requireClientAccess();
 applyPortalFeatureGating(client.disabled_features);
@@ -70,7 +77,7 @@ async function loadChallenges() {
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0;${e.client_id === client.id ? "font-weight:700;color:var(--fx-accent)" : ""}">
             <span>${i+1}. ${escapeHtml(e.smartcore_flexi_clients?.full_name || "—")}</span>
             <span style="display:flex;align-items:center;gap:8px">
-              ${e.media_url ? `<a href="${e.media_url}" target="_blank" rel="noopener" class="fx-btn fx-btn-sm">View</a>` : ""}
+              ${e.media_url ? `<button type="button" class="fx-btn fx-btn-sm" data-view-media="${escapeHtml(e.media_url)}" data-media-type="${e.media_type || ""}">View</button>` : ""}
               <span class="fx-tabular">${e.value} ${escapeHtml(ch.metric_label)}</span>
             </span>
           </div>
@@ -100,6 +107,21 @@ async function loadChallenges() {
     loadChallenges();
   }));
 }
+
+document.getElementById("challenges").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-view-media]");
+  if (!btn) return;
+  const url = btn.dataset.viewMedia;
+  const isVideo = btn.dataset.mediaType === "video";
+  document.getElementById("mediaModalBody").innerHTML = isVideo
+    ? `<video src="${url}" controls autoplay style="width:100%;border-radius:10px;max-height:70vh"></video>`
+    : `<img src="${url}" alt="Submission" style="width:100%;border-radius:10px;max-height:70vh;object-fit:contain"/>`;
+  openModal("mediaModal");
+});
+document.querySelectorAll("[data-close-media]").forEach(b => b.addEventListener("click", () => {
+  closeModal("mediaModal");
+  document.getElementById("mediaModalBody").innerHTML = "";
+}));
 
 async function loadPosts() {
   const { posts } = await api("community_posts");
