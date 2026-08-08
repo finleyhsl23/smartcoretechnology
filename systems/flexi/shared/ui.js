@@ -220,76 +220,148 @@ export function setupThemeToggle(storageKey = "flexiTheme") {
   }));
 }
 
-// Persistent looping background music/video set per-company in Settings —
-// plays across every trainer page and every client-portal page. Each page
-// is a full reload (not an SPA), so the <audio>/<video> element itself
-// can't literally survive navigation — instead we checkpoint playback
-// position to localStorage every few seconds and on page hide, then seek
-// to that spot on the next page's load, so it sounds continuous rather
-// than restarting from 0 every click. `loop = true` means it repeats from
-// the top once it plays through to the end. No-ops (and hides the toggle
-// button) if the company hasn't set a track. Expects a `#fxMusicToggle`
-// button already in the DOM; only wires it, doesn't create it.
-export function setupBackgroundMedia(mediaUrl, mediaType, storageKey = "flexiMusicMuted") {
-  const btns = document.querySelectorAll("#fxMusicToggle");
-  if (!mediaUrl) { btns.forEach(b => b.style.display = "none"); return; }
-  btns.forEach(b => b.style.display = "");
+// Persistent background-music playlist set per-company in Settings — plays
+// across every trainer page and every client-portal page. Each page is a
+// full reload (not an SPA), so the underlying <video> element (used for
+// both audio- and video-source tracks — a hidden <video> plays an
+// audio-only file just fine, so one element handles either kind without
+// swapping tags) can't literally survive navigation. Instead: which track
+// was playing, its position within that track, and the chosen volume are
+// all checkpointed to localStorage every few seconds and on page hide,
+// then restored on the next page's load — so it sounds continuous and
+// keeps your place rather than restarting on every click. With more than
+// one track, finishing one advances to the next and wraps back to the
+// first after the last (that's the "loop"); with a single track the
+// element's native `loop` just repeats it directly. No-ops (and hides the
+// toggle) if the company hasn't added any tracks. Expects a
+// `#fxMusicWrap` (containing a `#fxMusicToggle` button) already in the
+// DOM — builds the skip/volume/track-list popover inside it on demand.
+export function setupBackgroundMedia(tracks) {
+  const wraps = document.querySelectorAll("#fxMusicWrap");
+  if (!tracks || !tracks.length) { wraps.forEach(w => w.style.display = "none"); return; }
+  wraps.forEach(w => w.style.display = "");
+
+  const VOLUME_KEY = "flexiMusicVolume";
+  const TRACK_KEY = "flexiMusicTrackId";
+  const positionKeyFor = track => `flexiMusicPosition:${track.url}`;
 
   let media = document.getElementById("fxBgMedia");
   if (!media) {
-    media = document.createElement(mediaType === "video" ? "video" : "audio");
+    media = document.createElement("video");
     media.id = "fxBgMedia";
-    media.loop = true;
     media.playsInline = true;
     media.style.display = "none";
     document.body.appendChild(media);
   }
-  if (media.getAttribute("src") !== mediaUrl) media.src = mediaUrl;
 
-  const sync = () => btns.forEach(b => {
-    b.textContent = media.muted ? "🔇" : "🔊";
-    b.title = media.muted ? "Unmute background music" : "Mute background music";
-  });
+  let storedVolume = parseFloat(localStorage.getItem(VOLUME_KEY));
+  if (isNaN(storedVolume)) storedVolume = 1;
 
-  // Browsers block *starting* playback with sound unless the visitor has
-  // already interacted with this page, but they don't re-check that once
-  // playback is already underway — so on every fresh page load we always
-  // start muted (guaranteed to be allowed to autoplay), then flip to
-  // unmuted right after play() actually succeeds if that's what the
-  // visitor chose on a previous page. Without this, "unmuted" silently
-  // never played at all on a fresh navigation and looked like it reset to
-  // muted every time.
-  const wantsUnmuted = localStorage.getItem(storageKey) === "0";
-  media.muted = true;
+  const savedTrackId = localStorage.getItem(TRACK_KEY);
+  let currentIndex = Math.max(0, tracks.findIndex(t => t.id === savedTrackId));
 
-  const positionKey = `flexiMusicPosition:${mediaUrl}`;
-  const resume = () => {
-    const saved = parseFloat(localStorage.getItem(positionKey));
-    if (!isNaN(saved) && saved > 0 && (!media.duration || saved < media.duration - 0.5)) {
-      try { media.currentTime = saved; } catch {}
-    }
-    media.play().then(() => {
-      if (wantsUnmuted) media.muted = false;
-      sync();
-    }).catch(() => {});
+  const savePosition = () => {
+    const track = tracks[currentIndex];
+    if (track && !isNaN(media.currentTime)) localStorage.setItem(positionKeyFor(track), String(media.currentTime));
   };
-  if (media.readyState >= 1) resume();
-  else media.addEventListener("loadedmetadata", resume, { once: true });
 
-  const savePosition = () => { if (!isNaN(media.currentTime)) localStorage.setItem(positionKey, String(media.currentTime)); };
+  function renderPanels() {
+    wraps.forEach(wrap => {
+      const panel = wrap.querySelector(".fx-music-panel");
+      if (!panel) return;
+      const track = tracks[currentIndex];
+      panel.innerHTML = `
+        <div class="fx-music-now">${escapeHtml(track?.name || "Untitled")}</div>
+        <div class="fx-music-controls">
+          <button type="button" class="fx-icon-btn" data-music-prev title="Previous track">⏮</button>
+          <button type="button" class="fx-icon-btn" data-music-next title="Next track">⏭</button>
+        </div>
+        <div class="fx-music-vol">
+          <span>🔈</span>
+          <input type="range" min="0" max="100" value="${Math.round(storedVolume * 100)}" data-music-volume/>
+          <span>🔊</span>
+        </div>
+        ${tracks.length > 1 ? `<div class="fx-music-list">
+          ${tracks.map((t, i) => `<div class="fx-music-track${i === currentIndex ? " active" : ""}" data-music-track="${i}">${escapeHtml(t.name)}</div>`).join("")}
+        </div>` : ""}
+      `;
+      panel.querySelector("[data-music-prev]").addEventListener("click", () => loadTrack(currentIndex - 1));
+      panel.querySelector("[data-music-next]").addEventListener("click", () => loadTrack(currentIndex + 1));
+      panel.querySelector("[data-music-volume]").addEventListener("input", (e) => {
+        storedVolume = parseInt(e.target.value, 10) / 100;
+        media.muted = storedVolume === 0;
+        media.volume = storedVolume;
+        localStorage.setItem(VOLUME_KEY, String(storedVolume));
+      });
+      panel.querySelectorAll("[data-music-track]").forEach(row => row.addEventListener("click", () => {
+        const i = parseInt(row.dataset.musicTrack, 10);
+        if (i !== currentIndex) loadTrack(i);
+      }));
+    });
+  }
+
+  function loadTrack(index) {
+    savePosition();
+    currentIndex = ((index % tracks.length) + tracks.length) % tracks.length;
+    const track = tracks[currentIndex];
+    localStorage.setItem(TRACK_KEY, track.id);
+    media.loop = tracks.length <= 1;
+    // Browsers block *starting* playback with sound unless the visitor has
+    // already interacted with this page, but don't re-check that once
+    // playback is already underway — so always start muted (guaranteed to
+    // autoplay), then flip to the chosen volume right after play()
+    // actually succeeds. Without this, sound silently never started on a
+    // fresh navigation and looked like it kept resetting to muted.
+    media.muted = true;
+    if (media.getAttribute("src") !== track.url) media.src = track.url;
+
+    const resume = () => {
+      const saved = parseFloat(localStorage.getItem(positionKeyFor(track)));
+      if (!isNaN(saved) && saved > 0 && (!media.duration || saved < media.duration - 0.5)) {
+        try { media.currentTime = saved; } catch {}
+      }
+      media.play().then(() => {
+        media.muted = storedVolume === 0;
+        media.volume = storedVolume;
+      }).catch(() => {});
+      renderPanels();
+    };
+    if (media.readyState >= 1) resume();
+    else media.addEventListener("loadedmetadata", resume, { once: true });
+  }
+
+  media.onended = () => { if (tracks.length > 1) loadTrack(currentIndex + 1); };
+
   clearInterval(media._posInterval);
   media._posInterval = setInterval(savePosition, 3000);
   window.addEventListener("pagehide", savePosition);
 
-  sync();
-  btns.forEach(btn => {
-    if (btn._wired) return;
-    btn._wired = true;
-    btn.addEventListener("click", () => {
-      media.muted = !media.muted;
-      if (!media.muted) media.play().catch(() => {});
-      localStorage.setItem(storageKey, media.muted ? "1" : "0");
-      sync();
-    });
+  loadTrack(currentIndex);
+
+  wraps.forEach(wrap => {
+    if (!wrap.querySelector(".fx-music-panel")) {
+      const panel = document.createElement("div");
+      panel.className = "fx-music-panel";
+      wrap.appendChild(panel);
+    }
+    const btn = wrap.querySelector("#fxMusicToggle");
+    if (btn && !btn._wired) {
+      btn._wired = true;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = wrap.classList.toggle("fx-music-open");
+        if (open) {
+          document.querySelectorAll("#fxMusicWrap.fx-music-open").forEach(w => { if (w !== wrap) w.classList.remove("fx-music-open"); });
+        }
+      });
+    }
   });
+  if (!document.body._musicOutsideClickWired) {
+    document.body._musicOutsideClickWired = true;
+    document.addEventListener("click", (e) => {
+      if (e.target.closest("#fxMusicWrap")) return;
+      document.querySelectorAll("#fxMusicWrap.fx-music-open").forEach(w => w.classList.remove("fx-music-open"));
+    });
+  }
+  renderPanels();
 }

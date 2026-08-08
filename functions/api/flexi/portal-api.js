@@ -32,7 +32,7 @@ async function handleAction({ request, env }) {
   const cid = client.id;
   const companyId = client.company_id;
 
-  const [settingsRow] = await sb(env, `/smartcore_flexi_settings?company_id=eq.${companyId}&select=disabled_features,background_media_url,background_media_type`);
+  const [settingsRow] = await sb(env, `/smartcore_flexi_settings?company_id=eq.${companyId}&select=disabled_features,background_tracks`);
   const disabledFeatures = settingsRow?.disabled_features || [];
 
   // Actions that belong to a feature the trainer can switch off in Settings.
@@ -58,8 +58,7 @@ async function handleAction({ request, env }) {
         id: client.id, company_id: client.company_id, trainer_id: client.trainer_id,
         full_name: client.full_name, email: client.email, status: client.status,
         disabled_features: disabledFeatures,
-        background_media_url: settingsRow?.background_media_url || null,
-        background_media_type: settingsRow?.background_media_type || null,
+        background_tracks: settingsRow?.background_tracks || [],
       },
     });
   }
