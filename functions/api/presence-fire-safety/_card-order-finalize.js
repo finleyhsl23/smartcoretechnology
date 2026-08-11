@@ -5,7 +5,7 @@
 // calls back — e.g. the tab closes mid-redirect). Whichever caller wins the
 // atomic pending_payment -> paid transition below does the actual emailing;
 // the other sees 0 rows updated and exits quietly rather than double-sending.
-import { stripeRequest } from './_stripe.js';
+import { stripeRequest } from '../_stripe.js';
 
 const SUPABASE_URL_FALLBACK = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
 const SUPPORT_EMAIL = 'support@smartcoretechnology.co.uk';

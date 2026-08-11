@@ -6,7 +6,7 @@
 // (before payment) rather than at finalize time so the print artwork exists
 // regardless of whether the browser is still open once payment completes.
 import { json, options, getCallerProfile, hasPermission, sbPost, sbPatch } from './_auth.js';
-import { stripeRequest } from './_stripe.js';
+import { stripeRequest } from '../_stripe.js';
 
 export const onRequestOptions = () => options();
 
