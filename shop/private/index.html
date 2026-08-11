@@ -401,9 +401,23 @@ async function showCompanySelector() {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
-function selectCompany(idx) {
+async function selectCompany(idx) {
   SELECTED_COMPANY = COMPANY_OPTIONS[idx];
   document.getElementById('companyGate').style.display = 'none';
+
+  // Fetch accounts_email from most recent order for this company
+  const { data: orders } = await sb
+    .from('marketplace_orders')
+    .select('accounts_email, phone')
+    .eq('company_email', SELECTED_COMPANY.company_email)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (orders && orders.length > 0) {
+    if (orders[0].accounts_email) SELECTED_COMPANY._accounts_email = orders[0].accounts_email;
+    if (!SELECTED_COMPANY.company_phone && orders[0].phone) SELECTED_COMPANY.company_phone = orders[0].phone;
+  }
+
   render();
 }
 
@@ -499,6 +513,7 @@ function render() {
     document.getElementById('fCompany').value = SELECTED_COMPANY.company_name || '';
     document.getElementById('fEmail').value = SELECTED_COMPANY.company_email || '';
     if (SELECTED_COMPANY.company_phone) document.getElementById('fPhone').value = SELECTED_COMPANY.company_phone;
+    if (SELECTED_COMPANY._accounts_email) document.getElementById('fAccountsEmail').value = SELECTED_COMPANY._accounts_email;
   }
   // Pre-fill name from signed-in user metadata
   if (AUTH_USER) {
