@@ -309,11 +309,13 @@ export function setupBackgroundMedia(tracks) {
     panel.querySelector("[data-music-next]").addEventListener("click", () => loadTrack(currentIndex + 1));
     panel.querySelector("[data-music-playpause]").addEventListener("click", () => {
       if (media.paused) {
-        media.play().then(() => { media.muted = storedVolume === 0; media.volume = storedVolume; }).catch(() => {});
+        userPaused = false;
+        attemptPlay();
       } else {
+        userPaused = true;
         media.pause();
       }
-      localStorage.setItem(PAUSED_KEY, media.paused ? "1" : "0");
+      localStorage.setItem(PAUSED_KEY, userPaused ? "1" : "0");
     });
     panel.querySelector("[data-music-volume]").addEventListener("input", (e) => {
       storedVolume = parseInt(e.target.value, 10) / 100;
@@ -325,6 +327,26 @@ export function setupBackgroundMedia(tracks) {
       const i = parseInt(row.dataset.musicTrack, 10);
       if (i !== currentIndex) loadTrack(i);
     }));
+  }
+
+  // Whether the *visitor* deliberately paused it — separate from `media`
+  // simply being in a paused state, which can also happen transiently on
+  // its own (a network stall, the browser reclaiming resources on a
+  // backgrounded tab, a play() call losing a race against the next bit of
+  // buffering). Only this flag should ever stop the auto-resume below.
+  let userPaused = localStorage.getItem(PAUSED_KEY) === "1";
+
+  // play() can fail transiently for reasons that have nothing to do with
+  // autoplay policy (the source hasn't buffered enough yet, a stall, a
+  // brief network hiccup) — retry a couple of times with backoff instead
+  // of silently giving up and leaving it paused.
+  function attemptPlay(retriesLeft = 3) {
+    media.play().then(() => {
+      media.muted = storedVolume === 0;
+      media.volume = storedVolume;
+    }).catch(() => {
+      if (retriesLeft > 0 && !userPaused) setTimeout(() => attemptPlay(retriesLeft - 1), 400);
+    });
   }
 
   function loadTrack(index, { respectPausedPref = false } = {}) {
@@ -342,32 +364,38 @@ export function setupBackgroundMedia(tracks) {
     media.muted = true;
     if (media.getAttribute("src") !== track.url) media.src = track.url;
 
-    const resume = () => {
+    const seekToSaved = () => {
       const saved = parseFloat(localStorage.getItem(positionKeyFor(track)));
       if (!isNaN(saved) && saved > 0 && (!media.duration || saved < media.duration - 0.5)) {
         try { media.currentTime = saved; } catch {}
       }
+    };
+    if (media.readyState >= 1) seekToSaved();
+    else media.addEventListener("loadedmetadata", seekToSaved, { once: true });
+
+    const start = () => {
       // Only a fresh page load honours a previous "paused" choice — picking
       // a track from the list or hitting skip always starts it playing.
-      if (respectPausedPref && localStorage.getItem(PAUSED_KEY) === "1") {
+      if (respectPausedPref && userPaused) {
         media.muted = storedVolume === 0;
         media.volume = storedVolume;
       } else {
-        media.play().then(() => {
-          media.muted = storedVolume === 0;
-          media.volume = storedVolume;
-        }).catch(() => {});
+        userPaused = false;
+        localStorage.setItem(PAUSED_KEY, "0");
+        attemptPlay();
       }
       renderPanel();
     };
-    if (media.readyState >= 1) resume();
-    else media.addEventListener("loadedmetadata", resume, { once: true });
+    // Wait for enough data to actually start playing smoothly (`canplay`)
+    // rather than just the metadata (`loadedmetadata`) — starting a play()
+    // attempt before there's anything buffered is a common source of it
+    // stalling right back into a paused state a moment later.
+    if (media.readyState >= 3) start();
+    else media.addEventListener("canplay", start, { once: true });
   }
 
   media.onended = () => { if (tracks.length > 1) loadTrack(currentIndex + 1); };
 
-  // Keeps the play/pause icon correct no matter what triggered the state
-  // change, without re-rendering (and so disrupting) the rest of the panel.
   if (!media._playPauseWired) {
     media._playPauseWired = true;
     const syncPlayPauseIcon = () => {
@@ -377,7 +405,13 @@ export function setupBackgroundMedia(tracks) {
       btn.title = media.paused ? "Play" : "Pause";
     };
     media.addEventListener("play", syncPlayPauseIcon);
-    media.addEventListener("pause", syncPlayPauseIcon);
+    media.addEventListener("pause", () => {
+      syncPlayPauseIcon();
+      // Self-heal: nothing except the visitor's own pause click should
+      // leave this stopped — anything else that paused it (a stall, a
+      // dropped connection, the tab losing focus) gets nudged back on.
+      if (!userPaused) setTimeout(() => { if (!userPaused && media.paused) attemptPlay(); }, 300);
+    });
   }
 
   clearInterval(media._posInterval);
