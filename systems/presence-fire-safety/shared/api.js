@@ -84,10 +84,12 @@ export const badges = {
     if (error) throw error;
     return data;
   },
-  async list(companyId) {
-    const { data, error } = await sb().from("presence_fire_safety_badges")
+  async list(companyId, { status } = {}) {
+    let q = sb().from("presence_fire_safety_badges")
       .select("*, core_employees!employee_id(full_name, employee_id)")
       .eq("company_id", companyId).order("issued_at", { ascending: false });
+    if (status) q = q.eq("status", status);
+    const { data, error } = await q;
     if (error) throw error;
     return data || [];
   },

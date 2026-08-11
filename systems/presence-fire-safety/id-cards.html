@@ -61,7 +61,7 @@
   import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
   import { renderCardFace, normalizeTemplate, generateQrDataUrl } from "/systems/presence-fire-safety/shared/id-card-render.js";
   import {
-    esc, toast, fmtDateTime, confirmDialog,
+    esc, initials, toast, fmtDateTime, confirmDialog,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
     offlineBanner, setInner, refreshIcons,
   } from "/systems/presence-fire-safety/shared/ui.js";
@@ -122,44 +122,79 @@
       </div>
       <div id="cardArea"></div>
 
-      <h2 class="set-section-title" style="margin-top:28px">All issued QR badges</h2>
+      <h2 class="set-section-title" style="margin-top:28px">Active QR badges</h2>
       <div id="allBadgesArea"></div>
     `);
 
     const searchInput = document.getElementById("empSearch");
     const resultsBox = document.getElementById("empResults");
+    let searchResults = [];
+    let activeIndex = -1;
+
+    function renderResults() {
+      resultsBox.innerHTML = searchResults.length
+        ? searchResults.map((r, i) => `
+          <button type="button" class="set-search-result${i === activeIndex ? " active" : ""}" data-idx="${i}">
+            <div class="avatar avatar-sm">${esc(initials(r.full_name))}</div>
+            <div>
+              <div class="set-search-result-name">${esc(r.full_name)}</div>
+              <div class="set-search-result-meta">${esc([r.job_title, r.employee_id].filter(Boolean).join(" · "))}</div>
+            </div>
+          </button>`).join("")
+        : `<div class="set-search-result-empty">No employees found</div>`;
+      resultsBox.hidden = false;
+      resultsBox.querySelectorAll("[data-idx]").forEach(el => {
+        el.addEventListener("mouseenter", () => { activeIndex = Number(el.dataset.idx); highlightActive(); });
+        el.addEventListener("click", () => selectResult(Number(el.dataset.idx)));
+      });
+    }
+
+    function highlightActive() {
+      resultsBox.querySelectorAll("[data-idx]").forEach(el => el.classList.toggle("active", Number(el.dataset.idx) === activeIndex));
+      resultsBox.querySelector(".set-search-result.active")?.scrollIntoView({ block: "nearest" });
+    }
+
+    function selectResult(i) {
+      const r = searchResults[i];
+      if (!r) return;
+      _selectedEmployee = { id: r.id, name: r.full_name };
+      document.getElementById("empSelectedChip").innerHTML = `<span class="set-selected-chip">${esc(r.full_name)} <button type="button" id="clearEmpChip" aria-label="Clear">✕</button></span>`;
+      document.getElementById("clearEmpChip").addEventListener("click", () => {
+        _selectedEmployee = null; _employeeData = null; _activeBadge = null;
+        document.getElementById("empSelectedChip").innerHTML = "";
+        setInner("cardArea", "");
+      });
+      resultsBox.hidden = true;
+      searchInput.value = "";
+      searchResults = []; activeIndex = -1;
+      loadSelectedEmployee();
+    }
 
     searchInput.addEventListener("input", () => {
       clearTimeout(_searchTimer);
       const q = searchInput.value.trim();
-      if (!q) { resultsBox.hidden = true; resultsBox.innerHTML = ""; return; }
+      if (!q) { resultsBox.hidden = true; resultsBox.innerHTML = ""; searchResults = []; activeIndex = -1; return; }
       _searchTimer = setTimeout(async () => {
         try {
-          const results = await employees.search(_companyId, q, { limit: 8 });
-          resultsBox.innerHTML = results.length
-            ? results.map(r => `<div class="set-search-result" data-emp-id="${esc(r.id)}" data-emp-name="${esc(r.full_name)}">${esc(r.full_name)}${r.employee_id ? ` <span class="text-muted">(${esc(r.employee_id)})</span>` : ""}</div>`).join("")
-            : `<div class="set-search-result text-muted">No employees found</div>`;
-          resultsBox.hidden = false;
-          resultsBox.querySelectorAll("[data-emp-id]").forEach(el => {
-            el.addEventListener("click", () => {
-              _selectedEmployee = { id: el.dataset.empId, name: el.dataset.empName };
-              document.getElementById("empSelectedChip").innerHTML = `<span class="set-selected-chip">${esc(_selectedEmployee.name)} <button type="button" id="clearEmpChip" aria-label="Clear">✕</button></span>`;
-              document.getElementById("clearEmpChip").addEventListener("click", () => {
-                _selectedEmployee = null; _employeeData = null; _activeBadge = null;
-                document.getElementById("empSelectedChip").innerHTML = "";
-                setInner("cardArea", "");
-              });
-              resultsBox.hidden = true;
-              searchInput.value = "";
-              loadSelectedEmployee();
-            });
-          });
+          searchResults = await employees.search(_companyId, q, { limit: 8 });
+          activeIndex = -1;
+          renderResults();
         } catch (e) {
-          resultsBox.innerHTML = `<div class="set-search-result text-muted">${esc(e.message)}</div>`;
+          resultsBox.innerHTML = `<div class="set-search-result-empty">${esc(e.message)}</div>`;
           resultsBox.hidden = false;
         }
       }, 250);
     });
+
+    searchInput.addEventListener("keydown", (e) => {
+      if (resultsBox.hidden || !searchResults.length) return;
+      if (e.key === "ArrowDown") { e.preventDefault(); activeIndex = Math.min(activeIndex + 1, searchResults.length - 1); highlightActive(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); activeIndex = Math.max(activeIndex - 1, 0); highlightActive(); }
+      else if (e.key === "Enter") { e.preventDefault(); selectResult(activeIndex >= 0 ? activeIndex : 0); }
+      else if (e.key === "Escape") { resultsBox.hidden = true; }
+    });
+
+    document.addEventListener("click", (e) => { if (!e.target.closest(".set-search-combo")) resultsBox.hidden = true; });
   }
 
   // ── Selected employee card ──────────────────────────────────────────────
@@ -172,6 +207,19 @@
       ]);
       _employeeData = emp;
       _activeBadge = badge;
+      // A card with a blank back (no QR) isn't useful to print — issue one
+      // automatically rather than making the admin do it as a separate step.
+      // Non-fatal if it fails (e.g. a race with someone else issuing one at
+      // the same moment): the manual "Issue QR Badge" button is still there.
+      if (!_activeBadge) {
+        try {
+          _activeBadge = await badges.issue(_companyId, _selectedEmployee.id);
+          toast("success", "QR badge issued", `A QR badge was automatically issued for ${_selectedEmployee.name}.`);
+          loadAllBadges();
+        } catch (issueErr) {
+          console.error("Auto-issue badge failed:", issueErr);
+        }
+      }
       renderCardArea();
     } catch (e) {
       setInner("cardArea", errorState({ title: "Couldn't load employee", message: e.message, retryId: "cardRetry" }));
@@ -263,7 +311,7 @@
   async function loadAllBadges() {
     setInner("allBadgesArea", loadingState("Loading badges…"));
     try {
-      const list = await badges.list(_companyId);
+      const list = await badges.list(_companyId, { status: "active" });
       renderAllBadges(list);
     } catch (e) {
       setInner("allBadgesArea", errorState({ title: "Couldn't load badges", message: e.message, retryId: "allBadgesRetry" }));
@@ -273,21 +321,20 @@
 
   function renderAllBadges(list) {
     if (!list.length) {
-      setInner("allBadgesArea", emptyState({ icon: "id-card", title: "No badges issued yet" }));
+      setInner("allBadgesArea", emptyState({ icon: "id-card", title: "No active badges", message: "Badges appear here once issued. Revoked badges are hidden from this list." }));
       return;
     }
     setInner("allBadgesArea", `
       <div class="tbl-wrap">
         <table class="tbl">
-          <thead><tr><th>Employee</th><th>Token</th><th>Status</th><th>Issued</th><th></th></tr></thead>
+          <thead><tr><th>Employee</th><th>Token</th><th>Issued</th><th></th></tr></thead>
           <tbody>
             ${list.map(b => `
               <tr>
                 <td>${esc(b.core_employees?.full_name || "—")} ${b.core_employees?.employee_id ? `<span class="text-muted">(${esc(b.core_employees.employee_id)})</span>` : ""}</td>
                 <td class="set-token">${esc(b.badge_token)}</td>
-                <td><span class="badge ${b.status === "active" ? "badge-green" : b.status === "revoked" ? "badge-red" : "badge-grey"}">${esc(b.status)}</span></td>
                 <td>${esc(fmtDateTime(b.issued_at))}</td>
-                <td>${b.status === "active" ? `<button class="btn btn-danger" data-revoke-badge="${esc(b.id)}" type="button">Revoke</button>` : "—"}</td>
+                <td><button class="btn btn-danger" data-revoke-badge="${esc(b.id)}" type="button">Revoke</button></td>
               </tr>`).join("")}
           </tbody>
         </table>
