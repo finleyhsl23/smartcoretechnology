@@ -502,9 +502,17 @@
           <input class="form-input" id="kvLast" autocomplete="off"/>
           <label class="form-label" for="kvOrg" style="margin-top:10px">Organisation</label>
           <input class="form-input" id="kvOrg" autocomplete="off"/>
+          <label class="form-label" for="kvEmail" style="margin-top:10px">Email</label>
+          <input class="form-input" id="kvEmail" type="email" autocomplete="off"/>
+          <label class="form-label" for="kvPhone" style="margin-top:10px">Phone</label>
+          <input class="form-input" id="kvPhone" type="tel" autocomplete="off"/>
+          <label class="form-label" for="kvVehicle" style="margin-top:10px">Vehicle registration</label>
+          <input class="form-input" id="kvVehicle" autocomplete="off"/>
           <label class="form-label" for="kvHost" style="margin-top:10px">Who are you here to see? (optional)</label>
           <input class="form-input" id="kvHost" autocomplete="off" placeholder="Search employees…"/>
           <div class="kiosk-results" id="kvHostResults"></div>
+          <label class="form-label" for="kvReason" style="margin-top:10px">Visit reason</label>
+          <input class="form-input" id="kvReason" autocomplete="off"/>
           <label class="set-checkbox-field" style="margin-top:14px"><input type="checkbox" id="kvTerms"/> I accept the site visitor terms</label>
           <div id="kvError" class="form-error" role="alert"></div>
           <div class="kiosk-actions" style="margin-top:16px">
@@ -517,12 +525,16 @@
       const firstName = document.getElementById("kvFirst").value.trim();
       const lastName = document.getElementById("kvLast").value.trim();
       const organisation = document.getElementById("kvOrg").value.trim();
+      const email = document.getElementById("kvEmail").value.trim();
+      const phone = document.getElementById("kvPhone").value.trim();
+      const vehicleRegistration = document.getElementById("kvVehicle").value.trim();
+      const visitReason = document.getElementById("kvReason").value.trim();
       const acceptTerms = document.getElementById("kvTerms").checked;
       const errBox = document.getElementById("kvError");
       if (!firstName || !lastName) { errBox.textContent = "First and last name are required."; return; }
       if (!acceptTerms) { errBox.textContent = "Please accept the site visitor terms to continue."; return; }
       errBox.textContent = "";
-      const form = { firstName, lastName, organisation, hostEmployeeId: hostId, acceptTerms };
+      const form = { firstName, lastName, organisation, email, phone, vehicleRegistration, hostEmployeeId: hostId, visitReason, acceptTerms };
       if (_companySettings?.visitor_photo_enabled) {
         renderKioskPhotoStep("visitor", form);
       } else {
@@ -536,8 +548,9 @@
     try {
       const visit = await visitors.createVisit({
         siteId: _siteId, firstName: form.firstName, lastName: form.lastName,
-        organisation: form.organisation || null, hostEmployeeId: form.hostEmployeeId || null,
-        acceptTerms: form.acceptTerms, signInNow: true,
+        organisation: form.organisation || null, email: form.email || null, phone: form.phone || null,
+        vehicleRegistration: form.vehicleRegistration || null, hostEmployeeId: form.hostEmployeeId || null,
+        visitReason: form.visitReason || null, acceptTerms: form.acceptTerms, signInNow: true,
       });
       if (photoBlob && visit?.visitor_id) {
         try {
@@ -565,9 +578,19 @@
           <input class="form-input" id="kcBusiness" autocomplete="off"/>
           <label class="form-label" for="kcContact" style="margin-top:10px">Contact name</label>
           <input class="form-input" id="kcContact" autocomplete="off"/>
+          <label class="form-label" for="kcPhone" style="margin-top:10px">Phone</label>
+          <input class="form-input" id="kcPhone" type="tel" autocomplete="off"/>
+          <label class="form-label" for="kcEmail" style="margin-top:10px">Email</label>
+          <input class="form-input" id="kcEmail" type="email" autocomplete="off"/>
+          <label class="form-label" for="kcVehicle" style="margin-top:10px">Vehicle registration</label>
+          <input class="form-input" id="kcVehicle" autocomplete="off"/>
           <label class="form-label" for="kcHost" style="margin-top:10px">Host / who are you working with? (optional)</label>
           <input class="form-input" id="kcHost" autocomplete="off" placeholder="Search employees…"/>
           <div class="kiosk-results" id="kcHostResults"></div>
+          <label class="form-label" for="kcWorkPurpose" style="margin-top:10px">Work purpose</label>
+          <input class="form-input" id="kcWorkPurpose" autocomplete="off"/>
+          <label class="form-label" for="kcPermit" style="margin-top:10px">Permit reference</label>
+          <input class="form-input" id="kcPermit" autocomplete="off"/>
           <label class="set-checkbox-field" style="margin-top:14px"><input type="checkbox" id="kcInduction"/> Site induction confirmed</label>
           <div id="kcError" class="form-error" role="alert"></div>
           <div class="kiosk-actions" style="margin-top:16px">
@@ -579,11 +602,16 @@
     document.getElementById("kcNextBtn").addEventListener("click", () => {
       const businessName = document.getElementById("kcBusiness").value.trim();
       const contactName = document.getElementById("kcContact").value.trim();
+      const phone = document.getElementById("kcPhone").value.trim();
+      const email = document.getElementById("kcEmail").value.trim();
+      const vehicleRegistration = document.getElementById("kcVehicle").value.trim();
+      const workPurpose = document.getElementById("kcWorkPurpose").value.trim();
+      const permitReference = document.getElementById("kcPermit").value.trim();
       const inductionConfirmed = document.getElementById("kcInduction").checked;
       const errBox = document.getElementById("kcError");
       if (!businessName) { errBox.textContent = "Business name is required."; return; }
       errBox.textContent = "";
-      const form = { businessName, contactName, hostEmployeeId: hostId, inductionConfirmed };
+      const form = { businessName, contactName, phone, email, vehicleRegistration, hostEmployeeId: hostId, workPurpose, permitReference, inductionConfirmed };
       if (_companySettings?.visitor_photo_enabled) {
         renderKioskPhotoStep("contractor", form);
       } else {
@@ -597,7 +625,9 @@
     try {
       const visit = await contractors.createVisit({
         siteId: _siteId, businessName: form.businessName, contactName: form.contactName || null,
-        hostEmployeeId: form.hostEmployeeId || null, inductionConfirmed: form.inductionConfirmed, signInNow: true,
+        phone: form.phone || null, email: form.email || null, vehicleRegistration: form.vehicleRegistration || null,
+        hostEmployeeId: form.hostEmployeeId || null, workPurpose: form.workPurpose || null,
+        permitReference: form.permitReference || null, inductionConfirmed: form.inductionConfirmed, signInNow: true,
       });
       if (photoBlob && visit?.contractor_id) {
         try {
