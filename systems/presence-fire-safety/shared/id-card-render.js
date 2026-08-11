@@ -157,3 +157,209 @@ export function renderIdCardFront(template, employee, logoUrl, qrDataUrl = null)
 export function renderIdCardBack(template, qrDataUrl, employee = null, logoUrl = null) {
   return renderCardFace(template, "back", { employee, logoUrl, qrDataUrl });
 }
+
+// ── Canvas rasterizer ────────────────────────────────────────────────────
+// Produces an actual PNG of a card face, at real print resolution, for
+// sending to SmartCore's print partner — there's no server-side renderer
+// available (Cloudflare Workers has no DOM/canvas), so this runs in the
+// browser at order time and the resulting images get uploaded.
+//
+// The template's px-based values (fontSize, border width) are calibrated
+// against the browser's own print output, which renders CSS px at the
+// standard 96-per-inch mapping regardless of the mm-sized container. PRINT_DPI
+// is the raster resolution the PNG is generated at, so everything sized in
+// px needs multiplying by PX_SCALE to land at the same physical size.
+const PRINT_DPI = 300;
+const PX_PER_MM = PRINT_DPI / 25.4;
+const PX_SCALE = PRINT_DPI / 96;
+
+function loadImage(src) {
+  return new Promise((resolve) => {
+    if (!src) { resolve(null); return; }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+function roundRectPath(c, x, y, w, h, r) {
+  const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+  c.beginPath();
+  c.moveTo(x + rr, y);
+  c.arcTo(x + w, y, x + w, y + h, rr);
+  c.arcTo(x + w, y + h, x, y + h, rr);
+  c.arcTo(x, y + h, x, y, rr);
+  c.arcTo(x, y, x + w, y, rr);
+  c.closePath();
+}
+
+function drawCover(c, img, x, y, w, h) {
+  const scale = Math.max(w / img.width, h / img.height);
+  const dw = img.width * scale, dh = img.height * scale;
+  c.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
+
+function wrapLines(c, text, maxWidth) {
+  const words = String(text || "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (c.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function truncateToWidth(c, text, maxWidth) {
+  if (c.measureText(text).width <= maxWidth) return text;
+  let s = text;
+  while (s.length > 1 && c.measureText(s + "…").width > maxWidth) s = s.slice(0, -1);
+  return s + "…";
+}
+
+async function drawElementOnCanvas(c, el, ctx, W, H) {
+  const ex = (el.x / 100) * W, ey = (el.y / 100) * H, ew = (el.w / 100) * W, eh = (el.h / 100) * H;
+
+  if (el.type === "photo") {
+    c.save();
+    if (el.shape === "square") roundRectPath(c, ex, ey, ew, eh, Math.min(ew, eh) * 0.1);
+    else { c.beginPath(); c.ellipse(ex + ew / 2, ey + eh / 2, ew / 2, eh / 2, 0, 0, Math.PI * 2); }
+    c.clip();
+    const img = await loadImage(ctx.employee?.profile_picture_url);
+    if (img) {
+      drawCover(c, img, ex, ey, ew, eh);
+    } else {
+      c.fillStyle = "rgba(255,255,255,.14)";
+      c.fillRect(ex, ey, ew, eh);
+      c.fillStyle = "#fff";
+      c.font = `800 ${Math.max(eh * 0.28, 10 * PX_SCALE)}px sans-serif`;
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.fillText(initials(ctx.employee?.full_name), ex + ew / 2, ey + eh / 2);
+    }
+    c.restore();
+    const borderWidth = (el.borderWidth ?? 3) * PX_SCALE;
+    if (borderWidth > 0) {
+      c.save();
+      c.lineWidth = borderWidth;
+      c.strokeStyle = el.borderColor || "#ffffff";
+      if (el.shape === "square") roundRectPath(c, ex + borderWidth / 2, ey + borderWidth / 2, ew - borderWidth, eh - borderWidth, Math.min(ew, eh) * 0.1);
+      else { c.beginPath(); c.ellipse(ex + ew / 2, ey + eh / 2, ew / 2 - borderWidth / 2, eh / 2 - borderWidth / 2, 0, 0, Math.PI * 2); }
+      c.stroke();
+      c.restore();
+    }
+    return;
+  }
+
+  if (el.type === "logo") {
+    const img = await loadImage(ctx.logoUrl);
+    if (!img) return;
+    const scale = Math.min(ew / img.width, eh / img.height);
+    const dw = img.width * scale, dh = img.height * scale;
+    c.drawImage(img, ex + (ew - dw) / 2, ey + (eh - dh) / 2, dw, dh);
+    return;
+  }
+
+  if (el.type === "text" || el.type === "statictext") {
+    const value = el.type === "text" ? (ctx.employee?.[FIELD_MAP[el.field]] || "") : (el.text || "");
+    const fontSize = (el.fontSize ?? (el.type === "text" ? 14 : 12)) * PX_SCALE;
+    const weight = el.type === "text" && el.bold ? 800 : 500;
+    c.font = `${weight} ${fontSize}px sans-serif`;
+    c.fillStyle = el.color || (el.type === "text" ? "#fff" : "#334155");
+    const align = el.align || "left";
+    c.textAlign = align === "center" ? "center" : align === "right" ? "right" : "left";
+    const anchorX = align === "center" ? ex + ew / 2 : align === "right" ? ex + ew : ex;
+
+    if (el.type === "text") {
+      // Single line, truncated with an ellipsis rather than wrapped —
+      // matches the on-screen nowrap/text-overflow:ellipsis rendering.
+      c.textBaseline = "middle";
+      c.fillText(truncateToWidth(c, value, ew), anchorX, ey + eh / 2);
+    } else {
+      const lines = wrapLines(c, value, ew);
+      const lineHeight = fontSize * 1.3;
+      const totalHeight = lines.length * lineHeight;
+      let ly = ey + eh / 2 - totalHeight / 2 + lineHeight / 2;
+      c.textBaseline = "middle";
+      for (const line of lines) { c.fillText(line, anchorX, ly); ly += lineHeight; }
+    }
+    return;
+  }
+
+  if (el.type === "shape") {
+    c.save();
+    c.globalAlpha = el.opacity ?? 0.2;
+    c.fillStyle = el.color || "#1e5cff";
+    if (el.shapeType === "rect") roundRectPath(c, ex, ey, ew, eh, 8 * PX_SCALE);
+    else { c.beginPath(); c.ellipse(ex + ew / 2, ey + eh / 2, ew / 2, eh / 2, 0, 0, Math.PI * 2); }
+    c.fill();
+    c.restore();
+    return;
+  }
+
+  if (el.type === "qr") {
+    const img = await loadImage(ctx.qrDataUrl);
+    if (!img) return;
+    c.save();
+    c.imageSmoothingEnabled = false;
+    c.drawImage(img, ex, ey, ew, eh);
+    c.restore();
+  }
+}
+
+/** Rasterizes one face to a canvas at print resolution (300dpi). Async
+ *  because photo/logo/QR images have to load first. */
+export async function renderCardToCanvas(template, face, ctx = {}) {
+  const t = template || getDefaultTemplate();
+  const faceData = t[face] || {};
+  const orientation = t.orientation === "portrait" ? "portrait" : "landscape";
+  const W = Math.round((orientation === "portrait" ? 54 : 85.6) * PX_PER_MM);
+  const H = Math.round((orientation === "portrait" ? 85.6 : 54) * PX_PER_MM);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const c = canvas.getContext("2d");
+
+  const bg = faceData.background?.color || (face === "back" ? "#ffffff" : "#101828");
+  const radius = (t.cornerRadius ?? 16) * PX_SCALE;
+
+  c.save();
+  roundRectPath(c, 0, 0, W, H, radius);
+  c.fillStyle = bg;
+  c.fill();
+  c.clip();
+
+  const elements = [...(faceData.elements || [])].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
+  for (const el of elements) await drawElementOnCanvas(c, el, ctx, W, H);
+  c.restore();
+
+  if (t.border?.enabled !== false) {
+    const borderWidth = (t.border?.width ?? 3) * PX_SCALE;
+    c.save();
+    c.lineWidth = borderWidth;
+    c.strokeStyle = t.border?.color || "#1e5cff";
+    roundRectPath(c, borderWidth / 2, borderWidth / 2, W - borderWidth, H - borderWidth, radius);
+    c.stroke();
+    c.restore();
+  }
+
+  return canvas;
+}
+
+/** Renders both faces of a card as PNG data: URLs (print resolution). */
+export async function renderCardImagePair(template, ctx = {}) {
+  const [frontCanvas, backCanvas] = await Promise.all([
+    renderCardToCanvas(template, "front", ctx),
+    renderCardToCanvas(template, "back", ctx),
+  ]);
+  return { front: frontCanvas.toDataURL("image/png"), back: backCanvas.toDataURL("image/png") };
+}
