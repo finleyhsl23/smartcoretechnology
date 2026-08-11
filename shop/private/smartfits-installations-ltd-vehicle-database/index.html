@@ -352,19 +352,33 @@ async function init() {
 let SELECTED_COMPANY = null;
 
 async function showCompanySelector() {
-  // Fetch companies this user belongs to via core_employees
-  const { data: rows } = await sb
+  const list = document.getElementById('companyList');
+  list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:12px">Loading…</div>';
+  document.getElementById('companyGate').style.display = 'block';
+
+  // Step 1: get company IDs from core_employees
+  const { data: empRows, error: empErr } = await sb
     .from('core_employees')
-    .select('company_id, smartcore_core_companies(id, company_name, company_email, company_phone)')
+    .select('company_id')
     .eq('auth_user_id', AUTH_USER.id);
 
-  const companies = (rows || [])
-    .map(r => r.smartcore_core_companies)
-    .filter(Boolean);
+  if (empErr || !empRows || empRows.length === 0) {
+    // No companies linked — go straight to checkout
+    document.getElementById('companyGate').style.display = 'none';
+    render();
+    return;
+  }
 
-  const list = document.getElementById('companyList');
-  if (companies.length === 0) {
-    // No companies found — go straight to checkout as new
+  const companyIds = empRows.map(r => r.company_id).filter(Boolean);
+
+  // Step 2: fetch company details
+  const { data: companies, error: coErr } = await sb
+    .from('smartcore_core_companies')
+    .select('id, company_name, company_email, company_phone')
+    .in('id', companyIds);
+
+  if (coErr || !companies || companies.length === 0) {
+    document.getElementById('companyGate').style.display = 'none';
     render();
     return;
   }
@@ -381,8 +395,6 @@ async function showCompanySelector() {
       <div style="font-size:12px;color:var(--muted)">${esc(c.company_email || '')}</div>
     </button>
   `).join('');
-
-  document.getElementById('companyGate').style.display = 'block';
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
@@ -508,6 +520,7 @@ function render() {
 
   // Features
   const fl = document.getElementById('featuresList');
+  fl.innerHTML = '';
   (m.features || []).forEach(f => {
     const li = document.createElement('li');
     li.textContent = f;
