@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <title>Hassalls — Private Dashboard</title>
 <meta name="robots" content="noindex, nofollow"/>
 <link rel="icon" type="image/png" href="/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png"/>
@@ -12,188 +12,280 @@
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  :root{
-    --bg0:#020617;--bg1:#06153a;--bg2:#0a1f52;
-    --line:rgba(255,255,255,.1);--line-soft:rgba(255,255,255,.06);
-    --text:#eaf0ff;--muted:rgba(234,240,255,.6);--muted2:rgba(234,240,255,.4);
-    --accent:#78aaff;--accent-soft:rgba(120,170,255,.14);
-    --green:#22c55e;--green-soft:rgba(34,197,94,.14);
-    --amber:#f59e0b;--amber-soft:rgba(245,158,11,.14);
-    --red:#ef4444;--red-soft:rgba(239,68,68,.14);
-    --grey:#8a93a8;--grey-soft:rgba(138,147,168,.14);
-  }
-  html,body{min-height:100%}
-  body{
-    background:var(--bg0);color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,'Inter',Helvetica,Arial,sans-serif;
-    -webkit-font-smoothing:antialiased;
-  }
-  body::before{
-    content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
-    background:radial-gradient(ellipse 80% 50% at 50% -10%,rgba(37,99,235,.16),transparent);
-  }
-  a{color:inherit}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%;overscroll-behavior:none}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Inter',Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;color:var(--text);background:var(--bg0);
+  transition:background .5s ease,color .5s ease;
+}
+a{color:inherit}
+button,input,select{font-family:inherit}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
 
-  .nav{
-    position:sticky;top:0;z-index:50;
-    display:flex;align-items:center;justify-content:space-between;
-    padding:0 28px;height:60px;
-    background:rgba(2,6,23,.85);backdrop-filter:blur(16px);
-    border-bottom:1px solid var(--line);
+/* ============================== THEME TOKENS ============================== */
+:root{
+  --bg0:#eef1f9;--bg1:#e4e9f7;
+  --blob-a:rgba(120,170,255,.35);--blob-b:rgba(168,145,255,.30);--blob-c:rgba(120,220,210,.25);
+  --glass:rgba(255,255,255,.55);--glass-strong:rgba(255,255,255,.78);
+  --glass-border:rgba(255,255,255,.85);--glass-shadow:0 20px 60px -20px rgba(31,41,71,.25),0 2px 8px rgba(31,41,71,.06);
+  --text:#0f1626;--muted:rgba(15,22,38,.62);--muted2:rgba(15,22,38,.4);
+  --accent:#3b6cf6;--accent2:#7c5cff;--accent-soft:rgba(59,108,246,.14);
+  --green:#16a34a;--green-soft:rgba(22,163,74,.14);
+  --amber:#d97706;--amber-soft:rgba(217,119,6,.14);
+  --red:#dc2626;--red-soft:rgba(220,38,38,.14);
+  --grey:#64748b;--grey-soft:rgba(100,116,139,.14);
+  --line:rgba(15,22,38,.08);--line-strong:rgba(15,22,38,.14);
+  --scroll-thumb:rgba(15,22,38,.18);
+  --input-bg:rgba(255,255,255,.6);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg0:#04070f;--bg1:#050b1c;
+    --blob-a:rgba(59,108,246,.30);--blob-b:rgba(124,92,255,.24);--blob-c:rgba(56,189,180,.16);
+    --glass:rgba(255,255,255,.055);--glass-strong:rgba(255,255,255,.09);
+    --glass-border:rgba(255,255,255,.12);--glass-shadow:0 20px 60px -20px rgba(0,0,0,.7),0 2px 8px rgba(0,0,0,.3);
+    --text:#eef2ff;--muted:rgba(238,242,255,.62);--muted2:rgba(238,242,255,.4);
+    --accent:#7ea6ff;--accent2:#b9a4ff;--accent-soft:rgba(126,166,255,.16);
+    --green:#34d399;--green-soft:rgba(52,211,153,.16);
+    --amber:#fbbf24;--amber-soft:rgba(251,191,36,.16);
+    --red:#f87171;--red-soft:rgba(248,113,113,.16);
+    --grey:#94a3b8;--grey-soft:rgba(148,163,184,.16);
+    --line:rgba(255,255,255,.1);--line-strong:rgba(255,255,255,.16);
+    --scroll-thumb:rgba(255,255,255,.16);
+    --input-bg:rgba(255,255,255,.06);
+    color-scheme:dark;
   }
-  .nav-left{display:flex;align-items:center;gap:14px}
-  .nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none}
-  .nav-brand img{width:28px;height:28px;border-radius:8px}
-  .nav-brand span{font-size:14px;font-weight:800;letter-spacing:-.01em}
-  .nav-sep{width:1px;height:18px;background:var(--line)}
-  .nav-title{font-size:14px;font-weight:700;color:var(--muted)}
-  .private-badge{
-    font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
-    background:var(--amber-soft);border:1px solid rgba(245,158,11,.3);color:var(--amber);
-    border-radius:6px;padding:3px 9px;
-  }
-  .nav-right{display:flex;align-items:center;gap:10px}
-  .icon-btn{
-    background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--muted);
-    border-radius:9px;padding:7px 12px;font-size:12.5px;font-weight:600;cursor:pointer;
-    font-family:inherit;transition:background .15s,color .15s;
-  }
-  .icon-btn:hover{background:rgba(255,255,255,.1);color:var(--text)}
+}
+:root[data-theme="dark"]{
+  --bg0:#04070f;--bg1:#050b1c;
+  --blob-a:rgba(59,108,246,.30);--blob-b:rgba(124,92,255,.24);--blob-c:rgba(56,189,180,.16);
+  --glass:rgba(255,255,255,.055);--glass-strong:rgba(255,255,255,.09);
+  --glass-border:rgba(255,255,255,.12);--glass-shadow:0 20px 60px -20px rgba(0,0,0,.7),0 2px 8px rgba(0,0,0,.3);
+  --text:#eef2ff;--muted:rgba(238,242,255,.62);--muted2:rgba(238,242,255,.4);
+  --accent:#7ea6ff;--accent2:#b9a4ff;--accent-soft:rgba(126,166,255,.16);
+  --green:#34d399;--green-soft:rgba(52,211,153,.16);
+  --amber:#fbbf24;--amber-soft:rgba(251,191,36,.16);
+  --red:#f87171;--red-soft:rgba(248,113,113,.16);
+  --grey:#94a3b8;--grey-soft:rgba(148,163,184,.16);
+  --line:rgba(255,255,255,.1);--line-strong:rgba(255,255,255,.16);
+  --scroll-thumb:rgba(255,255,255,.16);
+  --input-bg:rgba(255,255,255,.06);
+  color-scheme:dark;
+}
 
-  .page{max-width:1180px;margin:0 auto;padding:32px 24px 100px;position:relative;z-index:1}
+/* ============================== BACKGROUND ============================== */
+.bg{position:fixed;inset:0;z-index:-1;overflow:hidden;background:var(--bg0);transition:background .6s ease}
+.blob{position:absolute;border-radius:50%;filter:blur(70px);opacity:.9;will-change:transform}
+.blob1{width:52vw;height:52vw;background:var(--blob-a);top:-18vw;left:-12vw;animation:drift1 34s ease-in-out infinite}
+.blob2{width:46vw;height:46vw;background:var(--blob-b);bottom:-20vw;right:-10vw;animation:drift2 40s ease-in-out infinite}
+.blob3{width:34vw;height:34vw;background:var(--blob-c);top:38%;left:55%;animation:drift3 46s ease-in-out infinite}
+@keyframes drift1{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(6vw,8vw) scale(1.12)}}
+@keyframes drift2{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-7vw,-5vw) scale(1.08)}}
+@keyframes drift3{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-5vw,6vw) scale(.9)}}
+@media(prefers-reduced-motion:reduce){.blob{animation:none}}
 
-  .section{margin-bottom:36px}
-  .section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap}
-  .section-head h2{font-size:16px;font-weight:800;letter-spacing:-.01em}
-  .section-head p{font-size:12.5px;color:var(--muted);margin-top:2px}
+/* ============================== GLASS ============================== */
+.glass{
+  background:var(--glass);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);
+  border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);
+  transition:background .4s ease,border-color .4s ease,box-shadow .25s ease,transform .18s cubic-bezier(.2,.9,.3,1.3);
+}
+.glass-strong{background:var(--glass-strong);backdrop-filter:blur(34px) saturate(190%);-webkit-backdrop-filter:blur(34px) saturate(190%)}
 
-  .card{
-    background:rgba(6,21,58,.55);border:1px solid var(--line);border-radius:16px;
-  }
+/* ============================== MOTION HELPERS ============================== */
+.pressable{cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none}
+.pressable:active{transform:scale(.96)}
+@keyframes fadeInUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes pop{0%{opacity:0;transform:scale(.9)}60%{transform:scale(1.02)}100%{opacity:1;transform:scale(1)}}
+@keyframes pulseRing{0%{box-shadow:0 0 0 0 var(--pulse-c,rgba(248,113,113,.55))}70%{box-shadow:0 0 0 14px rgba(248,113,113,0)}100%{box-shadow:0 0 0 0 rgba(248,113,113,0)}}
+@keyframes jiggle{0%,100%{transform:rotate(-.5deg)}50%{transform:rotate(.5deg)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.enter{animation:fadeInUp .5s cubic-bezier(.2,.8,.2,1) both}
 
-  /* Site cards */
-  .site-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
-  .site-card{padding:20px}
-  .site-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-  .site-card-head h3{font-size:15px;font-weight:800}
-  .site-stat-row{display:flex;flex-direction:column;gap:8px;margin-top:12px}
-  .site-stat{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--muted)}
-  .site-stat b{color:var(--text);font-weight:600}
-  .cam-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}
-  .cam-row{display:flex;align-items:center;justify-content:space-between;font-size:12px;padding:5px 0;border-top:1px solid var(--line-soft)}
-  .cam-row:first-of-type{border-top:none}
+/* ============================== NAV ============================== */
+.nav{
+  position:sticky;top:0;z-index:60;display:flex;align-items:center;justify-content:space-between;
+  padding:12px 22px;margin:14px 14px 0;border-radius:22px;
+}
+.nav-left{display:flex;align-items:center;gap:14px}
+.nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none}
+.nav-brand img{width:30px;height:30px;border-radius:9px}
+.nav-brand span{font-size:14.5px;font-weight:800;letter-spacing:-.01em}
+.nav-sep{width:1px;height:20px;background:var(--line-strong)}
+.nav-title{font-size:14px;font-weight:700;color:var(--muted)}
+.private-badge{
+  font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+  background:var(--amber-soft);border:1px solid rgba(217,119,6,.3);color:var(--amber);
+  border-radius:7px;padding:3px 9px;
+}
+.clock{display:flex;flex-direction:column;align-items:center;line-height:1.15;padding:0 10px}
+.clock-time{font-size:19px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.clock-date{font-size:10.5px;color:var(--muted2);font-weight:600}
+.nav-right{display:flex;align-items:center;gap:8px}
+.icon-btn{
+  display:inline-flex;align-items:center;gap:6px;background:var(--glass);border:1px solid var(--glass-border);
+  color:var(--muted);border-radius:12px;padding:9px 13px;font-size:12.5px;font-weight:700;
+  backdrop-filter:blur(16px);transition:background .2s,color .2s,transform .15s;
+}
+.icon-btn:hover{background:var(--accent-soft);color:var(--accent)}
+.icon-btn:active{transform:scale(.94)}
+.icon-btn.active{background:var(--accent-soft);color:var(--accent);border-color:rgba(59,108,246,.4)}
+.theme-toggle{width:40px;height:40px;justify-content:center;padding:0;font-size:16px;border-radius:50%}
 
-  .badge{
-    display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;
-    text-transform:uppercase;letter-spacing:.04em;border-radius:6px;padding:3px 9px;
-  }
-  .badge-none{background:var(--grey-soft);color:var(--grey)}
-  .badge-low{background:var(--accent-soft);color:var(--accent)}
-  .badge-medium{background:var(--amber-soft);color:var(--amber)}
-  .badge-high{background:var(--red-soft);color:var(--red)}
-  .badge-online{background:var(--green-soft);color:var(--green)}
-  .badge-offline{background:var(--grey-soft);color:var(--grey)}
+/* ============================== PAGE / GRID ============================== */
+.page{max-width:1500px;margin:0 auto;padding:22px 14px 90px;position:relative;z-index:1}
+.widget-grid{display:grid;grid-template-columns:repeat(12,1fr);grid-auto-rows:60px;gap:16px}
+.widget{
+  grid-column:span 12;grid-row:span 4;border-radius:24px;display:flex;flex-direction:column;overflow:hidden;
+  position:relative;animation:fadeInUp .55s cubic-bezier(.2,.8,.2,1) both;
+}
+.edit-mode .widget{animation:jiggle 1.6s ease-in-out infinite}
+.edit-mode .widget:nth-child(even){animation-delay:.15s}
+@media(prefers-reduced-motion:reduce){.edit-mode .widget{animation:none}}
+.widget-head{display:flex;align-items:center;gap:10px;padding:16px 18px 10px;flex-shrink:0}
+.widget-head h2{font-size:14.5px;font-weight:800;letter-spacing:-.01em}
+.widget-sub{font-size:11px;color:var(--muted2);margin-left:auto;font-weight:600;white-space:nowrap}
+.widget-body{flex:1;overflow:auto;padding:2px 18px 16px}
+.drag-grip{
+  opacity:0;pointer-events:none;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  color:var(--muted2);font-size:14px;cursor:grab;touch-action:none;transition:opacity .2s,background .2s;flex-shrink:0;
+}
+.edit-mode .drag-grip{opacity:1;pointer-events:auto;background:rgba(255,255,255,.08)}
+.drag-grip:active{cursor:grabbing}
+.resize-handle{
+  position:absolute;right:0;bottom:0;width:30px;height:30px;opacity:0;pointer-events:none;touch-action:none;cursor:nwse-resize;
+  transition:opacity .2s;
+}
+.resize-handle::after{
+  content:'';position:absolute;right:9px;bottom:9px;width:11px;height:11px;
+  border-right:2.5px solid var(--muted2);border-bottom:2.5px solid var(--muted2);border-radius:0 0 3px 0;
+}
+.edit-mode .resize-handle{opacity:1;pointer-events:auto}
+.widget.resizing,.widget.dragging{outline:2px dashed var(--accent);outline-offset:2px;z-index:30;animation:none !important}
+.widget.dragging{opacity:.8;transition:none !important;animation:none !important;cursor:grabbing}
+.widget.drop-target{outline:2px solid var(--green);outline-offset:2px}
+.drag-grip{touch-action:none}
 
-  /* Filters */
-  .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  .filters select, .filters input{
-    background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:9px;
-    padding:8px 12px;color:var(--text);font-size:12.5px;font-family:inherit;outline:none;
-  }
-  .filters select option{background:#06153a}
+/* ============================== SITE CARDS ============================== */
+.site-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.site-card{border-radius:18px;padding:16px}
+.site-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.site-card-head h3{font-size:14.5px;font-weight:800}
+.cam-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;flex-shrink:0}
+.cam-row{display:flex;align-items:center;justify-content:space-between;font-size:12px;padding:6px 0;border-top:1px solid var(--line)}
+.cam-row:first-of-type{border-top:none}
+.site-stat{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.site-stat b{color:var(--text);font-weight:700}
 
-  /* Timeline */
-  .timeline{display:flex;flex-direction:column;gap:10px}
-  .event-row{display:flex;gap:14px;padding:14px 16px}
-  .event-thumb{
-    width:64px;height:64px;border-radius:10px;flex-shrink:0;object-fit:cover;
-    background:rgba(255,255,255,.05);border:1px solid var(--line);
-    display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--muted2);
-  }
-  .event-body{flex:1;min-width:0}
-  .event-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}
-  .event-meta{font-size:11.5px;color:var(--muted2)}
-  .event-desc{font-size:13px;color:var(--text);line-height:1.5;margin-top:3px}
-  .event-plate{
-    display:inline-flex;align-items:center;margin-top:6px;font-family:ui-monospace,monospace;
-    font-weight:700;font-size:12px;letter-spacing:.03em;background:rgba(255,255,255,.08);
-    border:1px solid var(--line);border-radius:6px;padding:2px 8px;
-  }
+/* ============================== BADGES ============================== */
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;border-radius:7px;padding:3px 9px;white-space:nowrap}
+.badge-none{background:var(--grey-soft);color:var(--grey)}
+.badge-low{background:var(--accent-soft);color:var(--accent)}
+.badge-medium{background:var(--amber-soft);color:var(--amber)}
+.badge-high{background:var(--red-soft);color:var(--red);--pulse-c:rgba(220,38,38,.5);animation:pulseRing 1.8s infinite}
+.badge-online{background:var(--green-soft);color:var(--green)}
+.badge-offline{background:var(--grey-soft);color:var(--grey)}
 
-  /* Vehicle table */
-  .vtable{width:100%;border-collapse:collapse;font-size:12.5px}
-  .vtable th{
-    text-align:left;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
-    color:var(--muted2);padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none;
-  }
-  .vtable td{padding:11px 14px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
-  .vtable tr:last-child td{border-bottom:none}
-  .vtable input.label-input{
-    width:100%;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:7px;
-    padding:6px 9px;color:var(--text);font-size:12px;font-family:inherit;outline:none;
-  }
-  .vtable input.label-input:focus{border-color:rgba(120,170,255,.5)}
-  .plate-chip{font-family:ui-monospace,monospace;font-weight:700;letter-spacing:.03em;background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:6px;padding:2px 8px}
+/* ============================== FILTERS ============================== */
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-left:auto}
+.filters select,.filters input{
+  background:var(--input-bg);border:1px solid var(--line-strong);border-radius:10px;padding:7px 10px;
+  color:var(--text);font-size:12px;font-weight:600;outline:none;transition:border-color .2s;
+}
+.filters select:focus,.filters input:focus{border-color:var(--accent)}
+.filters select option{background:var(--bg1);color:var(--text)}
 
-  /* Alerts */
-  .alert-row{display:flex;align-items:center;gap:14px;padding:14px 16px}
-  .alert-row + .alert-row{border-top:1px solid var(--line-soft)}
-  .alert-msg{flex:1;min-width:0;font-size:13px}
-  .alert-time{font-size:11px;color:var(--muted2);margin-top:2px}
-  .ack-btn{
-    background:var(--accent-soft);color:var(--accent);border:1px solid rgba(120,170,255,.3);
-    border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;
-    white-space:nowrap;
-  }
-  .ack-btn:hover{background:rgba(120,170,255,.22)}
+/* ============================== TIMELINE ============================== */
+.timeline{display:flex;flex-direction:column;gap:8px}
+.event-row{display:flex;gap:12px;padding:11px 12px;border-radius:16px;transition:background .18s,transform .18s}
+.event-row:hover{background:var(--accent-soft)}
+.event-thumb{
+  width:56px;height:56px;border-radius:12px;flex-shrink:0;object-fit:cover;background:var(--input-bg);
+  border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--muted2);
+}
+.event-body{flex:1;min-width:0}
+.event-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px}
+.event-meta{font-size:11px;color:var(--muted2);font-weight:600}
+.event-desc{font-size:12.5px;color:var(--text);line-height:1.5;margin-top:2px}
+.event-plate{display:inline-flex;align-items:center;margin-top:5px;font-family:ui-monospace,'SF Mono',monospace;font-weight:800;font-size:11.5px;letter-spacing:.03em;background:var(--input-bg);border:1px solid var(--line-strong);border-radius:6px;padding:2px 7px}
 
-  /* Placeholder panels */
-  .placeholder-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
-  .placeholder-card{padding:28px;text-align:center;border-style:dashed}
-  .placeholder-card .ph-icon{font-size:26px;margin-bottom:10px;opacity:.5}
-  .placeholder-card h3{font-size:14px;font-weight:800;margin-bottom:6px}
-  .placeholder-card p{font-size:12px;color:var(--muted2);line-height:1.6}
-  .todo-tag{
-    display:inline-block;margin-top:12px;font-size:10px;font-weight:700;letter-spacing:.06em;
-    text-transform:uppercase;color:var(--amber);background:var(--amber-soft);border:1px solid rgba(245,158,11,.3);
-    border-radius:6px;padding:3px 9px;
-  }
+/* ============================== VEHICLE TABLE ============================== */
+.vtable{width:100%;border-collapse:collapse;font-size:12.5px}
+.vtable th{text-align:left;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted2);padding:8px 10px;border-bottom:1px solid var(--line-strong);cursor:pointer;user-select:none;position:sticky;top:0;background:transparent}
+.vtable th:hover{color:var(--accent)}
+.vtable td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.vtable tr:last-child td{border-bottom:none}
+.vtable tr{transition:background .15s}
+.vtable tbody tr:hover{background:var(--accent-soft)}
+.vtable input.label-input{width:100%;background:var(--input-bg);border:1px solid var(--line-strong);border-radius:8px;padding:6px 9px;color:var(--text);font-size:12px;outline:none;transition:border-color .2s}
+.vtable input.label-input:focus{border-color:var(--accent)}
+.plate-chip{font-family:ui-monospace,'SF Mono',monospace;font-weight:800;letter-spacing:.03em;background:var(--input-bg);border:1px solid var(--line-strong);border-radius:6px;padding:2px 8px}
 
-  .empty{padding:40px 20px;text-align:center;color:var(--muted2);font-size:12.5px}
-  .spinner{width:28px;height:28px;border-radius:50%;border:3px solid rgba(255,255,255,.08);border-top-color:var(--accent);animation:spin .8s linear infinite;margin:0 auto 12px}
-  @keyframes spin{to{transform:rotate(360deg)}}
+/* ============================== ALERTS ============================== */
+.alert-row{display:flex;align-items:center;gap:12px;padding:12px 10px;border-radius:14px;transition:background .18s}
+.alert-row:hover{background:var(--red-soft)}
+.alert-msg{flex:1;min-width:0;font-size:12.5px;font-weight:600}
+.alert-time{font-size:10.5px;color:var(--muted2);margin-top:2px;font-weight:600}
+.ack-btn{background:var(--green-soft);color:var(--green);border:1px solid rgba(22,163,74,.3);border-radius:10px;padding:8px 14px;font-size:11.5px;font-weight:800;white-space:nowrap;transition:background .15s,transform .15s}
+.ack-btn:hover{background:rgba(22,163,74,.22)}
 
-  /* Auth / gate states */
-  .gate-wrap{max-width:420px;margin:80px auto;padding:0 20px}
-  .gate-card{padding:32px}
-  .gate-card h1{font-size:20px;font-weight:800;margin-bottom:6px}
-  .gate-card p{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:22px}
-  .field{margin-bottom:14px}
-  .field label{display:block;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted2);margin-bottom:6px}
-  .field input{
-    width:100%;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:10px;
-    padding:11px 13px;color:var(--text);font-size:13.5px;font-family:inherit;outline:none;
-  }
-  .field input:focus{border-color:rgba(120,170,255,.5)}
-  .submit-btn{
-    width:100%;margin-top:6px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;border:none;
-    border-radius:11px;padding:12px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;
-  }
-  .submit-btn:disabled{opacity:.5;cursor:not-allowed}
-  .err-box{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#fca5a5;border-radius:9px;padding:10px 13px;font-size:12.5px;margin-bottom:14px;display:none}
+/* ============================== INTEGRATIONS ============================== */
+.integration-body{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;height:100%;padding:14px}
+.ph-icon{font-size:30px;margin-bottom:10px;opacity:.55}
+.integration-body h3{font-size:14px;font-weight:800;margin-bottom:6px}
+.integration-body p{font-size:12px;color:var(--muted2);line-height:1.6;max-width:280px}
+.todo-tag{display:inline-block;margin-top:12px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);background:var(--amber-soft);border:1px solid rgba(217,119,6,.3);border-radius:7px;padding:3px 9px}
 
-  @media(max-width:640px){
-    .nav{padding:0 14px}
-    .page{padding:20px 14px 80px}
-    .event-row{flex-direction:column}
-    .vtable{display:block;overflow-x:auto;white-space:nowrap}
-  }
+.empty{padding:34px 16px;text-align:center;color:var(--muted2);font-size:12.5px}
+.spinner{width:26px;height:26px;border-radius:50%;border:3px solid var(--line-strong);border-top-color:var(--accent);animation:spin .8s linear infinite;margin:0 auto 12px}
+
+/* ============================== AUTH / GATE ============================== */
+.gate-wrap{max-width:420px;margin:12vh auto;padding:0 20px;animation:pop .5s cubic-bezier(.2,.8,.2,1) both}
+.gate-card{padding:34px;border-radius:26px}
+.gate-card h1{font-size:21px;font-weight:800;margin-bottom:6px}
+.gate-card p{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:22px}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted2);margin-bottom:6px}
+.field input{width:100%;background:var(--input-bg);border:1px solid var(--line-strong);border-radius:12px;padding:12px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s,box-shadow .2s}
+.field input:focus{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+.submit-btn{width:100%;margin-top:6px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;border-radius:14px;padding:13px;font-size:14.5px;font-weight:800;cursor:pointer;transition:opacity .2s,transform .15s}
+.submit-btn:hover{opacity:.92}
+.submit-btn:active{transform:scale(.97)}
+.submit-btn:disabled{opacity:.5;cursor:not-allowed}
+.err-box{background:var(--red-soft);border:1px solid rgba(220,38,38,.25);color:var(--red);border-radius:11px;padding:11px 14px;font-size:12.5px;margin-bottom:14px;display:none;animation:pop .3s ease both}
+
+/* ============================== MODAL ============================== */
+.modal-backdrop{position:fixed;inset:0;z-index:100;background:rgba(5,8,20,.4);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:20px;opacity:0;transition:opacity .25s ease}
+.modal-backdrop.show{display:flex;opacity:1}
+.modal{max-width:560px;width:100%;max-height:84vh;overflow:auto;border-radius:26px;padding:26px;transform:scale(.92) translateY(10px);opacity:0;transition:transform .3s cubic-bezier(.2,.8,.2,1),opacity .3s ease}
+.modal-backdrop.show .modal{transform:scale(1) translateY(0);opacity:1}
+.modal img{width:100%;border-radius:16px;margin-bottom:16px;border:1px solid var(--line)}
+.modal h3{font-size:17px;font-weight:800;margin-bottom:4px}
+.modal .modal-row{display:flex;justify-content:space-between;font-size:12.5px;padding:8px 0;border-top:1px solid var(--line)}
+.modal .modal-row span:first-child{color:var(--muted2);font-weight:600}
+.modal-close{position:absolute;top:16px;right:16px;width:32px;height:32px;border-radius:50%;background:var(--glass);border:1px solid var(--glass-border);display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--muted)}
+
+@media(max-width:760px){
+  .nav{padding:10px 14px}
+  .page{padding:14px 8px 80px}
+  .widget{grid-column:1/-1 !important;grid-row:auto !important;min-height:220px}
+  .widget-grid{grid-auto-rows:auto}
+  .clock{display:none}
+  .drag-grip,.resize-handle{display:none}
+  .filters{width:100%;margin-left:0}
+}
 </style>
 </head>
 <body>
 
-<nav class="nav">
+<div class="bg"><div class="blob blob1"></div><div class="blob blob2"></div><div class="blob blob3"></div></div>
+
+<nav class="nav glass">
   <div class="nav-left">
     <a class="nav-brand" href="/">
       <img src="/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png" alt="SmartCore">
@@ -203,20 +295,22 @@
     <span class="nav-title">Hassalls</span>
     <span class="private-badge">🔒 Private</span>
   </div>
+  <div class="clock" id="clock"><span class="clock-time" id="clockTime">--:--</span><span class="clock-date" id="clockDate">—</span></div>
   <div class="nav-right" id="navRight" style="display:none">
-    <button class="icon-btn" id="refreshBtn">↻ Refresh</button>
+    <button class="icon-btn" id="editModeBtn">✎ Edit layout</button>
+    <button class="icon-btn" id="refreshBtn">↻</button>
+    <button class="icon-btn theme-toggle" id="themeToggle">🌙</button>
     <button class="icon-btn" id="signOutBtn">Sign out</button>
   </div>
 </nav>
 
-<div id="loadingState" style="text-align:center;padding:120px 20px">
+<div id="loadingState" style="text-align:center;padding:18vh 20px">
   <div class="spinner"></div>
   <div style="color:var(--muted);font-size:13px">Loading…</div>
 </div>
 
-<!-- Sign in -->
 <div id="authGate" class="gate-wrap" style="display:none">
-  <div class="card gate-card">
+  <div class="glass gate-card">
     <h1>Hassalls</h1>
     <p>Private security dashboard. Sign in with your SmartCore account.</p>
     <div class="err-box" id="authErr"></div>
@@ -226,100 +320,88 @@
   </div>
 </div>
 
-<!-- Not on the allow-list -->
 <div id="deniedGate" class="gate-wrap" style="display:none">
-  <div class="card gate-card" style="text-align:center">
+  <div class="glass gate-card" style="text-align:center">
     <div style="font-size:34px;margin-bottom:12px">🔒</div>
     <h1>Access restricted</h1>
-    <p>This account isn't on the Hassalls access list. If you think this is a mistake, ask the owner to add your email to <code>hassalls.allowed_users</code>.</p>
-    <button class="submit-btn" id="deniedSignOutBtn" style="background:rgba(255,255,255,.08)">Sign out</button>
+    <p>This account isn't on the Hassalls access list. Ask the owner to add your email to <code>hassalls.allowed_users</code>.</p>
+    <button class="submit-btn" id="deniedSignOutBtn" style="background:var(--grey)">Sign out</button>
   </div>
 </div>
 
-<!-- Dashboard -->
 <div id="dash" class="page" style="display:none">
+  <div class="widget-grid" id="widgetGrid">
 
-  <div class="section">
-    <div class="section-head"><div><h2>Site overview</h2><p>Camera status and most recent activity per site.</p></div></div>
-    <div class="site-grid" id="siteGrid"></div>
-  </div>
+    <section class="widget glass" data-id="sites">
+      <div class="widget-head"><span class="drag-grip">⠿</span><h2>Site Overview</h2><span class="widget-sub">Camera status & last activity</span></div>
+      <div class="widget-body"><div class="site-grid" id="siteGrid"></div></div>
+      <div class="resize-handle"></div>
+    </section>
 
-  <div class="section">
-    <div class="section-head">
-      <div><h2>Event timeline</h2><p>Reverse-chronological feed from every camera.</p></div>
-      <div class="filters">
-        <select id="fSite"><option value="">All sites</option></select>
-        <select id="fThreat">
-          <option value="">All threat levels</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-          <option value="none">None</option>
-        </select>
-        <input type="date" id="fFrom"/>
-        <input type="date" id="fTo"/>
+    <section class="widget glass" data-id="alerts">
+      <div class="widget-head"><span class="drag-grip">⠿</span><h2>Alerts</h2></div>
+      <div class="widget-body" id="alertsPanel"></div>
+      <div class="resize-handle"></div>
+    </section>
+
+    <section class="widget glass" data-id="timeline">
+      <div class="widget-head">
+        <span class="drag-grip">⠿</span><h2>Event Timeline</h2>
+        <div class="filters">
+          <select id="fSite"><option value="">All sites</option></select>
+          <select id="fThreat">
+            <option value="">All threats</option><option value="high">High</option>
+            <option value="medium">Medium</option><option value="low">Low</option><option value="none">None</option>
+          </select>
+          <input type="date" id="fFrom"/><input type="date" id="fTo"/>
+        </div>
       </div>
-    </div>
-    <div class="card">
-      <div class="timeline" id="eventTimeline"></div>
-    </div>
-  </div>
+      <div class="widget-body"><div class="timeline" id="eventTimeline"></div></div>
+      <div class="resize-handle"></div>
+    </section>
 
-  <div class="section">
-    <div class="section-head"><div><h2>Vehicle registry</h2><p>Every plate ever read. Click a label to name a vehicle.</p></div></div>
-    <div class="card" style="overflow-x:auto">
-      <table class="vtable" id="vehicleTable">
-        <thead>
-          <tr>
-            <th data-sort="plate">Plate</th>
-            <th>Make / model</th>
-            <th>Colour</th>
-            <th>Confidence</th>
-            <th data-sort="times_seen">Times seen</th>
-            <th data-sort="last_seen">Last seen</th>
-            <th>Label</th>
-          </tr>
-        </thead>
-        <tbody id="vehicleBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-head"><div><h2>Alerts</h2><p>Unacknowledged medium/high threat alerts.</p></div></div>
-    <div class="card" id="alertsPanel"></div>
-  </div>
-
-  <div class="section">
-    <div class="section-head"><div><h2>Integrations</h2><p>Wired up in a follow-up pass once credentials are added.</p></div></div>
-    <div class="placeholder-grid">
-      <div class="card placeholder-card">
-        <div class="ph-icon">📍</div>
-        <h3>Life360</h3>
-        <p>Family location panel — map + presence status for each member.</p>
-        <span class="todo-tag">TODO: Life360 API credentials</span>
+    <section class="widget glass" data-id="vehicles">
+      <div class="widget-head"><span class="drag-grip">⠿</span><h2>Vehicle Registry</h2><span class="widget-sub">Tap a label to name a vehicle</span></div>
+      <div class="widget-body" style="padding-bottom:4px">
+        <table class="vtable" id="vehicleTable">
+          <thead><tr>
+            <th data-sort="plate">Plate</th><th>Make / model</th><th>Colour</th><th>Confidence</th>
+            <th data-sort="times_seen">Seen</th><th data-sort="last_seen">Last seen</th><th>Label</th>
+          </tr></thead>
+          <tbody id="vehicleBody"></tbody>
+        </table>
       </div>
-      <div class="card placeholder-card">
-        <div class="ph-icon">🗺️</div>
-        <h3>Geotab</h3>
-        <p>Vehicle tracking map — live position and trip history.</p>
-        <span class="todo-tag">TODO: Geotab API credentials</span>
-      </div>
-    </div>
-  </div>
+      <div class="resize-handle"></div>
+    </section>
 
+    <section class="widget glass" data-id="life360">
+      <div class="widget-head"><span class="drag-grip">⠿</span><h2>Life360</h2></div>
+      <div class="widget-body">
+        <div class="integration-body"><div class="ph-icon">📍</div><h3>Family location</h3><p>Map + live presence status for each family member.</p><span class="todo-tag">TODO: Life360 API credentials</span></div>
+      </div>
+      <div class="resize-handle"></div>
+    </section>
+
+    <section class="widget glass" data-id="geotab">
+      <div class="widget-head"><span class="drag-grip">⠿</span><h2>Geotab</h2></div>
+      <div class="widget-body">
+        <div class="integration-body"><div class="ph-icon">🗺️</div><h3>Vehicle tracking</h3><p>Live position and trip history on a map.</p><span class="todo-tag">TODO: Geotab API credentials</span></div>
+      </div>
+      <div class="resize-handle"></div>
+    </section>
+
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal glass-strong" id="modalBody"><button class="modal-close" id="modalClose">✕</button></div>
 </div>
 
 <script>
 const sb = supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
 const hs = () => sb.schema('hassalls');
 
-let SESSION = null;
-let SITES = [];
-let CAMERAS = [];
-let EVENTS = [];
-let VEHICLES = [];
-let ALERTS = [];
+let SESSION = null, SITES = [], CAMERAS = [], EVENTS = [], VEHICLES = [], ALERTS = [];
 let VSORT = { col: 'last_seen', dir: 'desc' };
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
@@ -336,7 +418,158 @@ function timeAgo(iso) {
 }
 function threatBadge(level) { return `<span class="badge badge-${level||'none'}">${esc(level||'none')}</span>`; }
 
+/* ============================== THEME ============================== */
+const THEME_KEY = 'hassalls_theme';
+function effectiveTheme() {
+  const attr = document.documentElement.getAttribute('data-theme');
+  if (attr) return attr;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+function applyTheme(theme) {
+  if (theme) document.documentElement.setAttribute('data-theme', theme);
+  document.getElementById('themeToggle').textContent = effectiveTheme() === 'dark' ? '🌙' : '☀️';
+}
+applyTheme(localStorage.getItem(THEME_KEY) || null);
+document.getElementById('themeToggle').addEventListener('click', () => {
+  const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+});
+
+/* ============================== CLOCK ============================== */
+function tickClock() {
+  const now = new Date();
+  document.getElementById('clockTime').textContent = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+  document.getElementById('clockDate').textContent = now.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
+}
+tickClock(); setInterval(tickClock, 15000);
+
+/* ============================== MODAL ============================== */
+function openModal(html) {
+  document.getElementById('modalBody').innerHTML = `<button class="modal-close" id="modalClose">✕</button>${html}`;
+  document.getElementById('modalClose').addEventListener('click', closeModal);
+  document.getElementById('modalBackdrop').classList.add('show');
+}
+function closeModal() { document.getElementById('modalBackdrop').classList.remove('show'); }
+document.getElementById('modalBackdrop').addEventListener('click', e => { if (e.target.id === 'modalBackdrop') closeModal(); });
+
+/* ============================== WIDGET LAYOUT (drag to resize / reorder) ============================== */
+const WIDGET_DEFS = [
+  { id:'sites',    col:12, row:5,  minCol:6, minRow:3,  maxCol:12, maxRow:9,  order:0 },
+  { id:'alerts',   col:4,  row:8,  minCol:3, minRow:3,  maxCol:12, maxRow:14, order:1 },
+  { id:'timeline', col:8,  row:11, minCol:4, minRow:4,  maxCol:12, maxRow:18, order:2 },
+  { id:'vehicles', col:12, row:8,  minCol:6, minRow:4,  maxCol:12, maxRow:16, order:3 },
+  { id:'life360',  col:6,  row:5,  minCol:3, minRow:3,  maxCol:12, maxRow:10, order:4 },
+  { id:'geotab',   col:6,  row:5,  minCol:3, minRow:3,  maxCol:12, maxRow:10, order:5 },
+];
+const LAYOUT_KEY = 'hassalls_layout_v1';
+let LAYOUT = [];
+
+function loadLayout() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}'); } catch {}
+  return WIDGET_DEFS.map(def => ({ ...def, ...(saved[def.id] || {}) }));
+}
+function persistLayout() {
+  const obj = {};
+  LAYOUT.forEach(w => { obj[w.id] = { col: w.col, row: w.row, order: w.order }; });
+  localStorage.setItem(LAYOUT_KEY, JSON.stringify(obj));
+}
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function applyLayout() {
+  LAYOUT.forEach(w => {
+    const el = document.querySelector(`.widget[data-id="${w.id}"]`);
+    if (!el) return;
+    el.style.gridColumn = `span ${w.col}`;
+    el.style.gridRow = `span ${w.row}`;
+    el.style.order = w.order;
+  });
+}
+
+function initLayoutSystem() {
+  LAYOUT = loadLayout();
+  applyLayout();
+
+  const gridEl = document.getElementById('widgetGrid');
+  const ROW_PX = 60, GAP_PX = 16;
+
+  LAYOUT.forEach(w => {
+    const el = document.querySelector(`.widget[data-id="${w.id}"]`);
+    if (!el) return;
+
+    const handle = el.querySelector('.resize-handle');
+    let startX, startY, startCol, startRow, colPx;
+    handle.addEventListener('pointerdown', e => {
+      if (!gridEl.classList.contains('edit-mode')) return;
+      e.preventDefault();
+      startX = e.clientX; startY = e.clientY; startCol = w.col; startRow = w.row;
+      colPx = (gridEl.getBoundingClientRect().width - GAP_PX * 11) / 12;
+      el.classList.add('resizing');
+      handle.setPointerCapture(e.pointerId);
+      const onMove = ev => {
+        const dCol = Math.round((ev.clientX - startX) / (colPx + GAP_PX));
+        const dRow = Math.round((ev.clientY - startY) / (ROW_PX + GAP_PX));
+        w.col = clamp(startCol + dCol, w.minCol, w.maxCol);
+        w.row = clamp(startRow + dRow, w.minRow, w.maxRow);
+        el.style.gridColumn = `span ${w.col}`;
+        el.style.gridRow = `span ${w.row}`;
+      };
+      const onUp = () => {
+        el.classList.remove('resizing');
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        persistLayout();
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
+
+    const grip = el.querySelector('.drag-grip');
+    grip.addEventListener('pointerdown', e => {
+      if (!gridEl.classList.contains('edit-mode')) return;
+      e.preventDefault();
+      el.classList.add('dragging');
+      grip.setPointerCapture(e.pointerId);
+      let lastTarget = null;
+      const onMove = ev => {
+        el.style.transform = `translate(${ev.clientX - e.clientX}px, ${ev.clientY - e.clientY}px) scale(1.03)`;
+        el.style.zIndex = 40;
+        const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.widget');
+        document.querySelectorAll('.widget.drop-target').forEach(x => x.classList.remove('drop-target'));
+        if (under && under !== el) { under.classList.add('drop-target'); lastTarget = under; }
+      };
+      const onUp = () => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        el.classList.remove('dragging');
+        el.style.transform = ''; el.style.zIndex = '';
+        document.querySelectorAll('.widget.drop-target').forEach(x => x.classList.remove('drop-target'));
+        if (lastTarget) {
+          const targetW = LAYOUT.find(x => x.id === lastTarget.dataset.id);
+          if (targetW) {
+            const tmp = w.order; w.order = targetW.order; targetW.order = tmp;
+            applyLayout();
+            persistLayout();
+          }
+        }
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
+  });
+}
+
+document.getElementById('editModeBtn').addEventListener('click', () => {
+  const grid = document.getElementById('widgetGrid');
+  const on = grid.classList.toggle('edit-mode');
+  document.getElementById('editModeBtn').classList.toggle('active', on);
+  document.getElementById('editModeBtn').textContent = on ? '✓ Done' : '✎ Edit layout';
+});
+
+/* ============================== AUTH FLOW ============================== */
 async function init() {
+  initLayoutSystem();
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { hide('loadingState'); show('authGate'); return; }
   await afterSignIn(session);
@@ -400,13 +633,13 @@ function cameraName(id) { return CAMERAS.find(c => c.id === id)?.name || null; }
 function renderSites() {
   const grid = document.getElementById('siteGrid');
   if (!SITES.length) { grid.innerHTML = `<div class="empty">No sites yet.</div>`; return; }
-  grid.innerHTML = SITES.map(site => {
+  grid.innerHTML = SITES.map((site, i) => {
     const cams = CAMERAS.filter(c => c.site_id === site.id);
     const siteEvents = EVENTS.filter(e => e.site_id === site.id);
     const lastEvent = siteEvents[0];
     const onlineCount = cams.filter(c => c.status === 'online').length;
     return `
-      <div class="card site-card">
+      <div class="glass site-card enter" style="animation-delay:${i * 60}ms">
         <div class="site-card-head">
           <h3>${esc(site.name)}</h3>
           <span class="badge ${onlineCount === cams.length && cams.length ? 'badge-online' : 'badge-offline'}">${onlineCount}/${cams.length} online</span>
@@ -417,9 +650,7 @@ function renderSites() {
             <span style="color:var(--muted2)">${c.last_seen ? timeAgo(c.last_seen) : 'never'}</span>
           </div>
         `).join('') : `<div style="font-size:12px;color:var(--muted2);padding:8px 0">No cameras configured yet.</div>`}
-        <div class="site-stat-row">
-          <div class="site-stat"><span>Last event</span><b>${lastEvent ? timeAgo(lastEvent.event_time) : 'none yet'}</b></div>
-        </div>
+        <div class="site-stat"><span>Last event</span><b>${lastEvent ? timeAgo(lastEvent.event_time) : 'none yet'}</b></div>
       </div>`;
   }).join('');
 }
@@ -427,11 +658,11 @@ function renderSites() {
 function renderTimeline() {
   const el = document.getElementById('eventTimeline');
   if (!EVENTS.length) { el.innerHTML = `<div class="empty">No events match these filters.</div>`; return; }
-  el.innerHTML = EVENTS.map(ev => {
+  el.innerHTML = EVENTS.map((ev, i) => {
     const frame = (ev.frame_urls || [])[0];
     return `
-      <div class="event-row">
-        <div class="event-thumb">${frame ? `<img src="${esc(frame)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:10px"/>` : '📷'}</div>
+      <div class="event-row pressable enter" style="animation-delay:${Math.min(i,10) * 40}ms" data-event-id="${esc(ev.id)}">
+        <div class="event-thumb">${frame ? `<img src="${esc(frame)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:12px"/>` : '📷'}</div>
         <div class="event-body">
           <div class="event-top">
             ${threatBadge(ev.threat_level)}
@@ -442,6 +673,26 @@ function renderTimeline() {
         </div>
       </div>`;
   }).join('');
+  el.querySelectorAll('.event-row').forEach(row => {
+    row.addEventListener('click', () => openEventModal(row.dataset.eventId));
+  });
+}
+
+function openEventModal(id) {
+  const ev = EVENTS.find(e => e.id === id);
+  if (!ev) return;
+  const frame = (ev.frame_urls || [])[0];
+  openModal(`
+    ${frame ? `<img src="${esc(frame)}" alt=""/>` : ''}
+    <h3>${threatBadge(ev.threat_level)} ${esc(ev.event_type)}</h3>
+    ${ev.description ? `<p style="margin-top:8px;font-size:13.5px;color:var(--text);line-height:1.6">${esc(ev.description)}</p>` : ''}
+    <div class="modal-row"><span>Site</span><span>${esc(siteName(ev.site_id))}</span></div>
+    ${cameraName(ev.camera_id) ? `<div class="modal-row"><span>Camera</span><span>${esc(cameraName(ev.camera_id))}</span></div>` : ''}
+    <div class="modal-row"><span>Time</span><span>${fmtDateTime(ev.event_time)}</span></div>
+    ${ev.vehicle_plate ? `<div class="modal-row"><span>Vehicle</span><span>${esc(ev.vehicle_plate)}</span></div>` : ''}
+    ${ev.vehicle_description ? `<div class="modal-row"><span>Description</span><span>${esc(ev.vehicle_description)}</span></div>` : ''}
+    <div class="modal-row"><span>Confidence</span><span>${esc(ev.confidence_method)}</span></div>
+  `);
 }
 
 function sortedVehicles() {
@@ -461,20 +712,20 @@ function renderVehicles() {
   const body = document.getElementById('vehicleBody');
   const list = sortedVehicles();
   if (!list.length) { body.innerHTML = `<tr><td colspan="7" class="empty">No vehicles logged yet.</td></tr>`; return; }
-  body.innerHTML = list.map(v => `
-    <tr>
+  body.innerHTML = list.map((v, i) => `
+    <tr class="enter" style="animation-delay:${Math.min(i,10) * 30}ms">
       <td><span class="plate-chip">${esc(v.plate)}</span></td>
       <td>${esc(v.make_model || '—')}</td>
       <td>${esc(v.colour || '—')}</td>
       <td><span class="badge badge-${v.confidence === 'high' ? 'online' : v.confidence === 'medium' ? 'medium' : 'none'}">${esc(v.confidence)}</span></td>
       <td>${esc(v.times_seen)}</td>
       <td>${fmtDateTime(v.last_seen)}</td>
-      <td><input class="label-input" data-plate="${esc(v.plate)}" placeholder="e.g. Dad's truck" value="${esc(v.__label || '')}"/></td>
+      <td><input class="label-input" data-plate="${esc(v.plate)}" placeholder="e.g. Dad's truck" value=""/></td>
     </tr>
   `).join('');
   hydrateKnownLabels();
   body.querySelectorAll('.label-input').forEach(inp => {
-    inp.addEventListener('change', () => saveKnownVehicleLabel(inp.dataset.plate, inp.value.trim()));
+    inp.addEventListener('change', () => saveKnownVehicleLabel(inp.dataset.plate, inp.value.trim(), inp));
   });
 }
 
@@ -487,22 +738,23 @@ async function hydrateKnownLabels() {
   });
 }
 
-async function saveKnownVehicleLabel(plate, label) {
+async function saveKnownVehicleLabel(plate, label, inp) {
   if (!label) return;
   await hs().from('known_vehicles').upsert({ plate, label }, { onConflict: 'plate' });
+  if (inp) { inp.style.borderColor = 'var(--green)'; setTimeout(() => inp.style.borderColor = '', 700); }
 }
 
 function renderAlerts() {
   const panel = document.getElementById('alertsPanel');
   if (!ALERTS.length) { panel.innerHTML = `<div class="empty">No unacknowledged alerts. 🎉</div>`; return; }
-  panel.innerHTML = ALERTS.map(a => `
-    <div class="alert-row">
+  panel.innerHTML = ALERTS.map((a, i) => `
+    <div class="alert-row enter" style="animation-delay:${i * 60}ms">
       ${threatBadge(a.severity)}
       <div class="alert-msg">
         <div>${esc(a.message)}</div>
         <div class="alert-time">${esc(siteName(a.events?.site_id))} · ${fmtDateTime(a.created_at)}</div>
       </div>
-      <button class="ack-btn" data-id="${esc(a.id)}">Acknowledge</button>
+      <button class="ack-btn pressable" data-id="${esc(a.id)}">Acknowledge</button>
     </div>
   `).join('');
   panel.querySelectorAll('.ack-btn').forEach(btn => {
@@ -511,11 +763,14 @@ function renderAlerts() {
 }
 
 async function acknowledgeAlert(id) {
+  const row = document.querySelector(`.ack-btn[data-id="${CSS.escape(id)}"]`)?.closest('.alert-row');
+  if (row) { row.style.transition = 'opacity .25s,transform .25s'; row.style.opacity = '0'; row.style.transform = 'translateX(12px)'; }
   await hs().from('alerts').update({ acknowledged: true }).eq('id', id);
   ALERTS = ALERTS.filter(a => a.id !== id);
-  renderAlerts();
+  setTimeout(renderAlerts, 200);
 }
 
+/* ============================== AUTH UI ============================== */
 document.getElementById('authBtn').addEventListener('click', async () => {
   const email = document.getElementById('authEmail').value.trim();
   const password = document.getElementById('authPassword').value;
@@ -535,18 +790,11 @@ document.getElementById('authBtn').addEventListener('click', async () => {
   await afterSignIn(data.session);
 });
 
-async function doSignOut() {
-  await sb.auth.signOut();
-  location.reload();
-}
+async function doSignOut() { await sb.auth.signOut(); location.reload(); }
 document.getElementById('signOutBtn').addEventListener('click', doSignOut);
 document.getElementById('deniedSignOutBtn').addEventListener('click', doSignOut);
-
 document.getElementById('refreshBtn').addEventListener('click', loadAll);
-['fSite', 'fThreat', 'fFrom', 'fTo'].forEach(id => {
-  document.getElementById(id).addEventListener('change', loadEvents);
-});
-
+['fSite', 'fThreat', 'fFrom', 'fTo'].forEach(id => document.getElementById(id).addEventListener('change', loadEvents));
 document.querySelectorAll('.vtable th[data-sort]').forEach(th => {
   th.addEventListener('click', () => {
     const col = th.dataset.sort;
