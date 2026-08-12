@@ -35,6 +35,25 @@ export function esc(s) {
 
 export const CARD_RATIO = { landscape: 85.6 / 54, portrait: 54 / 85.6 };
 
+// `fontSize` on text/statictext elements is a raw px number, calibrated
+// against the card's *physical* size at a 96dpi basis (same basis
+// renderCardToCanvas scales from via PX_SCALE, see below) — not against
+// whatever CSS pixel width the card happens to render at on screen. The
+// editor renders the card much larger than that physical size for
+// usability (up to 420px wide vs. ~204px true physical width for a
+// portrait card), so without correcting for it, a font size that looks
+// right in the editor comes out roughly 2x too large — and overlapping
+// other elements — once actually rasterized for print/PDF at true size.
+// Container query units (cqw) rescale the font in proportion to however
+// wide `.pfs-idcard-face` actually renders, using this constant as the
+// reference "100%" point, so the editor and the print output always agree.
+const REF_PX_PER_MM = 96 / 25.4;
+const REF_CARD_WIDTH = { landscape: 85.6 * REF_PX_PER_MM, portrait: 54 * REF_PX_PER_MM };
+
+function fontSizeCss(px) {
+  return `calc(${px} * 100cqw / var(--pfs-card-ref-w))`;
+}
+
 const FIELD_MAP = { name: "full_name", jobTitle: "job_title", employeeCode: "employee_id", department: "department_name" };
 
 // Curated font choices for text elements — a mix of system fonts (always
@@ -164,10 +183,10 @@ function renderElement(el, ctx) {
   }
   if (el.type === "text") {
     const value = ctx.employee?.[FIELD_MAP[el.field]] || "";
-    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${el.fontSize ?? 14}px;font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#fff")};font-weight:${el.bold ? 800 : 500};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:${el.align || "left"};">${esc(value)}</div>`;
+    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${fontSizeCss(el.fontSize ?? 14)};font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#fff")};font-weight:${el.bold ? 800 : 500};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:${el.align || "left"};">${esc(value)}</div>`;
   }
   if (el.type === "statictext") {
-    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${el.fontSize ?? 12}px;font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#334155")};text-align:${el.align || "left"};line-height:1.3;">${esc(el.text || "")}</div>`;
+    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${fontSizeCss(el.fontSize ?? 12)};font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#334155")};text-align:${el.align || "left"};line-height:1.3;">${esc(el.text || "")}</div>`;
   }
   if (el.type === "shape") {
     const radius = el.shapeType === "rect" ? "border-radius:8px" : "border-radius:50%";
@@ -192,7 +211,7 @@ export function renderCardFace(template, face, ctx = {}) {
   const elements = [...(faceData.elements || [])].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
 
   return `
-    <div class="pfs-idcard-face" style="position:relative;overflow:hidden;aspect-ratio:${CARD_RATIO[orientation]};border-radius:${radius}px;background:${esc(bg)};${border};">
+    <div class="pfs-idcard-face" style="position:relative;overflow:hidden;aspect-ratio:${CARD_RATIO[orientation]};border-radius:${radius}px;background:${esc(bg)};${border};container-type:inline-size;--pfs-card-ref-w:${REF_CARD_WIDTH[orientation]};">
       ${elements.map((el) => renderElement(el, ctx)).join("")}
     </div>`;
 }
