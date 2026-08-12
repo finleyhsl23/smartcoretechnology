@@ -23,11 +23,14 @@ export function isQrScanningSupported() {
  *   opts.onError(err)        - called on camera/permission errors
  *   opts.debounceMs          - minimum gap between repeat detections of the
  *                              same value (default 2500ms) to avoid double-scans
- *   opts.facingMode          - 'environment' (rear, default) or 'user' (front)
+ *   opts.facingMode          - 'user' (front, default — kiosk devices are
+ *                              mounted screen-out, so the front camera is
+ *                              the one actually facing the employee) or
+ *                              'environment' (rear)
  *
  * Returns a controller: { stop(), switchCamera() }
  */
-export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, facingMode = "environment" } = {}) {
+export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, facingMode = "user" } = {}) {
   let stream = null;
   let detector = null;
   let canvas = null;
