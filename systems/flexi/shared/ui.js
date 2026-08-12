@@ -219,3 +219,225 @@ export function setupThemeToggle(storageKey = "flexiTheme") {
     sync();
   }));
 }
+
+// Persistent background-music playlist set per-company in Settings — plays
+// across every trainer page and every client-portal page. Each page is a
+// full reload (not an SPA), so the underlying <video> element (used for
+// both audio- and video-source tracks — a hidden <video> plays an
+// audio-only file just fine, so one element handles either kind without
+// swapping tags) can't literally survive navigation. Instead: which track
+// was playing, its position within that track, and the chosen volume are
+// all checkpointed to localStorage every few seconds and on page hide,
+// then restored on the next page's load — so it sounds continuous and
+// keeps your place rather than restarting on every click. With more than
+// one track, finishing one advances to the next and wraps back to the
+// first after the last (that's the "loop"); with a single track the
+// element's native `loop` just repeats it directly. No-ops (and hides the
+// toggle) if the company hasn't added any tracks. Expects a
+// `#fxMusicWrap` (containing a `#fxMusicToggle` button) already in the
+// DOM — builds the skip/volume/track-list popover inside it on demand.
+export function setupBackgroundMedia(tracks) {
+  const wraps = document.querySelectorAll("#fxMusicWrap");
+  if (!tracks || !tracks.length) { wraps.forEach(w => w.style.display = "none"); return; }
+  wraps.forEach(w => w.style.display = "");
+
+  const VOLUME_KEY = "flexiMusicVolume";
+  const TRACK_KEY = "flexiMusicTrackId";
+  const PAUSED_KEY = "flexiMusicPaused";
+  const positionKeyFor = track => `flexiMusicPosition:${track.url}`;
+
+  let media = document.getElementById("fxBgMedia");
+  if (!media) {
+    media = document.createElement("video");
+    media.id = "fxBgMedia";
+    media.playsInline = true;
+    media.style.display = "none";
+    document.body.appendChild(media);
+  }
+
+  let storedVolume = parseFloat(localStorage.getItem(VOLUME_KEY));
+  if (isNaN(storedVolume)) storedVolume = 1;
+
+  const savedTrackId = localStorage.getItem(TRACK_KEY);
+  let currentIndex = Math.max(0, tracks.findIndex(t => t.id === savedTrackId));
+
+  const savePosition = () => {
+    const track = tracks[currentIndex];
+    if (track && !isNaN(media.currentTime)) localStorage.setItem(positionKeyFor(track), String(media.currentTime));
+  };
+
+  // A single panel appended directly to <body> with position:fixed and a
+  // very high z-index — rendered as a sibling of every other stacking
+  // context on the page instead of a descendant of the (sticky-positioned,
+  // animated) header bars, which each spin up their own stacking context
+  // and can otherwise paint over an absolutely-positioned popover no
+  // matter how high its own z-index is set. Positioned from the trigger
+  // button's live coordinates each time it opens.
+  let panel = document.getElementById("fxMusicPanel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "fxMusicPanel";
+    panel.className = "fx-music-panel";
+    document.body.appendChild(panel);
+  }
+
+  function positionPanel(btn) {
+    const rect = btn.getBoundingClientRect();
+    panel.style.top = `${rect.bottom + 8}px`;
+    panel.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+  }
+
+  function renderPanel() {
+    const track = tracks[currentIndex];
+    panel.innerHTML = `
+      <div class="fx-music-now">${escapeHtml(track?.name || "Untitled")}</div>
+      <div class="fx-music-controls">
+        <button type="button" class="fx-icon-btn" data-music-prev title="Previous track">⏮</button>
+        <button type="button" class="fx-icon-btn" data-music-playpause title="${media.paused ? "Play" : "Pause"}">${media.paused ? "▶" : "⏸"}</button>
+        <button type="button" class="fx-icon-btn" data-music-next title="Next track">⏭</button>
+      </div>
+      <div class="fx-music-vol">
+        <span>🔈</span>
+        <input type="range" min="0" max="100" value="${Math.round(storedVolume * 100)}" data-music-volume/>
+        <span>🔊</span>
+      </div>
+      ${tracks.length > 1 ? `<div class="fx-music-list">
+        ${tracks.map((t, i) => `<div class="fx-music-track${i === currentIndex ? " active" : ""}" data-music-track="${i}">${escapeHtml(t.name)}</div>`).join("")}
+      </div>` : ""}
+    `;
+    panel.querySelector("[data-music-prev]").addEventListener("click", () => loadTrack(currentIndex - 1));
+    panel.querySelector("[data-music-next]").addEventListener("click", () => loadTrack(currentIndex + 1));
+    panel.querySelector("[data-music-playpause]").addEventListener("click", () => {
+      if (media.paused) {
+        userPaused = false;
+        attemptPlay();
+      } else {
+        userPaused = true;
+        media.pause();
+      }
+      localStorage.setItem(PAUSED_KEY, userPaused ? "1" : "0");
+    });
+    panel.querySelector("[data-music-volume]").addEventListener("input", (e) => {
+      storedVolume = parseInt(e.target.value, 10) / 100;
+      media.muted = storedVolume === 0;
+      media.volume = storedVolume;
+      localStorage.setItem(VOLUME_KEY, String(storedVolume));
+    });
+    panel.querySelectorAll("[data-music-track]").forEach(row => row.addEventListener("click", () => {
+      const i = parseInt(row.dataset.musicTrack, 10);
+      if (i !== currentIndex) loadTrack(i);
+    }));
+  }
+
+  // Whether the *visitor* deliberately paused it — separate from `media`
+  // simply being in a paused state, which can also happen transiently on
+  // its own (a network stall, the browser reclaiming resources on a
+  // backgrounded tab, a play() call losing a race against the next bit of
+  // buffering). Only this flag should ever stop the auto-resume below.
+  let userPaused = localStorage.getItem(PAUSED_KEY) === "1";
+
+  // play() can fail transiently for reasons that have nothing to do with
+  // autoplay policy (the source hasn't buffered enough yet, a stall, a
+  // brief network hiccup) — retry a couple of times with backoff instead
+  // of silently giving up and leaving it paused.
+  function attemptPlay(retriesLeft = 3) {
+    media.play().then(() => {
+      media.muted = storedVolume === 0;
+      media.volume = storedVolume;
+    }).catch(() => {
+      if (retriesLeft > 0 && !userPaused) setTimeout(() => attemptPlay(retriesLeft - 1), 400);
+    });
+  }
+
+  function loadTrack(index, { respectPausedPref = false } = {}) {
+    savePosition();
+    currentIndex = ((index % tracks.length) + tracks.length) % tracks.length;
+    const track = tracks[currentIndex];
+    localStorage.setItem(TRACK_KEY, track.id);
+    media.loop = tracks.length <= 1;
+    // Browsers block *starting* playback with sound unless the visitor has
+    // already interacted with this page, but don't re-check that once
+    // playback is already underway — so always start muted (guaranteed to
+    // autoplay), then flip to the chosen volume right after play()
+    // actually succeeds. Without this, sound silently never started on a
+    // fresh navigation and looked like it kept resetting to muted.
+    media.muted = true;
+    if (media.getAttribute("src") !== track.url) media.src = track.url;
+
+    const seekToSaved = () => {
+      const saved = parseFloat(localStorage.getItem(positionKeyFor(track)));
+      if (!isNaN(saved) && saved > 0 && (!media.duration || saved < media.duration - 0.5)) {
+        try { media.currentTime = saved; } catch {}
+      }
+    };
+    if (media.readyState >= 1) seekToSaved();
+    else media.addEventListener("loadedmetadata", seekToSaved, { once: true });
+
+    const start = () => {
+      // Only a fresh page load honours a previous "paused" choice — picking
+      // a track from the list or hitting skip always starts it playing.
+      if (respectPausedPref && userPaused) {
+        media.muted = storedVolume === 0;
+        media.volume = storedVolume;
+      } else {
+        userPaused = false;
+        localStorage.setItem(PAUSED_KEY, "0");
+        attemptPlay();
+      }
+      renderPanel();
+    };
+    // Wait for enough data to actually start playing smoothly (`canplay`)
+    // rather than just the metadata (`loadedmetadata`) — starting a play()
+    // attempt before there's anything buffered is a common source of it
+    // stalling right back into a paused state a moment later.
+    if (media.readyState >= 3) start();
+    else media.addEventListener("canplay", start, { once: true });
+  }
+
+  media.onended = () => { if (tracks.length > 1) loadTrack(currentIndex + 1); };
+
+  if (!media._playPauseWired) {
+    media._playPauseWired = true;
+    const syncPlayPauseIcon = () => {
+      const btn = panel.querySelector("[data-music-playpause]");
+      if (!btn) return;
+      btn.textContent = media.paused ? "▶" : "⏸";
+      btn.title = media.paused ? "Play" : "Pause";
+    };
+    media.addEventListener("play", syncPlayPauseIcon);
+    media.addEventListener("pause", () => {
+      syncPlayPauseIcon();
+      // Self-heal: nothing except the visitor's own pause click should
+      // leave this stopped — anything else that paused it (a stall, a
+      // dropped connection, the tab losing focus) gets nudged back on.
+      if (!userPaused) setTimeout(() => { if (!userPaused && media.paused) attemptPlay(); }, 300);
+    });
+  }
+
+  clearInterval(media._posInterval);
+  media._posInterval = setInterval(savePosition, 3000);
+  window.addEventListener("pagehide", savePosition);
+
+  loadTrack(currentIndex, { respectPausedPref: true });
+
+  wraps.forEach(wrap => {
+    const btn = wrap.querySelector("#fxMusicToggle");
+    if (btn && !btn._wired) {
+      btn._wired = true;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = panel.classList.toggle("fx-music-open");
+        if (open) positionPanel(btn);
+      });
+    }
+  });
+  if (!document.body._musicOutsideClickWired) {
+    document.body._musicOutsideClickWired = true;
+    document.addEventListener("click", (e) => {
+      if (e.target.closest("#fxMusicWrap") || e.target.closest("#fxMusicPanel")) return;
+      panel.classList.remove("fx-music-open");
+    });
+    window.addEventListener("resize", () => panel.classList.remove("fx-music-open"));
+  }
+  renderPanel();
+}

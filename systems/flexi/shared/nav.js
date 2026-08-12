@@ -1,5 +1,5 @@
-import { tierHasFeature, hasPermission, isAdmin, logout, wireEscapeButtons } from "./auth.js";
-import { initials } from "./ui.js";
+import { isFeatureEnabled, hasPermission, isAdmin, logout, wireEscapeButtons, backgroundTracks } from "./auth.js";
+import { initials, setupBackgroundMedia } from "./ui.js";
 import { sb } from "./supabase.js";
 
 export const ICON_ATTRS = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
@@ -51,7 +51,7 @@ export function renderNav({ activeKey, profile, tier }) {
   if (!container) return;
 
   const items = NAV_ITEMS.filter(item => {
-    if (item.feature && !tierHasFeature(tier, item.feature)) return false;
+    if (item.feature && !isFeatureEnabled(tier, item.feature)) return false;
     if (item.perm && !hasPermission(item.perm)) return false;
     return true;
   });
@@ -86,6 +86,7 @@ export function renderNav({ activeKey, profile, tier }) {
 
   if (items.some(item => item.key === "messages")) refreshUnreadBadge();
   wireEscapeButtons();
+  setupBackgroundMedia(backgroundTracks());
 }
 
 // Total unread client-sent messages across every conversation this trainer
@@ -122,6 +123,7 @@ function renderUtilityBar(activeKey) {
       ${pageLabel ? `<span class="fx-utility-crumb-sep">/</span><span class="fx-utility-crumb">${pageLabel}</span>` : ""}
     </div>
     <div style="display:flex;align-items:center;gap:8px">
+      <div class="fx-music-wrap" style="display:none" id="fxMusicWrap"><button class="fx-icon-btn" id="fxMusicToggle" title="Background music">🎵</button></div>
       <button class="fx-icon-btn fx-theme-btn" title="Toggle theme">🌙</button>
       <button id="logoutBtn" class="fx-btn fx-btn-sm" title="Sign out">Sign out</button>
     </div>

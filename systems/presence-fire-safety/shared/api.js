@@ -68,6 +68,15 @@ export const employees = {
     if (error) throw error;
     return data;
   },
+  /** Same shape as forIdCard, for multiple employees at once (print orders). */
+  async forIdCardBulk(companyId, employeeIds) {
+    if (!employeeIds?.length) return [];
+    const { data, error } = await sb().from("core_employees")
+      .select("id, full_name, job_title, employee_id, profile_picture_url")
+      .eq("company_id", companyId).in("id", employeeIds);
+    if (error) throw error;
+    return data || [];
+  },
 };
 
 // ── Badges ───────────────────────────────────────────────────────────────
@@ -84,10 +93,12 @@ export const badges = {
     if (error) throw error;
     return data;
   },
-  async list(companyId) {
-    const { data, error } = await sb().from("presence_fire_safety_badges")
+  async list(companyId, { status } = {}) {
+    let q = sb().from("presence_fire_safety_badges")
       .select("*, core_employees!employee_id(full_name, employee_id)")
       .eq("company_id", companyId).order("issued_at", { ascending: false });
+    if (status) q = q.eq("status", status);
+    const { data, error } = await q;
     if (error) throw error;
     return data || [];
   },
@@ -458,6 +469,38 @@ export const settings = {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Upload failed");
     return data.url;
+  },
+};
+
+// ── ID card print orders ("Send to SmartCore to Print") ─────────────────
+// Both calls go through Cloudflare Functions rather than direct table
+// access — order creation talks to Stripe (secret key, server-only) and
+// finalisation needs to verify payment before anything is trusted, neither
+// of which a client-side call could do safely.
+export const cardOrders = {
+  async create(companyId, { employeeImages, shipping }) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) throw new Error("Not signed in");
+    const res = await fetch("/api/presence-fire-safety/create-card-order", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ employee_images: employeeImages, shipping }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not create order");
+    return data; // { order_id, client_secret, publishable_key, amount_pence }
+  },
+  async finalize(orderId, { devBypass = false } = {}) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) throw new Error("Not signed in");
+    const res = await fetch("/api/presence-fire-safety/finalize-card-order", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ order_id: orderId, dev_bypass: devBypass }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not confirm order");
+    return data;
   },
 };
 

@@ -32,12 +32,33 @@ async function handleAction({ request, env }) {
   const cid = client.id;
   const companyId = client.company_id;
 
+  const [settingsRow] = await sb(env, `/smartcore_flexi_settings?company_id=eq.${companyId}&select=disabled_features,background_tracks`);
+  const disabledFeatures = settingsRow?.disabled_features || [];
+
+  // Actions that belong to a feature the trainer can switch off in Settings.
+  // Blocked here too (not just hidden client-side) so a disabled feature
+  // can't be reached by calling the API directly.
+  const ACTION_FEATURE = {
+    active_programs: 'programs', workout_exercises: 'programs', log_workout: 'programs',
+    available_classes: 'classes', book_class: 'classes',
+    messages: 'messages', send_message: 'messages',
+    nutrition_plan: 'nutrition', meal_library_list: 'nutrition', food_logs_today: 'nutrition', log_food: 'nutrition',
+    habits_today: 'checkins', toggle_habit: 'checkins', checkins_list: 'checkins', submit_checkin: 'checkins',
+    waivers_list: 'waivers', sign_waiver: 'waivers',
+    challenges_list: 'community', update_challenge_entry: 'community', community_posts: 'community', post_community: 'community',
+  };
+  if (ACTION_FEATURE[action] && disabledFeatures.includes(ACTION_FEATURE[action])) {
+    return json({ error: 'This feature has been turned off by your trainer.' }, 403);
+  }
+
   // ── Identity ────────────────────────────────────────────────────────────
   if (action === 'me') {
     return json({
       client: {
         id: client.id, company_id: client.company_id, trainer_id: client.trainer_id,
         full_name: client.full_name, email: client.email, status: client.status,
+        disabled_features: disabledFeatures,
+        background_tracks: settingsRow?.background_tracks || [],
       },
     });
   }
@@ -366,9 +387,25 @@ async function handleAction({ request, env }) {
   }
 
   if (action === 'update_challenge_entry') {
+    const [challenge] = await sb(env, `/smartcore_flexi_challenges?id=eq.${body.challenge_id}&company_id=eq.${companyId}&select=id,requires_media`);
+    if (!challenge) return json({ error: 'Challenge not found.' }, 404);
+    const [existing] = await sb(env, `/smartcore_flexi_challenge_entries?challenge_id=eq.${body.challenge_id}&client_id=eq.${cid}&select=media_url,media_type`);
+
+    let media_url = existing?.media_url || null;
+    let media_type = existing?.media_type || null;
+    if (body.media_base64) {
+      const ext = (body.media_type || '').startsWith('video/') ? 'mp4' : 'jpg';
+      const path = `${companyId}/${cid}/challenges/${body.challenge_id}-${Date.now()}.${ext}`;
+      media_url = await uploadToStorage(env, path, body.media_base64, body.media_type || 'image/jpeg');
+      media_type = (body.media_type || '').startsWith('video/') ? 'video' : 'image';
+    }
+    if (challenge.requires_media && !media_url) {
+      return json({ error: 'Attach a photo or video to submit.' }, 400);
+    }
+
     await sb(env, `/smartcore_flexi_challenge_entries`, {
       method: 'POST',
-      body: { challenge_id: body.challenge_id, client_id: cid, value: body.value || 0, updated_at: new Date().toISOString() },
+      body: { challenge_id: body.challenge_id, client_id: cid, value: body.value || 0, media_url, media_type, updated_at: new Date().toISOString() },
       extraHeaders: { Prefer: 'resolution=merge-duplicates,return=representation' },
     });
     return json({ success: true });

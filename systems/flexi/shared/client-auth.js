@@ -62,8 +62,10 @@ function wireEscapeButtons() {
   if (btn && !btn._wired) {
     btn._wired = true;
     btn.addEventListener("click", () => {
-      clearSession();
-      window.location.href = LOGIN_URL;
+      if (confirm("Sign out?")) {
+        clearSession();
+        window.location.href = LOGIN_URL;
+      }
     });
   }
 }
@@ -96,4 +98,27 @@ export async function requireClientAccess() {
 export async function clientLogout() {
   clearSession();
   window.location.href = LOGIN_URL;
+}
+
+// Maps a toggleable feature (see TOGGLEABLE_FEATURES in shared/auth.js) to
+// the portal page that shows it. Call right after requireClientAccess() —
+// hides any nav link/tab pointing at a disabled feature's page, and bounces
+// the client to the dashboard if they're on that page directly.
+const PORTAL_FEATURE_PAGES = {
+  programs: "train.html",
+  messages: "chat.html",
+  nutrition: "nutrition.html",
+  checkins: "checkins.html",
+  waivers: "waivers.html",
+  community: "community.html",
+};
+
+export function applyPortalFeatureGating(disabledFeatures) {
+  const disabled = new Set(disabledFeatures || []);
+  const currentPage = window.location.pathname.split("/").pop();
+  for (const [feature, page] of Object.entries(PORTAL_FEATURE_PAGES)) {
+    if (!disabled.has(feature)) continue;
+    document.querySelectorAll(`a[href="${page}"]`).forEach(el => { el.style.display = "none"; });
+    if (currentPage === page) window.location.href = "dashboard.html";
+  }
 }

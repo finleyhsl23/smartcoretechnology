@@ -23,11 +23,14 @@ export function isQrScanningSupported() {
  *   opts.onError(err)        - called on camera/permission errors
  *   opts.debounceMs          - minimum gap between repeat detections of the
  *                              same value (default 2500ms) to avoid double-scans
- *   opts.facingMode          - 'environment' (rear, default) or 'user' (front)
+ *   opts.facingMode          - 'user' (front, default — kiosk devices are
+ *                              mounted screen-out, so the front camera is
+ *                              the one actually facing the employee) or
+ *                              'environment' (rear)
  *
  * Returns a controller: { stop(), switchCamera() }
  */
-export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, facingMode = "environment" } = {}) {
+export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, facingMode = "user" } = {}) {
   let stream = null;
   let detector = null;
   let canvas = null;
@@ -38,6 +41,21 @@ export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, 
   let currentFacing = facingMode;
   let stopped = false;
   const useNative = isBarcodeDetectorSupported();
+
+  // Always mirror the on-screen preview — kiosk devices are typically
+  // mounted with the screen (and its front camera) facing the employee, so
+  // the badge they hold up appears reversed unless flipped. Purely visual:
+  // doesn't touch the raw frame data the detectors below read, so decoding
+  // is unaffected either way.
+  function applyMirror() {
+    videoEl.classList.add("pfs-mirrored");
+    // Belt-and-suspenders: set the flip directly as an inline style too, so
+    // it always wins regardless of any stylesheet loading/caching/cascade
+    // issue on the page — inline style beats an external stylesheet rule
+    // outright, no specificity guesswork involved.
+    videoEl.style.setProperty("transform", "scaleX(-1)", "important");
+    videoEl.style.setProperty("-webkit-transform", "scaleX(-1)", "important");
+  }
 
   async function start() {
     if (!useNative && typeof window.jsQR !== "function") {
@@ -56,6 +74,7 @@ export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, 
         audio: false,
       });
       videoEl.srcObject = stream;
+      applyMirror();
       await videoEl.play();
       tick();
     } catch (err) {
@@ -114,6 +133,7 @@ export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, 
     stream?.getTracks()?.forEach(t => t.stop());
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacing }, audio: false });
     videoEl.srcObject = stream;
+    applyMirror();
     await videoEl.play();
   }
 

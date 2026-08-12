@@ -218,6 +218,52 @@ export function initTagInput(container, { options, selected = [], labelKey = "fu
 }
 
 /**
+ * Plain text box with a live filtered suggestion list underneath — e.g.
+ * typing a job title and having existing ones pop up as matches. Same
+ * suggestion-dropdown visuals as `initTagInput`, but a single free-typed
+ * value instead of multi-select chips; picking a suggestion just fills the
+ * box. Calls `onChange(value)` on every keystroke and on pick.
+ */
+export function initTextTypeahead(container, { options, value = "", placeholder = "", onChange }) {
+  container.classList.add("tag-input");
+  container.innerHTML = `
+    <input type="text" class="form-input" data-role="input" placeholder="${esc(placeholder)}" autocomplete="off" value="${esc(value)}"/>
+    <div class="tag-suggestions" data-role="suggestions"></div>
+  `;
+
+  const inputEl = container.querySelector('[data-role="input"]');
+  const suggEl = container.querySelector('[data-role="suggestions"]');
+
+  function closeSuggestions() {
+    container.classList.remove("open");
+    suggEl.innerHTML = "";
+  }
+
+  function openSuggestions(query) {
+    const q = query.trim().toLowerCase();
+    const matches = options.filter(o => o.toLowerCase().includes(q)).slice(0, 20);
+    if (!matches.length) { closeSuggestions(); return; }
+    suggEl.innerHTML = matches.map(o => `<div class="tag-suggestion-option" data-value="${esc(o)}">${esc(o)}</div>`).join("");
+    suggEl.querySelectorAll("[data-value]").forEach(opt => {
+      opt.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        inputEl.value = opt.dataset.value;
+        closeSuggestions();
+        onChange?.(inputEl.value);
+      });
+    });
+    container.classList.add("open");
+  }
+
+  inputEl.addEventListener("focus", () => openSuggestions(inputEl.value));
+  inputEl.addEventListener("input", () => { openSuggestions(inputEl.value); onChange?.(inputEl.value); });
+  inputEl.addEventListener("blur", () => setTimeout(closeSuggestions, 150));
+  inputEl.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSuggestions(); });
+
+  return { getValue: () => inputEl.value.trim() };
+}
+
+/**
  * Converts a raw average score (1 = good .. 3 = needs action) to a quality
  * percentage where higher is better: 1 -> 100%, 2 -> 50%, 3 -> 0%.
  */

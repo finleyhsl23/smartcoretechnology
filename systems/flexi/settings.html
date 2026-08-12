@@ -39,14 +39,32 @@
         <div class="fx-form-msg" id="bizMsg"></div>
         <button class="fx-btn fx-btn-primary" id="saveBizBtn">Save Profile</button>
       </div>
+
+      <div class="fx-card" style="margin-bottom:20px">
+        <h3 style="margin-bottom:4px;font-size:14.5px">Background Music</h3>
+        <p style="color:var(--fx-text3);font-size:12.5px;margin-bottom:14px">Add as many music or video tracks as you like — they play in the background whenever anyone (you or a client) is using Flexi. Everyone gets a player in the top right to skip between tracks and control the volume.</p>
+        <div id="bgTrackList" style="margin-bottom:14px"></div>
+        <div class="fx-field"><label>Track name</label><input class="fx-input" id="bgTrackName" placeholder="e.g. Morning Energy"/></div>
+        <input type="file" class="fx-input" id="bgMediaFile" accept="audio/*,video/*"/>
+        <p style="color:var(--fx-text3);font-size:11px;margin-top:6px">Accepts MP3, WAV, OGG, AAC, M4A, FLAC, WEBM, MP4, MOV, AVI, MKV, 3GP — up to 200MB.</p>
+        <div class="fx-form-msg" id="bgMediaMsg"></div>
+        <button class="fx-btn fx-btn-primary" id="uploadBgMediaBtn" style="margin-top:10px">+ Add Track</button>
+      </div>
+
+      <div class="fx-card" style="margin-bottom:20px">
+        <h3 style="margin-bottom:4px;font-size:14.5px">Features</h3>
+        <p style="color:var(--fx-text3);font-size:12.5px;margin-bottom:6px">Turn off anything you don't use — it disappears from your menu and from your clients' app. You can turn it back on any time.</p>
+        <div id="featureSwitches"></div>
+        <div class="fx-form-msg" id="featuresMsg"></div>
+      </div>
     </main>
   </div>
 </div>
 <script type="module">
-import { requireFlexiAccess } from "./shared/auth.js";
+import { requireFlexiAccess, disabledFeatures, TOGGLEABLE_FEATURES } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
-import { revealApp, setupThemeToggle, setLoading, showMessage, toast, enhanceSelect } from "./shared/ui.js";
+import { revealApp, setupThemeToggle, setLoading, showMessage, toast, enhanceSelect, escapeHtml } from "./shared/ui.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "settings" });
 renderNav({ activeKey: "settings", profile, tier });
@@ -81,6 +99,115 @@ document.getElementById("saveBizBtn").addEventListener("click", async (e) => {
   });
   setLoading(e.target, false);
   showMessage("bizMsg", error ? error.message : "Saved.", error ? "error" : "success");
+});
+
+let bgTracks = settings?.background_tracks || [];
+
+function renderBgTrackList() {
+  const el = document.getElementById("bgTrackList");
+  if (!bgTracks.length) { el.innerHTML = `<p style="color:var(--fx-text3);font-size:12.5px">No tracks yet — the system stays silent.</p>`; return; }
+  el.innerHTML = bgTracks.map(t => `
+    <div class="fx-track-row">
+      <span class="fx-track-name">🎵 ${escapeHtml(t.name)} ${t.type === "video" ? "(video)" : ""}</span>
+      <button type="button" class="fx-btn fx-btn-sm" data-remove-track="${t.id}">Remove</button>
+    </div>`).join("");
+  el.querySelectorAll("[data-remove-track]").forEach(btn => btn.addEventListener("click", async () => {
+    bgTracks = bgTracks.filter(t => t.id !== btn.dataset.removeTrack);
+    const { error } = await sb().from("smartcore_flexi_settings").upsert({
+      company_id: profile.company_id, background_tracks: bgTracks, updated_at: new Date().toISOString(),
+    });
+    if (error) { showMessage("bgMediaMsg", error.message, "error"); return; }
+    renderBgTrackList();
+    showMessage("bgMediaMsg", "Track removed.", "success");
+  }));
+}
+renderBgTrackList();
+
+const ACCEPTED_MEDIA_LABELS = ["MP3", "WAV", "OGG", "AAC", "M4A", "FLAC", "WEBM (audio)", "MP4", "MOV", "WEBM (video)", "AVI", "MKV", "3GP"];
+const ACCEPTED_MEDIA_TYPES = new Set([
+  "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave", "audio/ogg", "audio/vorbis",
+  "audio/aac", "audio/mp4", "audio/x-m4a", "audio/flac", "audio/x-flac", "audio/webm",
+  "video/mp4", "video/quicktime", "video/webm", "video/x-msvideo", "video/x-matroska", "video/mpeg", "video/3gpp",
+]);
+const UNSUPPORTED_MEDIA_MSG = `That file type isn't supported. Accepted formats: ${ACCEPTED_MEDIA_LABELS.join(", ")}.`;
+
+document.getElementById("uploadBgMediaBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("bgTrackName").value.trim();
+  const file = document.getElementById("bgMediaFile").files[0];
+  if (!name) { showMessage("bgMediaMsg", "Give the track a name.", "error"); return; }
+  if (!file) { showMessage("bgMediaMsg", "Choose a file first.", "error"); return; }
+  if (file.type && !ACCEPTED_MEDIA_TYPES.has(file.type)) { showMessage("bgMediaMsg", UNSUPPORTED_MEDIA_MSG, "error"); return; }
+  setLoading(e.target, true, "Uploading…");
+  try {
+    const ext = (file.name.split(".").pop() || "mp3").toLowerCase();
+    const path = `${profile.company_id}/branding/${Date.now()}.${ext}`;
+    const { error: upErr } = await sb().storage.from("flexi-media").upload(path, file, { upsert: true, contentType: file.type || "audio/mpeg" });
+    if (upErr) throw upErr;
+    const { data: signed, error: signErr } = await sb().storage.from("flexi-media").createSignedUrl(path, 60 * 60 * 24 * 365);
+    if (signErr) throw signErr;
+    const type = file.type.startsWith("video/") ? "video" : "audio";
+    bgTracks = [...bgTracks, { id: crypto.randomUUID(), name, url: signed.signedUrl, type }];
+    const { error } = await sb().from("smartcore_flexi_settings").upsert({
+      company_id: profile.company_id, background_tracks: bgTracks, updated_at: new Date().toISOString(),
+    });
+    if (error) throw error;
+    renderBgTrackList();
+    document.getElementById("bgTrackName").value = "";
+    document.getElementById("bgMediaFile").value = "";
+    showMessage("bgMediaMsg", "Track added.", "success");
+  } catch (err) {
+    const isMimeError = /mime type/i.test(err.message || "");
+    showMessage("bgMediaMsg", isMimeError ? UNSUPPORTED_MEDIA_MSG : (err.message || "Upload failed."), "error");
+  }
+  setLoading(e.target, false);
+});
+
+const FEATURE_META = {
+  programs: { label: "Programs", desc: "Workout programs & training plans" },
+  classes: { label: "Classes", desc: "Group class scheduling & attendance" },
+  messages: { label: "Messages", desc: "In-app chat between you and clients" },
+  nutrition: { label: "Nutrition", desc: "Meal plans, macros & food logging" },
+  checkins: { label: "Check-Ins & Habits", desc: "Weekly check-ins & habit tracking" },
+  packages: { label: "Packages & Payments", desc: "Client packages & payment tracking" },
+  waivers: { label: "Waivers", desc: "Waivers & PAR-Q signing" },
+  community: { label: "Community", desc: "Community feed & challenges" },
+};
+
+let currentDisabled = new Set(disabledFeatures());
+const switchesEl = document.getElementById("featureSwitches");
+switchesEl.innerHTML = TOGGLEABLE_FEATURES.map(key => {
+  const meta = FEATURE_META[key];
+  const on = !currentDisabled.has(key);
+  return `
+    <div class="fx-switch-row">
+      <div>
+        <div class="fx-switch-label">${meta.label}</div>
+        <div class="fx-switch-desc">${meta.desc}</div>
+      </div>
+      <label class="fx-switch">
+        <input type="checkbox" data-feature="${key}" ${on ? "checked" : ""}/>
+        <span class="fx-switch-track"></span>
+      </label>
+    </div>`;
+}).join("");
+
+switchesEl.querySelectorAll("input[type=checkbox]").forEach(input => {
+  input.addEventListener("change", async () => {
+    const key = input.dataset.feature;
+    if (input.checked) currentDisabled.delete(key); else currentDisabled.add(key);
+    const { error } = await sb().from("smartcore_flexi_settings").upsert({
+      company_id: profile.company_id,
+      disabled_features: Array.from(currentDisabled),
+      updated_at: new Date().toISOString(),
+    });
+    if (error) {
+      input.checked = !input.checked;
+      if (input.checked) currentDisabled.delete(key); else currentDisabled.add(key);
+      showMessage("featuresMsg", error.message, "error");
+    } else {
+      showMessage("featuresMsg", `${FEATURE_META[key].label} ${input.checked ? "turned on" : "turned off"}.`, "success");
+    }
+  });
 });
 </script>
 </body>

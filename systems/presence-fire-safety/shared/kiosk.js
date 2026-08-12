@@ -191,3 +191,84 @@ export async function requestExitKioskMode({ companyId }) {
 
   pinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submitBtn.click(); });
 }
+
+// ── Idle screensaver ─────────────────────────────────────────────────────
+// Public-facing kiosk devices sit on the same screen for hours at a time,
+// which risks OLED/LCD burn-in of the static sign-in UI. After a period of
+// no touches/clicks/keys, this shows a full-screen bouncing-text screensaver
+// (DVD-logo style) that drifts around and changes colour on every bounce, so
+// no pixel stays lit the same way for long. Any interaction dismisses it.
+let _idleTimer = null;
+let _idleOverlay = null;
+let _idleBounceRaf = null;
+let _idleInitialized = false;
+const IDLE_ACTIVITY_EVENTS = ["pointerdown", "pointermove", "keydown", "touchstart", "wheel"];
+const IDLE_BOUNCE_COLORS = ["#6ee7ff", "#a78bfa", "#34d399", "#fbbf24", "#f472b6", "#60a5fa"];
+
+/**
+ * @param {object} opts
+ *   opts.idleMs   - milliseconds of inactivity before the screensaver shows (default 60000)
+ *   opts.text     - the bouncing text (default "Touch to sign in")
+ *   opts.onIdle   - called right before the screensaver appears (e.g. to stop a camera)
+ *   opts.onResume - called right after the screensaver is dismissed (e.g. to reset the UI)
+ */
+export function initIdleScreensaver({ idleMs = 60000, text = "Touch to sign in", onIdle, onResume } = {}) {
+  if (_idleInitialized) return;
+  _idleInitialized = true;
+
+  function armTimer() {
+    if (_idleOverlay) return;
+    clearTimeout(_idleTimer);
+    _idleTimer = setTimeout(showScreensaver, idleMs);
+  }
+
+  function showScreensaver() {
+    onIdle?.();
+    _idleOverlay = document.createElement("div");
+    _idleOverlay.className = "pfs-screensaver";
+    _idleOverlay.innerHTML = `<span class="pfs-screensaver-text">${esc(text)}</span>`;
+    document.body.appendChild(_idleOverlay);
+    IDLE_ACTIVITY_EVENTS.forEach(ev => _idleOverlay.addEventListener(ev, dismissScreensaver, { once: true }));
+    startBounce(_idleOverlay.querySelector(".pfs-screensaver-text"));
+  }
+
+  function dismissScreensaver() {
+    cancelAnimationFrame(_idleBounceRaf);
+    _idleOverlay?.remove();
+    _idleOverlay = null;
+    onResume?.();
+    armTimer();
+  }
+
+  function startBounce(el) {
+    let x = Math.random() * Math.max(0, window.innerWidth - 260);
+    let y = Math.random() * Math.max(0, window.innerHeight - 60);
+    let vx = (Math.random() < 0.5 ? -1 : 1) * (1.1 + Math.random() * 0.7);
+    let vy = (Math.random() < 0.5 ? -1 : 1) * (1.1 + Math.random() * 0.7);
+    let colorIdx = 0;
+    el.style.color = IDLE_BOUNCE_COLORS[0];
+
+    function frame() {
+      const rect = el.getBoundingClientRect();
+      const maxX = Math.max(0, window.innerWidth - rect.width);
+      const maxY = Math.max(0, window.innerHeight - rect.height);
+      x += vx;
+      y += vy;
+      let bounced = false;
+      if (x <= 0) { x = 0; vx = Math.abs(vx); bounced = true; }
+      else if (x >= maxX) { x = maxX; vx = -Math.abs(vx); bounced = true; }
+      if (y <= 0) { y = 0; vy = Math.abs(vy); bounced = true; }
+      else if (y >= maxY) { y = maxY; vy = -Math.abs(vy); bounced = true; }
+      if (bounced) {
+        colorIdx = (colorIdx + 1) % IDLE_BOUNCE_COLORS.length;
+        el.style.color = IDLE_BOUNCE_COLORS[colorIdx];
+      }
+      el.style.transform = `translate(${x}px, ${y}px)`;
+      _idleBounceRaf = requestAnimationFrame(frame);
+    }
+    _idleBounceRaf = requestAnimationFrame(frame);
+  }
+
+  IDLE_ACTIVITY_EVENTS.forEach(ev => document.addEventListener(ev, () => { if (!_idleOverlay) armTimer(); }, { passive: true }));
+  armTimer();
+}

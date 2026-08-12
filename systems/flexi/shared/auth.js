@@ -6,6 +6,8 @@ const ADMIN_ROLES = ["owner", "admin", "administrator"];
 let _profile = null;
 let _permissions = null;
 let _tier = "starter";
+let _disabledFeatures = [];
+let _backgroundTracks = [];
 
 export function isAdmin(profile) {
   return ADMIN_ROLES.includes(profile?.role);
@@ -111,6 +113,28 @@ export function currentTier() {
   return _tier;
 }
 
+// Features a trainer can switch off per-company in Settings — hidden from
+// both the trainer nav/pages and the client portal once disabled. Separate
+// from tier gating: a feature can be on the plan but still toggled off.
+export const TOGGLEABLE_FEATURES = [
+  "programs", "classes", "nutrition", "checkins",
+  "waivers", "community", "packages", "messages",
+];
+
+export function disabledFeatures() {
+  return _disabledFeatures;
+}
+
+export function backgroundTracks() {
+  return _backgroundTracks;
+}
+
+// Combines the tier gate with the company's own on/off toggle — nav.js and
+// requireFlexiAccess() both defer to this rather than checking tier alone.
+export function isFeatureEnabled(tier, feature) {
+  return tierHasFeature(tier, feature) && !_disabledFeatures.includes(feature);
+}
+
 /**
  * Full module access flow: session -> employee profile -> company
  * entitlement (company_modules.flexi) -> at least one Flexi permission.
@@ -148,6 +172,14 @@ export async function requireFlexiAccess({ feature } = {}) {
   }
   _tier = mod.tier || "starter";
 
+  const { data: settingsRow } = await sb()
+    .from("smartcore_flexi_settings")
+    .select("disabled_features, background_tracks")
+    .eq("company_id", profile.company_id)
+    .maybeSingle();
+  _disabledFeatures = settingsRow?.disabled_features || [];
+  _backgroundTracks = settingsRow?.background_tracks || [];
+
   const permissions = await getMyPermissions(profile.company_id);
   if (!permissions.length) {
     renderBlockScreen({
@@ -167,6 +199,17 @@ export async function requireFlexiAccess({ feature } = {}) {
       actionLabel: "Upgrade Plan →",
     });
     throw new Error("Feature not on tier");
+  }
+
+  if (feature && _disabledFeatures.includes(feature)) {
+    renderBlockScreen({
+      icon: "🚫",
+      title: "Feature Turned Off",
+      message: "This feature has been turned off for your business. An owner or admin can turn it back on in Settings.",
+      actionHref: "settings.html",
+      actionLabel: "Go to Settings →",
+    });
+    throw new Error("Feature disabled by company");
   }
 
   wireEscapeButtons();

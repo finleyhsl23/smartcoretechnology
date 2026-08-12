@@ -13,6 +13,7 @@
  */
 
 import { verifyStripeWebhook } from './_stripe.js';
+import { finalizeCardOrder } from './presence-fire-safety/_card-order-finalize.js';
 
 const ADMIN_EMAIL   = 'support@smartcoretechnology.co.uk';
 const FROM_BILLING  = 'SmartCore Billing <noreply@smartcoretechnology.co.uk>';
@@ -48,6 +49,9 @@ export async function onRequestPost(context) {
         break;
       case 'customer.subscription.deleted':
         await handleSubscriptionDeleted(env, event.data.object);
+        break;
+      case 'payment_intent.succeeded':
+        await handlePaymentIntentSucceeded(env, event.data.object);
         break;
       default:
         // Acknowledge unhandled events
@@ -140,6 +144,26 @@ async function handleSubscriptionDeleted(env, subscription) {
   await dbPatch(env, `/marketplace_orders?id=eq.${enc(orders[0].id)}`, {
     status: 'rejected',
   });
+}
+
+// ---------------------------------------------------------------------------
+// payment_intent.succeeded — only acted on for ID card print orders (the
+// marketplace flow above uses subscriptions/invoices, not raw PaymentIntents).
+// This is a safety net: finalize-card-order.js already does this same call
+// right after the browser sees confirmPayment() succeed, so most orders are
+// already finalized by the time this event arrives — finalizeCardOrder() is
+// idempotent (an atomic pending_payment -> paid transition), so a duplicate
+// call here is a harmless no-op.
+// ---------------------------------------------------------------------------
+async function handlePaymentIntentSucceeded(env, paymentIntent) {
+  if (paymentIntent.metadata?.order_type !== 'presence_fire_safety_card_order') return;
+  const orderId = paymentIntent.metadata?.order_id;
+  if (!orderId) return;
+  try {
+    await finalizeCardOrder(env, orderId);
+  } catch (e) {
+    console.error('stripe-webhook card order finalize:', e);
+  }
 }
 
 // ---------------------------------------------------------------------------

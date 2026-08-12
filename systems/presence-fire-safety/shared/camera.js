@@ -21,10 +21,27 @@ export function startCameraCapture(videoEl, { onError, facingMode = "user" } = {
   let stream = null;
   let currentFacing = facingMode;
 
+  // Always mirror the preview, matching what the person sees of themselves
+  // on every phone/laptop camera app. Not conditioned on currentFacing:
+  // facingMode is only a *hint* to getUserMedia, so on a device with a
+  // single camera, requesting "environment" can silently hand back the same
+  // front camera anyway — a state-based toggle would then incorrectly
+  // un-mirror a still-front-facing feed after "Switch camera" is pressed.
+  function applyMirror() {
+    videoEl.classList.add("pfs-mirrored");
+    // Belt-and-suspenders: set the flip directly as an inline style too, so
+    // it always wins regardless of any stylesheet loading/caching/cascade
+    // issue on the page — inline style beats an external stylesheet rule
+    // outright, no specificity guesswork involved.
+    videoEl.style.setProperty("transform", "scaleX(-1)", "important");
+    videoEl.style.setProperty("-webkit-transform", "scaleX(-1)", "important");
+  }
+
   async function start() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacing }, audio: false });
       videoEl.srcObject = stream;
+      applyMirror();
       await videoEl.play();
     } catch (err) {
       onError?.(err);
@@ -42,6 +59,7 @@ export function startCameraCapture(videoEl, { onError, facingMode = "user" } = {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacing }, audio: false });
       videoEl.srcObject = stream;
+      applyMirror();
       await videoEl.play();
     } catch (err) {
       onError?.(err);
@@ -56,6 +74,9 @@ export function startCameraCapture(videoEl, { onError, facingMode = "user" } = {
         canvas.width = videoEl.videoWidth;
         canvas.height = videoEl.videoHeight;
         const ctx2d = canvas.getContext("2d");
+        // Flip the capture to match the (always-mirrored) preview the person saw.
+        ctx2d.translate(canvas.width, 0);
+        ctx2d.scale(-1, 1);
         ctx2d.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
         canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not capture photo")), mimeType, quality);
       } catch (err) {

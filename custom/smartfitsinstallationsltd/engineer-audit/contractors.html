@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Contractors — SmartCore Engineer Install Audit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/engineer-audit/shared/audit.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="eia-shell">
+  <nav class="eia-sidebar" id="eiaNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="eia-main">
+    <div class="eia-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Contractors</h1>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+    <div class="eia-content" id="content">
+      <div id="body"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<script type="module">
+  import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/auth.js";
+  import { listSmartfitsEmployees, getAuditSettings, setEngineerManagers, setEmployeeArchived, updateEmployeeDetails } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/api.js";
+  import { sb } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/supabase.js";
+  import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/nav.js";
+  import { initTheme } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/theme.js";
+  import { esc, initials, setInner, loadingState, errorState, emptyState, toast, confirmDialog, modal, permissionDeniedState, initTextTypeahead } from "/custom/smartfitsinstallationsltd/engineer-audit/shared/ui.js";
+
+  initTheme();
+  const BASE = "/custom/smartfitsinstallationsltd/engineer-audit";
+
+  // New contractors default into the Field Engineers department so they
+  // immediately show up in the audit picker / Manage Assignments like every
+  // other field-based engineer — there's no department field on this form,
+  // it's just not something Owner/Admin needs to think about when adding one.
+  const DEFAULT_DEPARTMENT_ID = "52a3c1d6-c0e9-4ada-bf59-15d4268a6d33";
+
+  let _profile, _employees = [], _contractors = [], _managerRoster = [], _deptFilter = null, _jobTitleInput, _jobTitles = [];
+
+  try {
+    const { profile, tier, settings: navSettings } = await requireModuleAccess();
+    _profile = profile;
+    renderNav("contractors", profile, tier, navSettings);
+    initMobileNav();
+    initTopbar();
+
+    if (tier !== "owner_admin") {
+      setInner("body", permissionDeniedState("Only Owners and Admins can manage contractors."));
+    } else {
+      await render();
+    }
+  } catch (e) {
+    setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+  }
+
+  async function render() {
+    setInner("body", loadingState("Loading…"));
+    try {
+      const [employees, allEmployees, settings] = await Promise.all([
+        listSmartfitsEmployees(),
+        listSmartfitsEmployees({ includeArchived: true }),
+        getAuditSettings(),
+      ]);
+      _employees = employees;
+      _contractors = allEmployees.filter(e => e.employment_type === "contractor").sort((a, b) => a.full_name.localeCompare(b.full_name));
+      const rosterIds = new Set(settings.manager_employee_ids || []);
+      _managerRoster = _employees.filter(e => rosterIds.has(e.id));
+      // Same department scope as the "which engineer would you like to
+      // audit today?" picker on the home page — an empty list there means
+      // unrestricted, so job titles come from everyone in that case too.
+      _deptFilter = settings.visible_department_ids?.length ? new Set(settings.visible_department_ids) : null;
+      draw();
+    } catch (e) {
+      setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
+    }
+  }
+
+  function draw() {
+    _jobTitles = [...new Set(
+      _employees
+        .filter(e => !_deptFilter || _deptFilter.has(e.department_id))
+        .map(e => e.job_title)
+        .filter(Boolean)
+    )].sort();
+
+    const html = `
+      <div class="page-head">
+        <h2>Add Contractor</h2>
+        <p>Adds a new contractor as an employee record and links them to a mentor on Manage Assignments.</p>
+      </div>
+
+      <div class="card" style="max-width:520px">
+        <div class="form-row">
+          <label class="form-label" for="contractorName">Full name</label>
+          <input type="text" id="contractorName" class="form-input" placeholder="e.g. Chris Marsh" autocomplete="off"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Job title</label>
+          <div id="jobTitleDropdown"></div>
+        </div>
+        <div class="form-row" style="margin-bottom:0">
+          <label class="form-label">Mentor${_managerRoster.length ? "" : " (none set up yet)"}</label>
+          <p class="text-muted" style="font-size:12.5px;margin:0 0 10px">Optional. Select one or more — this creates the same assignment you'd make on Manage Assignments.</p>
+          ${_managerRoster.length ? `
+            <div class="mentor-checklist">
+              ${_managerRoster.map(m => `
+                <label class="cbdd-option" style="border:1px solid var(--border);border-radius:10px;margin-bottom:6px">
+                  <input type="checkbox" value="${esc(m.id)}"/>
+                  <span>${esc(m.full_name)}${m.job_title ? ` <small class="text-muted">(${esc(m.job_title)})</small>` : ""}</span>
+                </label>`).join("")}
+            </div>` : `<p class="text-muted" style="font-size:12.5px">Add Senior Regional Engineering Managers on the <a href="${BASE}/settings.html" style="color:var(--accent2)">Settings page</a> first.</p>`}
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="addBtn" style="margin-top:18px"><i data-lucide="user-plus"></i> Add Contractor</button>
+
+      <div class="page-head" style="margin-top:34px">
+        <h2>Current Contractors</h2>
+        <p>Archive hides someone from the audit picker, leaderboard, and Manage Assignments, but their profile stays reachable here. Delete permanently removes them and every audit, assignment, note, and record linked to them.</p>
+      </div>
+      <div class="search-wrap">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="text" id="contractorSearch" class="form-input" placeholder="Search by name or job title…" autocomplete="off"/>
+      </div>
+      <div id="contractorList"></div>
+    `;
+    setInner("body", html);
+
+    _jobTitleInput = initTextTypeahead(document.getElementById("jobTitleDropdown"), {
+      options: _jobTitles,
+      placeholder: "e.g. Field Engineer",
+    });
+
+    document.getElementById("addBtn").addEventListener("click", onAdd);
+
+    drawContractorList("");
+    document.getElementById("contractorSearch").addEventListener("input", e => drawContractorList(e.target.value));
+  }
+
+  function drawContractorList(query) {
+    const q = query.trim().toLowerCase();
+    const filtered = !q ? _contractors : _contractors.filter(c =>
+      (c.full_name || "").toLowerCase().includes(q) || (c.job_title || "").toLowerCase().includes(q)
+    );
+
+    const listEl = document.getElementById("contractorList");
+    if (!filtered.length) {
+      setInner("contractorList", emptyState({
+        icon: "hard-hat",
+        title: _contractors.length ? "No matches" : "No contractors yet",
+        message: _contractors.length ? "Try a different search." : "Contractors you add above will show up here.",
+      }));
+      return;
+    }
+
+    listEl.innerHTML = `
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Contractor</th><th>Job title</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            ${filtered.map(c => `
+              <tr>
+                <td style="display:flex;align-items:center;gap:10px">
+                  <div class="avatar avatar-sm">${esc(initials(c.full_name))}</div>
+                  ${esc(c.full_name)}
+                </td>
+                <td>${esc(c.job_title || "—")}</td>
+                <td><span class="badge ${c.is_archived ? "badge-grey" : "badge-green"}">${c.is_archived ? "Archived" : "Active"}</span></td>
+                <td style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+                  <a class="btn" href="${BASE}/employee.html?id=${esc(c.id)}">View Profile</a>
+                  <button class="btn" data-edit="${esc(c.id)}" data-name="${esc(c.full_name)}" data-title="${esc(c.job_title || "")}">Edit</button>
+                  <button class="btn" data-archive="${esc(c.id)}" data-next="${c.is_archived ? "false" : "true"}">${c.is_archived ? "Unarchive" : "Archive"}</button>
+                  <button class="btn btn-danger" data-delete="${esc(c.id)}" data-name="${esc(c.full_name)}">Delete</button>
+                </td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    listEl.querySelectorAll("[data-edit]").forEach(btn => {
+      btn.addEventListener("click", () => openEditModal(btn.dataset.edit, btn.dataset.name, btn.dataset.title));
+    });
+
+    listEl.querySelectorAll("[data-archive]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const archived = btn.dataset.next === "true";
+        btn.disabled = true;
+        try {
+          await setEmployeeArchived(btn.dataset.archive, archived);
+          toast("success", archived ? "Contractor archived" : "Contractor unarchived");
+          await render();
+        } catch (e) {
+          toast("error", "Couldn't update contractor", e.message);
+          btn.disabled = false;
+        }
+      });
+    });
+
+    listEl.querySelectorAll("[data-delete]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        confirmDialog(
+          "Delete this contractor?",
+          `Are you sure you'd like to permanently delete ${btn.dataset.name}? This will delete their profile and every audit, mentor assignment, performance note, disciplinary record, and training record linked to them. This can't be undone.`,
+          async () => {
+            try {
+              const { data: { session } } = await sb().auth.getSession();
+              const res = await fetch("/api/core/delete-employee", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+                body: JSON.stringify({ employee_id: btn.dataset.delete }),
+              });
+              const result = await res.json();
+              if (!res.ok) throw new Error(result.error || "Couldn't delete contractor");
+              toast("success", `${btn.dataset.name} deleted`);
+              await render();
+            } catch (e) {
+              toast("error", "Couldn't delete contractor", e.message);
+            }
+          },
+          { confirmLabel: "Delete Permanently" }
+        );
+      });
+    });
+  }
+
+  function openEditModal(employeeId, name, currentTitle) {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Edit contractor</h3><button class="btn modal-close">✕</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label class="form-label" for="editFullName">Full name</label>
+          <input type="text" id="editFullName" class="form-input" value="${esc(name)}"/>
+        </div>
+        <div class="form-row" style="margin-bottom:0">
+          <label class="form-label">Job title</label>
+          <div id="editJobTitleDropdown"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close">Cancel</button>
+        <button class="btn btn-primary" id="saveEditBtn">Save</button>
+      </div>
+    `);
+    const editInput = initTextTypeahead(overlay.querySelector("#editJobTitleDropdown"), {
+      options: _jobTitles,
+      value: currentTitle,
+      placeholder: "e.g. Field Engineer",
+    });
+    overlay.querySelector("#saveEditBtn").addEventListener("click", async () => {
+      const fullName = overlay.querySelector("#editFullName").value.trim();
+      if (!fullName) { toast("error", "Enter a full name"); return; }
+      try {
+        await updateEmployeeDetails(employeeId, { full_name: fullName, job_title: editInput.getValue() });
+        overlay.remove();
+        toast("success", "Contractor updated");
+        await render();
+      } catch (e) {
+        toast("error", "Couldn't update contractor", e.message);
+      }
+    });
+  }
+
+  async function onAdd() {
+    const fullName = document.getElementById("contractorName").value.trim();
+    if (!fullName) { toast("error", "Enter a full name"); return; }
+    const jobTitle = _jobTitleInput.getValue();
+    const mentorIds = [...document.querySelectorAll(".mentor-checklist input:checked")].map(cb => cb.value);
+
+    const btn = document.getElementById("addBtn");
+    btn.disabled = true;
+    try {
+      const { data: { session } } = await sb().auth.getSession();
+      const res = await fetch("/api/core/add-employee", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          full_name: fullName,
+          job_title: jobTitle || null,
+          department_id: DEFAULT_DEPARTMENT_ID,
+          employment_type: "contractor",
+          role: "employee",
+        }),
+      });
+      const emp = await res.json();
+      if (!res.ok) throw new Error(emp.error || "Couldn't add contractor");
+
+      if (mentorIds.length) {
+        await setEngineerManagers(emp.id, mentorIds, _profile.id);
+      }
+
+      toast("success", `${fullName} added`, mentorIds.length ? "Linked on Manage Assignments." : "");
+      window.location.href = `${BASE}/managers.html`;
+    } catch (e) {
+      toast("error", "Couldn't add contractor", e.message);
+      btn.disabled = false;
+    }
+  }
+</script>
+</body>
+</html>
