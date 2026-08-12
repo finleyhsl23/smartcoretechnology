@@ -39,6 +39,13 @@ export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, 
   let stopped = false;
   const useNative = isBarcodeDetectorSupported();
 
+  // Mirror the on-screen preview when the front camera is active, matching
+  // normal selfie-camera behaviour — purely visual, doesn't touch the raw
+  // frame data the detectors below read, so decoding is unaffected.
+  function applyMirror() {
+    videoEl.classList.toggle("pfs-mirrored", currentFacing === "user");
+  }
+
   async function start() {
     if (!useNative && typeof window.jsQR !== "function") {
       onError?.(new Error("QR_SCANNING_UNSUPPORTED"));
@@ -56,6 +63,7 @@ export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, 
         audio: false,
       });
       videoEl.srcObject = stream;
+      applyMirror();
       await videoEl.play();
       tick();
     } catch (err) {
@@ -114,6 +122,7 @@ export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, 
     stream?.getTracks()?.forEach(t => t.stop());
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacing }, audio: false });
     videoEl.srcObject = stream;
+    applyMirror();
     await videoEl.play();
   }
 

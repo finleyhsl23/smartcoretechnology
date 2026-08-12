@@ -47,7 +47,14 @@
   .pfs-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   #kioskBody { flex: 1; min-height: 0; display: flex; }
   #kioskBody > * { margin: auto; width: 100%; }
-  .pfs-kiosk { min-height: 0; max-height: 100%; overflow-y: auto; justify-content: center; }
+  /* justify-content:flex-start + growable/shrinkable spacers (instead of
+     justify-content:center) so content is vertically centered when it fits,
+     but — unlike plain flex centering — remains fully scrollable to its true
+     top and bottom once it's taller than the viewport (long visitor/
+     contractor forms). Plain centering clips the "start" side of overflow in
+     most browsers, which was why scrolling back up never reached the top. */
+  .pfs-kiosk { min-height: 0; max-height: 100%; overflow-y: auto; justify-content: flex-start; }
+  .pfs-kiosk::before, .pfs-kiosk::after { content: ""; flex: 1 1 0; min-height: 0; }
   .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
   .pfs-tabs { display:flex; gap:8px; margin-bottom: 22px; background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
   .pfs-tab { flex:1; border:none; background:transparent; color: var(--text2); padding: 10px 18px; border-radius: 999px; font-weight:700; font-size: 14px; min-height: 44px; }
@@ -76,7 +83,7 @@
   import { isQrScanningSupported, startQrScanner } from "/systems/presence-fire-safety/shared/qr.js";
   import { renderPhotoCaptureStep } from "/systems/presence-fire-safety/shared/camera.js";
   import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
-  import { enforceKioskGuard, initKioskToggle, renderKioskEvacuationBanner, isKioskModeActive } from "/systems/presence-fire-safety/shared/kiosk.js";
+  import { enforceKioskGuard, initKioskToggle, renderKioskEvacuationBanner, isKioskModeActive, initIdleScreensaver } from "/systems/presence-fire-safety/shared/kiosk.js";
   import {
     esc, toast, fmtDateTime, initials,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -135,7 +142,16 @@
     } else if (isKioskModeActive()) {
       renderKioskShell();
     } else {
-      renderTabs(_qrSupported ? "scan" : "manual");
+      renderEmployeePanel();
+    }
+
+    if (isKioskModeActive()) {
+      initIdleScreensaver({
+        idleMs: 60000,
+        text: "Touch to sign in",
+        onIdle: () => { stopScanner(); stopCamera(); },
+        onResume: () => { returnToStart(); },
+      });
     }
   } catch (e) {
     if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
@@ -144,7 +160,7 @@
   // ── Kiosk shell: one screen, Employee / Visitor / Contractor tabs at the
   // top (Employee/Visitor/Contractor sections stay in the same view — no
   // separate "home"/menu screen to navigate back to). Outside Kiosk Mode,
-  // employee-signin.html skips straight to renderTabs() below.
+  // employee-signin.html skips straight to renderEmployeePanel() below.
   function renderKioskShell() {
     stopScanner();
     stopCamera();
@@ -168,107 +184,83 @@
     });
 
     _empPanelId = "kioskPanel";
-    if (_kioskTab === "employee") renderTabs(_qrSupported ? "scan" : "manual");
+    if (_kioskTab === "employee") renderEmployeePanel();
     else if (_kioskTab === "visitor") renderVisitorKioskFlow();
     else if (_kioskTab === "contractor") renderContractorKioskFlow();
   }
 
   /** Returns to the kiosk's persistent tab shell (kiosk mode) or the plain
-   *  Scan/Manual tabs (normal admin sign-in) after cancel/success/error. */
+   *  employee sign-in panel (normal admin sign-in) after cancel/success/error. */
   function returnToStart() {
     if (isKioskModeActive()) renderKioskShell();
-    else renderTabs(_qrSupported ? "scan" : "manual");
+    else renderEmployeePanel();
   }
 
-  // ── Tab shell (Scan QR / Manual Lookup) ─────────────────────────────────
-  // Renders into _empPanelId — "kioskBody" directly for the plain admin
-  // sign-in page, or the kiosk shell's "kioskPanel" when Kiosk Mode's
-  // Employee tab is active.
-  function renderTabs(active) {
+  // ── Employee panel — Scan QR and Manual Lookup shown together in one
+  // view (rather than as separate tabs), each section only appearing when
+  // it's actually usable: the QR scanner only if this browser supports
+  // camera-based scanning, manual search/code lookup only if the company
+  // hasn't disabled them. Renders into _empPanelId — "kioskBody" directly
+  // for the plain admin sign-in page, or the kiosk shell's "kioskPanel" when
+  // Kiosk Mode's Employee tab is active.
+  function renderEmployeePanel() {
     stopScanner();
     const allowManual = _companySettings?.allow_manual_employee_lookup !== false;
     const allowCode = !!_companySettings?.allow_employee_code_lookup;
+    const showScan = _qrSupported;
     // _empPanelId === "kioskBody" means we're the top-level page content (plain
     // admin sign-in), so we need the full-page ".pfs-kiosk" wrapper ourselves.
     // Otherwise we're nested inside the kiosk shell's "kioskPanel", which is
     // already inside that wrapper — adding a second one would nest two
     // min-height:100vh flex boxes and break the layout.
     const nested = _empPanelId !== "kioskBody";
-    const tabsMarkup = `
-        <div class="pfs-tabs kiosk-card" role="tablist" aria-label="Sign-in method">
-          <button class="pfs-tab" id="tabScan" role="tab" aria-selected="${active === "scan"}" ${!_qrSupported ? "disabled" : ""}>Scan QR</button>
-          <button class="pfs-tab" id="tabManual" role="tab" aria-selected="${active === "manual"}">Manual Lookup</button>
-        </div>
-        <div id="tabPanel" class="kiosk-card"></div>`;
-    setInner(_empPanelId, nested ? tabsMarkup : `<div class="pfs-kiosk">${tabsMarkup}</div>`);
 
-    document.getElementById("tabScan").addEventListener("click", () => { if (_qrSupported) renderTabs("scan"); });
-    document.getElementById("tabManual").addEventListener("click", () => renderTabs("manual"));
-
-    if (active === "scan" && _qrSupported) renderScanPanel();
-    else renderManualPanel(allowManual, allowCode);
-  }
-
-  // ── Scan panel ────────────────────────────────────────────────────────
-  function renderScanPanel() {
-    setInner("tabPanel", `
-      <div class="pfs-qr-frame" style="margin:0 auto"><video id="qrVideo" playsinline muted aria-label="Camera preview for badge scanning"></video></div>
-      <p class="text-muted" style="margin-top:14px">Hold your badge QR code up to the camera.</p>
-      <button class="btn" id="switchCamBtn" style="margin-top:8px">Switch camera</button>
-      <div id="scanStatus" role="status" aria-live="polite"></div>`);
-
-    const video = document.getElementById("qrVideo");
-    _scanner = startQrScanner(video, {
-      onDetect: (value) => onBadgeScanned(value),
-      onError: (err) => {
-        if (err.message === "QR_SCANNING_UNSUPPORTED") {
-          _qrSupported = false;
-          toast("info", "QR scanning unavailable", "Your browser doesn't support camera-based scanning. Switched to manual lookup.");
-          renderTabs("manual");
-        } else if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-          setInner("scanStatus", `<p class="form-error">Camera access was blocked. Allow camera access for this site, or use Manual Lookup instead.</p>`);
-        } else {
-          setInner("scanStatus", `<p class="form-error">Camera error: ${esc(err.message || "could not access camera")}. Try Manual Lookup instead.</p>`);
-        }
-      },
-    });
-    document.getElementById("switchCamBtn").addEventListener("click", () => _scanner?.switchCamera());
-  }
-
-  async function onBadgeScanned(token) {
-    if (_selected) return; // already resolving/showing a confirm screen
-    try {
-      const badge = await badges.byToken(_companyId, token);
-      if (!badge) {
-        setInner("scanStatus", `<p class="form-error">Badge not recognised. Try again or use Manual Lookup.</p>`);
-        return;
-      }
-      await selectEmployee(badge.core_employees, "qr");
-    } catch (e) {
-      setInner("scanStatus", `<p class="form-error">${esc(e.message || "Could not look up that badge.")}</p>`);
-    }
-  }
-
-  // ── Manual panel ──────────────────────────────────────────────────────
-  function renderManualPanel(allowManual, allowCode) {
-    if (!allowManual && !allowCode) {
-      setInner("tabPanel", emptyState({ icon: "ban", title: "Manual lookup disabled", message: "Ask an administrator to enable manual or code lookup for this company." }));
+    if (!showScan && !allowManual && !allowCode) {
+      setInner(_empPanelId, emptyState({ icon: "ban", title: "Sign-in disabled", message: "Ask an administrator to enable QR scanning, manual lookup, or code lookup for this company." }));
       return;
     }
-    setInner("tabPanel", `
-      ${allowManual ? `
-        <label class="form-label" for="empSearch">Search by name or employee ID</label>
-        <input class="form-input kiosk-search" id="empSearch" type="text" placeholder="Start typing a name…" autocomplete="off"/>
-        <div class="kiosk-results" id="empResults"></div>` : ""}
-      ${allowManual && allowCode ? `<div class="pfs-divider">or</div>` : ""}
-      ${allowCode ? `
-        <label class="form-label" for="empCode">Enter employee code</label>
-        <div class="code-row">
-          <input class="form-input" id="empCode" type="text" placeholder="e.g. EMP-0042" autocomplete="off"/>
-          <button class="btn btn-primary" id="codeGoBtn">Go</button>
-        </div>
-        <div id="codeStatus" role="status" aria-live="polite"></div>` : ""}
-    `);
+
+    const panelMarkup = `
+      <div id="tabPanel" class="kiosk-card">
+        ${showScan ? `
+          <div class="pfs-qr-frame" style="margin:0 auto"><video id="qrVideo" playsinline muted aria-label="Camera preview for badge scanning"></video></div>
+          <p class="text-muted" style="margin-top:14px">Hold your badge QR code up to the camera.</p>
+          <button class="btn" id="switchCamBtn" style="margin-top:8px">Switch camera</button>
+          <div id="scanStatus" role="status" aria-live="polite"></div>` : ""}
+        ${showScan && (allowManual || allowCode) ? `<div class="pfs-divider">or</div>` : ""}
+        ${allowManual ? `
+          <label class="form-label" for="empSearch">Search by name or employee ID</label>
+          <input class="form-input kiosk-search" id="empSearch" type="text" placeholder="Start typing a name…" autocomplete="off"/>
+          <div class="kiosk-results" id="empResults"></div>` : ""}
+        ${allowManual && allowCode ? `<div class="pfs-divider">or</div>` : ""}
+        ${allowCode ? `
+          <label class="form-label" for="empCode">Enter employee code</label>
+          <div class="code-row">
+            <input class="form-input" id="empCode" type="text" placeholder="e.g. EMP-0042" autocomplete="off"/>
+            <button class="btn btn-primary" id="codeGoBtn">Go</button>
+          </div>
+          <div id="codeStatus" role="status" aria-live="polite"></div>` : ""}
+      </div>`;
+    setInner(_empPanelId, nested ? panelMarkup : `<div class="pfs-kiosk">${panelMarkup}</div>`);
+
+    if (showScan) {
+      const video = document.getElementById("qrVideo");
+      _scanner = startQrScanner(video, {
+        onDetect: (value) => onBadgeScanned(value),
+        onError: (err) => {
+          if (err.message === "QR_SCANNING_UNSUPPORTED") {
+            _qrSupported = false;
+            toast("info", "QR scanning unavailable", "Your browser doesn't support camera-based scanning. Use the search below instead.");
+            renderEmployeePanel();
+          } else if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+            setInner("scanStatus", `<p class="form-error">Camera access was blocked. Allow camera access for this site, or use the search below instead.</p>`);
+          } else {
+            setInner("scanStatus", `<p class="form-error">Camera error: ${esc(err.message || "could not access camera")}. Try the search below instead.</p>`);
+          }
+        },
+      });
+      document.getElementById("switchCamBtn").addEventListener("click", () => _scanner?.switchCamera());
+    }
 
     if (allowManual) {
       const input = document.getElementById("empSearch");
@@ -277,8 +269,9 @@
         const q = input.value.trim();
         _searchDebounce = setTimeout(() => runSearch(q), 300);
       });
-      input.focus();
+      if (!showScan) input.focus();
     }
+
     if (allowCode) {
       const codeInput = document.getElementById("empCode");
       const go = async () => {
@@ -294,6 +287,20 @@
       };
       document.getElementById("codeGoBtn").addEventListener("click", go);
       codeInput.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+    }
+  }
+
+  async function onBadgeScanned(token) {
+    if (_selected) return; // already resolving/showing a confirm screen
+    try {
+      const badge = await badges.byToken(_companyId, token);
+      if (!badge) {
+        setInner("scanStatus", `<p class="form-error">Badge not recognised. Try again or use the search below.</p>`);
+        return;
+      }
+      await selectEmployee(badge.core_employees, "qr");
+    } catch (e) {
+      setInner("scanStatus", `<p class="form-error">${esc(e.message || "Could not look up that badge.")}</p>`);
     }
   }
 

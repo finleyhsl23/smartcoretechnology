@@ -21,10 +21,19 @@ export function startCameraCapture(videoEl, { onError, facingMode = "user" } = {
   let stream = null;
   let currentFacing = facingMode;
 
+  // The front (user-facing) camera is expected to behave like a mirror —
+  // matching what the person sees of themselves on every phone/laptop camera
+  // app — so the preview (and the captured photo, to match what was seen)
+  // are flipped horizontally whenever the front camera is active.
+  function applyMirror() {
+    videoEl.classList.toggle("pfs-mirrored", currentFacing === "user");
+  }
+
   async function start() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacing }, audio: false });
       videoEl.srcObject = stream;
+      applyMirror();
       await videoEl.play();
     } catch (err) {
       onError?.(err);
@@ -42,6 +51,7 @@ export function startCameraCapture(videoEl, { onError, facingMode = "user" } = {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacing }, audio: false });
       videoEl.srcObject = stream;
+      applyMirror();
       await videoEl.play();
     } catch (err) {
       onError?.(err);
@@ -56,6 +66,11 @@ export function startCameraCapture(videoEl, { onError, facingMode = "user" } = {
         canvas.width = videoEl.videoWidth;
         canvas.height = videoEl.videoHeight;
         const ctx2d = canvas.getContext("2d");
+        if (currentFacing === "user") {
+          // Flip the capture to match the mirrored preview the person saw.
+          ctx2d.translate(canvas.width, 0);
+          ctx2d.scale(-1, 1);
+        }
         ctx2d.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
         canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not capture photo")), mimeType, quality);
       } catch (err) {
