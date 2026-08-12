@@ -90,6 +90,12 @@
 
   initTheme();
 
+  // The Cloudflare Function returns env.STRIPE_PUBLISHABLE_KEY, but that env
+  // var isn't actually set for this project (shop/payment.html's checkout
+  // hits the same gap and works around it the same way) — publishable keys
+  // aren't secret, so hardcoding it here matches that existing pattern.
+  const STRIPE_PUBLISHABLE_KEY = "pk_live_51TpUiW4IMhuU6xC03tq0ac7TIz7DpfXo9kzeEjsrOuGyn2jJV5tkYUmuEmeikP3w0yb8enbAfiS67tSJaSX31Z4y00yZiX446d";
+
   let _profile = null, _companyId = null;
   let _template = null, _logoUrl = null;
   let _selectedEmployee = null; // { id, name }
@@ -452,7 +458,7 @@
     `;
     overlay.querySelector("#payBackBtn").addEventListener("click", () => renderShippingStep(overlay, activeBadgeList, selected));
 
-    const stripe = Stripe(orderData.publishable_key);
+    const stripe = Stripe(orderData.publishable_key || STRIPE_PUBLISHABLE_KEY);
     const elements = stripe.elements({ clientSecret: orderData.client_secret, appearance: { theme: "night" } });
     const paymentEl = elements.create("payment");
     paymentEl.mount("#payment-element");
