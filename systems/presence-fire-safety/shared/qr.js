@@ -39,11 +39,13 @@ export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, 
   let stopped = false;
   const useNative = isBarcodeDetectorSupported();
 
-  // Mirror the on-screen preview when the front camera is active, matching
-  // normal selfie-camera behaviour — purely visual, doesn't touch the raw
-  // frame data the detectors below read, so decoding is unaffected.
+  // Always mirror the on-screen preview — kiosk devices are typically
+  // mounted with the screen (and its front camera) facing the employee, so
+  // the badge they hold up appears reversed unless flipped. Purely visual:
+  // doesn't touch the raw frame data the detectors below read, so decoding
+  // is unaffected either way.
   function applyMirror() {
-    videoEl.classList.toggle("pfs-mirrored", currentFacing === "user");
+    videoEl.classList.add("pfs-mirrored");
   }
 
   async function start() {
