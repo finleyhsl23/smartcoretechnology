@@ -49,6 +49,12 @@ export function startQrScanner(videoEl, { onDetect, onError, debounceMs = 2500, 
   // is unaffected either way.
   function applyMirror() {
     videoEl.classList.add("pfs-mirrored");
+    // Belt-and-suspenders: set the flip directly as an inline style too, so
+    // it always wins regardless of any stylesheet loading/caching/cascade
+    // issue on the page — inline style beats an external stylesheet rule
+    // outright, no specificity guesswork involved.
+    videoEl.style.setProperty("transform", "scaleX(-1)", "important");
+    videoEl.style.setProperty("-webkit-transform", "scaleX(-1)", "important");
   }
 
   async function start() {
