@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
   <script src="https://js.stripe.com/v3/"></script>
+  <script src="/systems/presence-fire-safety/shared/jspdf-lib.js"></script>
 </head>
 <body>
 <div class="pfs-shell">
@@ -53,6 +54,9 @@
   .idc-choice-btn i { width:22px; height:22px; color:var(--accent2); flex-shrink:0; }
   .idc-choice-btn strong { display:block; font-size:14px; }
   .idc-choice-btn span { font-size:12.5px; color:var(--text3); }
+  .idc-section-header { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:28px; margin-bottom:16px; }
+  .idc-section-header h2 { margin:0; }
+  .idc-row-actions { display:flex; gap:8px; flex-wrap:wrap; }
 
   @media screen { #printArea { display:none !important; } }
   @media print {
@@ -82,6 +86,7 @@
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
   import { renderCardFace, normalizeTemplate, generateQrDataUrl, renderCardImagePair } from "/systems/presence-fire-safety/shared/id-card-render.js";
+  import { downloadCardsPdf } from "/systems/presence-fire-safety/shared/id-card-pdf.js";
   import {
     esc, initials, toast, fmtDateTime, confirmDialog, modal,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -149,9 +154,14 @@
         <div id="empSelectedChip"></div>
       </div>
 
-      <h2 class="set-section-title" style="margin-top:28px">Active QR badges</h2>
+      <div class="idc-section-header">
+        <h2 class="set-section-title">Active QR badges</h2>
+        <button class="btn" id="exportAllBtn" type="button"><i data-lucide="download"></i> Export All (PDF)</button>
+      </div>
       <div id="allBadgesArea"></div>
     `);
+    refreshIcons();
+    document.getElementById("exportAllBtn").addEventListener("click", (e) => downloadAllCardsPdf(e.currentTarget));
 
     const searchInput = document.getElementById("empSearch");
     const resultsBox = document.getElementById("empResults");
@@ -296,6 +306,10 @@
           <i data-lucide="printer"></i>
           <div><strong>Print it myself</strong><span>Use a local printer right now</span></div>
         </button>
+        <button class="idc-choice-btn" id="choiceDownloadBtn" type="button">
+          <i data-lucide="download"></i>
+          <div><strong>Download as PDF</strong><span>Front &amp; back, sized to print at 100%</span></div>
+        </button>
         <button class="idc-choice-btn" id="choiceSendBtn" type="button">
           <i data-lucide="truck"></i>
           <div><strong>Send to SmartCore to print</strong><span>Real PVC cards, printed and posted to you — from £20</span></div>
@@ -306,7 +320,91 @@
     refreshIcons();
     overlay.querySelector("#cardModalBackBtn").addEventListener("click", () => renderCardModalStep1(overlay));
     overlay.querySelector("#choicePrintBtn").addEventListener("click", () => { overlay.remove(); printCard(qr); });
+    overlay.querySelector("#choiceDownloadBtn").addEventListener("click", (e) => downloadSingleCardPdf(overlay, e.currentTarget));
     overlay.querySelector("#choiceSendBtn").addEventListener("click", () => openSendToPrintFlow(overlay));
+  }
+
+  // ── PDF downloads ────────────────────────────────────────────────────────
+  async function downloadSingleCardPdf(overlay, btn) {
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.querySelector("strong").textContent = "Preparing…";
+    try {
+      const qr = _activeBadge ? generateQrDataUrl(_activeBadge.badge_token) : null;
+      const ctx = { employee: _employeeData, logoUrl: _logoUrl, qrDataUrl: qr };
+      const { front, back } = await renderCardImagePair(_template, ctx);
+      downloadCardsPdf(
+        [{ front, back, label: _employeeData.full_name }],
+        _template?.orientation,
+        `${safeFilename(_employeeData.full_name)}-ID-Card.pdf`
+      );
+      overlay.remove();
+    } catch (e) {
+      toast("error", "Couldn't build PDF", e.message || "Please try again.");
+      btn.disabled = false;
+      btn.innerHTML = original;
+      refreshIcons();
+    }
+  }
+
+  async function downloadBadgeRowPdf(employeeId, btn) {
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Preparing…";
+    try {
+      const [emp, badge] = await Promise.all([
+        employees.forIdCard(_companyId, employeeId),
+        badges.forEmployee(employeeId),
+      ]);
+      if (!emp) throw new Error("Employee not found");
+      const qr = badge ? generateQrDataUrl(badge.badge_token) : null;
+      const ctx = { employee: emp, logoUrl: _logoUrl, qrDataUrl: qr };
+      const { front, back } = await renderCardImagePair(_template, ctx);
+      downloadCardsPdf([{ front, back, label: emp.full_name }], _template?.orientation, `${safeFilename(emp.full_name)}-ID-Card.pdf`);
+    } catch (e) {
+      toast("error", "Couldn't build PDF", e.message || "Please try again.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  async function downloadAllCardsPdf(btn) {
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = "Loading employees…";
+    try {
+      const activeBadgeList = await badges.list(_companyId, { status: "active" });
+      if (!activeBadgeList.length) {
+        toast("info", "Nothing to export", "There are no active QR badges yet.");
+        return;
+      }
+      const badgeByEmpId = Object.fromEntries(activeBadgeList.map((b) => [b.employee_id, b]));
+      const empRows = await employees.forIdCardBulk(_companyId, activeBadgeList.map((b) => b.employee_id));
+
+      const cards = [];
+      for (let i = 0; i < empRows.length; i++) {
+        const emp = empRows[i];
+        btn.textContent = `Preparing ${i + 1} of ${empRows.length}…`;
+        const badge = badgeByEmpId[emp.id];
+        const qr = badge ? generateQrDataUrl(badge.badge_token) : null;
+        const ctx = { employee: emp, logoUrl: _logoUrl, qrDataUrl: qr };
+        const { front, back } = await renderCardImagePair(_template, ctx);
+        cards.push({ front, back, label: emp.full_name });
+      }
+      const dateStr = new Date().toISOString().slice(0, 10);
+      downloadCardsPdf(cards, _template?.orientation, `ID-Cards-${dateStr}.pdf`);
+    } catch (e) {
+      toast("error", "Couldn't build PDF", e.message || "Please try again.");
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = original;
+      refreshIcons();
+    }
+  }
+
+  function safeFilename(name) {
+    return String(name || "employee").trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "employee";
   }
 
   // ── "Send to SmartCore to print" sub-flow ───────────────────────────────
@@ -548,12 +646,20 @@
                 <td>${esc(b.core_employees?.full_name || "—")} ${b.core_employees?.employee_id ? `<span class="text-muted">(${esc(b.core_employees.employee_id)})</span>` : ""}</td>
                 <td class="set-token">${esc(b.badge_token)}</td>
                 <td>${esc(fmtDateTime(b.issued_at))}</td>
-                <td><button class="btn btn-danger" data-revoke-badge="${esc(b.id)}" type="button">Revoke</button></td>
+                <td>
+                  <div class="idc-row-actions">
+                    <button class="btn" data-download-badge="${esc(b.employee_id)}" type="button">Download</button>
+                    <button class="btn btn-danger" data-revoke-badge="${esc(b.id)}" type="button">Revoke</button>
+                  </div>
+                </td>
               </tr>`).join("")}
           </tbody>
         </table>
       </div>
     `);
+    document.querySelectorAll("[data-download-badge]").forEach(btn => {
+      btn.addEventListener("click", () => downloadBadgeRowPdf(btn.dataset.downloadBadge, btn));
+    });
     document.querySelectorAll("[data-revoke-badge]").forEach(btn => {
       btn.addEventListener("click", () => {
         confirmDialog("Revoke this badge?", "The employee will no longer be able to use it to sign in or out. This cannot be undone.", async () => {
