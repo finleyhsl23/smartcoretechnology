@@ -25,6 +25,7 @@ export const PHOTO_CATEGORIES = [
   { key: "front",              label: "Front of Vehicle" },
   { key: "back",               label: "Back of Vehicle" },
   { key: "ignition_wire",      label: "Ignition Wire Location" },
+  { key: "permanent_wire",     label: "Permanent Wire Location" },
   { key: "earth_point",        label: "Earth Point" },
   { key: "airbag",             label: "Airbag Location" },
   { key: "adas_camera",        label: "ADAS Camera Position" },
@@ -59,7 +60,7 @@ export const FIELD_GROUPS = [
     fields: [
       { key: "ignition_wire_colour",   label: "Ignition Wire Colour" },
       { key: "ignition_wire_location", label: "Ignition Wire — Exact Location", type: "textarea", photoCategory: "ignition_wire" },
-      { key: "fuse_tap_options",       label: "Fuse Tap Options", type: "textarea" },
+      { key: "fuse_tap_options",       label: "Permanent Wire — Exact Location", type: "textarea", photoCategory: "permanent_wire" },
       { key: "can_high_colour",        label: "CAN High Colour" },
       { key: "can_low_colour",         label: "CAN Low Colour" },
       { key: "earth_point_location",   label: "Earth Point Location", type: "textarea", photoCategory: "earth_point" },
