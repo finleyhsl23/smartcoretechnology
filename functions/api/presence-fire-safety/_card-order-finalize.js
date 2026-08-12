@@ -65,10 +65,10 @@ export async function finalizeCardOrder(env, orderId, { devBypass = false } = {}
   if (!updated.length) return { ok: true, alreadyProcessed: true };
 
   const [companies, employees] = await Promise.all([
-    sbGet(env, `/smartcore_core_companies?id=eq.${order.company_id}&select=name&limit=1`),
+    sbGet(env, `/smartcore_core_companies?id=eq.${order.company_id}&select=company_name&limit=1`),
     sbGet(env, `/core_employees?id=in.(${order.employee_ids.join(',')})&select=id,full_name`),
   ]);
-  const companyName = companies?.[0]?.name || 'Unknown company';
+  const companyName = companies?.[0]?.company_name || 'Unknown company';
   const nameById = Object.fromEntries((employees || []).map((e) => [e.id, e.full_name]));
 
   const attachments = [];
