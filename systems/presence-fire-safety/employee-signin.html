@@ -61,6 +61,21 @@
   .pfs-tab[aria-selected="true"] { background: var(--accent); color:#fff; }
   .pfs-tab:disabled { opacity:.4; cursor:not-allowed; }
   .kiosk-card { width: min(480px, 100%); }
+  .kiosk-card-wide { width: min(820px, 96vw); }
+  /* Scan QR + Manual Lookup side by side on tablet-width+ screens, so both
+     fit on one view with no scrolling — stacked with a horizontal "or" on
+     narrow screens where a row genuinely won't fit. */
+  .kiosk-columns { display:flex; flex-direction:column; align-items:center; gap:18px; width:100%; }
+  .kiosk-col { width:100%; max-width:380px; display:flex; flex-direction:column; align-items:center; }
+  .kiosk-or { display:flex; align-items:center; gap:10px; color:var(--text3); font-size:12px; width:100%; max-width:380px; }
+  .kiosk-or::before, .kiosk-or::after { content:""; flex:1; height:1px; background:var(--line); }
+  @media (min-width: 700px) {
+    .kiosk-columns { flex-direction:row; align-items:flex-start; justify-content:center; gap:28px; flex-wrap:wrap; }
+    .kiosk-col { flex:1 1 260px; max-width:340px; }
+    .kiosk-col .pfs-qr-frame { width: min(260px, 100%); }
+    .kiosk-or { flex-direction:column; width:auto; max-width:none; align-self:stretch; }
+    .kiosk-or::before, .kiosk-or::after { width:1px; height:auto; }
+  }
   .kiosk-search { width:100%; }
   .kiosk-results { display:flex; flex-direction:column; gap:8px; margin-top:14px; width:100%; max-height: 340px; overflow-y:auto; }
   .kiosk-result-btn { display:flex; align-items:center; gap:12px; width:100%; text-align:left; background: var(--card2); border:1px solid var(--line); border-radius: 12px; padding: 12px 16px; color: var(--text); min-height: 52px; }
@@ -220,14 +235,19 @@
       return;
     }
 
-    const panelMarkup = `
-      <div id="tabPanel" class="kiosk-card">
-        ${showScan ? `
-          <div class="pfs-qr-frame" style="margin:0 auto"><video id="qrVideo" playsinline muted aria-label="Camera preview for badge scanning"></video></div>
-          <p class="text-muted" style="margin-top:14px">Hold your badge QR code up to the camera.</p>
-          <button class="btn" id="switchCamBtn" style="margin-top:8px">Switch camera</button>
-          <div id="scanStatus" role="status" aria-live="polite"></div>` : ""}
-        ${showScan && (allowManual || allowCode) ? `<div class="pfs-divider">or</div>` : ""}
+    const showLookup = allowManual || allowCode;
+    const bothShown = showScan && showLookup;
+
+    const scanColumn = showScan ? `
+      <div class="kiosk-col">
+        <div class="pfs-qr-frame" style="margin:0 auto"><video id="qrVideo" playsinline muted aria-label="Camera preview for badge scanning"></video></div>
+        <p class="text-muted" style="margin-top:14px">Hold your badge QR code up to the camera.</p>
+        <button class="btn" id="switchCamBtn" style="margin-top:8px">Switch camera</button>
+        <div id="scanStatus" role="status" aria-live="polite"></div>
+      </div>` : "";
+
+    const lookupColumn = showLookup ? `
+      <div class="kiosk-col">
         ${allowManual ? `
           <label class="form-label" for="empSearch">Search by name or employee ID</label>
           <input class="form-input kiosk-search" id="empSearch" type="text" placeholder="Start typing a name…" autocomplete="off"/>
@@ -240,6 +260,15 @@
             <button class="btn btn-primary" id="codeGoBtn">Go</button>
           </div>
           <div id="codeStatus" role="status" aria-live="polite"></div>` : ""}
+      </div>` : "";
+
+    const panelMarkup = `
+      <div id="tabPanel" class="kiosk-card${bothShown ? " kiosk-card-wide" : ""}">
+        <div class="kiosk-columns">
+          ${scanColumn}
+          ${bothShown ? `<div class="kiosk-or"><span>or</span></div>` : ""}
+          ${lookupColumn}
+        </div>
       </div>`;
     setInner(_empPanelId, nested ? panelMarkup : `<div class="pfs-kiosk">${panelMarkup}</div>`);
 
