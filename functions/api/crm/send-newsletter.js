@@ -189,16 +189,28 @@ export async function onRequestPost({ request, env }) {
       .replace(/\{\{your_company\}\}/g, companyName);
   }
 
+  // Derive a lighter shade of primaryColor for gradient end
+  function lightenHex(hex, amt) {
+    const n = parseInt((hex||'#1e5cff').replace('#',''), 16);
+    const r = Math.min(255, (n >> 16) + amt);
+    const g = Math.min(255, ((n >> 8) & 0xff) + amt);
+    const b = Math.min(255, (n & 0xff) + amt);
+    return '#' + [r,g,b].map(x => x.toString(16).padStart(2,'0')).join('');
+  }
+  const primaryLight = lightenHex(primaryColor, 50);
+  // Dark footer — slightly lighter than secondaryColor
+  const footerBg = lightenHex(secondaryColor, 18);
+
   function buildHtml(r) {
     const filledSubject = fillVars(subject, r);
     const filledBody    = fillVars(body, r);
     const bodyHtml = filledBody
       .split(/\n{2,}/)
-      .map(p => `<p style="margin:0 0 18px;font-size:15px;color:${textColor};line-height:1.7;font-family:Arial,Helvetica,sans-serif">${p.replace(/\n/g,'<br>')}</p>`)
+      .map(p => `<p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.75;font-family:Arial,Helvetica,sans-serif">${p.replace(/\n/g,'<br>')}</p>`)
       .join('');
 
     return `<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -208,32 +220,44 @@ export async function onRequestPost({ request, env }) {
 <body style="margin:0;padding:0;background-color:${secondaryColor}" bgcolor="${secondaryColor}">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${secondaryColor}" style="background-color:${secondaryColor}">
   <tr>
-    <td align="center" bgcolor="${secondaryColor}" style="background-color:${secondaryColor};padding:32px 16px">
+    <td align="center" bgcolor="${secondaryColor}" style="background-color:${secondaryColor};padding:40px 16px">
       <!--[if mso]><table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-      <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" bgcolor="${secondaryColor}" style="background-color:${secondaryColor};max-width:560px;width:100%">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%">
 
-        <!-- Header -->
+        <!-- Header — gradient for modern clients, solid fallback for Outlook -->
         <tr>
-          <td align="center" bgcolor="${primaryColor}" style="background-color:${primaryColor};padding:26px 36px">
+          <td align="center" bgcolor="${primaryColor}" style="background:linear-gradient(135deg,${primaryColor} 0%,${primaryLight} 100%);background-color:${primaryColor};padding:34px 40px 30px">
+            <!--[if mso]><v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="mso-width-percent:1000;height:100px"><v:fill type="gradient" color="${primaryColor}" color2="${primaryLight}" angle="135"/><v:textbox inset="0,0,0,0"><div style="text-align:center;padding:20px 0"><![endif]-->
             ${logoUrl
               ? `<img src="${logoUrl}" alt="${companyName}" height="44" style="height:44px;max-width:200px;width:auto;display:block;border:0;outline:none;margin:0 auto"/>`
-              : `<p style="margin:0;font-size:22px;font-weight:800;color:#ffffff;font-family:Arial,Helvetica,sans-serif">${companyName}</p>`
+              : `<p style="margin:0;font-size:24px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;font-family:Arial,Helvetica,sans-serif">${companyName}</p>`
             }
+            <!--[if mso]></div></v:textbox></v:rect><![endif]-->
           </td>
         </tr>
 
-        <!-- Body -->
+        <!-- Accent strip -->
         <tr>
-          <td bgcolor="#ffffff" style="background-color:#ffffff;padding:36px 36px 28px">
-            ${filledSubject ? `<h1 style="margin:0 0 22px;font-size:22px;font-weight:800;color:${textColor};line-height:1.25;font-family:Arial,Helvetica,sans-serif">${filledSubject}</h1>` : ''}
+          <td height="4" bgcolor="${primaryColor}" style="background:linear-gradient(90deg,${primaryColor},${primaryLight});background-color:${primaryColor};font-size:0;line-height:0;mso-line-height-rule:exactly">&nbsp;</td>
+        </tr>
+
+        <!-- White body -->
+        <tr>
+          <td bgcolor="#ffffff" style="background-color:#ffffff;padding:44px 44px 36px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb">
+            ${filledSubject ? `<h1 style="margin:0 0 24px;font-size:24px;font-weight:800;color:#111827;line-height:1.2;font-family:Arial,Helvetica,sans-serif;letter-spacing:-0.5px">${filledSubject}</h1>` : ''}
             ${bodyHtml}
           </td>
         </tr>
 
+        <!-- Bottom border under body -->
+        <tr>
+          <td height="1" bgcolor="#e5e7eb" style="background-color:#e5e7eb;font-size:0;line-height:0;mso-line-height-rule:exactly">&nbsp;</td>
+        </tr>
+
         <!-- Footer -->
         <tr>
-          <td align="center" bgcolor="${primaryColor}" style="background-color:${primaryColor};padding:16px 36px">
-            <p style="margin:0;font-size:12px;color:#aaaaaa;font-family:Arial,Helvetica,sans-serif">${companyName} &middot; Powered by <a href="https://smartcoretechnology.co.uk" style="color:#cccccc;text-decoration:none">SmartCore</a></p>
+          <td align="center" bgcolor="${footerBg}" style="background:linear-gradient(135deg,${footerBg} 0%,${secondaryColor} 100%);background-color:${footerBg};padding:20px 40px">
+            <p style="margin:0;font-size:12px;color:#888888;font-family:Arial,Helvetica,sans-serif;letter-spacing:0.3px">${companyName} &middot; Powered by <a href="https://smartcoretechnology.co.uk" style="color:#aaaaaa;text-decoration:none">SmartCore</a></p>
           </td>
         </tr>
 

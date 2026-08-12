@@ -22,10 +22,12 @@
     }
     .preview-inner {
       border-radius: 14px; max-width: 540px; margin: 0 auto;
-      box-shadow: 0 4px 24px rgba(0,0,0,.3); overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0,0,0,.4); overflow: hidden;
     }
-    .preview-header { padding: 26px 36px; text-align: center; }
-    .preview-body   { padding: 32px 36px 24px; }
+    .preview-header { padding: 30px 36px 26px; text-align: center; }
+    .preview-accent { height: 4px; }
+    .preview-body   { padding: 36px 40px 28px; background: #ffffff; border-left: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb; }
+    .preview-divider{ height: 1px; background: #e5e7eb; }
     .preview-footer { padding: 16px 36px; text-align: center; font-size: 12px; }
 
     .recipient-chip {
@@ -134,6 +136,14 @@ const VARIABLES = [
   { tag: "{{your_company}}", label: "Your Company Name" },
 ];
 
+function lightenHex(hex, amt) {
+  const n = parseInt((hex||'#1e5cff').replace('#',''), 16);
+  const r = Math.min(255, (n >> 16) + amt);
+  const g = Math.min(255, ((n >> 8) & 0xff) + amt);
+  const b = Math.min(255, (n & 0xff) + amt);
+  return '#' + [r,g,b].map(x => x.toString(16).padStart(2,'0')).join('');
+}
+
 // ── Functions defined before try block so they're available when renderPage runs ──
 
 window.insertVar = (fieldId, tag) => {
@@ -168,9 +178,9 @@ window.updatePreview = () => {
     bodyEl.innerHTML = `<p style="color:rgba(0,0,0,.3);font-size:14px">Start typing to preview your email…</p>`;
     return;
   }
-  const htmlBody = filled(esc(body)).replace(/\n{2,}/g, `</p><p style="margin:0 0 16px;color:${tc}">`).replace(/\n/g, "<br>");
-  bodyEl.innerHTML = subject ? `<h2 style="margin:0 0 16px;font-size:20px;font-weight:800;color:#0a0f2e">${esc(filled(subject))}</h2>` : "";
-  bodyEl.innerHTML += `<p style="margin:0 0 16px;font-size:15px;color:${tc};line-height:1.7">${htmlBody}</p>`;
+  const htmlBody = filled(esc(body)).replace(/\n{2,}/g, `</p><p style="margin:0 0 16px;color:#374151;line-height:1.75">`).replace(/\n/g, "<br>");
+  bodyEl.innerHTML = subject ? `<h2 style="margin:0 0 18px;font-size:20px;font-weight:800;color:#111827;letter-spacing:-0.3px">${esc(filled(subject))}</h2>` : "";
+  bodyEl.innerHTML += `<p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.75">${htmlBody}</p>`;
 };
 
 window.onAttachmentChange = () => {
@@ -363,16 +373,18 @@ async function renderPage() {
         <div class="card-header"><h2>Preview</h2><span style="font-size:12px;color:var(--text3)">Sample recipient</span></div>
         <div class="card-body" style="padding:0">
           <div class="preview-wrap" id="emailPreview" style="background:${secondaryColor}">
-            <div class="preview-inner" style="background:${secondaryColor}">
-              <div class="preview-header" style="background:${primaryColor}">
+            <div class="preview-inner">
+              <div class="preview-header" style="background:linear-gradient(135deg,${primaryColor},${lightenHex(primaryColor,50)})">
                 ${logoUrl
                   ? `<img src="${logoUrl}" alt="${esc(companyName)}" style="max-height:48px;max-width:180px;object-fit:contain;display:block;margin:0 auto"/>`
-                  : `<div style="font-size:20px;font-weight:800;color:#fff">${esc(companyName)}</div>`}
+                  : `<div style="font-size:20px;font-weight:800;color:#fff;letter-spacing:-0.3px">${esc(companyName)}</div>`}
               </div>
-              <div class="preview-body" id="previewBody" style="background:#ffffff;color:${textColor}">
+              <div class="preview-accent" style="background:linear-gradient(90deg,${primaryColor},${lightenHex(primaryColor,50)})"></div>
+              <div class="preview-body" id="previewBody">
                 <p style="color:rgba(0,0,0,.3);font-size:14px">Start typing to preview your email…</p>
               </div>
-              <div class="preview-footer" style="background:${primaryColor};color:rgba(255,255,255,.5);border-top:none">${esc(companyName)} · Sent via SmartCore CRM</div>
+              <div class="preview-divider"></div>
+              <div class="preview-footer" style="background:linear-gradient(135deg,${lightenHex(secondaryColor,18)},${secondaryColor});color:rgba(255,255,255,.45)">${esc(companyName)} · Sent via SmartCore CRM</div>
             </div>
           </div>
         </div>
