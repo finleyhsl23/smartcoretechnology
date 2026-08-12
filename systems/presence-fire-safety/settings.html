@@ -7,6 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Extra font choices for the ID card text editor (settings.html#badges) — matched by an
+       identical link in id-cards.html so the print/PDF preview renders the same fonts. -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&family=Montserrat:wght@400;700&family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
@@ -104,7 +107,7 @@
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings, setSoundEnabled } from "/systems/presence-fire-safety/shared/sound.js";
   import { enhanceSelect } from "/systems/presence-fire-safety/shared/combobox.js";
-  import { renderCardFace, normalizeTemplate, newElement, generateQrDataUrl } from "/systems/presence-fire-safety/shared/id-card-render.js";
+  import { renderCardFace, normalizeTemplate, newElement, generateQrDataUrl, FONT_OPTIONS } from "/systems/presence-fire-safety/shared/id-card-render.js";
   import {
     esc, toast, fmtDateTime, timeAgo, confirmDialog, modal,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -542,7 +545,7 @@
   }
 
   function elTypeLabel(type) {
-    return { photo: "Photo", logo: "Logo", text: "Text field", statictext: "Text", shape: "Shape", qr: "QR code" }[type] || type;
+    return { photo: "Photo", logo: "Logo", image: "Custom image", text: "Text field", statictext: "Text", shape: "Shape", qr: "QR code" }[type] || type;
   }
 
   function renderIdCardShell() {
@@ -574,6 +577,7 @@
           <button type="button" class="idc-palette-btn" data-add="statictext">¶ Free text</button>
           <button type="button" class="idc-palette-btn" data-add="photo">☺ Photo</button>
           <button type="button" class="idc-palette-btn" data-add="logo">▥ Logo</button>
+          <button type="button" class="idc-palette-btn" data-add="image">🖼 Custom image</button>
           <button type="button" class="idc-palette-btn" data-add="qr">▦ QR code</button>
           <div class="idc-palette-title" style="margin-top:18px">Company logo</div>
           ${_idCardLogoUrl ? `<img src="${esc(_idCardLogoUrl)}" alt="Company logo" class="idc-logo-preview"/>` : `<div class="idc-logo-preview idc-logo-placeholder">No logo</div>`}
@@ -641,6 +645,7 @@
     const sample = {
       full_name: _profile?.full_name || "Jane Doe",
       job_title: _profile?.job_title || "Job Title",
+      department_name: _profile?.department_name || "Department",
       employee_id: _profile?.employee_id || "EMP0000001",
       profile_picture_url: null,
     };
@@ -788,6 +793,13 @@
     const el = findElement(_idcSelectedId);
     if (!el) { panel.innerHTML = ""; return; }
 
+    const fontFieldHtml = `
+      <label class="set-field"><span class="form-label">Font</span>
+        <select class="form-input" data-prop="fontFamily">
+          ${FONT_OPTIONS.map(f => `<option value="${esc(f.value)}" ${(el.fontFamily || FONT_OPTIONS[0].value) === f.value ? "selected" : ""}>${esc(f.label)}</option>`).join("")}
+        </select>
+      </label>`;
+
     let fields = "";
     if (el.type === "shape") {
       fields = `
@@ -806,10 +818,12 @@
           <select class="form-input" data-prop="field">
             <option value="name" ${el.field === "name" ? "selected" : ""}>Employee name</option>
             <option value="jobTitle" ${el.field === "jobTitle" ? "selected" : ""}>Job title</option>
+            <option value="department" ${el.field === "department" ? "selected" : ""}>Department</option>
             <option value="employeeCode" ${el.field === "employeeCode" ? "selected" : ""}>Employee code</option>
           </select>
         </label>
         <label class="set-field"><span class="form-label">Colour</span><input type="color" class="idc-color-input" data-prop="color" value="${el.color}"/></label>
+        ${fontFieldHtml}
         <label class="set-field"><span class="form-label">Font size</span><input type="range" min="8" max="32" data-prop="fontSize" value="${el.fontSize}"/></label>
         <label class="set-checkbox-field"><input type="checkbox" data-prop="bold" ${el.bold ? "checked" : ""}/> Bold</label>
         <label class="set-field"><span class="form-label">Align</span>
@@ -822,6 +836,7 @@
       fields = `
         <label class="set-field"><span class="form-label">Text</span><textarea class="form-input" rows="2" data-prop="text">${esc(el.text || "")}</textarea></label>
         <label class="set-field"><span class="form-label">Colour</span><input type="color" class="idc-color-input" data-prop="color" value="${el.color}"/></label>
+        ${fontFieldHtml}
         <label class="set-field"><span class="form-label">Font size</span><input type="range" min="8" max="32" data-prop="fontSize" value="${el.fontSize}"/></label>
         <label class="set-field"><span class="form-label">Align</span>
           <div class="idc-toggle-group">
@@ -842,6 +857,18 @@
       `;
     } else if (el.type === "logo" || el.type === "qr") {
       fields = `<p class="set-section-desc">Drag to move or resize. ${el.type === "logo" ? "Upload your logo from the panel on the left." : "Shows the employee's active QR sign-in badge."}</p>`;
+    } else if (el.type === "image") {
+      fields = `
+        ${el.imageUrl ? `<img src="${esc(el.imageUrl)}" alt="" class="idc-logo-preview"/>` : `<div class="idc-logo-preview idc-logo-placeholder">No image</div>`}
+        <button type="button" class="btn" id="idcElImageUploadBtn" style="margin-top:8px;width:100%">${el.imageUrl ? "Replace image" : "Upload image"}</button>
+        <input type="file" id="idcElImageInput" accept="image/jpeg,image/png,image/webp,image/svg+xml" style="display:none"/>
+        <label class="set-field" style="margin-top:10px"><span class="form-label">Fit</span>
+          <div class="idc-toggle-group">
+            <button type="button" class="idc-toggle-btn ${el.fit !== "contain" ? "active" : ""}" data-prop="fit" data-val="cover">Cover (fill &amp; crop)</button>
+            <button type="button" class="idc-toggle-btn ${el.fit === "contain" ? "active" : ""}" data-prop="fit" data-val="contain">Contain (fit whole image)</button>
+          </div>
+        </label>
+      `;
     }
 
     panel.innerHTML = `
@@ -873,6 +900,26 @@
         input.addEventListener("input", (e) => apply(e.target.value));
       }
     });
+
+    if (el.type === "image") {
+      document.getElementById("idcElImageUploadBtn").addEventListener("click", () => document.getElementById("idcElImageInput").click());
+      document.getElementById("idcElImageInput").addEventListener("change", async (e) => {
+        const input = e.target;
+        const file = input.files?.[0];
+        if (!file) return;
+        const btn = document.getElementById("idcElImageUploadBtn");
+        const original = btn.textContent;
+        btn.disabled = true; btn.textContent = "Uploading…";
+        try {
+          el.imageUrl = await settings.uploadIdCardImage(_companyId, file);
+          renderCanvas(); renderProperties();
+        } catch (err) {
+          toast("error", "Couldn't upload image", err.message || "Please try again.");
+          btn.disabled = false; btn.textContent = original;
+          input.value = "";
+        }
+      });
+    }
 
     document.getElementById("idcBringFront").addEventListener("click", () => {
       const maxZ = Math.max(0, ..._idCardTemplate[_idcFace].elements.map(e => e.z ?? 0));

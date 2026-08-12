@@ -19,8 +19,11 @@
 // every element type):
 //   photo:      { type:"photo", x,y,w,h,z,rotation, shape:"circle"|"square", borderColor, borderWidth }
 //   logo:       { type:"logo", x,y,w,h,z,rotation }
-//   text:       { type:"text", x,y,w,h,z,rotation, field:"name"|"jobTitle"|"employeeCode", fontSize, color, bold, align }
-//   statictext: { type:"statictext", x,y,w,h,z,rotation, text, fontSize, color, align }
+//   image:      { type:"image", x,y,w,h,z,rotation, imageUrl, fit:"cover"|"contain" } — a
+//               custom uploaded image, independent per element (unlike the one
+//               shared company logo), for icons/seals/decorative art etc.
+//   text:       { type:"text", x,y,w,h,z,rotation, field:"name"|"jobTitle"|"employeeCode"|"department", fontSize, color, bold, align, fontFamily }
+//   statictext: { type:"statictext", x,y,w,h,z,rotation, text, fontSize, color, align, fontFamily }
 //   shape:      { type:"shape", x,y,w,h,z,rotation, shapeType:"circle"|"rect", color, opacity }
 //   qr:         { type:"qr", x,y,w,h,z,rotation }
 
@@ -32,7 +35,46 @@ export function esc(s) {
 
 export const CARD_RATIO = { landscape: 85.6 / 54, portrait: 54 / 85.6 };
 
-const FIELD_MAP = { name: "full_name", jobTitle: "job_title", employeeCode: "employee_id" };
+const FIELD_MAP = { name: "full_name", jobTitle: "job_title", employeeCode: "employee_id", department: "department_name" };
+
+// Curated font choices for text elements — a mix of system fonts (always
+// available, no loading needed) and a few Google Fonts for real variety.
+// `value` is the full CSS font-family stack used for rendering; the primary
+// name (before the first comma) is what gets passed to the Font Loading API
+// before canvas rasterization, see ensureFontsLoaded() below.
+export const FONT_OPTIONS = [
+  { label: "Inter (default)", value: "Inter, sans-serif" },
+  { label: "Arial", value: "Arial, Helvetica, sans-serif" },
+  { label: "Georgia", value: "Georgia, 'Times New Roman', serif" },
+  { label: "Times New Roman", value: "'Times New Roman', Georgia, serif" },
+  { label: "Courier New", value: "'Courier New', Courier, monospace" },
+  { label: "Poppins", value: "Poppins, sans-serif" },
+  { label: "Montserrat", value: "Montserrat, sans-serif" },
+  { label: "Playfair Display", value: "'Playfair Display', Georgia, serif" },
+];
+const DEFAULT_FONT = FONT_OPTIONS[0].value;
+
+function primaryFontName(stack) {
+  return (stack || DEFAULT_FONT).split(",")[0].trim().replace(/^['"]|['"]$/g, "");
+}
+
+/** Kicks off loading (if needed) every font family used by text elements on
+ *  this face, and waits for them — canvas text silently falls back to a
+ *  default font if you draw with a webfont before it's actually loaded, so
+ *  this has to run before any fillText() call for the fonts to show up
+ *  correctly in the rasterized PNG (print/PDF/download). No-op in
+ *  non-browser contexts or for already-available system fonts. */
+async function ensureFontsLoaded(elements) {
+  if (typeof document === "undefined" || !document.fonts) return;
+  const specs = new Set();
+  for (const el of elements) {
+    if (el.type !== "text" && el.type !== "statictext") continue;
+    const name = primaryFontName(el.fontFamily);
+    const weight = el.type === "text" && el.bold ? "700" : "400";
+    specs.add(`${weight} 16px "${name}"`);
+  }
+  await Promise.all([...specs].map((spec) => document.fonts.load(spec).catch(() => {})));
+}
 
 export function initials(name) {
   return (name || "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
@@ -51,8 +93,9 @@ export function newElement(type, overrides = {}) {
   const defaults = {
     photo: { w: 28, h: 44, shape: "circle", borderColor: "#ffffff", borderWidth: 3 },
     logo: { w: 20, h: 12 },
-    text: { w: 50, h: 14, field: "name", fontSize: 16, color: "#ffffff", bold: true, align: "left" },
-    statictext: { w: 60, h: 16, text: "Text", fontSize: 12, color: "#334155", align: "left" },
+    image: { w: 24, h: 24, imageUrl: null, fit: "cover" },
+    text: { w: 50, h: 14, field: "name", fontSize: 16, color: "#ffffff", bold: true, align: "left", fontFamily: DEFAULT_FONT },
+    statictext: { w: 60, h: 16, text: "Text", fontSize: 12, color: "#334155", align: "left", fontFamily: DEFAULT_FONT },
     shape: { w: 30, h: 30, shapeType: "circle", color: "#1e5cff", opacity: 0.25 },
     qr: { w: 36, h: 36 },
   };
@@ -116,12 +159,15 @@ function renderElement(el, ctx) {
   if (el.type === "logo") {
     return ctx.logoUrl ? `<img src="${esc(ctx.logoUrl)}" alt="" style="${style}object-fit:contain;"/>` : "";
   }
+  if (el.type === "image") {
+    return el.imageUrl ? `<img src="${esc(el.imageUrl)}" alt="" style="${style}object-fit:${el.fit === "contain" ? "contain" : "cover"};"/>` : "";
+  }
   if (el.type === "text") {
     const value = ctx.employee?.[FIELD_MAP[el.field]] || "";
-    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${el.fontSize ?? 14}px;color:${esc(el.color || "#fff")};font-weight:${el.bold ? 800 : 500};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:${el.align || "left"};">${esc(value)}</div>`;
+    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${el.fontSize ?? 14}px;font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#fff")};font-weight:${el.bold ? 800 : 500};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:${el.align || "left"};">${esc(value)}</div>`;
   }
   if (el.type === "statictext") {
-    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${el.fontSize ?? 12}px;color:${esc(el.color || "#334155")};text-align:${el.align || "left"};line-height:1.3;">${esc(el.text || "")}</div>`;
+    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${el.fontSize ?? 12}px;font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#334155")};text-align:${el.align || "left"};line-height:1.3;">${esc(el.text || "")}</div>`;
   }
   if (el.type === "shape") {
     const radius = el.shapeType === "rect" ? "border-radius:8px" : "border-radius:50%";
@@ -282,11 +328,29 @@ async function drawElementShape(c, el, ctx, ex, ey, ew, eh) {
     return;
   }
 
+  if (el.type === "image") {
+    const img = await loadImage(el.imageUrl);
+    if (!img) return;
+    if (el.fit === "contain") {
+      const scale = Math.min(ew / img.width, eh / img.height);
+      const dw = img.width * scale, dh = img.height * scale;
+      c.drawImage(img, ex + (ew - dw) / 2, ey + (eh - dh) / 2, dw, dh);
+    } else {
+      c.save();
+      c.beginPath();
+      c.rect(ex, ey, ew, eh);
+      c.clip();
+      drawCover(c, img, ex, ey, ew, eh);
+      c.restore();
+    }
+    return;
+  }
+
   if (el.type === "text" || el.type === "statictext") {
     const value = el.type === "text" ? (ctx.employee?.[FIELD_MAP[el.field]] || "") : (el.text || "");
     const fontSize = (el.fontSize ?? (el.type === "text" ? 14 : 12)) * PX_SCALE;
     const weight = el.type === "text" && el.bold ? 800 : 500;
-    c.font = `${weight} ${fontSize}px sans-serif`;
+    c.font = `${weight} ${fontSize}px "${primaryFontName(el.fontFamily)}"`;
     c.fillStyle = el.color || (el.type === "text" ? "#fff" : "#334155");
     const align = el.align || "left";
     c.textAlign = align === "center" ? "center" : align === "right" ? "right" : "left";
@@ -353,6 +417,7 @@ export async function renderCardToCanvas(template, face, ctx = {}) {
   c.clip();
 
   const elements = [...(faceData.elements || [])].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
+  await ensureFontsLoaded(elements);
   for (const el of elements) await drawElementOnCanvas(c, el, ctx, W, H);
   c.restore();
 

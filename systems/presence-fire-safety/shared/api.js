@@ -60,22 +60,22 @@ export const employees = {
     if (error) throw error;
     return data || [];
   },
-  /** Full data needed to render an ID card: photo, name, job title, code. */
+  /** Full data needed to render an ID card: photo, name, job title, code, department. */
   async forIdCard(companyId, employeeId) {
     const { data, error } = await sb().from("core_employees")
-      .select("id, full_name, job_title, employee_id, profile_picture_url")
+      .select("id, full_name, job_title, employee_id, profile_picture_url, department:core_departments(name)")
       .eq("company_id", companyId).eq("id", employeeId).maybeSingle();
     if (error) throw error;
-    return data;
+    return data ? { ...data, department_name: data.department?.name || null } : data;
   },
   /** Same shape as forIdCard, for multiple employees at once (print orders). */
   async forIdCardBulk(companyId, employeeIds) {
     if (!employeeIds?.length) return [];
     const { data, error } = await sb().from("core_employees")
-      .select("id, full_name, job_title, employee_id, profile_picture_url")
+      .select("id, full_name, job_title, employee_id, profile_picture_url, department:core_departments(name)")
       .eq("company_id", companyId).in("id", employeeIds);
     if (error) throw error;
-    return data || [];
+    return (data || []).map((row) => ({ ...row, department_name: row.department?.name || null }));
   },
 };
 
@@ -459,6 +459,25 @@ export const settings = {
     const { data: { session } } = await sb().auth.getSession();
     if (!session) throw new Error("Not signed in");
     const res = await fetch("/api/presence-fire-safety/upload-logo", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": file.type,
+      },
+      body: file,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Upload failed");
+    return data.url;
+  },
+  /** Uploads a custom decorative image for use in an ID card "image" element
+   *  (distinct from the one company logo — a company can have any number of
+   *  these, one per element, each keeping its own uploaded file). Same
+   *  server-side-upload pattern as uploadIdCardLogo, see its comment. */
+  async uploadIdCardImage(companyId, file) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) throw new Error("Not signed in");
+    const res = await fetch("/api/presence-fire-safety/upload-card-image", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${session.access_token}`,
