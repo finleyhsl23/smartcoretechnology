@@ -14,13 +14,15 @@
 //     front: { background: { color }, elements: [Element, ...] },
 //     back:  { background: { color }, elements: [Element, ...] },
 //   }
-// Element (x/y/w/h are % of the card's own width/height; z controls stacking):
-//   photo:      { type:"photo", x,y,w,h,z, shape:"circle"|"square", borderColor, borderWidth }
-//   logo:       { type:"logo", x,y,w,h,z }
-//   text:       { type:"text", x,y,w,h,z, field:"name"|"jobTitle"|"employeeCode", fontSize, color, bold, align }
-//   statictext: { type:"statictext", x,y,w,h,z, text, fontSize, color, align }
-//   shape:      { type:"shape", x,y,w,h,z, shapeType:"circle"|"rect", color, opacity }
-//   qr:         { type:"qr", x,y,w,h,z }
+// Element (x/y/w/h are % of the card's own width/height; z controls stacking;
+// rotation is degrees clockwise around the element's own center, same on
+// every element type):
+//   photo:      { type:"photo", x,y,w,h,z,rotation, shape:"circle"|"square", borderColor, borderWidth }
+//   logo:       { type:"logo", x,y,w,h,z,rotation }
+//   text:       { type:"text", x,y,w,h,z,rotation, field:"name"|"jobTitle"|"employeeCode", fontSize, color, bold, align }
+//   statictext: { type:"statictext", x,y,w,h,z,rotation, text, fontSize, color, align }
+//   shape:      { type:"shape", x,y,w,h,z,rotation, shapeType:"circle"|"rect", color, opacity }
+//   qr:         { type:"qr", x,y,w,h,z,rotation }
 
 import qrcode from "./qrcode-lib.js";
 
@@ -45,7 +47,7 @@ export function generateQrDataUrl(text, { cellSize = 6, margin = 2 } = {}) {
 }
 
 export function newElement(type, overrides = {}) {
-  const base = { id: `el_${Math.random().toString(36).slice(2, 10)}`, x: 30, y: 30, w: 30, h: 20, z: 1 };
+  const base = { id: `el_${Math.random().toString(36).slice(2, 10)}`, x: 30, y: 30, w: 30, h: 20, z: 1, rotation: 0 };
   const defaults = {
     photo: { w: 28, h: 44, shape: "circle", borderColor: "#ffffff", borderWidth: 3 },
     logo: { w: 20, h: 12 },
@@ -100,7 +102,7 @@ function alignToJustify(align) {
 }
 
 function renderElement(el, ctx) {
-  const style = `position:absolute;left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%;z-index:${el.z ?? 1};box-sizing:border-box;`;
+  const style = `position:absolute;left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%;z-index:${el.z ?? 1};box-sizing:border-box;transform:rotate(${el.rotation || 0}deg);`;
   if (el.type === "photo") {
     const shape = el.shape === "square" ? "border-radius:10%" : "border-radius:50%";
     const border = `border:${el.borderWidth ?? 3}px solid ${esc(el.borderColor || "#ffffff")}`;
@@ -227,7 +229,19 @@ function truncateToWidth(c, text, maxWidth) {
 
 async function drawElementOnCanvas(c, el, ctx, W, H) {
   const ex = (el.x / 100) * W, ey = (el.y / 100) * H, ew = (el.w / 100) * W, eh = (el.h / 100) * H;
+  const rotation = el.rotation || 0;
+  if (rotation) {
+    const cx = ex + ew / 2, cy = ey + eh / 2;
+    c.save();
+    c.translate(cx, cy);
+    c.rotate((rotation * Math.PI) / 180);
+    c.translate(-cx, -cy);
+  }
+  await drawElementShape(c, el, ctx, ex, ey, ew, eh);
+  if (rotation) c.restore();
+}
 
+async function drawElementShape(c, el, ctx, ex, ey, ew, eh) {
   if (el.type === "photo") {
     c.save();
     if (el.shape === "square") roundRectPath(c, ex, ey, ew, eh, Math.min(ew, eh) * 0.1);

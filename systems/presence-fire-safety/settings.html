@@ -82,6 +82,9 @@
   .idc-resize-handle.ne { top:-6px; right:-6px; cursor:nesw-resize; }
   .idc-resize-handle.sw { bottom:-6px; left:-6px; cursor:nesw-resize; }
   .idc-resize-handle.se { bottom:-6px; right:-6px; cursor:nwse-resize; }
+  .idc-rotate-line { position:absolute; left:50%; top:-26px; width:1.5px; height:26px; background:var(--accent); transform:translateX(-50%); }
+  .idc-rotate-handle { position:absolute; left:50%; top:-34px; width:14px; height:14px; margin-left:-7px; background:var(--accent); border:2px solid #fff; border-radius:50%; cursor:grab; }
+  .idc-rotate-handle:active { cursor:grabbing; }
   .idc-properties { background:var(--bg2); border:1px solid var(--line); border-radius:14px; padding:16px; min-height:200px; }
   .idc-props-title { font-size:13px; font-weight:800; margin-bottom:12px; }
   .idc-props-empty { font-size:12.5px; color:var(--text3); text-align:center; padding:24px 8px; }
@@ -651,12 +654,14 @@
         <div class="idc-overlay">
           ${elements.map(el => `
             <div class="idc-handle ${el.id === _idcSelectedId ? "selected" : ""}" data-el-id="${el.id}"
-                 style="left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%;z-index:${(el.z ?? 1) + 1000}">
+                 style="left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%;z-index:${(el.z ?? 1) + 1000};transform:rotate(${el.rotation || 0}deg);">
               ${el.id === _idcSelectedId ? `
                 <div class="idc-resize-handle nw" data-corner="nw"></div>
                 <div class="idc-resize-handle ne" data-corner="ne"></div>
                 <div class="idc-resize-handle sw" data-corner="sw"></div>
                 <div class="idc-resize-handle se" data-corner="se"></div>
+                <div class="idc-rotate-line"></div>
+                <div class="idc-rotate-handle" data-rotate="1" title="Drag to rotate"></div>
               ` : ""}
             </div>`).join("")}
         </div>
@@ -668,7 +673,7 @@
   function wireCanvasInteractions() {
     document.querySelectorAll(".idc-handle").forEach(handle => {
       handle.addEventListener("mousedown", (e) => {
-        if (e.target.classList.contains("idc-resize-handle")) return;
+        if (e.target.classList.contains("idc-resize-handle") || e.target.classList.contains("idc-rotate-handle")) return;
         e.preventDefault();
         selectElement(handle.dataset.elId);
         startDrag(handle.dataset.elId, e, "move");
@@ -678,6 +683,10 @@
           e.preventDefault(); e.stopPropagation();
           startDrag(handle.dataset.elId, e, rh.dataset.corner);
         });
+      });
+      handle.querySelector(".idc-rotate-handle")?.addEventListener("mousedown", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        startRotate(handle.dataset.elId, e);
       });
     });
     document.getElementById("idcCanvas").addEventListener("mousedown", (e) => {
@@ -736,6 +745,36 @@
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
     }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  /** Drag-to-rotate: angle is measured from the element's own screen-space
+   *  center (which stays fixed through a rotation, however the axis-aligned
+   *  bounding rect around it changes) to the pointer, offset so "straight
+   *  up" (where the handle starts) reads as 0°. */
+  function startRotate(elId, startEvent) {
+    const el = findElement(elId);
+    if (!el) return;
+    const handleEl = document.querySelector(`.idc-handle[data-el-id="${elId}"]`);
+    const rect = handleEl.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+
+    function angleAt(clientX, clientY) {
+      const deg = Math.atan2(clientY - cy, clientX - cx) * (180 / Math.PI) + 90;
+      return Math.round(((deg % 360) + 360) % 360);
+    }
+    function onMove(e) {
+      el.rotation = angleAt(e.clientX, e.clientY);
+      renderCanvas();
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      renderProperties();
+    }
+    el.rotation = angleAt(startEvent.clientX, startEvent.clientY);
+    renderCanvas();
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   }
@@ -808,6 +847,7 @@
     panel.innerHTML = `
       <div class="idc-props-title">${elTypeLabel(el.type)}</div>
       ${fields}
+      <label class="set-field"><span class="form-label">Rotation (${Math.round(el.rotation || 0)}°)</span><input type="range" min="0" max="359" data-prop="rotation" value="${el.rotation || 0}"/></label>
       <div class="idc-props-actions">
         <button class="btn btn-sm" id="idcBringFront" type="button">Bring to front</button>
         <button class="btn btn-sm" id="idcSendBack" type="button">Send to back</button>
