@@ -203,10 +203,8 @@ export async function onRequestPost({ request, env }) {
   function buildHtml(r) {
     const filledSubject = fillVars(subject, r);
     const filledBody    = fillVars(body, r);
-    const bodyHtml = filledBody
-      .split(/\n{2,}/)
-      .map(p => `<p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.75;font-family:Arial,Helvetica,sans-serif">${p.replace(/\n/g,'<br>')}</p>`)
-      .join('');
+    // body is HTML from the rich-text editor; wrap in consistent email font styles
+    const bodyHtml = `<div style="font-size:15px;color:#374151;line-height:1.75;font-family:Arial,Helvetica,sans-serif">${filledBody}</div>`;
 
     return `<!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
