@@ -63,7 +63,7 @@ export async function onRequestPost({ request, env }) {
     }), { status: 429, headers: CORS });
   }
 
-  const { subject, body, recipient_type, company_ids, contact_ids } = await request.json();
+  const { subject, body, recipient_type, company_ids, contact_ids, attachments } = await request.json();
   if (!subject || !body) return new Response(JSON.stringify({ error: 'Subject and body are required' }), { status: 400, headers: CORS });
 
   // Fetch branding
@@ -224,7 +224,7 @@ export async function onRequestPost({ request, env }) {
 
         <!-- Body -->
         <tr>
-          <td bgcolor="${secondaryColor}" style="background-color:${secondaryColor};padding:36px 36px 28px">
+          <td bgcolor="#ffffff" style="background-color:#ffffff;padding:36px 36px 28px">
             ${filledSubject ? `<h1 style="margin:0 0 22px;font-size:22px;font-weight:800;color:${textColor};line-height:1.25;font-family:Arial,Helvetica,sans-serif">${filledSubject}</h1>` : ''}
             ${bodyHtml}
           </td>
@@ -251,12 +251,18 @@ export async function onRequestPost({ request, env }) {
   const BATCH = 100;
 
   for (let i = 0; i < cappedRecipients.length; i += BATCH) {
-    const batch = cappedRecipients.slice(i, i + BATCH).map(r => ({
-      from: `${companyName} <noreply@smartcoretechnology.co.uk>`,
-      to: [r.email],
-      subject: fillVars(subject, r),
-      html: buildHtml(r),
-    }));
+    const batch = cappedRecipients.slice(i, i + BATCH).map(r => {
+      const email = {
+        from: `${companyName} <noreply@smartcoretechnology.co.uk>`,
+        to: [r.email],
+        subject: fillVars(subject, r),
+        html: buildHtml(r),
+      };
+      if (Array.isArray(attachments) && attachments.length) {
+        email.attachments = attachments.map(a => ({ filename: a.filename, content: a.content }));
+      }
+      return email;
+    });
 
     try {
       const res = await fetch('https://api.resend.com/emails/batch', {

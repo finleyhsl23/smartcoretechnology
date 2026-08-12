@@ -165,13 +165,34 @@ window.updatePreview = () => {
   if (!bodyEl) return;
   bodyEl.style.color = tc;
   if (!body.trim()) {
-    bodyEl.innerHTML = `<p style="color:rgba(255,255,255,.3);font-size:14px">Start typing to preview your email…</p>`;
+    bodyEl.innerHTML = `<p style="color:rgba(0,0,0,.3);font-size:14px">Start typing to preview your email…</p>`;
     return;
   }
   const htmlBody = filled(esc(body)).replace(/\n{2,}/g, `</p><p style="margin:0 0 16px;color:${tc}">`).replace(/\n/g, "<br>");
   bodyEl.innerHTML = subject ? `<h2 style="margin:0 0 16px;font-size:20px;font-weight:800;color:#0a0f2e">${esc(filled(subject))}</h2>` : "";
   bodyEl.innerHTML += `<p style="margin:0 0 16px;font-size:15px;color:${tc};line-height:1.7">${htmlBody}</p>`;
 };
+
+window.onAttachmentChange = () => {
+  const input = document.getElementById("nlAttachments");
+  const list  = document.getElementById("attachmentList");
+  if (!list) return;
+  const files = [...(input?.files || [])];
+  list.innerHTML = files.map((f, i) => `
+    <div style="display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 0">
+      <span style="color:var(--text2)">📄 ${esc(f.name)}</span>
+      <span style="color:var(--text3)">(${(f.size/1024).toFixed(1)} KB)</span>
+    </div>`).join("");
+};
+
+async function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 window.sendNewsletter = async () => {
   const subject = document.getElementById("nlSubject")?.value.trim();
@@ -180,9 +201,15 @@ window.sendNewsletter = async () => {
   if (!body)    return toast("warn","Missing","Please enter a body.");
   if (!_recipientCount) return toast("warn","No recipients","No recipients found for the selected group.");
 
+  const attachmentFiles = [...(document.getElementById("nlAttachments")?.files || [])];
+  const attachments = attachmentFiles.length
+    ? await Promise.all(attachmentFiles.map(async f => ({ filename: f.name, content: await readFileAsBase64(f) })))
+    : [];
+
   const payload = { subject, body, recipient_type: _mode };
   if (_mode === "by_company")       payload.company_ids      = [..._selectedCompanyIds];
   if (_mode === "select_contacts")  payload.contact_ids      = [..._selectedContactIds];
+  if (attachments.length)           payload.attachments      = attachments;
 
   confirm(
     "Send Newsletter",
@@ -308,6 +335,19 @@ async function renderPage() {
           <div style="padding:0 16px 12px;font-size:12px;color:var(--text3)">Click a variable to insert it at the cursor. Line breaks become paragraphs.</div>
         </div>
 
+        <!-- Attachments -->
+        <div class="card">
+          <div class="card-header"><h2>Attachments <span style="font-size:12px;font-weight:400;color:var(--text3)">(optional)</span></h2></div>
+          <div class="card-body" style="display:flex;flex-direction:column;gap:10px">
+            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="file" id="nlAttachments" multiple style="display:none" onchange="window.onAttachmentChange()"/>
+              <button type="button" class="btn" onclick="document.getElementById('nlAttachments').click()">📎 Choose Files</button>
+              <span style="font-size:13px;color:var(--text3)">Same files sent to all recipients</span>
+            </label>
+            <div id="attachmentList" style="display:flex;flex-direction:column;gap:4px"></div>
+          </div>
+        </div>
+
         <!-- Send button -->
         <button class="btn btn-primary" id="sendBtn" style="padding:14px;font-size:15px;font-weight:700" onclick="window.sendNewsletter()">
           📧 Send Newsletter
@@ -329,8 +369,8 @@ async function renderPage() {
                   ? `<img src="${logoUrl}" alt="${esc(companyName)}" style="max-height:48px;max-width:180px;object-fit:contain;display:block;margin:0 auto"/>`
                   : `<div style="font-size:20px;font-weight:800;color:#fff">${esc(companyName)}</div>`}
               </div>
-              <div class="preview-body" id="previewBody" style="background:${secondaryColor};color:${textColor}">
-                <p style="color:rgba(255,255,255,.35);font-size:14px">Start typing to preview your email…</p>
+              <div class="preview-body" id="previewBody" style="background:#ffffff;color:${textColor}">
+                <p style="color:rgba(0,0,0,.3);font-size:14px">Start typing to preview your email…</p>
               </div>
               <div class="preview-footer" style="background:${primaryColor};color:rgba(255,255,255,.5);border-top:none">${esc(companyName)} · Sent via SmartCore CRM</div>
             </div>
