@@ -198,8 +198,7 @@ export async function onRequestPost({ request, env }) {
     return '#' + [r,g,b].map(x => x.toString(16).padStart(2,'0')).join('');
   }
   const primaryLight = lightenHex(primaryColor, 50);
-  // Dark footer — slightly lighter than secondaryColor
-  const footerBg = lightenHex(secondaryColor, 18);
+  const footerBg = '#000000';
 
   function buildHtml(r) {
     const filledSubject = fillVars(subject, r);
@@ -256,7 +255,7 @@ export async function onRequestPost({ request, env }) {
 
         <!-- Footer -->
         <tr>
-          <td align="center" bgcolor="${footerBg}" style="background:linear-gradient(135deg,${footerBg} 0%,${secondaryColor} 100%);background-color:${footerBg};padding:20px 40px">
+          <td align="center" bgcolor="#000000" style="background-color:#000000;padding:20px 40px">
             <p style="margin:0;font-size:12px;color:#888888;font-family:Arial,Helvetica,sans-serif;letter-spacing:0.3px">${companyName} &middot; Powered by <a href="https://smartcoretechnology.co.uk" style="color:#aaaaaa;text-decoration:none">SmartCore</a></p>
           </td>
         </tr>
@@ -270,38 +269,49 @@ export async function onRequestPost({ request, env }) {
 </html>`;
   }
 
-  // Send in batches of 100 (Resend limit)
+  // Resend batch API does not support attachments — use individual sends when attachments present
   let sent = 0, failed = 0;
-  const BATCH = 100;
+  const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
 
-  for (let i = 0; i < cappedRecipients.length; i += BATCH) {
-    const batch = cappedRecipients.slice(i, i + BATCH).map(r => {
+  if (hasAttachments) {
+    // Send one at a time so attachments are included
+    for (const r of cappedRecipients) {
       const email = {
         from: `${companyName} <noreply@smartcoretechnology.co.uk>`,
         to: [r.email],
         subject: fillVars(subject, r),
         html: buildHtml(r),
+        attachments: attachments.map(a => ({ filename: a.filename, content: a.content })),
       };
-      if (Array.isArray(attachments) && attachments.length) {
-        email.attachments = attachments.map(a => ({ filename: a.filename, content: a.content }));
-      }
-      return email;
-    });
-
-    try {
-      const res = await fetch('https://api.resend.com/emails/batch', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(batch),
-      });
-      const json = await res.json();
-      if (res.ok && Array.isArray(json.data)) {
-        sent += json.data.length;
-      } else {
-        failed += batch.length;
-      }
-    } catch {
-      failed += batch.length;
+      try {
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(email),
+        });
+        if (res.ok) sent++; else failed++;
+      } catch { failed++; }
+    }
+  } else {
+    // Batch sends (no attachments) — up to 100 per request
+    const BATCH = 100;
+    for (let i = 0; i < cappedRecipients.length; i += BATCH) {
+      const batch = cappedRecipients.slice(i, i + BATCH).map(r => ({
+        from: `${companyName} <noreply@smartcoretechnology.co.uk>`,
+        to: [r.email],
+        subject: fillVars(subject, r),
+        html: buildHtml(r),
+      }));
+      try {
+        const res = await fetch('https://api.resend.com/emails/batch', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(batch),
+        });
+        const json = await res.json();
+        if (res.ok && Array.isArray(json.data)) sent += json.data.length;
+        else failed += batch.length;
+      } catch { failed += batch.length; }
     }
   }
 
