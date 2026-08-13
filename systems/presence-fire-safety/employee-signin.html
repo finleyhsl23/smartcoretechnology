@@ -83,6 +83,21 @@
   .pfs-tab:disabled { opacity:.4; cursor:not-allowed; }
   .kiosk-card { width: min(480px, 100%); }
   .kiosk-card-wide { width: min(920px, 96vw); }
+  /* #kioskPanel's own width is auto (shrink-to-fit) since it's a flex child
+     of .pfs-kiosk with align-items:center rather than stretch — but the
+     percentage half of a child's width:min(480px,100%) can't resolve
+     against an auto-width ancestor, so browsers fall back to that child's
+     unwrapped *content* width (e.g. the intro paragraph's full sentence)
+     to size #kioskPanel instead of respecting the 480px cap. The panel
+     then comes out wider than the card actually renders at, and since the
+     card is a plain block with no centering of its own, it sits flush to
+     the panel's left edge — visibly off-centre under the tabs above,
+     which don't have this problem (direct children of .pfs-kiosk, so
+     their own percentage resolves against .pfs-kiosk's genuinely definite
+     width). Giving #kioskPanel a definite width and centering its own
+     content the same way .pfs-kiosk does breaks that chain instead of
+     relying on shrink-to-fit width matching by coincidence. */
+  #kioskPanel { width: 100%; display: flex; flex-direction: column; align-items: center; }
   /* Scan QR + Manual Lookup side by side on tablet-width+ screens, so both
      fit on one view with no scrolling — stacked with a horizontal "or" on
      narrow screens where a row genuinely won't fit. */
@@ -241,7 +256,7 @@
     if (_siteId && _companySettings?.kiosk_screensaver_enabled !== false) {
       initIdleScreensaver({
         idleMs: 60000,
-        text: "Touch to sign in",
+        text: "Touch to sign in or out",
         onIdle: () => { stopScanner(); stopCamera(); hideVirtualKeyboard(); },
         onResume: () => { returnToStart(); },
       });
