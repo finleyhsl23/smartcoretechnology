@@ -78,8 +78,11 @@ export async function supabaseRpc(env, fnName, payload = {}) {
   });
 }
 
-export async function sendResendEmail(env, { to, subject, html }) {
+export async function sendResendEmail(env, { to, subject, html, attachments }) {
   const RESEND_API_KEY = requireEnv(env, 'RESEND_API_KEY');
+
+  const body = { from: getEmailFrom(env), to, subject, html };
+  if (attachments?.length) body.attachments = attachments;
 
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -87,12 +90,7 @@ export async function sendResendEmail(env, { to, subject, html }) {
       Authorization: `Bearer ${RESEND_API_KEY}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      from: getEmailFrom(env),
-      to,
-      subject,
-      html
-    })
+    body: JSON.stringify(body)
   });
 
   const result = await response.json().catch(() => ({}));

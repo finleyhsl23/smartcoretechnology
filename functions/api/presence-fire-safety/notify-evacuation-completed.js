@@ -1,33 +1,113 @@
 // POST /api/presence-fire-safety/notify-evacuation-completed
 // Called right after evacuation.complete() succeeds. Sends the emergency
-// evacuation report to the "Emergency Reports" email list configured in
-// Settings (up to 10 addresses, presence_fire_safety_settings.
-// emergency_report_emails) — server-side because it needs the full roll
-// call for the just-closed session, not just what the caller's browser
-// happens to still have in memory. Best-effort: failures are logged and
-// swallowed, matching notify-evacuation-started.js — the evacuation itself
-// has already been completed before this endpoint is ever called, and this
-// notification must never appear to "fail" that.
+// evacuation report — nice-to-read summary, a full Not-Safe/Safe name list,
+// and the same photo PDF report as an attachment (see
+// _evacuation-report-pdf.js) — to the "Emergency Reports" email list
+// configured in Settings (up to 10 addresses, presence_fire_safety_settings.
+// emergency_report_emails). Best-effort: failures are logged and swallowed
+// — the evacuation itself has already been completed before this endpoint
+// is ever called, and this notification must never appear to "fail" that.
 import { json, options, getCallerProfile, hasPermission, sb } from './_auth.js';
 import { sendResendEmail, smartcoreEmailShell } from '../_utils.js';
+import { buildEvacuationReportPdf, STATUS_LABEL, fmtDuration } from './_evacuation-report-pdf.js';
 
 export const onRequestOptions = () => options();
-
-const STATUS_LABEL = {
-  unaccounted: 'Unaccounted', safe: 'Safe', missing: 'Missing',
-  left_before_roll_call: 'Left before roll call', not_expected: 'Not expected', other: 'Other',
-};
 
 function esc(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function fmtDuration(startIso, endIso) {
-  const ms = new Date(endIso) - new Date(startIso);
-  if (!Number.isFinite(ms) || ms < 0) return '—';
-  const mins = Math.round(ms / 60000);
-  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'}`;
-  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+function fmtDT(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function bytesToBase64(bytes) {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function statTile(label, value, color) {
+  return `<td style="padding:14px 8px;text-align:center;background:#f8fafc;border-radius:10px">
+    <div style="font-size:22px;font-weight:800;color:${color}">${value}</div>
+    <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${esc(label)}</div>
+  </td>`;
+}
+
+function tableHeaders(headers) {
+  return headers.map((h) => `<th style="text-align:left;padding:8px 12px;border-bottom:2px solid #e5e7eb;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#6b7280">${esc(h)}</th>`).join('');
+}
+
+function notSafeRow(p) {
+  return `<tr>
+    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;font-weight:600">${esc(p.display_name_snapshot)}</td>
+    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280;text-transform:capitalize">${esc(p.subject_type)}</td>
+    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280">${esc(p.department_snapshot || '—')}</td>
+    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;font-weight:700;color:#dc2626">${esc(STATUS_LABEL[p.roll_call_status] || p.roll_call_status)}</td>
+    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280">${esc(p.notes || '—')}</td>
+  </tr>`;
+}
+
+function safeRow(p) {
+  return `<tr>
+    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;font-weight:600">${esc(p.display_name_snapshot)}</td>
+    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280;text-transform:capitalize">${esc(p.subject_type)}</td>
+    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280">${esc(p.department_snapshot || '—')}</td>
+  </tr>`;
+}
+
+function buildReportEmailHtml({ session, siteName, notSafe, safe }) {
+  const allSafe = notSafe.length === 0;
+  const headerColor = allSafe ? '#16a34a' : '#dc2626';
+  const headerBg = allSafe ? '#f0fdf4' : '#fef2f2';
+  const headline = allSafe ? 'Everyone is accounted for' : `${notSafe.length} ${notSafe.length === 1 ? 'person is' : 'people are'} not marked safe`;
+
+  const statsRow = `<table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:20px 0"><tr>
+    ${statTile('Snapshotted', session.snapshot_count ?? 0, '#111827')}
+    ${statTile('Safe', session.safe_count ?? 0, '#16a34a')}
+    ${statTile('Missing', session.missing_count ?? 0, '#dc2626')}
+    ${statTile('Unaccounted', session.unaccounted_count ?? 0, '#d97706')}
+  </tr></table>`;
+
+  const notSafeSection = `
+    <div style="margin-top:24px;padding:16px;border-radius:12px;background:#fef2f2;border:1px solid #fecaca">
+      <h3 style="margin:0 0 4px;font-size:14px;color:#991b1b">Not marked safe (${notSafe.length})</h3>
+      ${notSafe.length
+        ? `<table style="width:100%;border-collapse:collapse;margin-top:4px"><thead><tr>${tableHeaders(['Name', 'Type', 'Department', 'Status', 'Notes'])}</tr></thead><tbody>${notSafe.map(notSafeRow).join('')}</tbody></table>`
+        : `<p style="margin:8px 0 0;font-size:13px;color:#16a34a;font-weight:600">Nobody — everyone was marked safe.</p>`}
+    </div>`;
+
+  const safeSection = `
+    <div style="margin-top:16px;padding:16px;border-radius:12px;background:#f0fdf4;border:1px solid #bbf7d0">
+      <h3 style="margin:0 0 4px;font-size:14px;color:#166534">Marked safe (${safe.length})</h3>
+      ${safe.length
+        ? `<table style="width:100%;border-collapse:collapse;margin-top:4px"><thead><tr>${tableHeaders(['Name', 'Type', 'Department'])}</tr></thead><tbody>${safe.map(safeRow).join('')}</tbody></table>`
+        : `<p style="margin:8px 0 0;font-size:13px;color:#6b7280">Nobody was marked safe yet.</p>`}
+    </div>`;
+
+  return smartcoreEmailShell({
+    title: `Evacuation report — ${esc(siteName)}`,
+    intro: `The emergency evacuation at <strong>${esc(siteName)}</strong> has been completed.`,
+    bodyHtml: `
+      <div style="margin:16px 0;padding:14px 16px;border-radius:12px;background:${headerBg};border:1px solid ${headerColor}">
+        <strong style="color:${headerColor};font-size:15px">${esc(headline)}</strong>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin:12px 0 0">
+        <tr><td style="padding:5px 0;font-size:13px;color:#6b7280;width:40%">Started</td><td style="padding:5px 0;font-size:13px">${esc(fmtDT(session.started_at))}</td></tr>
+        <tr><td style="padding:5px 0;font-size:13px;color:#6b7280">Completed</td><td style="padding:5px 0;font-size:13px">${esc(fmtDT(session.completed_at))}</td></tr>
+        <tr><td style="padding:5px 0;font-size:13px;color:#6b7280">Duration</td><td style="padding:5px 0;font-size:13px">${esc(fmtDuration(session.started_at, session.completed_at || new Date().toISOString()))}</td></tr>
+        <tr><td style="padding:5px 0;font-size:13px;color:#6b7280">Assembly point</td><td style="padding:5px 0;font-size:13px">${esc(session.assembly_point || 'Not recorded')}</td></tr>
+      </table>
+      ${statsRow}
+      ${notSafeSection}
+      ${safeSection}
+      <p style="margin:20px 0 0;font-size:12px;color:#6b7280">A full PDF report with everyone's photo is attached — anyone not marked safe is listed first, followed by everyone marked safe.</p>
+    `,
+  });
 }
 
 export async function onRequestPost({ request, env }) {
@@ -47,75 +127,29 @@ export async function onRequestPost({ request, env }) {
     const sessionId = body.evacuation_session_id;
     if (!sessionId) return json({ error: 'evacuation_session_id is required' }, 400);
 
-    const [settingsRes, sessionRes] = await Promise.all([
-      sb(env, `/presence_fire_safety_settings?company_id=eq.${profile.company_id}&select=emergency_report_emails`),
-      sb(
-        env,
-        `/presence_fire_safety_evacuation_sessions?id=eq.${sessionId}&company_id=eq.${profile.company_id}` +
-          `&select=id,started_at,completed_at,assembly_point,snapshot_count,safe_count,missing_count,unaccounted_count,site_id,sites(name)`
-      ),
-    ]);
+    const settingsRes = await sb(env, `/presence_fire_safety_settings?company_id=eq.${profile.company_id}&select=emergency_report_emails`);
     const [settingsRow] = await settingsRes.json();
     const emails = [...new Set((settingsRow?.emergency_report_emails || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean))].slice(0, 10);
     if (!emails.length) return json({ success: true, notified: 0, reason: 'No emergency report emails configured' });
 
-    const [session] = await sessionRes.json();
-    if (!session) return json({ success: false, reason: 'Evacuation session not found' }, 404);
-
-    const peopleRes = await sb(
-      env,
-      `/presence_fire_safety_evacuation_people?evacuation_session_id=eq.${sessionId}` +
-        `&select=display_name_snapshot,subject_type,department_snapshot,roll_call_status,notes&order=display_name_snapshot`
-    );
-    const people = await peopleRes.json();
-    const outstanding = (people || []).filter((p) => p.roll_call_status !== 'safe');
-
+    let report;
+    try {
+      report = await buildEvacuationReportPdf(env, profile.company_id, sessionId);
+    } catch (e) {
+      return json({ success: false, reason: e.message || 'Evacuation session not found' }, 404);
+    }
+    const { session, people, bytes: pdfBytes, filename } = report;
     const siteName = session.sites?.name || 'the site';
-    const otherCount = Math.max(0, (session.snapshot_count || 0) - (session.safe_count || 0) - (session.missing_count || 0) - (session.unaccounted_count || 0));
+    const notSafe = people.filter((p) => p.roll_call_status !== 'safe');
+    const safe = people.filter((p) => p.roll_call_status === 'safe');
 
-    const outstandingRows = outstanding.length
-      ? `<table style="width:100%;border-collapse:collapse;margin-top:8px">
-          <thead><tr>
-            <th style="text-align:left;padding:8px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280">Name</th>
-            <th style="text-align:left;padding:8px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280">Type</th>
-            <th style="text-align:left;padding:8px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280">Department</th>
-            <th style="text-align:left;padding:8px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280">Status</th>
-            <th style="text-align:left;padding:8px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280">Notes</th>
-          </tr></thead>
-          <tbody>
-            ${outstanding.map((p) => `<tr>
-              <td style="padding:8px;border-bottom:1px solid #f3f4f6;font-size:13px">${esc(p.display_name_snapshot)}</td>
-              <td style="padding:8px;border-bottom:1px solid #f3f4f6;font-size:13px">${esc(p.subject_type)}</td>
-              <td style="padding:8px;border-bottom:1px solid #f3f4f6;font-size:13px">${esc(p.department_snapshot || '—')}</td>
-              <td style="padding:8px;border-bottom:1px solid #f3f4f6;font-size:13px;font-weight:bold">${esc(STATUS_LABEL[p.roll_call_status] || p.roll_call_status)}</td>
-              <td style="padding:8px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#6b7280">${esc(p.notes || '—')}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>`
-      : `<p style="font-size:14px;color:#16a34a;font-weight:bold">Everyone was accounted for as Safe.</p>`;
-
-    const html = smartcoreEmailShell({
-      title: `Evacuation report — ${siteName}`,
-      intro: `The emergency evacuation at <strong>${esc(siteName)}</strong> has been completed. Summary below.`,
-      bodyHtml: `
-        <table style="width:100%;border-collapse:collapse;margin:16px 0">
-          <tr><td style="padding:6px 0;font-size:14px;color:#6b7280;width:40%">Started</td><td style="padding:6px 0;font-size:14px">${esc(session.started_at)}</td></tr>
-          <tr><td style="padding:6px 0;font-size:14px;color:#6b7280">Completed</td><td style="padding:6px 0;font-size:14px">${esc(session.completed_at || new Date().toISOString())}</td></tr>
-          <tr><td style="padding:6px 0;font-size:14px;color:#6b7280">Duration</td><td style="padding:6px 0;font-size:14px">${fmtDuration(session.started_at, session.completed_at || new Date().toISOString())}</td></tr>
-          <tr><td style="padding:6px 0;font-size:14px;color:#6b7280">Assembly point</td><td style="padding:6px 0;font-size:14px">${esc(session.assembly_point || 'Not recorded')}</td></tr>
-          <tr><td style="padding:6px 0;font-size:14px;color:#6b7280">Total snapshotted</td><td style="padding:6px 0;font-size:14px">${session.snapshot_count ?? '—'}</td></tr>
-          <tr><td style="padding:6px 0;font-size:14px;color:#6b7280">Safe</td><td style="padding:6px 0;font-size:14px;color:#16a34a;font-weight:bold">${session.safe_count ?? 0}</td></tr>
-          <tr><td style="padding:6px 0;font-size:14px;color:#6b7280">Missing</td><td style="padding:6px 0;font-size:14px;color:#dc2626;font-weight:bold">${session.missing_count ?? 0}</td></tr>
-          <tr><td style="padding:6px 0;font-size:14px;color:#6b7280">Unaccounted</td><td style="padding:6px 0;font-size:14px;color:#d97706;font-weight:bold">${session.unaccounted_count ?? 0}</td></tr>
-          <tr><td style="padding:6px 0;font-size:14px;color:#6b7280">Other / not expected</td><td style="padding:6px 0;font-size:14px">${otherCount}</td></tr>
-        </table>
-        <h3 style="font-size:15px;margin:24px 0 4px">Not marked Safe</h3>
-        ${outstandingRows}
-      `,
-    });
+    const html = buildReportEmailHtml({ session, siteName, notSafe, safe });
+    const attachments = [{ filename, content: bytesToBase64(pdfBytes), content_type: 'application/pdf' }];
 
     const results = await Promise.allSettled(
-      emails.map((to) => sendResendEmail(env, { to, subject: `Evacuation report — ${siteName}`, html }))
+      emails.map((to) => sendResendEmail(env, {
+        to, subject: `${notSafe.length === 0 ? 'All safe' : 'Action needed'} — evacuation report, ${siteName}`, html, attachments,
+      }))
     );
     const failures = results.filter((r) => r.status === 'rejected');
     if (failures.length) {

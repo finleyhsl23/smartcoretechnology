@@ -656,10 +656,11 @@
           await evacuation.complete(completedSessionId);
           stopPolling();
           toast("success", "Evacuation completed", "The session has been closed.");
-          // Best-effort — the evacuation report email must never look like
-          // it blocked or failed the completion itself, which has already
-          // succeeded by this point.
+          // Both best-effort — the evacuation report email/PDF must never look
+          // like they blocked or failed the completion itself, which has
+          // already succeeded by this point.
           evacuation.notifyCompleted(completedSessionId).catch((e) => console.warn("notifyCompleted failed:", e.message));
+          openEvacuationReportPdf(completedSessionId);
           await loadState(_currentSite.id);
         } catch (e) {
           toast("error", "Couldn't complete evacuation", e.message || "Please try again.");
@@ -667,6 +668,22 @@
       },
       { confirmLabel: "Complete Evacuation" }
     );
+  }
+
+  /** Opens the full photo evacuation report PDF in a new tab as soon as the
+   *  session is closed, so whoever completed it has it on hand immediately
+   *  — the same document is also emailed to the Emergency Reports list. */
+  async function openEvacuationReportPdf(sessionId) {
+    try {
+      const blob = await evacuation.reportPdfBlob(sessionId);
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, "_blank");
+      if (!win) toast("info", "Report ready", "Your browser blocked the pop-up — allow pop-ups to view the evacuation report PDF.");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      console.warn("Could not open evacuation report PDF:", e.message);
+      toast("error", "Couldn't open report PDF", "It's still on its way in the emergency report email.");
+    }
   }
 
   // ── Polling ─────────────────────────────────────────────────────────────

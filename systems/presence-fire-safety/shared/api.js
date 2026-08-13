@@ -605,6 +605,24 @@ export const evacuation = {
       throw new Error(data.error || "Could not send evacuation report");
     }
   },
+
+  /** The same photo evacuation report PDF sent by notifyCompleted, as a
+   *  Blob — used to open/download it in-browser (right after completing,
+   *  or from evacuation history). */
+  async reportPdfBlob(sessionId) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) throw new Error("Not signed in");
+    const res = await fetch("/api/presence-fire-safety/evacuation-report-pdf", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ evacuation_session_id: sessionId }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Could not generate the evacuation report");
+    }
+    return res.blob();
+  },
 };
 
 // ── Audit ────────────────────────────────────────────────────────────────
