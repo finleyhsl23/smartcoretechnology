@@ -50,9 +50,21 @@ export const CARD_RATIO = { landscape: 85.6 / 54, portrait: 54 / 85.6 };
 const REF_PX_PER_MM = 96 / 25.4;
 const REF_CARD_WIDTH = { landscape: 85.6 * REF_PX_PER_MM, portrait: 54 * REF_PX_PER_MM };
 
-function fontSizeCss(px) {
+// Generic "N reference px as a responsive CSS length" — same cqw-based
+// scaling as fontSizeCss below, just not specific to font-size (also used
+// for text elements' horizontal padding, see TEXT_PADDING_X).
+function refPxCss(px) {
   return `calc(${px} * 100cqw / var(--pfs-card-ref-w))`;
 }
+const fontSizeCss = refPxCss;
+
+// Horizontal breathing room for text/statictext elements, in the same
+// reference-px terms as fontSize — without it, text that exactly fills its
+// box (especially once shrink-to-fit above has done its job) sits flush
+// against both edges. Subtracted from the width available to measure
+// against/draw within, not just added as visual padding, so shrink-to-fit
+// targets the inset width rather than the full box.
+const TEXT_PADDING_X = 10;
 
 // Shrink-to-fit for "text" (field-bound) elements — an employee whose name
 // or job title is unusually long shouldn't have it clipped or overlapping
@@ -214,12 +226,12 @@ function renderElement(el, ctx, refCardWidth) {
     const baseFontSize = el.fontSize ?? 14;
     const family = primaryFontName(el.fontFamily);
     const weight = el.bold ? 800 : 500;
-    const maxWidth = (el.w / 100) * (refCardWidth ?? REF_CARD_WIDTH.portrait);
+    const maxWidth = (el.w / 100) * (refCardWidth ?? REF_CARD_WIDTH.portrait) - 2 * TEXT_PADDING_X;
     const fitted = fitTextFontSizeHtml(value, family, weight, baseFontSize, maxWidth);
-    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${fontSizeCss(fitted)};font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#fff")};font-weight:${weight};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:${el.align || "left"};">${esc(value)}</div>`;
+    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};padding:0 ${refPxCss(TEXT_PADDING_X)};font-size:${fontSizeCss(fitted)};font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#fff")};font-weight:${weight};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:${el.align || "left"};">${esc(value)}</div>`;
   }
   if (el.type === "statictext") {
-    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${fontSizeCss(el.fontSize ?? 12)};font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#334155")};text-align:${el.align || "left"};line-height:1.3;">${esc(el.text || "")}</div>`;
+    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};padding:0 ${refPxCss(TEXT_PADDING_X)};font-size:${fontSizeCss(el.fontSize ?? 12)};font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#334155")};text-align:${el.align || "left"};line-height:1.3;">${esc(el.text || "")}</div>`;
   }
   if (el.type === "shape") {
     const radius = el.shapeType === "rect" ? "border-radius:8px" : "border-radius:50%";
@@ -403,16 +415,18 @@ async function drawElementShape(c, el, ctx, ex, ey, ew, eh) {
     const baseFontSize = (el.fontSize ?? (el.type === "text" ? 14 : 12)) * PX_SCALE;
     const weight = el.type === "text" && el.bold ? 800 : 500;
     const family = primaryFontName(el.fontFamily);
+    const padX = TEXT_PADDING_X * PX_SCALE;
+    const innerEw = Math.max(ew - 2 * padX, 0); // width actually available to text, inset from both edges
     // Text elements shrink to fit an unusually long value (e.g. a long
     // name) rather than only relying on the ellipsis-truncation below —
     // this only ever affects the one card whose text is actually too
     // long, not the template's configured size for everyone else.
-    const fontSize = el.type === "text" ? fitTextFontSize(c, value, family, weight, baseFontSize, ew) : baseFontSize;
+    const fontSize = el.type === "text" ? fitTextFontSize(c, value, family, weight, baseFontSize, innerEw) : baseFontSize;
     c.font = `${weight} ${fontSize}px "${family}"`;
     c.fillStyle = el.color || (el.type === "text" ? "#fff" : "#334155");
     const align = el.align || "left";
     c.textAlign = align === "center" ? "center" : align === "right" ? "right" : "left";
-    const anchorX = align === "center" ? ex + ew / 2 : align === "right" ? ex + ew : ex;
+    const anchorX = align === "center" ? ex + ew / 2 : align === "right" ? ex + ew - padX : ex + padX;
 
     if (el.type === "text") {
       // Single line, truncated with an ellipsis rather than wrapped —
@@ -420,9 +434,9 @@ async function drawElementShape(c, el, ctx, ex, ey, ew, eh) {
       // Shrinking above handles most long values; this is the fallback for
       // the rare case even the minimum shrink ratio doesn't fit.
       c.textBaseline = "middle";
-      c.fillText(truncateToWidth(c, value, ew), anchorX, ey + eh / 2);
+      c.fillText(truncateToWidth(c, value, innerEw), anchorX, ey + eh / 2);
     } else {
-      const lines = wrapLines(c, value, ew);
+      const lines = wrapLines(c, value, innerEw);
       const lineHeight = fontSize * 1.3;
       const totalHeight = lines.length * lineHeight;
       let ly = ey + eh / 2 - totalHeight / 2 + lineHeight / 2;
