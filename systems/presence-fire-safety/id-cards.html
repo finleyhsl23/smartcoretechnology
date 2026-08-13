@@ -61,6 +61,12 @@
   .idc-section-header { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:28px; margin-bottom:16px; }
   .idc-section-header h2 { margin:0; }
   .idc-row-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .idc-badge-search { max-width:360px; margin-bottom:16px; }
+  .set-token { font-family: ui-monospace, monospace; font-size: 12px; }
+  .idc-token-cell { display:flex; align-items:center; gap:6px; }
+  .idc-token-value { min-width:11ch; }
+  .icon-btn-sm { width:28px; height:28px; border-radius:8px; }
+  .icon-btn-sm i { width:15px; height:15px; }
 
   @media screen { #printArea { display:none !important; } }
   @media print {
@@ -111,6 +117,9 @@
   let _employeeData = null;     // full row from employees.forIdCard
   let _activeBadge = null;      // current badge row, or null
   let _searchTimer = null;
+  let _allBadges = [];          // all active badges, unfiltered
+  let _badgeSearchTerm = "";
+  const _revealedTokens = new Set(); // badge ids currently shown unmasked
 
   try {
     const { profile } = await requirePresenceModuleAccess();
@@ -162,10 +171,15 @@
         <h2 class="set-section-title">Active QR badges</h2>
         <button class="btn" id="exportAllBtn" type="button"><i data-lucide="download"></i> Export All (PDF)</button>
       </div>
+      <input type="text" id="badgeSearch" class="form-input idc-badge-search" placeholder="Search badges by name or employee ID…" autocomplete="off" value="${esc(_badgeSearchTerm)}"/>
       <div id="allBadgesArea"></div>
     `);
     refreshIcons();
     document.getElementById("exportAllBtn").addEventListener("click", (e) => downloadAllCardsPdf(e.currentTarget));
+    document.getElementById("badgeSearch").addEventListener("input", (e) => {
+      _badgeSearchTerm = e.target.value;
+      renderAllBadges(filterBadges());
+    });
 
     const searchInput = document.getElementById("empSearch");
     const resultsBox = document.getElementById("empResults");
@@ -690,17 +704,31 @@
   async function loadAllBadges() {
     setInner("allBadgesArea", loadingState("Loading badges…"));
     try {
-      const list = await badges.list(_companyId, { status: "active" });
-      renderAllBadges(list);
+      _allBadges = await badges.list(_companyId, { status: "active" });
+      renderAllBadges(filterBadges());
     } catch (e) {
       setInner("allBadgesArea", errorState({ title: "Couldn't load badges", message: e.message, retryId: "allBadgesRetry" }));
       document.getElementById("allBadgesRetry")?.addEventListener("click", loadAllBadges);
     }
   }
 
+  function filterBadges() {
+    const term = _badgeSearchTerm.trim().toLowerCase();
+    if (!term) return _allBadges;
+    return _allBadges.filter((b) => {
+      const name = (b.core_employees?.full_name || "").toLowerCase();
+      const code = (b.core_employees?.employee_id || "").toLowerCase();
+      return name.includes(term) || code.includes(term);
+    });
+  }
+
   function renderAllBadges(list) {
-    if (!list.length) {
+    if (!_allBadges.length) {
       setInner("allBadgesArea", emptyState({ icon: "id-card", title: "No active badges", message: "Badges appear here once issued. Revoked badges are hidden from this list." }));
+      return;
+    }
+    if (!list.length) {
+      setInner("allBadgesArea", emptyState({ icon: "search", title: "No matching badges", message: "Try a different name or employee ID." }));
       return;
     }
     setInner("allBadgesArea", `
@@ -708,10 +736,18 @@
         <table class="tbl">
           <thead><tr><th>Employee</th><th>Token</th><th>Issued</th><th></th></tr></thead>
           <tbody>
-            ${list.map(b => `
+            ${list.map(b => {
+              const revealed = _revealedTokens.has(b.id);
+              return `
               <tr>
                 <td>${esc(b.core_employees?.full_name || "—")} ${b.core_employees?.employee_id ? `<span class="text-muted">(${esc(b.core_employees.employee_id)})</span>` : ""}</td>
-                <td class="set-token">${esc(b.badge_token)}</td>
+                <td class="set-token">
+                  <div class="idc-token-cell">
+                    <span class="idc-token-value">${revealed ? esc(b.badge_token) : "••••••••••••"}</span>
+                    <button class="icon-btn icon-btn-sm" data-toggle-token="${esc(b.id)}" type="button" title="${revealed ? "Hide token" : "View token"}" aria-label="${revealed ? "Hide token" : "View token"}"><i data-lucide="${revealed ? "eye-off" : "eye"}"></i></button>
+                    <button class="icon-btn icon-btn-sm" data-copy-token="${esc(b.id)}" type="button" title="Copy token" aria-label="Copy token"><i data-lucide="copy"></i></button>
+                  </div>
+                </td>
                 <td>${esc(fmtDateTime(b.issued_at))}</td>
                 <td>
                   <div class="idc-row-actions">
@@ -720,12 +756,32 @@
                     <button class="btn btn-danger" data-revoke-badge="${esc(b.id)}" type="button">Revoke</button>
                   </div>
                 </td>
-              </tr>`).join("")}
+              </tr>`;
+            }).join("")}
           </tbody>
         </table>
       </div>
     `);
     refreshIcons();
+    document.querySelectorAll("[data-toggle-token]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.toggleToken;
+        if (_revealedTokens.has(id)) _revealedTokens.delete(id); else _revealedTokens.add(id);
+        renderAllBadges(filterBadges());
+      });
+    });
+    document.querySelectorAll("[data-copy-token]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const badge = _allBadges.find((b) => b.id === btn.dataset.copyToken);
+        if (!badge) return;
+        try {
+          await navigator.clipboard.writeText(badge.badge_token);
+          toast("success", "Copied", "Badge token copied to clipboard.");
+        } catch (e) {
+          toast("error", "Couldn't copy", "Please copy the token manually.");
+        }
+      });
+    });
     document.querySelectorAll("[data-view-badge]").forEach(btn => {
       btn.addEventListener("click", () => viewBadgeRowCard(btn.dataset.viewBadge, btn));
     });
