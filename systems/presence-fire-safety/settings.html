@@ -111,7 +111,7 @@
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings, setSoundEnabled } from "/systems/presence-fire-safety/shared/sound.js";
   import { enhanceSelect } from "/systems/presence-fire-safety/shared/combobox.js";
-  import { renderCardFace, normalizeTemplate, newElement, generateQrDataUrl, FONT_OPTIONS } from "/systems/presence-fire-safety/shared/id-card-render.js";
+  import { renderCardFace, normalizeTemplate, newElement, generateQrDataUrl, FONT_OPTIONS, ensureCardFontsLoaded } from "/systems/presence-fire-safety/shared/id-card-render.js";
   import {
     esc, toast, fmtDateTime, timeAgo, confirmDialog, modal,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -595,6 +595,14 @@
       _idcFace = "front";
       _idcSelectedId = null;
       renderIdCardShell();
+      // The very first paint can land before the card's webfont has
+      // loaded, sizing shrink-to-fit text against a fallback font that's
+      // narrower than the real one — re-render the canvas once fonts are
+      // confirmed ready so a long value doesn't stay stuck looking (and
+      // truncating) as if it never fit. Editing itself doesn't need this:
+      // by the time the user drags/types anything, fonts are already
+      // loaded and every subsequent renderCanvas() call is correct.
+      ensureCardFontsLoaded(_idCardTemplate).then(() => renderCanvas());
     } catch (e) {
       setInner("panel-badges", errorState({ title: "Couldn't load ID card template", message: e.message, retryId: "idCardRetry" }));
       document.getElementById("idCardRetry")?.addEventListener("click", loadIdCardTemplate);

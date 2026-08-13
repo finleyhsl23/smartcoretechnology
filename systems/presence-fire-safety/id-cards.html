@@ -89,7 +89,7 @@
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
-  import { renderCardFace, normalizeTemplate, generateQrDataUrl, renderCardImagePair } from "/systems/presence-fire-safety/shared/id-card-render.js";
+  import { renderCardFace, normalizeTemplate, generateQrDataUrl, renderCardImagePair, ensureCardFontsLoaded } from "/systems/presence-fire-safety/shared/id-card-render.js";
   import { downloadCardsPdf } from "/systems/presence-fire-safety/shared/id-card-pdf.js";
   import {
     esc, initials, toast, fmtDateTime, confirmDialog, modal,
@@ -284,15 +284,25 @@
       <div class="idc-modal-preview">
         <div>
           <div class="idc-page-preview-label">Front</div>
-          <div>${renderCardFace(_template, "front", ctx)}</div>
+          <div id="cardPreviewFront">${renderCardFace(_template, "front", ctx)}</div>
         </div>
         <div>
           <div class="idc-page-preview-label">Back</div>
-          <div>${renderCardFace(_template, "back", ctx)}</div>
+          <div id="cardPreviewBack">${renderCardFace(_template, "back", ctx)}</div>
         </div>
       </div>
       ${!_activeBadge ? `<p class="form-error" style="margin-top:14px">Couldn't automatically issue a QR badge — the card back will be blank until one is issued from the badges table below.</p>` : ""}
     `;
+    // First paint can land before the card's webfont has loaded, sizing
+    // shrink-to-fit text for a fallback font that's narrower than the real
+    // one — re-render once fonts are confirmed ready so it doesn't stay
+    // stuck looking (and truncating) as if it never fit.
+    ensureCardFontsLoaded(_template).then(() => {
+      const front = overlay.querySelector("#cardPreviewFront");
+      const back = overlay.querySelector("#cardPreviewBack");
+      if (front) front.innerHTML = renderCardFace(_template, "front", ctx);
+      if (back) back.innerHTML = renderCardFace(_template, "back", ctx);
+    });
     overlay.querySelector("#cardModalFooter").innerHTML = `
       <button class="btn modal-close" type="button">Close</button>
       <button class="btn btn-primary" id="cardModalContinueBtn" type="button">Continue →</button>
@@ -611,15 +621,24 @@
     }
   }
 
-  function printCard(qr) {
+  async function printCard(qr) {
     const orientation = _template?.orientation === "portrait" ? "portrait" : "landscape";
     const w = orientation === "portrait" ? "54mm" : "85.6mm";
     const h = orientation === "portrait" ? "85.6mm" : "54mm";
     const ctx = { employee: _employeeData, logoUrl: _logoUrl, qrDataUrl: qr };
-    setInner("printArea", `
+    const faces = () => `
       <div class="pfs-idcard-print-face" style="width:${w};height:${h}">${renderCardFace(_template, "front", ctx)}</div>
       <div class="pfs-idcard-print-face" style="width:${w};height:${h}">${renderCardFace(_template, "back", ctx)}</div>
-    `);
+    `;
+    setInner("printArea", faces());
+    // Text/statictext shrink-to-fit measures against whatever font is
+    // available *right now* — the very first render can land before the
+    // card's webfont has actually loaded, sizing it for text that then
+    // overflows and gets cut off by CSS ellipsis once the real font shows
+    // up. Re-render once fonts are confirmed loaded, before the print
+    // dialog snapshots the page (too late to fix it afterwards).
+    await ensureCardFontsLoaded(_template);
+    setInner("printArea", faces());
     window.print();
   }
 

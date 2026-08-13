@@ -150,6 +150,25 @@ async function ensureFontsLoaded(elements) {
   await Promise.all([...specs].map((spec) => document.fonts.load(spec).catch(() => {})));
 }
 
+/** Public wrapper for renderCardFace() callers (the HTML/CSS preview path,
+ *  used by the editor and by anything printed via window.print() rather
+ *  than downloaded as a PDF). Unlike renderCardToCanvas — which already
+ *  awaits this internally before drawing — renderCardFace itself has to
+ *  stay synchronous (it returns a plain HTML string that many callers
+ *  splice straight into innerHTML), so it can't wait for fonts on its own.
+ *  Any caller whose text uses a webfont should render once immediately for
+ *  a fast first paint, await this, then render again — the same shrink-to-
+ *  fit race that renderCardToCanvas guards against otherwise applies here
+ *  too: the *first* paint may measure against a fallback font and end up
+ *  sized for text that overflows once the real webfont loads, and canvas
+ *  wouldn't be the one drawing it this time — plain CSS text-overflow:
+ *  ellipsis would, cutting it off exactly like the print/PDF path did. */
+export async function ensureCardFontsLoaded(template) {
+  const t = template || getDefaultTemplate();
+  const elements = [...(t.front?.elements || []), ...(t.back?.elements || [])];
+  await ensureFontsLoaded(elements);
+}
+
 export function initials(name) {
   return (name || "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
 }
