@@ -51,6 +51,10 @@
   .set-pin-row i { color: var(--warn); width: 22px; height: 22px; }
   .set-pin-row > div { flex:1; }
   .set-actions-bar { display:flex; justify-content:flex-end; gap:10px; margin-top: 8px; }
+  .code-row { display:flex; gap:8px; width:100%; }
+  .code-row .form-input { flex:1; }
+  .set-chip-row { display:flex; flex-wrap:wrap; gap:8px; }
+  .set-chip-row .set-selected-chip { margin-top:0; }
   .set-token { font-family: ui-monospace, monospace; font-size: 12px; }
   .set-card-header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
   .set-reveal-secret { font-family: ui-monospace, monospace; font-size: 14px; background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; word-break: break-all; margin: 12px 0; }
@@ -117,6 +121,7 @@
   initTheme();
 
   let _profile = null, _companyId = null, _siteList = [];
+  let _emergencyEmails = []; // emergency evacuation report recipients, up to 10 — see renderModuleSettings()
   let _activeTab = "module";
   // Unsaved-changes tracking — Module Settings tab only (Site/Badge/Device
   // panels each save immediately per-action via their own modals).
@@ -186,6 +191,7 @@
   }
 
   function renderModuleSettings(s, pinConfigured, kioskPinConfigured) {
+    _emergencyEmails = [...(s.emergency_report_emails || [])];
     setInner("panel-module", `
       <div class="card" style="margin-bottom:20px">
         <div class="set-pin-row">
@@ -255,12 +261,22 @@
           </label>
         </div>
 
+        <h2 class="set-section-title" style="margin-top:8px">Emergency Reports</h2>
+        <p class="set-section-desc">Up to 10 email addresses that receive a full evacuation report (roll call summary + anyone not marked Safe) as soon as an emergency evacuation is completed.</p>
+        <div class="set-chip-row" id="emergencyEmailChips"></div>
+        <div class="code-row" style="margin-top:${_emergencyEmails.length ? "8px" : "0"}">
+          <input type="email" id="f_emergency_email_input" class="form-input" placeholder="ops@yourcompany.com" autocomplete="off" ${_emergencyEmails.length >= 10 ? "disabled" : ""}/>
+          <button class="btn" id="addEmergencyEmailBtn" type="button" ${_emergencyEmails.length >= 10 ? "disabled" : ""}>Add</button>
+        </div>
+        <p class="set-section-desc" id="emergencyEmailHint" style="margin:6px 0 0">${_emergencyEmails.length >= 10 ? "Maximum of 10 addresses reached." : `${_emergencyEmails.length}/10 addresses added.`}</p>
+
         <div class="set-actions-bar">
           <button class="btn btn-primary" id="saveModuleSettingsBtn" type="button">Save Settings</button>
         </div>
       </div>
     `);
     refreshIcons();
+    renderEmergencyEmailChips();
 
     document.getElementById("f_auto_sign_out_enabled").addEventListener("change", e => {
       document.getElementById("autoSignOutTimeGrid").style.display = e.target.checked ? "" : "none";
@@ -268,6 +284,10 @@
     document.getElementById("setPinBtn").addEventListener("click", openSetPinModal);
     document.getElementById("setKioskPinBtn").addEventListener("click", openSetKioskPinModal);
     document.getElementById("saveModuleSettingsBtn").addEventListener("click", saveModuleSettings);
+    document.getElementById("addEmergencyEmailBtn").addEventListener("click", addEmergencyEmail);
+    document.getElementById("f_emergency_email_input").addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); addEmergencyEmail(); }
+    });
 
     // Unsaved-changes tracking: any edit to a module-settings field marks the
     // form dirty; loading/saving resets it back to clean. The combobox search
@@ -281,6 +301,46 @@
       el.addEventListener("change", () => { _settingsDirty = true; });
     });
     enhanceSelect(document.getElementById("f_default_sign_in_method"));
+  }
+
+  function renderEmergencyEmailChips() {
+    const wrap = document.getElementById("emergencyEmailChips");
+    if (!wrap) return;
+    wrap.innerHTML = _emergencyEmails.map(email => `
+      <span class="set-selected-chip">${esc(email)}<button type="button" data-email="${esc(email)}" aria-label="Remove ${esc(email)}">&times;</button></span>
+    `).join("");
+    wrap.querySelectorAll("button[data-email]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _emergencyEmails = _emergencyEmails.filter(e => e !== btn.dataset.email);
+        _settingsDirty = true;
+        renderEmergencyEmailChips();
+        syncEmergencyEmailInputState();
+      });
+    });
+  }
+
+  function syncEmergencyEmailInputState() {
+    const input = document.getElementById("f_emergency_email_input");
+    const addBtn = document.getElementById("addEmergencyEmailBtn");
+    const hint = document.getElementById("emergencyEmailHint");
+    const full = _emergencyEmails.length >= 10;
+    if (input) input.disabled = full;
+    if (addBtn) addBtn.disabled = full;
+    if (hint) hint.textContent = full ? "Maximum of 10 addresses reached." : `${_emergencyEmails.length}/10 addresses added.`;
+  }
+
+  function addEmergencyEmail() {
+    const input = document.getElementById("f_emergency_email_input");
+    const raw = input.value.trim().toLowerCase();
+    if (!raw) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) { toast("error", "Invalid email", `"${raw}" doesn't look like a valid email address.`); return; }
+    if (_emergencyEmails.includes(raw)) { toast("info", "Already added", `${raw} is already in the list.`); input.value = ""; return; }
+    if (_emergencyEmails.length >= 10) return;
+    _emergencyEmails.push(raw);
+    _settingsDirty = true;
+    input.value = "";
+    renderEmergencyEmailChips();
+    syncEmergencyEmailInputState();
   }
 
   async function saveModuleSettings() {
@@ -302,6 +362,7 @@
       failed_pin_limit: parseInt(document.getElementById("f_failed_pin_limit").value, 10),
       failed_pin_lockout_minutes: parseInt(document.getElementById("f_failed_pin_lockout_minutes").value, 10),
       data_retention_days: parseInt(document.getElementById("f_data_retention_days").value, 10),
+      emergency_report_emails: _emergencyEmails,
     };
     btn.disabled = true;
     btn.textContent = "Saving…";

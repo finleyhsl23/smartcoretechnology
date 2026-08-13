@@ -587,6 +587,24 @@ export const evacuation = {
     if (error) throw new Error(error.message || "Could not complete evacuation");
     return data;
   },
+
+  /** Best-effort — sends the evacuation report to the "Emergency Reports"
+   *  email list configured in Settings. Call after complete() has already
+   *  succeeded; a failure here should never look like the evacuation itself
+   *  failed to complete, so callers should swallow rejections. */
+  async notifyCompleted(sessionId) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) return;
+    const res = await fetch("/api/presence-fire-safety/notify-evacuation-completed", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ evacuation_session_id: sessionId }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Could not send evacuation report");
+    }
+  },
 };
 
 // ── Audit ────────────────────────────────────────────────────────────────

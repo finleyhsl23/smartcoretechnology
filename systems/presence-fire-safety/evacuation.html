@@ -153,8 +153,11 @@
         const people = await evacuation.rollCall(session.id);
         if (token !== _loadToken) return;
         _people = people;
+        applyQueuedOverlay(session.id);
         renderActiveSession();
+        updateSyncBanner(session.id);
         startPolling(siteId);
+        trySyncQueue(session.id); // flush anything queued from before this load (e.g. a reload while offline)
       } else {
         _session = null;
         _people = [];
@@ -352,6 +355,8 @@
         <span id="evacStaleBadge">${staleBadge(_lastRefreshed)}</span>
       </div>
 
+      <div id="evacSyncBanner"></div>
+
       ${!CAN.manageRollCall ? `<div class="evac-readonly-note"><i data-lucide="eye"></i> Read-only — you don't have permission to update roll call status.</div>` : ""}
 
       <div class="stat-grid evac-stat-grid" id="evacStats" aria-live="polite"></div>
@@ -449,6 +454,7 @@
         <td>${p.sign_in_time_snapshot ? esc(fmtTime(p.sign_in_time_snapshot)) : "—"}</td>
         <td>
           <span class="badge ${STATUS_BADGE[p.roll_call_status] || "badge-grey"}">${esc(STATUS_LABEL[p.roll_call_status] || p.roll_call_status)}</span>
+          ${p._pendingSync ? `<span class="badge badge-yellow" title="Saved on this device, not yet synced">Pending sync</span>` : ""}
           ${p.notes ? `<div class="evac-row-notes">${esc(p.notes)}</div>` : ""}
         </td>
         ${actions}
@@ -490,18 +496,130 @@
     await applyRollCallUpdate(personId, status, null);
   }
 
-  async function applyRollCallUpdate(personId, status, notes) {
-    try {
-      const updated = await evacuation.updateRollCall(personId, status, notes);
-      const idx = _people.findIndex(p => p.id === personId);
-      const name = idx !== -1 ? _people[idx].display_name_snapshot : "Person";
-      if (idx !== -1) _people[idx] = { ..._people[idx], ...updated };
+  // ── Offline roll call queue ────────────────────────────────────────────
+  // Wifi at an assembly point is often patchy or down outright — marking
+  // someone safe/missing must never be blocked by connectivity. Every mark
+  // is applied to local state + the UI immediately; the network write is
+  // attempted in the background and, if it fails for what looks like a
+  // connectivity reason, queued in localStorage (keyed per evacuation
+  // session, one entry per person so a later mark overwrites an earlier
+  // queued one rather than piling up) and retried automatically once the
+  // browser comes back online, on the next poll tick, or on page reload.
+  function queueKey(sessionId) { return `smartcore-pfs-evac-queue-${sessionId}`; }
+
+  function readQueue(sessionId) {
+    if (!sessionId) return {};
+    try { return JSON.parse(localStorage.getItem(queueKey(sessionId)) || "{}"); }
+    catch { return {}; }
+  }
+  function writeQueue(sessionId, queue) {
+    localStorage.setItem(queueKey(sessionId), JSON.stringify(queue));
+  }
+  function queueUpdate(sessionId, personId, status, notes) {
+    const queue = readQueue(sessionId);
+    queue[personId] = { status, notes: notes || null, ts: Date.now() };
+    writeQueue(sessionId, queue);
+  }
+  function dequeueUpdate(sessionId, personId) {
+    const queue = readQueue(sessionId);
+    if (personId in queue) { delete queue[personId]; writeQueue(sessionId, queue); }
+  }
+  function queueSize(sessionId) { return Object.keys(readQueue(sessionId)).length; }
+
+  function isNetworkError(e) {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+    const msg = (e?.message || String(e || "")).toLowerCase();
+    return /failed to fetch|networkerror|network request failed|load failed|internet connection|err_internet|err_connection|err_network|ERR_NAME_NOT_RESOLVED/i.test(msg);
+  }
+
+  // Reapplies any queued-but-not-yet-synced marks on top of freshly-fetched
+  // server data, so a reload while offline doesn't show stale statuses —
+  // the queue (this device's own unsynced intent) always wins over what the
+  // server last knew.
+  function applyQueuedOverlay(sessionId) {
+    const queue = readQueue(sessionId);
+    for (const p of _people) {
+      const q = queue[p.id];
+      if (q) { p.roll_call_status = q.status; p.notes = q.notes; p._pendingSync = true; }
+    }
+  }
+
+  let _syncingQueue = false;
+  async function trySyncQueue(sessionId) {
+    if (_syncingQueue || !sessionId) return;
+    const queue = readQueue(sessionId);
+    const personIds = Object.keys(queue);
+    if (!personIds.length) return;
+    _syncingQueue = true;
+    let synced = 0;
+    for (const personId of personIds) {
+      const { status, notes } = queue[personId];
+      try {
+        const updated = await evacuation.updateRollCall(personId, status, notes);
+        dequeueUpdate(sessionId, personId);
+        synced++;
+        const idx = _people.findIndex(p => p.id === personId);
+        if (idx !== -1) _people[idx] = { ..._people[idx], ...updated, _pendingSync: false };
+      } catch (e) {
+        if (isNetworkError(e)) break; // still offline — stop and retry later
+        dequeueUpdate(sessionId, personId); // genuine rejection — don't retry forever
+      }
+    }
+    _syncingQueue = false;
+    if (synced > 0) {
       recomputeLocalCounts();
       updateStatsTiles();
       renderRollCallRows();
+      toast("success", "Synced", `${synced} offline roll call update${synced === 1 ? "" : "s"} uploaded.`);
+    }
+    updateSyncBanner(sessionId);
+  }
+
+  function updateSyncBanner(sessionId) {
+    const el = document.getElementById("evacSyncBanner");
+    if (!el) return;
+    const n = queueSize(sessionId);
+    el.innerHTML = n > 0
+      ? `<div class="pfs-offline-banner"><i data-lucide="cloud-off"></i> ${n} roll call update${n === 1 ? "" : "s"} saved on this device — will upload automatically once you're back online.</div>`
+      : "";
+    refreshIcons();
+  }
+
+  async function applyRollCallUpdate(personId, status, notes) {
+    const idx = _people.findIndex(p => p.id === personId);
+    if (idx === -1) return;
+    const name = _people[idx].display_name_snapshot;
+    const previous = { roll_call_status: _people[idx].roll_call_status, notes: _people[idx].notes };
+
+    // Optimistic local update — marking works instantly regardless of
+    // whether the network write below actually reaches the server.
+    _people[idx] = { ..._people[idx], roll_call_status: status, notes, _pendingSync: true };
+    recomputeLocalCounts();
+    updateStatsTiles();
+    renderRollCallRows();
+
+    try {
+      const updated = await evacuation.updateRollCall(personId, status, notes);
+      _people[idx] = { ..._people[idx], ...updated, _pendingSync: false };
+      dequeueUpdate(_session.id, personId);
+      recomputeLocalCounts();
+      updateStatsTiles();
+      renderRollCallRows();
+      updateSyncBanner(_session.id);
       toast("success", "Roll call updated", `${name} marked ${(STATUS_LABEL[status] || status).toLowerCase()}.`);
     } catch (e) {
-      toast("error", "Couldn't update roll call", e.message || "Please try again.");
+      if (isNetworkError(e)) {
+        queueUpdate(_session.id, personId, status, notes);
+        updateSyncBanner(_session.id);
+        toast("info", "Saved offline", `${name} marked ${(STATUS_LABEL[status] || status).toLowerCase()} — will sync once you're back online.`);
+      } else {
+        // Genuine failure (permission/validation) — revert the optimistic change.
+        _people[idx] = { ..._people[idx], ...previous, _pendingSync: false };
+        recomputeLocalCounts();
+        updateStatsTiles();
+        renderRollCallRows();
+        toast("error", "Couldn't update roll call", e.message || "Please try again.");
+      }
     }
   }
 
@@ -516,15 +634,32 @@
     };
   }
 
-  function onCompleteEvacuation() {
+  async function onCompleteEvacuation() {
+    // Completing while marks are still only queued on this device would
+    // close the session on server data that doesn't yet include them —
+    // try to flush first, and refuse to complete if that still leaves marks
+    // stuck (i.e. we're genuinely still offline).
+    if (queueSize(_session.id) > 0) {
+      await trySyncQueue(_session.id);
+      const remaining = queueSize(_session.id);
+      if (remaining > 0) {
+        toast("error", "Can't complete yet", `${remaining} roll call update${remaining === 1 ? "" : "s"} on this device ${remaining === 1 ? "hasn't" : "haven't"} synced yet — reconnect to wifi and try again.`);
+        return;
+      }
+    }
     confirmDialog(
       "Complete Evacuation?",
       `This ends the active evacuation session for ${_currentSite?.name || "this site"}. This cannot be undone — make sure the roll call is finished.`,
       async () => {
         try {
-          await evacuation.complete(_session.id);
+          const completedSessionId = _session.id;
+          await evacuation.complete(completedSessionId);
           stopPolling();
           toast("success", "Evacuation completed", "The session has been closed.");
+          // Best-effort — the evacuation report email must never look like
+          // it blocked or failed the completion itself, which has already
+          // succeeded by this point.
+          evacuation.notifyCompleted(completedSessionId).catch((e) => console.warn("notifyCompleted failed:", e.message));
           await loadState(_currentSite.id);
         } catch (e) {
           toast("error", "Couldn't complete evacuation", e.message || "Please try again.");
@@ -561,10 +696,12 @@
       const people = await evacuation.rollCall(session.id);
       _session = session;
       _people = people;
+      applyQueuedOverlay(session.id); // server data may not yet reflect marks still queued on this device
       _lastRefreshed = new Date();
       updateStatsTiles();
       renderRollCallRows();
       setInner("evacStaleBadge", staleBadge(_lastRefreshed));
+      trySyncQueue(session.id); // this poll reached the server, so it's a good moment to flush any queued marks
     } catch (e) {
       // Transient poll failures are not surfaced as page-level errors — the
       // next tick retries; the page keeps showing the last-known state.
@@ -605,6 +742,7 @@
     render();
     window.addEventListener("online", render);
     window.addEventListener("offline", render);
+    window.addEventListener("online", () => { if (_session) trySyncQueue(_session.id); });
   }
 
   // ── Bootstrap — runs last, after every const/function above is defined ──
