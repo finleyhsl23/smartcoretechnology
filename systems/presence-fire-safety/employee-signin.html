@@ -127,7 +127,7 @@
     pointer-events: none; font-size: 16px; color: var(--text);
   }
   .kiosk-phone-row .form-input:last-child { flex: 1; min-width: 0; }
-  #kvVehicle, #kcVehicle { text-transform: uppercase; }
+  #kvVehicle, #kcVehicle, #empCode { text-transform: uppercase; }
   .kiosk-result-meta { font-size:12px; color: var(--text3); }
   .kiosk-actions { display:flex; flex-direction:column; gap:12px; width:100%; }
   .kiosk-actions .btn { width:100%; }
@@ -368,7 +368,7 @@
         ${allowCode ? `
           <label class="form-label" for="empCode">Enter employee code</label>
           <div class="code-row">
-            <input class="form-input" id="empCode" type="text" placeholder="e.g. EMP-0042" autocomplete="off"/>
+            <input class="form-input" id="empCode" type="text" placeholder="e.g. EMP-0042" autocomplete="off" data-vk-uppercase="1"/>
             <button class="btn btn-primary" id="codeGoBtn">Go</button>
           </div>
           <div id="codeStatus" role="status" aria-live="polite"></div>` : ""}
@@ -428,6 +428,7 @@
       };
       document.getElementById("codeGoBtn").addEventListener("click", go);
       codeInput.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+      forceUppercase("empCode");
     }
   }
 
@@ -710,9 +711,13 @@
     });
   }
 
-  /** Forces a vehicle registration field to always store/display capitals. */
-  function wireVehicleField(idPrefix) {
-    const el = document.getElementById(`${idPrefix}Vehicle`);
+  /** Forces a field to always store/display capitals as the user types —
+   *  works whether they're typing on a physical keyboard or the kiosk's own
+   *  virtual one (see shared/virtual-keyboard.js's data-vk-uppercase, which
+   *  makes the on-screen keys themselves show capitals for the same
+   *  fields), since both dispatch native "input" events either way. */
+  function forceUppercase(elId) {
+    const el = document.getElementById(elId);
     el?.addEventListener("input", () => {
       const upper = el.value.toUpperCase();
       if (upper !== el.value) {
@@ -721,6 +726,10 @@
         el.setSelectionRange(pos, pos);
       }
     });
+  }
+
+  function wireVehicleField(idPrefix) {
+    forceUppercase(`${idPrefix}Vehicle`);
   }
 
   /** Combines the dial code + number into one string for the phone field,
@@ -757,7 +766,7 @@
             <input class="form-input" id="kvEmail" type="email" autocomplete="off"/>
             ${phoneFieldHtml("kv", "Phone")}
             <label class="form-label" for="kvVehicle" style="margin-top:10px">Vehicle registration</label>
-            <input class="form-input" id="kvVehicle" autocomplete="off"/>
+            <input class="form-input" id="kvVehicle" autocomplete="off" data-vk-uppercase="1"/>
             <label class="form-label" for="kvHost" style="margin-top:10px">Who are you here to see? (optional)</label>
             <div class="kiosk-chip-row" id="kvHostChips"></div>
             <input class="form-input" id="kvHost" autocomplete="off" placeholder="Search employees…" style="margin-top:8px"/>
@@ -958,7 +967,7 @@
             <input class="form-input" id="kcEmail" type="email" autocomplete="off"/>
             ${phoneFieldHtml("kc", "Phone")}
             <label class="form-label" for="kcVehicle" style="margin-top:10px">Vehicle registration</label>
-            <input class="form-input" id="kcVehicle" autocomplete="off"/>
+            <input class="form-input" id="kcVehicle" autocomplete="off" data-vk-uppercase="1"/>
             <label class="form-label" for="kcHost" style="margin-top:10px">Host / who are you working with? (optional)</label>
             <div class="kiosk-chip-row" id="kcHostChips"></div>
             <input class="form-input" id="kcHost" autocomplete="off" placeholder="Search employees…" style="margin-top:8px"/>

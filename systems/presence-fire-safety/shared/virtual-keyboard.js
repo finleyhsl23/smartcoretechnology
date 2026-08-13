@@ -69,13 +69,20 @@ function specialBtn(action, label, active, extraClass) {
 }
 
 function renderQwertyRows() {
-  const caseIt = (s) => (_shiftOn ? s.toUpperCase() : s);
+  // Fields like the employee code or vehicle registration are always
+  // stored/displayed as capitals (see forceUppercase() in the pages that
+  // use this) — showing lowercase key labels for those would be
+  // misleading about what you're about to type, so the keys themselves
+  // stay permanently capitalised too, with no shift toggle needed (or
+  // shown) for fields that never have a lowercase form anyway.
+  const forceUpper = _activeInput?.dataset.vkUppercase === "1";
+  const caseIt = (s) => (_shiftOn || forceUpper ? s.toUpperCase() : s);
   return `
     <div class="pfs-vk-row">${QWERTY_NUM.map(keyBtn).join("")}</div>
     <div class="pfs-vk-row">${QWERTY_R1.map((k) => keyBtn(caseIt(k))).join("")}</div>
     <div class="pfs-vk-row">${QWERTY_R2.map((k) => keyBtn(caseIt(k))).join("")}</div>
     <div class="pfs-vk-row">
-      ${specialBtn("shift", "⇧", _shiftOn)}
+      ${forceUpper ? "" : specialBtn("shift", "⇧", _shiftOn)}
       ${QWERTY_R3.map((k) => keyBtn(caseIt(k))).join("")}
       ${specialBtn("backspace", "⌫")}
     </div>`;
