@@ -147,7 +147,15 @@ async function ensureFontsLoaded(elements) {
     const weight = el.type === "text" && el.bold ? "700" : "400";
     specs.add(`${weight} 16px "${name}"`);
   }
+  if (!specs.size) return;
   await Promise.all([...specs].map((spec) => document.fonts.load(spec).catch(() => {})));
+  // Belt-and-braces: document.fonts.load() resolving for a given spec
+  // doesn't always mean the browser's own canvas font resolution has
+  // caught up yet (a known source of "first paint used the fallback"
+  // canvas text bugs) — document.fonts.ready is the platform's own signal
+  // that font loading/matching has fully settled, so wait on that too
+  // before any measureText()/fillText() call relies on the result.
+  await document.fonts.ready;
 }
 
 /** Public wrapper for renderCardFace() callers (the HTML/CSS preview path,
