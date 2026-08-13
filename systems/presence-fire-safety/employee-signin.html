@@ -116,8 +116,18 @@
   .kiosk-chip-row:not(:empty) { margin-top:8px; }
   .kiosk-chip-row .set-selected-chip { margin-top:0; }
   .kiosk-phone-row { display:flex; gap:8px; }
-  .kiosk-phone-country { flex: 0 0 172px; font-size: 15px; }
+  /* The <select> itself keeps native option text ("+44 United Kingdom") so
+     the OPEN dropdown lists full country names — but its own text is made
+     invisible and a small overlay span shows just the dial code, so the
+     CLOSED box stays short instead of truncating mid-word. */
+  .kiosk-phone-country-wrap { position: relative; flex: 0 0 84px; }
+  .kiosk-phone-country-wrap .kiosk-phone-country { width: 100%; color: transparent; }
+  .kiosk-phone-country-display {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    pointer-events: none; font-size: 16px; color: var(--text);
+  }
   .kiosk-phone-row .form-input:last-child { flex: 1; min-width: 0; }
+  #kvVehicle, #kcVehicle { text-transform: uppercase; }
   .kiosk-result-meta { font-size:12px; color: var(--text3); }
   .kiosk-actions { display:flex; flex-direction:column; gap:12px; width:100%; }
   .kiosk-actions .btn { width:100%; }
@@ -218,7 +228,6 @@
       initIdleScreensaver({
         idleMs: 60000,
         text: "Touch to sign in",
-        logoUrl: _companySettings?.id_card_logo_url || null,
         onIdle: () => { stopScanner(); stopCamera(); },
         onResume: () => { returnToStart(); },
       });
@@ -673,11 +682,45 @@
     return `
       <label class="form-label" for="${idPrefix}Phone" style="margin-top:10px">${esc(label)}</label>
       <div class="kiosk-phone-row">
-        <select class="form-input kiosk-phone-country" id="${idPrefix}PhoneCountry" aria-label="Country code">
-          ${PHONE_COUNTRIES.map((c, i) => `<option value="${esc(c.code)}" ${i === 0 ? "selected" : ""}>${esc(c.code)} ${esc(c.label)}</option>`).join("")}
-        </select>
-        <input class="form-input" id="${idPrefix}Phone" type="tel" autocomplete="off" placeholder="7700 900000"/>
+        <div class="kiosk-phone-country-wrap">
+          <select class="form-input kiosk-phone-country" id="${idPrefix}PhoneCountry" aria-label="Country code">
+            ${PHONE_COUNTRIES.map((c, i) => `<option value="${esc(c.code)}" ${i === 0 ? "selected" : ""}>${esc(c.code)} ${esc(c.label)}</option>`).join("")}
+          </select>
+          <span class="kiosk-phone-country-display" id="${idPrefix}PhoneCountryDisplay" aria-hidden="true">${esc(PHONE_COUNTRIES[0].code)}</span>
+        </div>
+        <input class="form-input" id="${idPrefix}Phone" type="tel" inputmode="numeric" autocomplete="off" placeholder="7700 900000"/>
       </div>`;
+  }
+
+  /** Wires the country-code overlay (so the closed select shows just the
+   *  dial code) and restricts the number field to digits only — call once
+   *  right after the phoneFieldHtml() markup is in the DOM. */
+  function wirePhoneField(idPrefix) {
+    const countrySelect = document.getElementById(`${idPrefix}PhoneCountry`);
+    const display = document.getElementById(`${idPrefix}PhoneCountryDisplay`);
+    countrySelect?.addEventListener("change", () => { if (display) display.textContent = countrySelect.value; });
+    const phoneInput = document.getElementById(`${idPrefix}Phone`);
+    phoneInput?.addEventListener("input", () => {
+      const digitsOnly = phoneInput.value.replace(/[^0-9]/g, "");
+      if (digitsOnly !== phoneInput.value) {
+        const pos = phoneInput.selectionStart - (phoneInput.value.length - digitsOnly.length);
+        phoneInput.value = digitsOnly;
+        phoneInput.setSelectionRange(pos, pos);
+      }
+    });
+  }
+
+  /** Forces a vehicle registration field to always store/display capitals. */
+  function wireVehicleField(idPrefix) {
+    const el = document.getElementById(`${idPrefix}Vehicle`);
+    el?.addEventListener("input", () => {
+      const upper = el.value.toUpperCase();
+      if (upper !== el.value) {
+        const pos = el.selectionStart;
+        el.value = upper;
+        el.setSelectionRange(pos, pos);
+      }
+    });
   }
 
   /** Combines the dial code + number into one string for the phone field,
@@ -729,6 +772,8 @@
           </div>
         </div>`);
     wireMultiHostSearch("kvHost", "kvHostResults", "kvHostChips", (ids) => { hostIds = ids; });
+    wirePhoneField("kv");
+    wireVehicleField("kv");
 
     _kvCurrentVisits = [];
     visitors.currentVisits(_companyId, _siteId).then(rows => { _kvCurrentVisits = rows; }).catch(() => { _kvCurrentVisits = []; });
@@ -930,6 +975,8 @@
           </div>
         </div>`);
     wireMultiHostSearch("kcHost", "kcHostResults", "kcHostChips", (ids) => { hostIds = ids; });
+    wirePhoneField("kc");
+    wireVehicleField("kc");
 
     _kcCurrentVisits = [];
     contractors.currentVisits(_companyId, _siteId).then(rows => { _kcCurrentVisits = rows; }).catch(() => { _kcCurrentVisits = []; });

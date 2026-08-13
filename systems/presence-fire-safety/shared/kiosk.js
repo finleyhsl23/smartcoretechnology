@@ -11,6 +11,14 @@ import { getProfile, clearProfileCache, getMyPermissions, hasPermission } from "
 import { settings } from "./api.js";
 import { esc, toast, modal } from "./ui.js";
 import { focusWithKeyboard } from "./virtual-keyboard.js";
+import { getTheme } from "./theme.js";
+
+// SC mark for the idle screensaver — each file is a solid square tile (not
+// transparent), so the dark-mode file has a black background/white mark and
+// the light-mode file has a white background/black mark; whichever matches
+// the current theme blends into the screensaver's own background.
+const SC_ICON_DARK = "/systems/presence-fire-safety/shared/assets/sc-icon-dark.png";
+const SC_ICON_LIGHT = "/systems/presence-fire-safety/shared/assets/sc-icon-light.png";
 
 const STORAGE_KEY = "smartcore-pfs-kiosk-mode";
 const SIGNIN_PAGE = "/systems/presence-fire-safety/employee-signin.html";
@@ -212,11 +220,10 @@ const IDLE_ACTIVITY_EVENTS = ["pointerdown", "pointermove", "keydown", "touchsta
  * @param {object} opts
  *   opts.idleMs   - milliseconds of inactivity before the screensaver shows (default 60000)
  *   opts.text     - the call-to-action text (default "Touch to sign in")
- *   opts.logoUrl  - company logo shown above the clock, if the company has one uploaded
  *   opts.onIdle   - called right before the screensaver appears (e.g. to stop a camera)
  *   opts.onResume - called right after the screensaver is dismissed (e.g. to reset the UI)
  */
-export function initIdleScreensaver({ idleMs = 60000, text = "Touch to sign in", logoUrl = null, onIdle, onResume } = {}) {
+export function initIdleScreensaver({ idleMs = 60000, text = "Touch to sign in", onIdle, onResume } = {}) {
   if (_idleInitialized) return;
   _idleInitialized = true;
 
@@ -232,11 +239,12 @@ export function initIdleScreensaver({ idleMs = 60000, text = "Touch to sign in",
 
   function showScreensaver() {
     onIdle?.();
+    const scIcon = getTheme() === "light" ? SC_ICON_LIGHT : SC_ICON_DARK;
     _idleOverlay = document.createElement("div");
     _idleOverlay.className = "pfs-screensaver";
     _idleOverlay.innerHTML = `
       <div class="pfs-screensaver-block">
-        ${logoUrl ? `<img src="${esc(logoUrl)}" class="pfs-screensaver-logo" alt=""/>` : ""}
+        <img src="${esc(scIcon)}" class="pfs-screensaver-logo" alt="SmartCore"/>
         <div class="pfs-screensaver-clock">${esc(formatClock(new Date()))}</div>
         <div class="pfs-screensaver-text">${esc(text)}</div>
       </div>`;
