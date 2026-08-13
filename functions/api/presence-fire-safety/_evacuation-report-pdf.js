@@ -9,10 +9,17 @@
 // Functions (no npm deps configured) — the PDF is hand-assembled with raw
 // PDF syntax, the same technique functions/api/payment-complete.js already
 // uses for invoices, extended here with JPEG image XObjects (/DCTDecode)
-// so photos can be embedded without any image-processing library. Only
-// JPEG photos can be embedded this way (kiosk visitor/contractor captures
-// always are — see shared/camera.js); anything else (e.g. a PNG employee
-// avatar) falls back to an initials tile rather than failing the report.
+// so photos can be embedded without any image-processing library, plus
+// rounded rects, alpha transparency (ExtGState /ca) and axial-gradient
+// fills (/Shading) for a modern "glass panel" look — translucent white
+// cards with soft shadows floating over a gradient wash. A static PDF
+// can't do a real background blur, so that's the closest a hand-rolled
+// renderer gets to the "liquid glass" aesthetic without one.
+//
+// Only JPEG photos can be embedded this way (kiosk visitor/contractor
+// captures always are — see shared/camera.js); anything else (e.g. a PNG
+// employee avatar) falls back to a gradient initials circle instead of
+// failing the report.
 import { SUPABASE_URL, sb } from './_auth.js';
 
 export const STATUS_LABEL = {
@@ -110,21 +117,42 @@ function jpegDimensions(bytes) {
 // ── Low-level PDF primitives ───────────────────────────────────────────
 const PAGE_W = 595.28, PAGE_H = 841.89; // A4, pt
 const MARGIN = 36;
-const FOOTER_LIMIT = MARGIN + 18;
+const FOOTER_LIMIT = MARGIN + 22;
 
-const DARK = [0.067, 0.094, 0.153];
-const GREY = [0.42, 0.447, 0.502];
-const GREEN = [0.086, 0.639, 0.29];
-const RED = [0.863, 0.149, 0.149];
-const AMBER = [0.851, 0.467, 0.024];
+// ── Palette ─────────────────────────────────────────────────────────────
+// A soft "glass" aesthetic — translucent white panels with soft shadows,
+// floating over a gentle gradient wash, with colour carried by gradients
+// (header band, section banners, avatar fallbacks) rather than flat fills.
+const INK = [0.086, 0.106, 0.176];
+const INK_SOFT = [0.373, 0.408, 0.482];
 const WHITE = [1, 1, 1];
-const LIGHT_BG = [0.96, 0.965, 0.975];
-const AVATAR_BG = [0.55, 0.58, 0.63];
+const RED_A = [0.937, 0.267, 0.267];
+const AMBER = [0.851, 0.467, 0.024];
+const GREEN_A = [0.020, 0.667, 0.475];
+const SHADOW = [0.086, 0.106, 0.176];
+const GLASS_BORDER = [0.85, 0.87, 0.93];
 
 const STATUS_COLOR = {
-  safe: GREEN, missing: RED, unaccounted: AMBER,
-  left_before_roll_call: GREY, not_expected: GREY, other: GREY,
+  safe: GREEN_A, missing: RED_A, unaccounted: AMBER,
+  left_before_roll_call: INK_SOFT, not_expected: INK_SOFT, other: INK_SOFT,
 };
+
+// Two-colour axial gradients used throughout the report. `coords` are in a
+// local 0..1 unit-square space — each use site clips to its actual target
+// rect, transforms that unit square onto it via `cm`, then paints with
+// `sh`, so one Shading object per gradient serves every rect it's used on
+// regardless of size or position (see opsToStream's 'gradient' case).
+const GRADIENT_DEFS = {
+  header: { resourceName: 'ShHeader', c0: [0.298, 0.204, 0.706], c1: [0.145, 0.388, 0.922], coords: [0, 0, 1, 1] },
+  red: { resourceName: 'ShRed', c0: RED_A, c1: [0.945, 0.443, 0.129], coords: [0, 0, 1, 0] },
+  green: { resourceName: 'ShGreen', c0: GREEN_A, c1: [0.024, 0.714, 0.831], coords: [0, 0, 1, 0] },
+  avatar: { resourceName: 'ShAvatar', c0: [0.376, 0.306, 0.855], c1: [0.204, 0.514, 0.965], coords: [0, 0, 1, 1] },
+  wash: { resourceName: 'ShWash', c0: [0.902, 0.917, 0.984], c1: [0.988, 0.945, 0.976], coords: [0, 0, 1, 1] },
+};
+// Every alpha (fill translucency) used anywhere in the design — declared
+// once so assemblePdf can emit exactly one ExtGState object per level and
+// opsToStream can look each one up by value rather than re-deriving them.
+const ALPHA_LEVELS = [0.05, 0.06, 0.07, 0.15, 0.9];
 
 function sanitizeText(s) {
   return String(s ?? '')
@@ -134,6 +162,10 @@ function sanitizeText(s) {
 
 function pdfEscape(s) {
   return sanitizeText(s).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
+function estimateTextWidth(text, fontSize, bold = false) {
+  return sanitizeText(text).length * fontSize * (bold ? 0.56 : 0.5);
 }
 
 function truncate(text, availWidth, fontSize, bold = false) {
@@ -156,19 +188,81 @@ function fmt(n) {
 }
 
 function colStr(c) {
-  const [r, g, b] = c || DARK;
+  const [r, g, b] = c || INK;
   return `${fmt(r)} ${fmt(g)} ${fmt(b)} rg`;
 }
 
-function opsToStream(ops) {
+function colStrStroke(c) {
+  const [r, g, b] = c || INK;
+  return `${fmt(r)} ${fmt(g)} ${fmt(b)} RG`;
+}
+
+// Rounded-rect path construction (no fill/stroke operator — callers add
+// their own). r is clamped to half the smaller dimension so it degrades
+// gracefully into a pill or circle instead of an invalid self-intersecting
+// path; a circle is just this with w = h = 2r. The 0.5523 constant is the
+// standard cubic-bezier approximation of a 90° circular arc.
+function roundedRectOps(x, y, w, h, r) {
+  const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+  if (rr < 0.01) return `${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)} re`;
+  const k = 0.5523 * rr;
+  return [
+    `${fmt(x + rr)} ${fmt(y)} m`,
+    `${fmt(x + w - rr)} ${fmt(y)} l`,
+    `${fmt(x + w - rr + k)} ${fmt(y)} ${fmt(x + w)} ${fmt(y + rr - k)} ${fmt(x + w)} ${fmt(y + rr)} c`,
+    `${fmt(x + w)} ${fmt(y + h - rr)} l`,
+    `${fmt(x + w)} ${fmt(y + h - rr + k)} ${fmt(x + w - rr + k)} ${fmt(y + h)} ${fmt(x + w - rr)} ${fmt(y + h)} c`,
+    `${fmt(x + rr)} ${fmt(y + h)} l`,
+    `${fmt(x + rr - k)} ${fmt(y + h)} ${fmt(x)} ${fmt(y + h - rr + k)} ${fmt(x)} ${fmt(y + h - rr)} c`,
+    `${fmt(x)} ${fmt(y + rr)} l`,
+    `${fmt(x)} ${fmt(y + rr - k)} ${fmt(x + rr - k)} ${fmt(y)} ${fmt(x + rr)} ${fmt(y)} c`,
+    'h',
+  ].join('\n');
+}
+
+function opsToStream(ops, alphaGsName) {
   let s = '';
   for (const op of ops) {
     if (op.op === 'rect') {
-      s += `${colStr(op.color)}\n${fmt(op.x)} ${fmt(op.y)} ${fmt(op.w)} ${fmt(op.h)} re\nf\n`;
+      const gs = op.alpha != null && op.alpha < 1 ? alphaGsName.get(op.alpha) : null;
+      s += 'q\n';
+      if (gs) s += `/${gs} gs\n`;
+      s += `${colStr(op.color)}\n${roundedRectOps(op.x, op.y, op.w, op.h, op.r || 0)}\nf\nQ\n`;
+      if (op.border) {
+        s += `q\n${colStrStroke(op.border)}\n${fmt(op.borderWidth || 1)} w\n${roundedRectOps(op.x, op.y, op.w, op.h, op.r || 0)}\nS\nQ\n`;
+      }
+    } else if (op.op === 'gradient') {
+      const def = GRADIENT_DEFS[op.grad];
+      s += `q\n${roundedRectOps(op.x, op.y, op.w, op.h, op.r || 0)}\nW n\n`;
+      s += `${fmt(op.w)} 0 0 ${fmt(op.h)} ${fmt(op.x)} ${fmt(op.y)} cm\n/${def.resourceName} sh\nQ\n`;
+    } else if (op.op === 'shadow') {
+      // A few stacked, slightly larger, very-low-alpha copies of the same
+      // rounded rect, offset downward — the closest a blur-free renderer
+      // gets to a soft drop shadow under a glass panel.
+      const layers = [
+        { grow: 10, dy: -6, alpha: 0.05 },
+        { grow: 6, dy: -4, alpha: 0.06 },
+        { grow: 3, dy: -2, alpha: 0.07 },
+      ];
+      for (const l of layers) {
+        const gs = alphaGsName.get(l.alpha);
+        s += `q\n/${gs} gs\n${colStr(SHADOW)}\n${roundedRectOps(op.x - l.grow / 2, op.y - l.grow / 2 + l.dy, op.w + l.grow, op.h + l.grow, (op.r || 0) + l.grow / 2)}\nf\nQ\n`;
+      }
     } else if (op.op === 'text') {
       s += `${colStr(op.color)}\nBT\n/${op.bold ? 'F2' : 'F1'} ${op.size} Tf\n${fmt(op.x)} ${fmt(op.y)} Td\n(${pdfEscape(op.text)}) Tj\nET\n`;
     } else if (op.op === 'image') {
       s += `q\n${fmt(op.w)} 0 0 ${fmt(op.h)} ${fmt(op.x)} ${fmt(op.y)} cm\n/${op.name} Do\nQ\n`;
+    } else if (op.op === 'photo-circle') {
+      // Clip to a circle, cover-fit the photo inside it, then stroke a
+      // thin white ring on top — a real "avatar", not a square thumbnail.
+      const circle = roundedRectOps(op.cx - op.r, op.cy - op.r, op.r * 2, op.r * 2, op.r);
+      s += `q\n${circle}\nW n\n${fmt(op.dw)} 0 0 ${fmt(op.dh)} ${fmt(op.ix)} ${fmt(op.iy)} cm\n/${op.name} Do\nQ\n`;
+      s += `q\n${colStrStroke(WHITE)}\n1.5 w\n${circle}\nS\nQ\n`;
+    } else if (op.op === 'avatar-circle') {
+      const circle = roundedRectOps(op.cx - op.r, op.cy - op.r, op.r * 2, op.r * 2, op.r);
+      s += `q\n${circle}\nW n\n${fmt(op.r * 2)} 0 0 ${fmt(op.r * 2)} ${fmt(op.cx - op.r)} ${fmt(op.cy - op.r)} cm\n/${GRADIENT_DEFS.avatar.resourceName} sh\nQ\n`;
+      const offset = op.text.length > 1 ? op.size * 0.6 : op.size * 0.28;
+      s += `${colStr(WHITE)}\nBT\n/F2 ${op.size} Tf\n${fmt(op.cx - offset)} ${fmt(op.cy - op.size * 0.36)} Td\n(${pdfEscape(op.text)}) Tj\nET\n`;
     }
   }
   return s;
@@ -181,13 +275,20 @@ function asciiBytes(str) {
 }
 
 // ── Report layout ───────────────────────────────────────────────────────
+function drawPageBackground(ops) {
+  ops.push({ op: 'gradient', x: 0, y: 0, w: PAGE_W, h: PAGE_H, r: 0, grad: 'wash' });
+}
+
 function newLayoutState() {
-  return { pages: [], ops: [], y: PAGE_H - MARGIN };
+  const state = { pages: [], ops: [], y: PAGE_H - MARGIN };
+  drawPageBackground(state.ops);
+  return state;
 }
 
 function newPage(state) {
   state.pages.push(state.ops);
   state.ops = [];
+  drawPageBackground(state.ops);
   state.y = PAGE_H - MARGIN;
 }
 
@@ -195,82 +296,97 @@ function finishPage(state) {
   state.pages.push(state.ops);
 }
 
-function drawSectionBanner(state, label, color) {
-  if (state.y - 30 < FOOTER_LIMIT) newPage(state);
-  state.ops.push({ op: 'rect', x: MARGIN, y: state.y - 24, w: PAGE_W - 2 * MARGIN, h: 24, color });
-  state.ops.push({ op: 'text', x: MARGIN + 10, y: state.y - 17, size: 11, bold: true, color: WHITE, text: label });
-  state.y -= 24 + 14;
+function drawSectionBanner(state, label, grad) {
+  const h = 26;
+  if (state.y - h < FOOTER_LIMIT) newPage(state);
+  state.ops.push({ op: 'gradient', x: MARGIN, y: state.y - h, w: PAGE_W - 2 * MARGIN, h, r: h / 2, grad });
+  state.ops.push({ op: 'text', x: MARGIN + 14, y: state.y - h + 9, size: 11, bold: true, color: WHITE, text: label });
+  state.y -= h + 16;
 }
 
 function drawTitleAndSummary(state, session) {
   const siteName = session.sites?.name || 'Site';
-  state.ops.push({ op: 'text', x: MARGIN, y: state.y, size: 20, bold: true, color: DARK, text: 'Evacuation Report' });
-  state.y -= 22;
-  state.ops.push({ op: 'text', x: MARGIN, y: state.y, size: 12, bold: false, color: GREY, text: siteName });
-  state.y -= 26;
+  const headerH = 92;
+  state.ops.push({ op: 'gradient', x: 0, y: PAGE_H - headerH, w: PAGE_W, h: headerH, r: 0, grad: 'header' });
+  state.ops.push({ op: 'text', x: MARGIN, y: PAGE_H - 40, size: 22, bold: true, color: WHITE, text: 'Evacuation Report' });
+  state.ops.push({ op: 'text', x: MARGIN, y: PAGE_H - 62, size: 12, bold: false, color: WHITE, text: siteName });
+  state.y = PAGE_H - headerH - 24;
 
-  const rows = [
+  const metaRows = [
     ['Started', fmtDT(session.started_at)],
     ['Completed', fmtDT(session.completed_at)],
     ['Duration', fmtDuration(session.started_at, session.completed_at || new Date().toISOString())],
     ['Assembly point', session.assembly_point || 'Not recorded'],
   ];
-  for (const [k, v] of rows) {
-    state.ops.push({ op: 'text', x: MARGIN, y: state.y, size: 10, bold: false, color: GREY, text: k });
-    state.ops.push({ op: 'text', x: MARGIN + 140, y: state.y, size: 10, bold: true, color: DARK, text: String(v) });
-    state.y -= 16;
+  const metaH = metaRows.length * 18 + 16;
+  state.ops.push({ op: 'shadow', x: MARGIN, y: state.y - metaH, w: PAGE_W - 2 * MARGIN, h: metaH, r: 14 });
+  state.ops.push({ op: 'rect', x: MARGIN, y: state.y - metaH, w: PAGE_W - 2 * MARGIN, h: metaH, r: 14, color: WHITE, alpha: 0.9, border: GLASS_BORDER, borderWidth: 0.75 });
+  let my = state.y - 16;
+  for (const [k, v] of metaRows) {
+    state.ops.push({ op: 'text', x: MARGIN + 16, y: my, size: 10, bold: false, color: INK_SOFT, text: k });
+    state.ops.push({ op: 'text', x: MARGIN + 160, y: my, size: 10, bold: true, color: INK, text: String(v) });
+    my -= 18;
   }
-  state.y -= 10;
+  state.y -= metaH + 18;
 
   const counts = [
-    ['Snapshotted', session.snapshot_count ?? 0, DARK],
-    ['Safe', session.safe_count ?? 0, GREEN],
-    ['Missing', session.missing_count ?? 0, RED],
+    ['Snapshotted', session.snapshot_count ?? 0, INK],
+    ['Safe', session.safe_count ?? 0, GREEN_A],
+    ['Missing', session.missing_count ?? 0, RED_A],
     ['Unaccounted', session.unaccounted_count ?? 0, AMBER],
   ];
-  const boxW = (PAGE_W - 2 * MARGIN - 3 * 10) / 4;
+  const gap = 10;
+  const boxW = (PAGE_W - 2 * MARGIN - 3 * gap) / 4;
+  const boxH = 54;
   counts.forEach(([label, val, color], i) => {
-    const x = MARGIN + i * (boxW + 10);
-    state.ops.push({ op: 'rect', x, y: state.y - 40, w: boxW, h: 40, color: LIGHT_BG });
-    state.ops.push({ op: 'text', x: x + 10, y: state.y - 16, size: 16, bold: true, color, text: String(val) });
-    state.ops.push({ op: 'text', x: x + 10, y: state.y - 30, size: 8, bold: false, color: GREY, text: label });
+    const x = MARGIN + i * (boxW + gap);
+    state.ops.push({ op: 'shadow', x, y: state.y - boxH, w: boxW, h: boxH, r: 12 });
+    state.ops.push({ op: 'rect', x, y: state.y - boxH, w: boxW, h: boxH, r: 12, color: WHITE, alpha: 0.9, border: GLASS_BORDER, borderWidth: 0.75 });
+    state.ops.push({ op: 'text', x: x + 12, y: state.y - 23, size: 18, bold: true, color, text: String(val) });
+    state.ops.push({ op: 'text', x: x + 12, y: state.y - 40, size: 8, bold: false, color: INK_SOFT, text: label });
   });
-  state.y -= 40 + 22;
+  state.y -= boxH + 26;
 }
 
 function drawCard(state, x, yTop, w, h, person, photo) {
-  const photoBox = 56, padding = 8;
-  const photoX = x + padding, photoY = yTop - padding - photoBox;
+  const r = 14, padding = 10, photoR = 26;
+  state.ops.push({ op: 'shadow', x, y: yTop - h, w, h, r });
+  state.ops.push({ op: 'rect', x, y: yTop - h, w, h, r, color: WHITE, alpha: 0.9, border: GLASS_BORDER, borderWidth: 0.75 });
+
+  const cx = x + padding + photoR, cy = yTop - padding - photoR;
   if (photo) {
-    const scale = Math.min(photoBox / photo.width, photoBox / photo.height);
+    const scale = Math.max((photoR * 2) / photo.width, (photoR * 2) / photo.height); // cover-fit
     const dw = photo.width * scale, dh = photo.height * scale;
-    const ix = photoX + (photoBox - dw) / 2, iy = photoY + (photoBox - dh) / 2;
-    state.ops.push({ op: 'image', name: `Im${photo.imgIndex}`, x: ix, y: iy, w: dw, h: dh });
+    state.ops.push({ op: 'photo-circle', name: `Im${photo.imgIndex}`, cx, cy, r: photoR, ix: cx - dw / 2, iy: cy - dh / 2, dw, dh });
   } else {
-    state.ops.push({ op: 'rect', x: photoX, y: photoY, w: photoBox, h: photoBox, color: AVATAR_BG });
-    const label = initials(person.display_name_snapshot);
-    const textOffset = label.length > 1 ? 10 : 5;
-    state.ops.push({ op: 'text', x: photoX + photoBox / 2 - textOffset, y: photoY + photoBox / 2 - 5, size: 16, bold: true, color: WHITE, text: label });
+    state.ops.push({ op: 'avatar-circle', cx, cy, r: photoR, size: 15, text: initials(person.display_name_snapshot) });
   }
-  const textX = photoX + photoBox + 10;
-  const availW = w - (photoBox + padding * 2 + 10);
-  let ty = yTop - padding - 10;
-  state.ops.push({ op: 'text', x: textX, y: ty, size: 10.5, bold: true, color: DARK, text: truncate(person.display_name_snapshot, availW, 10.5, true) });
-  ty -= 14;
-  state.ops.push({ op: 'text', x: textX, y: ty, size: 9, bold: true, color: STATUS_COLOR[person.roll_call_status] || GREY, text: STATUS_LABEL[person.roll_call_status] || person.roll_call_status });
-  ty -= 13;
+
+  const textX = x + padding * 2 + photoR * 2;
+  const availW = w - (padding * 2 + photoR * 2 + padding);
+  let ty = yTop - padding - 9;
+  state.ops.push({ op: 'text', x: textX, y: ty, size: 10.5, bold: true, color: INK, text: truncate(person.display_name_snapshot, availW, 10.5, true) });
+  ty -= 16;
+
+  const statusLabel = STATUS_LABEL[person.roll_call_status] || person.roll_call_status;
+  const statusColor = STATUS_COLOR[person.roll_call_status] || INK_SOFT;
+  const pillW = Math.min(estimateTextWidth(statusLabel, 8, true) + 16, availW);
+  state.ops.push({ op: 'rect', x: textX, y: ty - 11, w: pillW, h: 14, r: 7, color: statusColor, alpha: 0.15 });
+  state.ops.push({ op: 'text', x: textX + 8, y: ty - 7, size: 8, bold: true, color: statusColor, text: statusLabel });
+  ty -= 22;
+
   if (person.department_snapshot) {
-    state.ops.push({ op: 'text', x: textX, y: ty, size: 8.5, bold: false, color: GREY, text: truncate(person.department_snapshot, availW, 8.5) });
+    state.ops.push({ op: 'text', x: textX, y: ty, size: 8.5, bold: false, color: INK_SOFT, text: truncate(person.department_snapshot, availW, 8.5) });
   }
 }
 
 function layoutPeopleGrid(state, list, onContinuedPage) {
   if (!list.length) {
-    state.ops.push({ op: 'text', x: MARGIN, y: state.y, size: 10, bold: false, color: GREY, text: 'None.' });
+    state.ops.push({ op: 'text', x: MARGIN, y: state.y, size: 10, bold: false, color: INK_SOFT, text: 'None.' });
     state.y -= 20;
     return;
   }
-  const cols = 3, gap = 14, cardH = 80;
+  const cols = 3, gap = 14, cardH = 96;
   const cardW = (PAGE_W - 2 * MARGIN - (cols - 1) * gap) / cols;
   for (let i = 0; i < list.length; i += cols) {
     if (state.y - cardH < FOOTER_LIMIT) {
@@ -287,7 +403,7 @@ function layoutPeopleGrid(state, list, onContinuedPage) {
 
 function addFooters(pages) {
   pages.forEach((ops, i) => {
-    ops.push({ op: 'text', x: MARGIN, y: 20, size: 8, bold: false, color: GREY, text: `Page ${i + 1} of ${pages.length}` });
+    ops.push({ op: 'text', x: MARGIN, y: 20, size: 8, bold: false, color: INK_SOFT, text: `Page ${i + 1} of ${pages.length}` });
   });
 }
 
@@ -299,6 +415,18 @@ function assemblePdf(pages, images) {
   const RES = ++objNum;
   const F1 = ++objNum;
   const F2 = ++objNum;
+
+  const alphaObjNums = new Map();
+  ALPHA_LEVELS.forEach((a) => alphaObjNums.set(a, ++objNum));
+  const alphaGsName = new Map();
+  [...alphaObjNums.keys()].forEach((a, i) => alphaGsName.set(a, `GS${i}`));
+
+  const gradFuncNums = {}, gradShadeNums = {};
+  for (const name of Object.keys(GRADIENT_DEFS)) {
+    gradFuncNums[name] = ++objNum;
+    gradShadeNums[name] = ++objNum;
+  }
+
   const imageObjNums = images.map(() => ++objNum);
   const pageObjNums = pages.map(() => ++objNum);
   const contentObjNums = pages.map(() => ++objNum);
@@ -321,14 +449,30 @@ function assemblePdf(pages, images) {
   offsets[PAGES] = length;
   push(`${PAGES} 0 obj\n<< /Type /Pages /Kids [${pageObjNums.map((n) => `${n} 0 R`).join(' ')}] /Count ${pages.length} >>\nendobj\n`);
 
-  offsets[RES] = length;
   const xobjEntries = images.map((_, i) => `/Im${i} ${imageObjNums[i]} 0 R`).join(' ');
-  push(`${RES} 0 obj\n<< /Font << /F1 ${F1} 0 R /F2 ${F2} 0 R >> /XObject << ${xobjEntries} >> >>\nendobj\n`);
+  const gsEntries = [...alphaGsName.entries()].map(([a, name]) => `/${name} ${alphaObjNums.get(a)} 0 R`).join(' ');
+  const shEntries = Object.entries(GRADIENT_DEFS).map(([name, def]) => `/${def.resourceName} ${gradShadeNums[name]} 0 R`).join(' ');
+  offsets[RES] = length;
+  push(`${RES} 0 obj\n<< /Font << /F1 ${F1} 0 R /F2 ${F2} 0 R >> /XObject << ${xobjEntries} >> /ExtGState << ${gsEntries} >> /Shading << ${shEntries} >> >>\nendobj\n`);
 
   offsets[F1] = length;
   push(`${F1} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`);
   offsets[F2] = length;
   push(`${F2} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n`);
+
+  for (const a of ALPHA_LEVELS) {
+    const num = alphaObjNums.get(a);
+    offsets[num] = length;
+    push(`${num} 0 obj\n<< /Type /ExtGState /ca ${fmt(a)} /CA ${fmt(a)} >>\nendobj\n`);
+  }
+
+  for (const [name, def] of Object.entries(GRADIENT_DEFS)) {
+    const fNum = gradFuncNums[name], sNum = gradShadeNums[name];
+    offsets[fNum] = length;
+    push(`${fNum} 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [${def.c0.map(fmt).join(' ')}] /C1 [${def.c1.map(fmt).join(' ')}] /N 1 >>\nendobj\n`);
+    offsets[sNum] = length;
+    push(`${sNum} 0 obj\n<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [${def.coords.map(fmt).join(' ')}] /Function ${fNum} 0 R /Extend [true true] >>\nendobj\n`);
+  }
 
   images.forEach((img, i) => {
     const num = imageObjNums[i];
@@ -344,7 +488,7 @@ function assemblePdf(pages, images) {
     offsets[pageNum] = length;
     push(`${pageNum} 0 obj\n<< /Type /Page /Parent ${PAGES} 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Contents ${contentNum} 0 R /Resources ${RES} 0 R >>\nendobj\n`);
 
-    const streamBytes = asciiBytes(opsToStream(ops));
+    const streamBytes = asciiBytes(opsToStream(ops, alphaGsName));
     offsets[contentNum] = length;
     push(`${contentNum} 0 obj\n<< /Length ${streamBytes.length} >>\nstream\n`);
     push(streamBytes);
@@ -391,11 +535,11 @@ export async function buildEvacuationReportPdf(env, companyId, sessionId) {
 
   const state = newLayoutState();
   drawTitleAndSummary(state, session);
-  drawSectionBanner(state, `NOT MARKED SAFE (${notSafe.length})`, RED);
-  layoutPeopleGrid(state, notSafe, () => drawSectionBanner(state, 'NOT MARKED SAFE (continued)', RED));
+  drawSectionBanner(state, `NOT MARKED SAFE (${notSafe.length})`, 'red');
+  layoutPeopleGrid(state, notSafe, () => drawSectionBanner(state, 'NOT MARKED SAFE (continued)', 'red'));
   state.y -= 8;
-  drawSectionBanner(state, `MARKED SAFE (${safe.length})`, GREEN);
-  layoutPeopleGrid(state, safe, () => drawSectionBanner(state, 'MARKED SAFE (continued)', GREEN));
+  drawSectionBanner(state, `MARKED SAFE (${safe.length})`, 'green');
+  layoutPeopleGrid(state, safe, () => drawSectionBanner(state, 'MARKED SAFE (continued)', 'green'));
   finishPage(state);
   addFooters(state.pages);
 

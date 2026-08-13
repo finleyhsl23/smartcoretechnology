@@ -54,6 +54,12 @@
     width:100%; text-align:center; font-size: 32px; letter-spacing: 12px; font-weight:700;
     padding: 14px 12px; border-radius: 12px; background: var(--card2); border: 1px solid var(--line);
     color: var(--text); margin-bottom: 18px; min-height: 60px;
+    /* PIN entry is done entirely through the on-screen keypad below —
+       inputmode="none" discourages the OS keyboard but isn't reliably
+       honoured on every mobile browser (type="password" especially tends
+       to force it regardless of the hint), so the field is made completely
+       untappable rather than trusting that hint alone. */
+    pointer-events: none;
   }
   .evac-pin-input:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
   .evac-keypad { display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 22px; }
@@ -95,6 +101,36 @@
   .evac-status-btn-active { background: var(--accent); border-color: var(--accent); color:#fff; }
   .evac-row-notes { font-size: 11.5px; color: var(--text3); margin-top: 4px; max-width: 220px; }
   .evac-readonly-note { display:flex; align-items:center; gap:8px; font-size: 13px; color: var(--text3); margin-bottom: 14px; }
+
+  /* ── Roll call photo + details modal ──────────────────────────────────
+     Photos come straight from each person's live record — SmartCore Core
+     for employees, whatever was captured at kiosk sign-in for visitors/
+     contractors — not stored per evacuation, so a name change or new
+     photo afterwards is reflected immediately, same as everywhere else
+     photos are shown in this module. */
+  .evac-name-cell { display:flex; align-items:center; gap:10px; }
+  .evac-avatar-btn {
+    flex-shrink:0; width:36px; height:36px; border-radius:50%; border:none; padding:0;
+    background: var(--accent2); color:#fff; font-size:12px; font-weight:800;
+    display:flex; align-items:center; justify-content:center; overflow:hidden;
+    cursor:pointer;
+  }
+  .evac-avatar-btn:hover, .evac-avatar-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .evac-avatar-btn img { width:100%; height:100%; object-fit:cover; display:block; }
+  .evac-name-cell button.evac-name-link { background:none; border:none; padding:0; color: var(--text); font: inherit; font-weight:600; cursor:pointer; text-align:left; }
+  .evac-name-cell button.evac-name-link:hover { color: var(--accent); text-decoration: underline; }
+  .evac-person-modal { max-width: 380px; }
+  .evac-person-photo-wrap {
+    width:140px; height:140px; border-radius:50%; margin: 4px auto 16px; overflow:hidden;
+    background: var(--accent2); color:#fff; font-size:40px; font-weight:800;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .evac-person-photo-wrap img { width:100%; height:100%; object-fit:cover; display:block; }
+  .evac-person-name { text-align:center; font-size:19px; font-weight:800; margin-bottom:2px; }
+  .evac-person-sub { text-align:center; font-size:13px; color: var(--text3); margin-bottom:18px; }
+  .evac-person-fields { display:flex; flex-direction:column; gap:12px; }
+  .evac-person-field-label { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color: var(--text3); margin-bottom:2px; }
+  .evac-person-field-value { font-size:14px; color: var(--text); }
   @media (max-width: 640px) {
     .evac-keypad { gap: 8px; }
     .evac-key { min-height: 56px; font-size: 20px; }
@@ -103,14 +139,14 @@
 
 <script type="module">
   import { requirePresenceModuleAccess, hasPermission, getSelectedSiteId, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
-  import { sites, evacuation } from "/systems/presence-fire-safety/shared/api.js";
+  import { sites, evacuation, visitors, contractors } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { enforceKioskGuard, initKioskToggle, isKioskModeActive } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
   import { enhanceSelect } from "/systems/presence-fire-safety/shared/combobox.js";
   import {
-    esc, toast, fmtDateTime, fmtTime, confirmDialog, modal,
+    esc, initials, toast, fmtDateTime, fmtTime, confirmDialog, modal, viewPdfBlob,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
     offlineBanner, staleBadge, setInner, refreshIcons,
   } from "/systems/presence-fire-safety/shared/ui.js";
@@ -125,6 +161,12 @@
   let _people = [];
   let _lastRefreshed = null;
   let _filters = { q: "", type: "", dept: "" };
+  // Visitor/contractor photos live in a private bucket and need a signed
+  // URL per photo — cached by evacuation_person id so the 6s roll call poll
+  // doesn't re-request one for every photo on every tick (each is a real
+  // network call, and the underlying photo never changes mid-evacuation
+  // since evacuation_people is an immutable snapshot).
+  const _photoUrlCache = new Map();
 
   const CAN = {};
 
@@ -401,6 +443,10 @@
     enhanceSelect(document.getElementById("rcDeptFilter"));
     document.getElementById("completeEvacBtn")?.addEventListener("click", onCompleteEvacuation);
     document.getElementById("rollCallBody").addEventListener("click", onRollCallAction);
+    document.getElementById("rollCallBody").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-person-id]");
+      if (btn) openPersonModal(btn.dataset.personId);
+    });
 
     refreshIcons();
   }
@@ -435,6 +481,42 @@
 
     tbody.innerHTML = filtered.map(rollCallRow).join("");
     refreshIcons();
+    loadRowPhotos();
+  }
+
+  /** Employees' photos come straight from SmartCore Core (a public URL, so
+   *  they can be used as-is); visitor/contractor photos live in a private
+   *  storage bucket and need a signed URL fetched separately — see
+   *  loadRowPhotos() and openPersonModal(). */
+  function resolvePersonPhoto(p) {
+    if (p.subject_type === "employee" && p.emp?.profile_picture_url) return { kind: "url", value: p.emp.profile_picture_url };
+    if (p.subject_type === "visitor" && p.vv?.visitor?.photo_path) return { kind: "storage", value: p.vv.visitor.photo_path };
+    if (p.subject_type === "contractor" && p.cv?.contractor?.photo_path) return { kind: "storage", value: p.cv.contractor.photo_path };
+    return null;
+  }
+
+  /** Resolves signed URLs for any visitor/contractor photos in the current
+   *  roll call (cached — see _photoUrlCache) and swaps them into the
+   *  already-rendered avatar buttons once ready, rather than blocking the
+   *  table render on a round trip per photo. */
+  function loadRowPhotos() {
+    for (const p of _people) {
+      const photo = resolvePersonPhoto(p);
+      if (photo?.kind !== "storage") continue;
+      if (_photoUrlCache.has(p.id)) {
+        const cached = _photoUrlCache.get(p.id);
+        const el = document.getElementById(`avatar-${p.id}`);
+        if (cached && el) el.innerHTML = `<img src="${esc(cached)}" alt=""/>`;
+        continue;
+      }
+      const fn = p.subject_type === "visitor" ? visitors.photoSignedUrl : contractors.photoSignedUrl;
+      fn(_companyId, photo.value).then(({ data, error }) => {
+        const url = error ? null : (data?.signedUrl || null);
+        _photoUrlCache.set(p.id, url);
+        const el = document.getElementById(`avatar-${p.id}`);
+        if (url && el) el.innerHTML = `<img src="${esc(url)}" alt=""/>`;
+      }).catch(() => { _photoUrlCache.set(p.id, null); });
+    }
   }
 
   function rollCallRow(p) {
@@ -446,9 +528,17 @@
           ${statusBtn(p, "other", "Other")}
         </div>
       </td>` : "";
+    const photo = resolvePersonPhoto(p);
+    const cachedUrl = photo?.kind === "url" ? photo.value : (photo?.kind === "storage" ? _photoUrlCache.get(p.id) : null);
+    const avatarInner = cachedUrl ? `<img src="${esc(cachedUrl)}" alt=""/>` : esc(initials(p.display_name_snapshot));
     return `
       <tr>
-        <td>${esc(p.display_name_snapshot)}</td>
+        <td>
+          <div class="evac-name-cell">
+            <button type="button" class="evac-avatar-btn" id="avatar-${esc(p.id)}" data-person-id="${esc(p.id)}" aria-label="View ${esc(p.display_name_snapshot)}'s details">${avatarInner}</button>
+            <button type="button" class="evac-name-link" data-person-id="${esc(p.id)}">${esc(p.display_name_snapshot)}</button>
+          </div>
+        </td>
         <td><span class="badge ${TYPE_BADGE[p.subject_type] || "badge-grey"}">${esc(p.subject_type)}</span></td>
         <td>${esc(p.department_snapshot || "—")}</td>
         <td>${p.sign_in_time_snapshot ? esc(fmtTime(p.sign_in_time_snapshot)) : "—"}</td>
@@ -459,6 +549,69 @@
         </td>
         ${actions}
       </tr>`;
+  }
+
+  /** Bigger photo + live details for one person — opened by tapping their
+   *  avatar or name in the roll call. */
+  function openPersonModal(personId) {
+    const p = _people.find(x => x.id === personId);
+    if (!p) return;
+    const photo = resolvePersonPhoto(p);
+    const cachedUrl = photo?.kind === "url" ? photo.value : (photo?.kind === "storage" ? _photoUrlCache.get(p.id) : null);
+    const photoInner = cachedUrl ? `<img src="${esc(cachedUrl)}" alt=""/>` : esc(initials(p.display_name_snapshot));
+
+    let subtitle = "";
+    const fields = [];
+    if (p.subject_type === "employee") {
+      subtitle = p.emp?.job_title || "Employee";
+      fields.push(["Department", p.department_snapshot || p.emp?.department?.name || "—"]);
+      fields.push(["Employee ID", p.emp?.employee_id || "—"]);
+      fields.push(["Email", p.emp?.work_email || "—"]);
+    } else if (p.subject_type === "visitor") {
+      subtitle = p.vv?.visitor?.organisation || "Visitor";
+      fields.push(["Organisation", p.vv?.visitor?.organisation || "—"]);
+      fields.push(["Phone", p.vv?.visitor?.phone || "—"]);
+      fields.push(["Email", p.vv?.visitor?.email || "—"]);
+      fields.push(["Visit reason", p.vv?.visit_reason || "—"]);
+    } else if (p.subject_type === "contractor") {
+      subtitle = "Contractor";
+      fields.push(["Contact", p.cv?.contractor?.contact_name || "—"]);
+      fields.push(["Phone", p.cv?.contractor?.phone || "—"]);
+      fields.push(["Email", p.cv?.contractor?.email || "—"]);
+      fields.push(["Work purpose", p.cv?.work_purpose || "—"]);
+      fields.push(["Vehicle", p.cv?.vehicle_registration || "—"]);
+    }
+    fields.push(["Roll call status", STATUS_LABEL[p.roll_call_status] || p.roll_call_status]);
+    if (p.sign_in_time_snapshot) fields.push(["Signed in", fmtDateTime(p.sign_in_time_snapshot)]);
+    if (p.notes) fields.push(["Notes", p.notes]);
+
+    const overlay = modal(`
+      <div class="modal-body evac-person-modal">
+        <div class="evac-person-photo-wrap" id="personModalPhoto">${photoInner}</div>
+        <div class="evac-person-name">${esc(p.display_name_snapshot)}</div>
+        <div class="evac-person-sub">${esc(subtitle)}</div>
+        <div class="evac-person-fields">
+          ${fields.map(([label, value]) => `
+            <div>
+              <div class="evac-person-field-label">${esc(label)}</div>
+              <div class="evac-person-field-value">${esc(value)}</div>
+            </div>`).join("")}
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn modal-close" type="button">Close</button></div>
+    `);
+
+    if (photo?.kind === "storage" && !_photoUrlCache.has(p.id)) {
+      const fn = p.subject_type === "visitor" ? visitors.photoSignedUrl : contractors.photoSignedUrl;
+      fn(_companyId, photo.value).then(({ data, error }) => {
+        const url = error ? null : (data?.signedUrl || null);
+        _photoUrlCache.set(p.id, url);
+        if (url) {
+          const wrap = overlay.querySelector("#personModalPhoto");
+          if (wrap) wrap.innerHTML = `<img src="${esc(url)}" alt=""/>`;
+        }
+      }).catch(() => {});
+    }
   }
 
   function statusBtn(p, status, label) {
@@ -656,12 +809,12 @@
           await evacuation.complete(completedSessionId);
           stopPolling();
           toast("success", "Evacuation completed", "The session has been closed.");
-          // Both best-effort — the evacuation report email/PDF must never look
-          // like they blocked or failed the completion itself, which has
-          // already succeeded by this point.
+          // Best-effort — the emergency report email must never look like it
+          // blocked or failed the completion itself, which has already
+          // succeeded by this point.
           evacuation.notifyCompleted(completedSessionId).catch((e) => console.warn("notifyCompleted failed:", e.message));
-          openEvacuationReportPdf(completedSessionId);
           await loadState(_currentSite.id);
+          offerEvacuationReportPdf(completedSessionId);
         } catch (e) {
           toast("error", "Couldn't complete evacuation", e.message || "Please try again.");
         }
@@ -670,19 +823,41 @@
     );
   }
 
-  /** Opens the full photo evacuation report PDF in a new tab as soon as the
-   *  session is closed, so whoever completed it has it on hand immediately
-   *  — the same document is also emailed to the Emergency Reports list. */
+  /** Asks rather than auto-opening the report PDF — the same document is
+   *  also emailed to the Emergency Reports list, so nobody's stuck without
+   *  it if they'd rather not look at it right this second. */
+  function offerEvacuationReportPdf(sessionId) {
+    const overlay = modal(`
+      <div class="modal-header"><h3>View evacuation report?</h3></div>
+      <div class="modal-body"><p class="text-muted">The full report — everyone's photo, anyone not marked safe first — is ready and has also been emailed to the Emergency Reports list.</p></div>
+      <div class="modal-footer">
+        <button class="btn modal-close" type="button">Not now</button>
+        <button class="btn btn-primary" id="viewReportBtn" type="button">View Report</button>
+      </div>`);
+    overlay.querySelector("#viewReportBtn").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.textContent = "Opening…";
+      try {
+        await openEvacuationReportPdf(sessionId);
+        overlay.remove();
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "View Report";
+      }
+    });
+  }
+
+  /** Opens the full photo evacuation report PDF right inside the app
+   *  (in-page viewer, not a separate browser tab) — used both right after
+   *  completing and from evacuation history. */
   async function openEvacuationReportPdf(sessionId) {
     try {
       const blob = await evacuation.reportPdfBlob(sessionId);
-      const url = URL.createObjectURL(blob);
-      const win = window.open(url, "_blank");
-      if (!win) toast("info", "Report ready", "Your browser blocked the pop-up — allow pop-ups to view the evacuation report PDF.");
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      viewPdfBlob(blob, { title: "Evacuation Report", filename: `evacuation-report-${sessionId}.pdf` });
     } catch (e) {
-      console.warn("Could not open evacuation report PDF:", e.message);
       toast("error", "Couldn't open report PDF", "It's still on its way in the emergency report email.");
+      throw e;
     }
   }
 

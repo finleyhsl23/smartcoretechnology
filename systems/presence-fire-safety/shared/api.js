@@ -308,8 +308,11 @@ export const visitors = {
     return data;
   },
 
+  // `path` is already the full storage key — uploadPhoto() below returns
+  // (and setPhoto() stores) `${companyId}/${visitorId}/...`, so re-adding
+  // companyId here would double it up into a key that was never uploaded.
   photoSignedUrl(companyId, path) {
-    return sb().storage.from("presence-fire-safety-photos").createSignedUrl(`${companyId}/${path}`, 3600);
+    return sb().storage.from("presence-fire-safety-photos").createSignedUrl(path, 3600);
   },
 
   async uploadPhoto(companyId, visitorId, file) {
@@ -410,8 +413,10 @@ export const contractors = {
     return data;
   },
 
+  // Same fix as visitors.photoSignedUrl above — `path` already carries the
+  // companyId prefix from uploadPhoto()/setPhoto().
   photoSignedUrl(companyId, path) {
-    return sb().storage.from("presence-fire-safety-photos").createSignedUrl(`${companyId}/${path}`, 3600);
+    return sb().storage.from("presence-fire-safety-photos").createSignedUrl(path, 3600);
   },
 };
 
@@ -546,9 +551,19 @@ export const evacuation = {
     return data;
   },
 
+  /** Embeds enough of each person's live record (photo + a few identifying
+   *  details) for the roll call UI's photo grid and its "tap for details"
+   *  modal — RLS-safe: presence.view_live_register (already required to see
+   *  the roll call at all) also covers reading core_employees/visitors/
+   *  contractors, so this needs no extra permission. */
   async rollCall(sessionId) {
     const { data, error } = await sb().from("presence_fire_safety_evacuation_people")
-      .select("*").eq("evacuation_session_id", sessionId).order("display_name_snapshot");
+      .select(`*,
+        emp:core_employees!employee_id(job_title,work_email,employee_id,profile_picture_url,department:core_departments(name)),
+        vv:presence_fire_safety_visitor_visits!visitor_visit_id(visit_reason,visitor:presence_fire_safety_visitors(organisation,phone,email,photo_path)),
+        cv:presence_fire_safety_contractor_visits!contractor_visit_id(work_purpose,vehicle_registration,contractor:presence_fire_safety_contractors(contact_name,phone,email,photo_path))
+      `)
+      .eq("evacuation_session_id", sessionId).order("display_name_snapshot");
     if (error) throw error;
     return data || [];
   },

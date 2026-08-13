@@ -43,7 +43,7 @@
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
   import {
-    esc, toast, fmtDateTime, modal,
+    esc, toast, fmtDateTime, modal, viewPdfBlob,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
     offlineBanner, setInner, refreshIcons,
   } from "/systems/presence-fire-safety/shared/ui.js";
@@ -121,17 +121,16 @@
     });
   }
 
-  /** Opens the full photo evacuation report PDF for a past session in a new
-   *  tab — the same report emailed to Emergency Reports when it completed. */
+  /** Opens the full photo evacuation report PDF for a past session right
+   *  inside the app (in-page viewer) — the same report emailed to
+   *  Emergency Reports when it completed. */
   async function downloadReportPdf(sessionId, btn) {
     const original = btn.textContent;
     btn.disabled = true;
     btn.textContent = "Preparing…";
     try {
       const blob = await evacuation.reportPdfBlob(sessionId);
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      viewPdfBlob(blob, { title: "Evacuation Report", filename: `evacuation-report-${sessionId}.pdf` });
     } catch (e) {
       toast("error", "Couldn't generate report PDF", e.message);
     } finally {
