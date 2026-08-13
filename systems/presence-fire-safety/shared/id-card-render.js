@@ -139,17 +139,12 @@ async function ensureFontsLoaded(elements) {
     if (el.type !== "text" && el.type !== "statictext") continue;
     const name = primaryFontName(el.fontFamily);
     // Must match the weight drawElementShape actually measures/draws with
-    // (el.type === "text" && el.bold ? 800 : 500) — loading a *different*
-    // weight than the one canvas asks for doesn't help: Google Fonts ships
-    // each weight as a separate file, so requesting 400/700 here left 500
-    // (the common case — every non-bold text/statictext element) still
-    // unloaded. fitTextFontSize would then measure against a fallback
-    // system font (usually narrower than the real webfont) and conclude
-    // no shrink was needed, but by the time fillText() actually ran the
-    // real, wider webfont had loaded — producing full-size text that then
-    // overflowed and got cut off by the ellipsis fallback instead of ever
-    // shrinking.
-    const weight = el.type === "text" && el.bold ? "800" : "500";
+    // (el.type === "text" && el.bold ? 700 : 400) — the curated fonts are
+    // only ever loaded from Google Fonts at 400/700 (see id-cards.html's
+    // <link>), so requesting anything else here would ask the Font Loading
+    // API to wait for a font file that was never fetched in the first
+    // place, which it can't do.
+    const weight = el.type === "text" && el.bold ? "700" : "400";
     specs.add(`${weight} 16px "${name}"`);
   }
   await Promise.all([...specs].map((spec) => document.fonts.load(spec).catch(() => {})));
@@ -245,7 +240,14 @@ function renderElement(el, ctx, refCardWidth) {
     const value = ctx.employee?.[FIELD_MAP[el.field]] || "";
     const baseFontSize = el.fontSize ?? 14;
     const family = primaryFontName(el.fontFamily);
-    const weight = el.bold ? 800 : 500;
+    // 400/700 (standard "regular"/"bold"), not 500/800 — the curated fonts
+    // in FONT_OPTIONS are only loaded from Google Fonts at 400 and 700 (see
+    // id-cards.html/settings.html's <link>), so 500/800 was never a real,
+    // loadable font file for anything but Inter (which happens to ship
+    // every weight) — the browser would silently substitute a narrower
+    // fallback for measurement, then paint the real (wider) 400-weight
+    // glyphs once that inevitably resolved, overflowing the box.
+    const weight = el.bold ? 700 : 400;
     const maxWidth = (el.w / 100) * (refCardWidth ?? REF_CARD_WIDTH.portrait) - 2 * TEXT_PADDING_X;
     const fitted = fitTextFontSizeHtml(value, family, weight, baseFontSize, maxWidth);
     return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};padding:0 ${refPxCss(TEXT_PADDING_X)};font-size:${fontSizeCss(fitted)};font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#fff")};font-weight:${weight};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:${el.align || "left"};">${esc(value)}</div>`;
@@ -433,7 +435,10 @@ async function drawElementShape(c, el, ctx, ex, ey, ew, eh) {
   if (el.type === "text" || el.type === "statictext") {
     const value = el.type === "text" ? (ctx.employee?.[FIELD_MAP[el.field]] || "") : (el.text || "");
     const baseFontSize = (el.fontSize ?? (el.type === "text" ? 14 : 12)) * PX_SCALE;
-    const weight = el.type === "text" && el.bold ? 800 : 500;
+    // 400/700, not 500/800 — see the matching comment in renderElement()
+    // above; must stay identical to that path's weight or shrink-to-fit
+    // measures against a different font than what actually gets painted.
+    const weight = el.type === "text" && el.bold ? 700 : 400;
     const family = primaryFontName(el.fontFamily);
     const padX = TEXT_PADDING_X * PX_SCALE;
     const innerEw = Math.max(ew - 2 * padX, 0); // width actually available to text, inset from both edges
