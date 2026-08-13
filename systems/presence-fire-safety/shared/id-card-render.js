@@ -138,7 +138,18 @@ async function ensureFontsLoaded(elements) {
   for (const el of elements) {
     if (el.type !== "text" && el.type !== "statictext") continue;
     const name = primaryFontName(el.fontFamily);
-    const weight = el.type === "text" && el.bold ? "700" : "400";
+    // Must match the weight drawElementShape actually measures/draws with
+    // (el.type === "text" && el.bold ? 800 : 500) — loading a *different*
+    // weight than the one canvas asks for doesn't help: Google Fonts ships
+    // each weight as a separate file, so requesting 400/700 here left 500
+    // (the common case — every non-bold text/statictext element) still
+    // unloaded. fitTextFontSize would then measure against a fallback
+    // system font (usually narrower than the real webfont) and conclude
+    // no shrink was needed, but by the time fillText() actually ran the
+    // real, wider webfont had loaded — producing full-size text that then
+    // overflowed and got cut off by the ellipsis fallback instead of ever
+    // shrinking.
+    const weight = el.type === "text" && el.bold ? "800" : "500";
     specs.add(`${weight} 16px "${name}"`);
   }
   await Promise.all([...specs].map((spec) => document.fonts.load(spec).catch(() => {})));
