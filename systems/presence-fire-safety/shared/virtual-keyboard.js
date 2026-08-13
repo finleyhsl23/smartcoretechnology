@@ -180,6 +180,13 @@ function prepareInput(el) {
   if (!isEligible(el) || el.dataset.vkPrepared) return;
   el.dataset.vkPrepared = "1";
   el.dataset.vkLayout = isNumericInput(el) ? "numeric" : "qwerty";
+  // inputmode="none" alone isn't reliably respected by Android on
+  // type="email"/type="tel" inputs — some Chrome/WebView versions still
+  // show their own specialized keyboard for those types regardless of the
+  // hint. Switching them to type="text" (safe here — validation on these
+  // kiosk fields is all done in JS, nothing relies on native email/tel
+  // constraint checking) is the combination that's actually reliable.
+  if (el.type === "email" || el.type === "tel") el.type = "text";
   el.setAttribute("inputmode", "none");
   el.addEventListener("focus", () => showKeyboardFor(el));
   el.addEventListener("blur", scheduleHide);

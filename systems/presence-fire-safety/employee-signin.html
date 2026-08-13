@@ -115,6 +115,9 @@
   .kiosk-chip-row { display:flex; flex-wrap:wrap; gap:8px; }
   .kiosk-chip-row:not(:empty) { margin-top:8px; }
   .kiosk-chip-row .set-selected-chip { margin-top:0; }
+  .kiosk-phone-row { display:flex; gap:8px; }
+  .kiosk-phone-country { flex: 0 0 172px; font-size: 15px; }
+  .kiosk-phone-row .form-input:last-child { flex: 1; min-width: 0; }
   .kiosk-result-meta { font-size:12px; color: var(--text3); }
   .kiosk-actions { display:flex; flex-direction:column; gap:12px; width:100%; }
   .kiosk-actions .btn { width:100%; }
@@ -590,39 +593,10 @@
     if (_camera) { _camera.stop(); _camera = null; }
   }
 
-  // ── Shared: optional host-employee search combo (visitor/contractor forms) ─
-  function wireHostSearch(inputId, resultsId, onSelect) {
-    const input = document.getElementById(inputId);
-    const results = document.getElementById(resultsId);
-    let debounce;
-    input.addEventListener("input", () => {
-      clearTimeout(debounce);
-      const q = input.value.trim();
-      if (!q) { results.innerHTML = ""; return; }
-      debounce = setTimeout(async () => {
-        try {
-          const rows = await employees.search(_companyId, q, { limit: 6 });
-          results.innerHTML = rows.length ? rows.map(r => `
-            <button type="button" class="kiosk-result-btn" data-id="${esc(r.id)}" data-name="${esc(r.full_name)}">
-              <div class="avatar avatar-sm">${esc(initials(r.full_name))}</div>
-              <div><div class="kiosk-result-name">${esc(r.full_name)}</div><div class="kiosk-result-meta">${esc(r.job_title || "")}</div></div>
-            </button>`).join("") : `<p class="text-muted">No matches.</p>`;
-          results.querySelectorAll(".kiosk-result-btn").forEach(btn => {
-            btn.addEventListener("click", () => {
-              input.value = btn.dataset.name;
-              results.innerHTML = "";
-              onSelect(btn.dataset.id);
-            });
-          });
-        } catch { /* host search is optional — fail quietly */ }
-      }, 300);
-    });
-  }
-
-  // ── Shared: multi-select host search (visitor "who are you here to see?")
-  // — same search-as-you-type as wireHostSearch, but each pick adds a
-  // removable chip and clears the box so another host can be searched for,
-  // instead of replacing the field's single value. ─────────────────────────
+  // ── Shared: multi-select host search (visitor "who are you here to see?",
+  // contractor "who are you working with?") — search-as-you-type; each pick
+  // adds a removable chip and clears the box so another host can be
+  // searched for straight away, rather than a single replaceable value. ──
   function wireMultiHostSearch(inputId, resultsId, chipsId, onChange) {
     const input = document.getElementById(inputId);
     const results = document.getElementById(resultsId);
@@ -669,6 +643,53 @@
     });
   }
 
+  // ── Shared: phone field with a dial-code select ─────────────────────────
+  // United Kingdom first (covers England/Scotland/Wales/N. Ireland, all
+  // dial +44 — there's no separate code per home nation), then Ireland and
+  // the other most-used countries, before the rest alphabetically.
+  const PHONE_COUNTRIES = [
+    { code: "+44", label: "United Kingdom" },
+    { code: "+353", label: "Ireland" },
+    { code: "+1", label: "United States" },
+    { code: "+1", label: "Canada" },
+    { code: "+61", label: "Australia" },
+    { code: "+64", label: "New Zealand" },
+    { code: "+33", label: "France" },
+    { code: "+49", label: "Germany" },
+    { code: "+34", label: "Spain" },
+    { code: "+39", label: "Italy" },
+    { code: "+31", label: "Netherlands" },
+    { code: "+32", label: "Belgium" },
+    { code: "+351", label: "Portugal" },
+    { code: "+27", label: "South Africa" },
+    { code: "+971", label: "United Arab Emirates" },
+    { code: "+91", label: "India" },
+    { code: "+86", label: "China" },
+    { code: "+81", label: "Japan" },
+    { code: "+65", label: "Singapore" },
+  ];
+
+  function phoneFieldHtml(idPrefix, label) {
+    return `
+      <label class="form-label" for="${idPrefix}Phone" style="margin-top:10px">${esc(label)}</label>
+      <div class="kiosk-phone-row">
+        <select class="form-input kiosk-phone-country" id="${idPrefix}PhoneCountry" aria-label="Country code">
+          ${PHONE_COUNTRIES.map((c, i) => `<option value="${esc(c.code)}" ${i === 0 ? "selected" : ""}>${esc(c.code)} ${esc(c.label)}</option>`).join("")}
+        </select>
+        <input class="form-input" id="${idPrefix}Phone" type="tel" autocomplete="off" placeholder="7700 900000"/>
+      </div>`;
+  }
+
+  /** Combines the dial code + number into one string for the phone field,
+   *  or "" if nothing was entered — same shape either way regardless of
+   *  which country is selected. */
+  function combinedPhone(idPrefix) {
+    const number = document.getElementById(`${idPrefix}Phone`).value.trim();
+    if (!number) return "";
+    const code = document.getElementById(`${idPrefix}PhoneCountry`).value;
+    return `${code} ${number}`;
+  }
+
   // ── Visitor kiosk flow ──────────────────────────────────────────────────
   // Name-first: typing your first + last name checks it against who's
   // currently signed in. A match reveals a sign-out confirmation; no match
@@ -691,8 +712,7 @@
             <input class="form-input" id="kvOrg" autocomplete="off"/>
             <label class="form-label" for="kvEmail" style="margin-top:10px">Email</label>
             <input class="form-input" id="kvEmail" type="email" autocomplete="off"/>
-            <label class="form-label" for="kvPhone" style="margin-top:10px">Phone</label>
-            <input class="form-input" id="kvPhone" type="tel" autocomplete="off"/>
+            ${phoneFieldHtml("kv", "Phone")}
             <label class="form-label" for="kvVehicle" style="margin-top:10px">Vehicle registration</label>
             <input class="form-input" id="kvVehicle" autocomplete="off"/>
             <label class="form-label" for="kvHost" style="margin-top:10px">Who are you here to see? (optional)</label>
@@ -724,7 +744,7 @@
       const lastName = document.getElementById("kvLast").value.trim();
       const organisation = document.getElementById("kvOrg").value.trim();
       const email = document.getElementById("kvEmail").value.trim();
-      const phone = document.getElementById("kvPhone").value.trim();
+      const phone = combinedPhone("kv");
       const vehicleRegistration = document.getElementById("kvVehicle").value.trim();
       const visitReason = document.getElementById("kvReason").value.trim();
       const acceptTerms = document.getElementById("kvTerms").checked;
@@ -872,29 +892,31 @@
   }
 
   // ── Contractor kiosk flow ─────────────────────────────────────────────
-  // Same name-first pattern as the visitor flow above, keyed on business
-  // name (the identifier contractors are looked up by everywhere else).
+  // Same name-first pattern as the visitor flow above, keyed on the
+  // contact's own first + last name.
   function renderContractorKioskFlow() {
     stopScanner();
-    let hostId = null;
+    let hostIds = [];
     setInner("kioskPanel", `
         <div class="card kiosk-card">
           <h2 style="margin-top:0">Contractor Sign In / Out</h2>
           <p class="text-muted" style="margin-top:-6px">Enter your name to sign in — or to sign out if you're already here.</p>
-          <label class="form-label" for="kcContact">Your name *</label>
-          <input class="form-input" id="kcContact" autocomplete="off"/>
+          <label class="form-label" for="kcFirst">First name *</label>
+          <input class="form-input" id="kcFirst" autocomplete="off"/>
+          <label class="form-label" for="kcLast" style="margin-top:10px">Last name *</label>
+          <input class="form-input" id="kcLast" autocomplete="off"/>
           <div id="kcResult"></div>
           <div id="kcMoreWrap" class="kiosk-reveal" aria-hidden="true">
             <label class="form-label" for="kcBusiness" style="margin-top:10px">Business name *</label>
             <input class="form-input" id="kcBusiness" autocomplete="off"/>
-            <label class="form-label" for="kcPhone" style="margin-top:10px">Phone</label>
-            <input class="form-input" id="kcPhone" type="tel" autocomplete="off"/>
             <label class="form-label" for="kcEmail" style="margin-top:10px">Email</label>
             <input class="form-input" id="kcEmail" type="email" autocomplete="off"/>
+            ${phoneFieldHtml("kc", "Phone")}
             <label class="form-label" for="kcVehicle" style="margin-top:10px">Vehicle registration</label>
             <input class="form-input" id="kcVehicle" autocomplete="off"/>
             <label class="form-label" for="kcHost" style="margin-top:10px">Host / who are you working with? (optional)</label>
-            <input class="form-input" id="kcHost" autocomplete="off" placeholder="Search employees…"/>
+            <div class="kiosk-chip-row" id="kcHostChips"></div>
+            <input class="form-input" id="kcHost" autocomplete="off" placeholder="Search employees…" style="margin-top:8px"/>
             <div class="kiosk-results" id="kcHostResults"></div>
             <label class="form-label" for="kcWorkPurpose" style="margin-top:10px">Work purpose</label>
             <input class="form-input" id="kcWorkPurpose" autocomplete="off"/>
@@ -907,29 +929,33 @@
             </div>
           </div>
         </div>`);
-    wireHostSearch("kcHost", "kcHostResults", (id) => { hostId = id; });
+    wireMultiHostSearch("kcHost", "kcHostResults", "kcHostChips", (ids) => { hostIds = ids; });
 
     _kcCurrentVisits = [];
     contractors.currentVisits(_companyId, _siteId).then(rows => { _kcCurrentVisits = rows; }).catch(() => { _kcCurrentVisits = []; });
 
-    const contactInput = document.getElementById("kcContact");
-    contactInput.addEventListener("input", onContractorNameInput);
-    focusWithKeyboard(contactInput);
+    const firstInput = document.getElementById("kcFirst");
+    const lastInput = document.getElementById("kcLast");
+    firstInput.addEventListener("input", onContractorNameInput);
+    lastInput.addEventListener("input", onContractorNameInput);
+    focusWithKeyboard(firstInput);
 
     document.getElementById("kcNextBtn").addEventListener("click", () => {
-      const contactName = document.getElementById("kcContact").value.trim();
+      const firstName = document.getElementById("kcFirst").value.trim();
+      const lastName = document.getElementById("kcLast").value.trim();
       const businessName = document.getElementById("kcBusiness").value.trim();
-      const phone = document.getElementById("kcPhone").value.trim();
       const email = document.getElementById("kcEmail").value.trim();
+      const phone = combinedPhone("kc");
       const vehicleRegistration = document.getElementById("kcVehicle").value.trim();
       const workPurpose = document.getElementById("kcWorkPurpose").value.trim();
       const permitReference = document.getElementById("kcPermit").value.trim();
       const inductionConfirmed = document.getElementById("kcInduction").checked;
       const errBox = document.getElementById("kcError");
-      if (!contactName) { errBox.textContent = "Your name is required."; return; }
+      if (!firstName || !lastName) { errBox.textContent = "First and last name are required."; return; }
       if (!businessName) { errBox.textContent = "Business name is required."; return; }
       errBox.textContent = "";
-      const form = { businessName, contactName, phone, email, vehicleRegistration, hostEmployeeId: hostId, workPurpose, permitReference, inductionConfirmed };
+      const contactName = `${firstName} ${lastName}`.trim();
+      const form = { businessName, contactName, phone, email, vehicleRegistration, hostEmployeeIds: hostIds, workPurpose, permitReference, inductionConfirmed };
       if (_companySettings?.visitor_photo_enabled) {
         renderKioskPhotoStep("contractor", form);
       } else {
@@ -942,9 +968,10 @@
   // flow above — see onVisitorNameInput for why.
   function onContractorNameInput() {
     clearTimeout(_kcDebounce);
-    const name = document.getElementById("kcContact").value.trim();
-    if (!name) { resetContractorStep(); return; }
-    _kcDebounce = setTimeout(() => checkContractorName(name), 500);
+    const first = document.getElementById("kcFirst").value.trim();
+    const last = document.getElementById("kcLast").value.trim();
+    if (!first || !last) { resetContractorStep(); return; }
+    _kcDebounce = setTimeout(() => checkContractorName(first, last), 500);
   }
 
   function resetContractorStep() {
@@ -956,24 +983,26 @@
     moreWrap.setAttribute("aria-hidden", "true");
   }
 
-  function checkContractorName(name) {
+  function checkContractorName(first, last) {
     const resultEl = document.getElementById("kcResult");
     const moreWrap = document.getElementById("kcMoreWrap");
     if (!resultEl || !moreWrap) return;
     moreWrap.classList.remove("kiosk-reveal-in");
     moreWrap.setAttribute("aria-hidden", "true");
     resultEl.innerHTML = `<div class="kiosk-checking"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
-    setTimeout(() => resolveContractorMatch(name), 300);
+    setTimeout(() => resolveContractorMatch(first, last), 300);
   }
 
-  function resolveContractorMatch(name) {
+  function resolveContractorMatch(first, last) {
     const resultEl = document.getElementById("kcResult");
     const moreWrap = document.getElementById("kcMoreWrap");
     if (!resultEl || !moreWrap) return;
-    const n2 = document.getElementById("kcContact")?.value.trim();
-    if (n2 !== name) return; // stale — a newer check is already queued
+    const f2 = document.getElementById("kcFirst")?.value.trim();
+    const l2 = document.getElementById("kcLast")?.value.trim();
+    if (f2 !== first || l2 !== last) return; // stale — a newer check is already queued
     const norm = (s) => s.trim().toLowerCase();
-    const match = _kcCurrentVisits.find(v => norm(v.presence_fire_safety_contractors?.contact_name || "") === norm(name));
+    const target = norm(`${first} ${last}`);
+    const match = _kcCurrentVisits.find(v => norm(v.presence_fire_safety_contractors?.contact_name || "") === target);
     if (match) {
       resultEl.innerHTML = "";
       renderContractorFoundCard(match);
@@ -1001,9 +1030,10 @@
       <div id="kcSignOutStatus" role="status" aria-live="polite"></div>`);
     document.getElementById("kcSignOutBtn").addEventListener("click", () => submitContractorSignOut(visit));
     document.getElementById("kcNotMeBtn").addEventListener("click", () => {
-      document.getElementById("kcContact").value = "";
+      document.getElementById("kcFirst").value = "";
+      document.getElementById("kcLast").value = "";
       document.getElementById("kcResult").innerHTML = "";
-      document.getElementById("kcContact").focus();
+      document.getElementById("kcFirst").focus();
     });
     if (c.photo_path) {
       contractors.photoSignedUrl(_companyId, c.photo_path).then(({ data }) => {
@@ -1037,7 +1067,7 @@
       const visit = await contractors.createVisit({
         siteId: _siteId, businessName: form.businessName, contactName: form.contactName || null,
         phone: form.phone || null, email: form.email || null, vehicleRegistration: form.vehicleRegistration || null,
-        hostEmployeeId: form.hostEmployeeId || null, workPurpose: form.workPurpose || null,
+        hostEmployeeIds: form.hostEmployeeIds, workPurpose: form.workPurpose || null,
         permitReference: form.permitReference || null, inductionConfirmed: form.inductionConfirmed, signInNow: true,
       });
       if (photoBlob && visit?.contractor_id) {

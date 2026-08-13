@@ -368,12 +368,17 @@ export const contractors = {
     return data || [];
   },
 
-  async createVisit({ siteId, businessName, contactName, phone, email, hostEmployeeId, workPurpose, permitReference, vehicleRegistration, inductionConfirmed, photoPath, signInNow = true }) {
+  /** hostEmployeeIds (plural) supports selecting more than one host at the
+   *  kiosk; hostEmployeeId (singular) is still accepted for older callers —
+   *  the RPC treats the plural list as authoritative when both are given. */
+  async createVisit({ siteId, businessName, contactName, phone, email, hostEmployeeId, hostEmployeeIds, workPurpose, permitReference, vehicleRegistration, inductionConfirmed, photoPath, signInNow = true }) {
     const { companyId } = await ctx();
     const { data, error } = await sb().rpc("presence_fire_safety_create_contractor_visit", {
       p_company_id: companyId, p_site_id: siteId,
       p_business_name: businessName, p_contact_name: contactName || null, p_phone: phone || null, p_email: email || null,
-      p_host_employee_id: hostEmployeeId || null, p_work_purpose: workPurpose || null, p_permit_reference: permitReference || null,
+      p_host_employee_id: hostEmployeeId || null,
+      p_host_employee_ids: hostEmployeeIds?.length ? hostEmployeeIds : null,
+      p_work_purpose: workPurpose || null, p_permit_reference: permitReference || null,
       p_vehicle_registration: vehicleRegistration || null, p_induction_confirmed: !!inductionConfirmed, p_sign_in_now: signInNow,
       p_photo_path: photoPath || null,
     });
