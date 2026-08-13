@@ -10,6 +10,7 @@ import { sb } from "./supabase.js";
 import { getProfile, clearProfileCache, getMyPermissions, hasPermission } from "./auth.js";
 import { settings } from "./api.js";
 import { esc, toast, modal } from "./ui.js";
+import { focusWithKeyboard } from "./virtual-keyboard.js";
 
 const STORAGE_KEY = "smartcore-pfs-kiosk-mode";
 const SIGNIN_PAGE = "/systems/presence-fire-safety/employee-signin.html";
@@ -126,7 +127,7 @@ export async function requestExitKioskMode({ companyId }) {
   const fallback = overlay.querySelector("#kioskFallback");
   const submitBtn = overlay.querySelector("#kioskExitSubmit");
   const cancelBtn = overlay.querySelector("#kioskExitCancel");
-  pinInput.focus();
+  focusWithKeyboard(pinInput);
 
   let fallbackShown = false;
 

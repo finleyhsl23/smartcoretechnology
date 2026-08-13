@@ -59,9 +59,15 @@
      it scrollable to its true top when content is taller than the screen
      (long visitor/contractor forms), without the "can't scroll back to the
      start" clipping that plain flex/grid centering has on overflow. */
+  /* --pfs-vkeyboard-height (set by shared/virtual-keyboard.js while the
+     custom on-screen keyboard is open) shifts the centering up and shrinks
+     the cap so the focused field never ends up hidden behind the keyboard. */
   #kioskBody > .pfs-kiosk {
-    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    margin: 0; width: calc(100% - 48px); min-height: 0; max-height: calc(100% - 24px);
+    position: fixed; top: calc((100% - var(--pfs-vkeyboard-height, 0px)) / 2); left: 50%;
+    transform: translate(-50%, -50%);
+    transition: top .2s ease, max-height .2s ease;
+    margin: 0; width: calc(100% - 48px); min-height: 0;
+    max-height: calc(100% - var(--pfs-vkeyboard-height, 0px) - 24px);
     overflow-y: auto; justify-content: flex-start;
   }
   .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
@@ -121,6 +127,7 @@
   import { renderPhotoCaptureStep } from "/systems/presence-fire-safety/shared/camera.js";
   import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
   import { enforceKioskGuard, initKioskToggle, renderKioskEvacuationBanner, isKioskModeActive, initIdleScreensaver } from "/systems/presence-fire-safety/shared/kiosk.js";
+  import { initVirtualKeyboard, focusWithKeyboard } from "/systems/presence-fire-safety/shared/virtual-keyboard.js";
   import {
     esc, toast, fmtDateTime, initials,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -182,6 +189,12 @@
       setInner("kioskBody", emptyState({ icon: "map-pin", title: "No site configured", message: "Ask an administrator to set up a site before signing in." }));
     } else if (isKioskModeActive()) {
       renderKioskShell();
+      // Custom on-screen keyboard, kiosk mode only — a physical keyboard is
+      // normal for regular admin use of this same screen. Android's native
+      // keyboard resizes/reflows the whole page when it appears, squishing
+      // this layout; suppressing it in favour of our own fixed-bottom one
+      // keeps the layout stable and gives touch-appropriate key sizes.
+      initVirtualKeyboard();
     } else {
       renderEmployeePanel();
     }
@@ -331,7 +344,7 @@
         const q = input.value.trim();
         _searchDebounce = setTimeout(() => runSearch(q), 300);
       });
-      if (!showScan) input.focus();
+      if (!showScan) focusWithKeyboard(input);
     }
 
     if (allowCode) {
@@ -650,7 +663,7 @@
     const lastInput = document.getElementById("kvLast");
     firstInput.addEventListener("input", onVisitorNameInput);
     lastInput.addEventListener("input", onVisitorNameInput);
-    firstInput.focus();
+    focusWithKeyboard(firstInput);
 
     document.getElementById("kvNextBtn").addEventListener("click", () => {
       const firstName = document.getElementById("kvFirst").value.trim();
@@ -847,7 +860,7 @@
 
     const contactInput = document.getElementById("kcContact");
     contactInput.addEventListener("input", onContractorNameInput);
-    contactInput.focus();
+    focusWithKeyboard(contactInput);
 
     document.getElementById("kcNextBtn").addEventListener("click", () => {
       const contactName = document.getElementById("kcContact").value.trim();

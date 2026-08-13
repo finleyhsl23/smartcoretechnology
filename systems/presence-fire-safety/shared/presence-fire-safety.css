@@ -183,7 +183,12 @@ a { color: inherit; }
 
 /* ── Kiosk mode toggle (device lock-down, not the .pfs-kiosk layout above) ── */
 .pfs-kiosk-toggle {
-  position: fixed; right: 18px; bottom: 18px; z-index: 500;
+  /* Floats up above the custom on-screen keyboard (shared/virtual-keyboard.js)
+     when it's open, via the same height var the kiosk panel uses to avoid
+     it — otherwise the keyboard's fixed bottom panel covers this button
+     entirely, blocking the exit-kiosk escape hatch while typing. */
+  position: fixed; right: 18px; bottom: calc(18px + var(--pfs-vkeyboard-height, 0px)); z-index: 500;
+  transition: bottom .2s ease;
   display: flex; align-items: center; gap: 8px;
   background: var(--card); border: 1px solid var(--line); color: var(--text2);
   padding: 10px 16px; border-radius: 999px; font-size: 13px; font-weight: 700;
@@ -219,6 +224,34 @@ body.pfs-kiosk-mode-active .pfs-topbar h1::after {
   color: var(--text3);
   font-weight: 500;
 }
+
+/* ── Custom on-screen keyboard (kiosk/tablet devices) ────────────────────
+   Fixed to the bottom, slides up on focus of a prepared input. Suppresses
+   the native OS keyboard (see shared/virtual-keyboard.js) so the layout
+   never squishes/reflows the way it does when Android's own keyboard
+   appears. */
+.pfs-vkeyboard {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10000;
+  background: var(--card); border-top: 1px solid var(--line);
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  transform: translateY(100%); transition: transform .2s ease;
+  box-shadow: 0 -8px 24px rgba(0,0,0,.25);
+}
+.pfs-vkeyboard.pfs-vk-open { transform: translateY(0); }
+.pfs-vk-keys { max-width: 720px; margin: 0 auto; }
+.pfs-vk-row { display: flex; gap: 6px; justify-content: center; margin-bottom: 6px; }
+.pfs-vk-row:last-child { margin-bottom: 0; }
+.pfs-vk-key, .pfs-vk-special {
+  flex: 1; max-width: 60px; min-height: 48px; border-radius: 8px;
+  background: var(--card2); border: 1px solid var(--line); color: var(--text);
+  font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+  -webkit-user-select: none; user-select: none; touch-action: manipulation; padding: 0;
+}
+.pfs-vk-key:active, .pfs-vk-special:active { background: var(--accent); color: #fff; }
+.pfs-vk-special.pfs-vk-active { background: var(--accent); color: #fff; }
+.pfs-vk-special { max-width: 84px; font-size: 13px; }
+.pfs-vk-space { flex: 4; max-width: none; }
+.pfs-vk-done { flex: 2; max-width: none; background: var(--accent); color: #fff; }
 
 /* ── Camera photo capture ──────────────────────────────────────────────── */
 .pfs-camera-step { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
