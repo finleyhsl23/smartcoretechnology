@@ -611,26 +611,49 @@
     });
   }
 
+  // Only touches the UI once typing actually pauses — clearing the timer on
+  // every keystroke means nothing visibly changes (no collapsing an
+  // already-revealed form, no flickering checking indicator) while the
+  // visitor is still typing or fixing a typo, only once they stop.
   function onVisitorNameInput() {
     clearTimeout(_kvDebounce);
+    const first = document.getElementById("kvFirst").value.trim();
+    const last = document.getElementById("kvLast").value.trim();
+    if (!first || !last) { resetVisitorStep(); return; }
+    _kvDebounce = setTimeout(() => checkVisitorName(first, last), 500);
+  }
+
+  function resetVisitorStep() {
+    const resultEl = document.getElementById("kvResult");
+    const moreWrap = document.getElementById("kvMoreWrap");
+    if (!resultEl || !moreWrap) return;
+    resultEl.innerHTML = "";
+    moreWrap.classList.remove("kiosk-reveal-in");
+    moreWrap.setAttribute("aria-hidden", "true");
+  }
+
+  function checkVisitorName(first, last) {
     const resultEl = document.getElementById("kvResult");
     const moreWrap = document.getElementById("kvMoreWrap");
     if (!resultEl || !moreWrap) return;
     moreWrap.classList.remove("kiosk-reveal-in");
     moreWrap.setAttribute("aria-hidden", "true");
-
-    const first = document.getElementById("kvFirst").value.trim();
-    const last = document.getElementById("kvLast").value.trim();
-    if (!first || !last) { resultEl.innerHTML = ""; return; }
-
     resultEl.innerHTML = `<div class="kiosk-checking"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
-    _kvDebounce = setTimeout(() => resolveVisitorMatch(first, last), 450);
+    // A short extra beat so "checking" actually registers as a step rather
+    // than an instant flash, then resolve to a sign-out card or the form.
+    setTimeout(() => resolveVisitorMatch(first, last), 300);
   }
 
   function resolveVisitorMatch(first, last) {
     const resultEl = document.getElementById("kvResult");
     const moreWrap = document.getElementById("kvMoreWrap");
     if (!resultEl || !moreWrap) return; // panel navigated away while the timer was pending
+    // Stale check: the name fields may have changed again during the
+    // "checking" beat above — a newer, already-queued check will supersede
+    // this one, so bail out rather than showing a result for an old name.
+    const f2 = document.getElementById("kvFirst")?.value.trim();
+    const l2 = document.getElementById("kvLast")?.value.trim();
+    if (f2 !== first || l2 !== last) return;
     const norm = (s) => s.trim().toLowerCase();
     const match = _kvCurrentVisits.find(v =>
       norm(v.presence_fire_safety_visitors?.first_name || "") === norm(first) &&
@@ -784,25 +807,40 @@
     });
   }
 
+  // Same "only touch the UI once typing pauses" approach as the visitor
+  // flow above — see onVisitorNameInput for why.
   function onContractorNameInput() {
     clearTimeout(_kcDebounce);
+    const business = document.getElementById("kcBusiness").value.trim();
+    if (!business) { resetContractorStep(); return; }
+    _kcDebounce = setTimeout(() => checkContractorName(business), 500);
+  }
+
+  function resetContractorStep() {
+    const resultEl = document.getElementById("kcResult");
+    const moreWrap = document.getElementById("kcMoreWrap");
+    if (!resultEl || !moreWrap) return;
+    resultEl.innerHTML = "";
+    moreWrap.classList.remove("kiosk-reveal-in");
+    moreWrap.setAttribute("aria-hidden", "true");
+  }
+
+  function checkContractorName(business) {
     const resultEl = document.getElementById("kcResult");
     const moreWrap = document.getElementById("kcMoreWrap");
     if (!resultEl || !moreWrap) return;
     moreWrap.classList.remove("kiosk-reveal-in");
     moreWrap.setAttribute("aria-hidden", "true");
-
-    const business = document.getElementById("kcBusiness").value.trim();
-    if (!business) { resultEl.innerHTML = ""; return; }
-
     resultEl.innerHTML = `<div class="kiosk-checking"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
-    _kcDebounce = setTimeout(() => resolveContractorMatch(business), 450);
+    setTimeout(() => resolveContractorMatch(business), 300);
   }
 
   function resolveContractorMatch(business) {
     const resultEl = document.getElementById("kcResult");
     const moreWrap = document.getElementById("kcMoreWrap");
     if (!resultEl || !moreWrap) return;
+    const b2 = document.getElementById("kcBusiness")?.value.trim();
+    if (b2 !== business) return; // stale — a newer check is already queued
     const norm = (s) => s.trim().toLowerCase();
     const match = _kcCurrentVisits.find(v => norm(v.presence_fire_safety_contractors?.business_name || "") === norm(business));
     if (match) {
