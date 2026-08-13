@@ -195,24 +195,27 @@ export async function requestExitKioskMode({ companyId }) {
 // ── Idle screensaver ─────────────────────────────────────────────────────
 // Public-facing kiosk devices sit on the same screen for hours at a time,
 // which risks OLED/LCD burn-in of the static sign-in UI. After a period of
-// no touches/clicks/keys, this shows a full-screen bouncing-text screensaver
-// (DVD-logo style) that drifts around and changes colour on every bounce, so
-// no pixel stays lit the same way for long. Any interaction dismisses it.
+// no touches/clicks/keys, this shows a full-screen screensaver — a clean
+// white backdrop with the company logo, a live clock, and a call to action —
+// that gently drifts around (DVD-logo style, but without the neon colour
+// cycling) so no pixel stays lit the same way for long. Any interaction
+// dismisses it.
 let _idleTimer = null;
 let _idleOverlay = null;
 let _idleBounceRaf = null;
+let _idleClockInterval = null;
 let _idleInitialized = false;
 const IDLE_ACTIVITY_EVENTS = ["pointerdown", "pointermove", "keydown", "touchstart", "wheel"];
-const IDLE_BOUNCE_COLORS = ["#6ee7ff", "#a78bfa", "#34d399", "#fbbf24", "#f472b6", "#60a5fa"];
 
 /**
  * @param {object} opts
  *   opts.idleMs   - milliseconds of inactivity before the screensaver shows (default 60000)
- *   opts.text     - the bouncing text (default "Touch to sign in")
+ *   opts.text     - the call-to-action text (default "Touch to sign in")
+ *   opts.logoUrl  - company logo shown above the clock, if the company has one uploaded
  *   opts.onIdle   - called right before the screensaver appears (e.g. to stop a camera)
  *   opts.onResume - called right after the screensaver is dismissed (e.g. to reset the UI)
  */
-export function initIdleScreensaver({ idleMs = 60000, text = "Touch to sign in", onIdle, onResume } = {}) {
+export function initIdleScreensaver({ idleMs = 60000, text = "Touch to sign in", logoUrl = null, onIdle, onResume } = {}) {
   if (_idleInitialized) return;
   _idleInitialized = true;
 
@@ -222,18 +225,30 @@ export function initIdleScreensaver({ idleMs = 60000, text = "Touch to sign in",
     _idleTimer = setTimeout(showScreensaver, idleMs);
   }
 
+  function formatClock(d) {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
   function showScreensaver() {
     onIdle?.();
     _idleOverlay = document.createElement("div");
     _idleOverlay.className = "pfs-screensaver";
-    _idleOverlay.innerHTML = `<span class="pfs-screensaver-text">${esc(text)}</span>`;
+    _idleOverlay.innerHTML = `
+      <div class="pfs-screensaver-block">
+        ${logoUrl ? `<img src="${esc(logoUrl)}" class="pfs-screensaver-logo" alt=""/>` : ""}
+        <div class="pfs-screensaver-clock">${esc(formatClock(new Date()))}</div>
+        <div class="pfs-screensaver-text">${esc(text)}</div>
+      </div>`;
     document.body.appendChild(_idleOverlay);
     IDLE_ACTIVITY_EVENTS.forEach(ev => _idleOverlay.addEventListener(ev, dismissScreensaver, { once: true }));
-    startBounce(_idleOverlay.querySelector(".pfs-screensaver-text"));
+    const clockEl = _idleOverlay.querySelector(".pfs-screensaver-clock");
+    _idleClockInterval = setInterval(() => { clockEl.textContent = formatClock(new Date()); }, 1000);
+    startBounce(_idleOverlay.querySelector(".pfs-screensaver-block"));
   }
 
   function dismissScreensaver() {
     cancelAnimationFrame(_idleBounceRaf);
+    clearInterval(_idleClockInterval);
     _idleOverlay?.remove();
     _idleOverlay = null;
     onResume?.();
@@ -243,10 +258,8 @@ export function initIdleScreensaver({ idleMs = 60000, text = "Touch to sign in",
   function startBounce(el) {
     let x = Math.random() * Math.max(0, window.innerWidth - 260);
     let y = Math.random() * Math.max(0, window.innerHeight - 60);
-    let vx = (Math.random() < 0.5 ? -1 : 1) * (1.1 + Math.random() * 0.7);
-    let vy = (Math.random() < 0.5 ? -1 : 1) * (1.1 + Math.random() * 0.7);
-    let colorIdx = 0;
-    el.style.color = IDLE_BOUNCE_COLORS[0];
+    let vx = (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random() * 0.35);
+    let vy = (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random() * 0.35);
 
     function frame() {
       const rect = el.getBoundingClientRect();
@@ -254,15 +267,10 @@ export function initIdleScreensaver({ idleMs = 60000, text = "Touch to sign in",
       const maxY = Math.max(0, window.innerHeight - rect.height);
       x += vx;
       y += vy;
-      let bounced = false;
-      if (x <= 0) { x = 0; vx = Math.abs(vx); bounced = true; }
-      else if (x >= maxX) { x = maxX; vx = -Math.abs(vx); bounced = true; }
-      if (y <= 0) { y = 0; vy = Math.abs(vy); bounced = true; }
-      else if (y >= maxY) { y = maxY; vy = -Math.abs(vy); bounced = true; }
-      if (bounced) {
-        colorIdx = (colorIdx + 1) % IDLE_BOUNCE_COLORS.length;
-        el.style.color = IDLE_BOUNCE_COLORS[colorIdx];
-      }
+      if (x <= 0) { x = 0; vx = Math.abs(vx); }
+      else if (x >= maxX) { x = maxX; vx = -Math.abs(vx); }
+      if (y <= 0) { y = 0; vy = Math.abs(vy); }
+      else if (y >= maxY) { y = maxY; vy = -Math.abs(vy); }
       el.style.transform = `translate(${x}px, ${y}px)`;
       _idleBounceRaf = requestAnimationFrame(frame);
     }

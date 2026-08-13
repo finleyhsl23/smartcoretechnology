@@ -344,7 +344,7 @@ export const contractors = {
 
   async currentVisits(companyId, siteId) {
     let q = sb().from("presence_fire_safety_contractor_visits")
-      .select("*, presence_fire_safety_contractors(business_name, contact_name, phone), core_employees!host_employee_id(full_name)")
+      .select("*, presence_fire_safety_contractors(business_name, contact_name, phone, photo_path), core_employees!host_employee_id(full_name)")
       .eq("company_id", companyId).eq("status", "signed_in").order("signed_in_at", { ascending: false });
     if (siteId) q = q.eq("site_id", siteId);
     const { data, error } = await q;
@@ -399,6 +399,10 @@ export const contractors = {
       .update({ photo_path: photoPath }).eq("id", contractorId).select().single();
     if (error) throw error;
     return data;
+  },
+
+  photoSignedUrl(companyId, path) {
+    return sb().storage.from("presence-fire-safety-photos").createSignedUrl(`${companyId}/${path}`, 3600);
   },
 };
 

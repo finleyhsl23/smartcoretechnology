@@ -134,6 +134,10 @@
   let _camera = null;           // active camera controller for the visitor/contractor photo step
   let _kioskTab = "employee";   // which top-level Kiosk Mode section is active
   let _empPanelId = "kioskBody"; // container the employee scan/manual sub-tabs render into
+  let _kvCurrentVisits = [];    // currently-signed-in visitors, fetched fresh each time the Visitor tab renders
+  let _kvDebounce = null;
+  let _kcCurrentVisits = [];    // currently-signed-in contractors, fetched fresh each time the Contractor tab renders
+  let _kcDebounce = null;
 
   try {
     const { profile } = await requirePresenceModuleAccess();
@@ -178,6 +182,7 @@
       initIdleScreensaver({
         idleMs: 60000,
         text: "Touch to sign in",
+        logoUrl: _companySettings?.id_card_logo_url || null,
         onIdle: () => { stopScanner(); stopCamera(); },
         onResume: () => { returnToStart(); },
       });
@@ -536,36 +541,53 @@
   }
 
   // ── Visitor kiosk flow ──────────────────────────────────────────────────
+  // Name-first: typing your first + last name checks it against who's
+  // currently signed in. A match reveals a sign-out confirmation; no match
+  // smoothly reveals the rest of the sign-in form instead of showing it all
+  // upfront, since most people only need the two name fields to sign out.
   function renderVisitorKioskFlow() {
     stopScanner();
     let hostId = null;
     setInner("kioskPanel", `
         <div class="card kiosk-card">
-          <h2 style="margin-top:0">Visitor Sign In</h2>
+          <h2 style="margin-top:0">Visitor Sign In / Out</h2>
+          <p class="text-muted" style="margin-top:-6px">Enter your name to sign in — or to sign out if you're already here.</p>
           <label class="form-label" for="kvFirst">First name *</label>
           <input class="form-input" id="kvFirst" autocomplete="off"/>
           <label class="form-label" for="kvLast" style="margin-top:10px">Last name *</label>
           <input class="form-input" id="kvLast" autocomplete="off"/>
-          <label class="form-label" for="kvOrg" style="margin-top:10px">Organisation</label>
-          <input class="form-input" id="kvOrg" autocomplete="off"/>
-          <label class="form-label" for="kvEmail" style="margin-top:10px">Email</label>
-          <input class="form-input" id="kvEmail" type="email" autocomplete="off"/>
-          <label class="form-label" for="kvPhone" style="margin-top:10px">Phone</label>
-          <input class="form-input" id="kvPhone" type="tel" autocomplete="off"/>
-          <label class="form-label" for="kvVehicle" style="margin-top:10px">Vehicle registration</label>
-          <input class="form-input" id="kvVehicle" autocomplete="off"/>
-          <label class="form-label" for="kvHost" style="margin-top:10px">Who are you here to see? (optional)</label>
-          <input class="form-input" id="kvHost" autocomplete="off" placeholder="Search employees…"/>
-          <div class="kiosk-results" id="kvHostResults"></div>
-          <label class="form-label" for="kvReason" style="margin-top:10px">Visit reason</label>
-          <input class="form-input" id="kvReason" autocomplete="off"/>
-          <label class="set-checkbox-field" style="margin-top:14px"><input type="checkbox" id="kvTerms"/> I accept the site visitor terms</label>
-          <div id="kvError" class="form-error" role="alert"></div>
-          <div class="kiosk-actions" style="margin-top:16px">
-            <button class="btn btn-primary" id="kvNextBtn" type="button">Continue</button>
+          <div id="kvResult"></div>
+          <div id="kvMoreWrap" class="kiosk-reveal" aria-hidden="true">
+            <label class="form-label" for="kvOrg" style="margin-top:10px">Organisation</label>
+            <input class="form-input" id="kvOrg" autocomplete="off"/>
+            <label class="form-label" for="kvEmail" style="margin-top:10px">Email</label>
+            <input class="form-input" id="kvEmail" type="email" autocomplete="off"/>
+            <label class="form-label" for="kvPhone" style="margin-top:10px">Phone</label>
+            <input class="form-input" id="kvPhone" type="tel" autocomplete="off"/>
+            <label class="form-label" for="kvVehicle" style="margin-top:10px">Vehicle registration</label>
+            <input class="form-input" id="kvVehicle" autocomplete="off"/>
+            <label class="form-label" for="kvHost" style="margin-top:10px">Who are you here to see? (optional)</label>
+            <input class="form-input" id="kvHost" autocomplete="off" placeholder="Search employees…"/>
+            <div class="kiosk-results" id="kvHostResults"></div>
+            <label class="form-label" for="kvReason" style="margin-top:10px">Visit reason</label>
+            <input class="form-input" id="kvReason" autocomplete="off"/>
+            <label class="set-checkbox-field" style="margin-top:14px"><input type="checkbox" id="kvTerms"/> I accept the site visitor terms</label>
+            <div id="kvError" class="form-error" role="alert"></div>
+            <div class="kiosk-actions" style="margin-top:16px">
+              <button class="btn btn-primary" id="kvNextBtn" type="button">Continue</button>
+            </div>
           </div>
         </div>`);
     wireHostSearch("kvHost", "kvHostResults", (id) => { hostId = id; });
+
+    _kvCurrentVisits = [];
+    visitors.currentVisits(_companyId, _siteId).then(rows => { _kvCurrentVisits = rows; }).catch(() => { _kvCurrentVisits = []; });
+
+    const firstInput = document.getElementById("kvFirst");
+    const lastInput = document.getElementById("kvLast");
+    firstInput.addEventListener("input", onVisitorNameInput);
+    lastInput.addEventListener("input", onVisitorNameInput);
+    firstInput.focus();
 
     document.getElementById("kvNextBtn").addEventListener("click", () => {
       const firstName = document.getElementById("kvFirst").value.trim();
@@ -587,6 +609,89 @@
         submitKioskVisitor(form, null);
       }
     });
+  }
+
+  function onVisitorNameInput() {
+    clearTimeout(_kvDebounce);
+    const resultEl = document.getElementById("kvResult");
+    const moreWrap = document.getElementById("kvMoreWrap");
+    if (!resultEl || !moreWrap) return;
+    moreWrap.classList.remove("kiosk-reveal-in");
+    moreWrap.setAttribute("aria-hidden", "true");
+
+    const first = document.getElementById("kvFirst").value.trim();
+    const last = document.getElementById("kvLast").value.trim();
+    if (!first || !last) { resultEl.innerHTML = ""; return; }
+
+    resultEl.innerHTML = `<div class="kiosk-checking"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
+    _kvDebounce = setTimeout(() => resolveVisitorMatch(first, last), 450);
+  }
+
+  function resolveVisitorMatch(first, last) {
+    const resultEl = document.getElementById("kvResult");
+    const moreWrap = document.getElementById("kvMoreWrap");
+    if (!resultEl || !moreWrap) return; // panel navigated away while the timer was pending
+    const norm = (s) => s.trim().toLowerCase();
+    const match = _kvCurrentVisits.find(v =>
+      norm(v.presence_fire_safety_visitors?.first_name || "") === norm(first) &&
+      norm(v.presence_fire_safety_visitors?.last_name || "") === norm(last));
+    if (match) {
+      resultEl.innerHTML = "";
+      renderVisitorFoundCard(match);
+    } else {
+      resultEl.innerHTML = "";
+      moreWrap.classList.add("kiosk-reveal-in");
+      moreWrap.setAttribute("aria-hidden", "false");
+    }
+  }
+
+  function renderVisitorFoundCard(visit) {
+    const v = visit.presence_fire_safety_visitors || {};
+    const name = `${v.first_name || ""} ${v.last_name || ""}`.trim();
+    setInner("kvResult", `
+      <div class="kiosk-identity kiosk-pop-in">
+        <div class="avatar" id="kvFoundAvatar">${esc(initials(name))}</div>
+        <h2>${esc(name)}</h2>
+        ${v.organisation ? `<p>${esc(v.organisation)}</p>` : ""}
+        <span class="badge badge-green">Currently signed in</span>
+        ${visit.signed_in_at ? `<p class="text-muted" style="margin-top:6px">Since ${fmtDateTime(new Date(visit.signed_in_at))}</p>` : ""}
+      </div>
+      <div class="kiosk-actions">
+        <button class="btn btn-danger" id="kvSignOutBtn">Confirm Sign Out</button>
+        <button class="btn" id="kvNotMeBtn">Not you? Use a different name</button>
+      </div>
+      <div id="kvSignOutStatus" role="status" aria-live="polite"></div>`);
+    document.getElementById("kvSignOutBtn").addEventListener("click", () => submitVisitorSignOut(visit));
+    document.getElementById("kvNotMeBtn").addEventListener("click", () => {
+      document.getElementById("kvFirst").value = "";
+      document.getElementById("kvLast").value = "";
+      document.getElementById("kvResult").innerHTML = "";
+      document.getElementById("kvFirst").focus();
+    });
+    if (v.photo_path) {
+      visitors.photoSignedUrl(_companyId, v.photo_path).then(({ data }) => {
+        const av = document.getElementById("kvFoundAvatar");
+        if (av && data?.signedUrl) av.outerHTML = `<img class="avatar" id="kvFoundAvatar" src="${esc(data.signedUrl)}" alt="" style="object-fit:cover"/>`;
+      }).catch(() => {});
+    }
+  }
+
+  async function submitVisitorSignOut(visit) {
+    const signOutBtn = document.getElementById("kvSignOutBtn");
+    const notMeBtn = document.getElementById("kvNotMeBtn");
+    if (signOutBtn) signOutBtn.disabled = true;
+    if (notMeBtn) notMeBtn.disabled = true;
+    setInner("kvSignOutStatus", loadingState("Signing out…"));
+    try {
+      await visitors.signOut(_companyId, visit.id);
+      const v = visit.presence_fire_safety_visitors || {};
+      renderKioskSuccess(`${v.first_name || ""} ${v.last_name || ""}`.trim(), "Visitor signed out");
+    } catch (e) {
+      if (signOutBtn) signOutBtn.disabled = false;
+      if (notMeBtn) notMeBtn.disabled = false;
+      setInner("kvSignOutStatus", errorState({ title: "Couldn't sign out", message: e.message, retryId: "kvSignOutRetry" }));
+      document.getElementById("kvSignOutRetry")?.addEventListener("click", () => submitVisitorSignOut(visit));
+    }
   }
 
   async function submitKioskVisitor(form, photoBlob) {
@@ -614,36 +719,49 @@
   }
 
   // ── Contractor kiosk flow ─────────────────────────────────────────────
+  // Same name-first pattern as the visitor flow above, keyed on business
+  // name (the identifier contractors are looked up by everywhere else).
   function renderContractorKioskFlow() {
     stopScanner();
     let hostId = null;
     setInner("kioskPanel", `
         <div class="card kiosk-card">
-          <h2 style="margin-top:0">Contractor Sign In</h2>
+          <h2 style="margin-top:0">Contractor Sign In / Out</h2>
+          <p class="text-muted" style="margin-top:-6px">Enter your business name to sign in — or to sign out if you're already here.</p>
           <label class="form-label" for="kcBusiness">Business name *</label>
           <input class="form-input" id="kcBusiness" autocomplete="off"/>
-          <label class="form-label" for="kcContact" style="margin-top:10px">Contact name</label>
-          <input class="form-input" id="kcContact" autocomplete="off"/>
-          <label class="form-label" for="kcPhone" style="margin-top:10px">Phone</label>
-          <input class="form-input" id="kcPhone" type="tel" autocomplete="off"/>
-          <label class="form-label" for="kcEmail" style="margin-top:10px">Email</label>
-          <input class="form-input" id="kcEmail" type="email" autocomplete="off"/>
-          <label class="form-label" for="kcVehicle" style="margin-top:10px">Vehicle registration</label>
-          <input class="form-input" id="kcVehicle" autocomplete="off"/>
-          <label class="form-label" for="kcHost" style="margin-top:10px">Host / who are you working with? (optional)</label>
-          <input class="form-input" id="kcHost" autocomplete="off" placeholder="Search employees…"/>
-          <div class="kiosk-results" id="kcHostResults"></div>
-          <label class="form-label" for="kcWorkPurpose" style="margin-top:10px">Work purpose</label>
-          <input class="form-input" id="kcWorkPurpose" autocomplete="off"/>
-          <label class="form-label" for="kcPermit" style="margin-top:10px">Permit reference</label>
-          <input class="form-input" id="kcPermit" autocomplete="off"/>
-          <label class="set-checkbox-field" style="margin-top:14px"><input type="checkbox" id="kcInduction"/> Site induction confirmed</label>
-          <div id="kcError" class="form-error" role="alert"></div>
-          <div class="kiosk-actions" style="margin-top:16px">
-            <button class="btn btn-primary" id="kcNextBtn" type="button">Continue</button>
+          <div id="kcResult"></div>
+          <div id="kcMoreWrap" class="kiosk-reveal" aria-hidden="true">
+            <label class="form-label" for="kcContact" style="margin-top:10px">Contact name</label>
+            <input class="form-input" id="kcContact" autocomplete="off"/>
+            <label class="form-label" for="kcPhone" style="margin-top:10px">Phone</label>
+            <input class="form-input" id="kcPhone" type="tel" autocomplete="off"/>
+            <label class="form-label" for="kcEmail" style="margin-top:10px">Email</label>
+            <input class="form-input" id="kcEmail" type="email" autocomplete="off"/>
+            <label class="form-label" for="kcVehicle" style="margin-top:10px">Vehicle registration</label>
+            <input class="form-input" id="kcVehicle" autocomplete="off"/>
+            <label class="form-label" for="kcHost" style="margin-top:10px">Host / who are you working with? (optional)</label>
+            <input class="form-input" id="kcHost" autocomplete="off" placeholder="Search employees…"/>
+            <div class="kiosk-results" id="kcHostResults"></div>
+            <label class="form-label" for="kcWorkPurpose" style="margin-top:10px">Work purpose</label>
+            <input class="form-input" id="kcWorkPurpose" autocomplete="off"/>
+            <label class="form-label" for="kcPermit" style="margin-top:10px">Permit reference</label>
+            <input class="form-input" id="kcPermit" autocomplete="off"/>
+            <label class="set-checkbox-field" style="margin-top:14px"><input type="checkbox" id="kcInduction"/> Site induction confirmed</label>
+            <div id="kcError" class="form-error" role="alert"></div>
+            <div class="kiosk-actions" style="margin-top:16px">
+              <button class="btn btn-primary" id="kcNextBtn" type="button">Continue</button>
+            </div>
           </div>
         </div>`);
     wireHostSearch("kcHost", "kcHostResults", (id) => { hostId = id; });
+
+    _kcCurrentVisits = [];
+    contractors.currentVisits(_companyId, _siteId).then(rows => { _kcCurrentVisits = rows; }).catch(() => { _kcCurrentVisits = []; });
+
+    const businessInput = document.getElementById("kcBusiness");
+    businessInput.addEventListener("input", onContractorNameInput);
+    businessInput.focus();
 
     document.getElementById("kcNextBtn").addEventListener("click", () => {
       const businessName = document.getElementById("kcBusiness").value.trim();
@@ -664,6 +782,84 @@
         submitKioskContractor(form, null);
       }
     });
+  }
+
+  function onContractorNameInput() {
+    clearTimeout(_kcDebounce);
+    const resultEl = document.getElementById("kcResult");
+    const moreWrap = document.getElementById("kcMoreWrap");
+    if (!resultEl || !moreWrap) return;
+    moreWrap.classList.remove("kiosk-reveal-in");
+    moreWrap.setAttribute("aria-hidden", "true");
+
+    const business = document.getElementById("kcBusiness").value.trim();
+    if (!business) { resultEl.innerHTML = ""; return; }
+
+    resultEl.innerHTML = `<div class="kiosk-checking"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
+    _kcDebounce = setTimeout(() => resolveContractorMatch(business), 450);
+  }
+
+  function resolveContractorMatch(business) {
+    const resultEl = document.getElementById("kcResult");
+    const moreWrap = document.getElementById("kcMoreWrap");
+    if (!resultEl || !moreWrap) return;
+    const norm = (s) => s.trim().toLowerCase();
+    const match = _kcCurrentVisits.find(v => norm(v.presence_fire_safety_contractors?.business_name || "") === norm(business));
+    if (match) {
+      resultEl.innerHTML = "";
+      renderContractorFoundCard(match);
+    } else {
+      resultEl.innerHTML = "";
+      moreWrap.classList.add("kiosk-reveal-in");
+      moreWrap.setAttribute("aria-hidden", "false");
+    }
+  }
+
+  function renderContractorFoundCard(visit) {
+    const c = visit.presence_fire_safety_contractors || {};
+    setInner("kcResult", `
+      <div class="kiosk-identity kiosk-pop-in">
+        <div class="avatar" id="kcFoundAvatar">${esc(initials(c.business_name))}</div>
+        <h2>${esc(c.business_name || "")}</h2>
+        ${c.contact_name ? `<p>${esc(c.contact_name)}</p>` : ""}
+        <span class="badge badge-green">Currently signed in</span>
+        ${visit.signed_in_at ? `<p class="text-muted" style="margin-top:6px">Since ${fmtDateTime(new Date(visit.signed_in_at))}</p>` : ""}
+      </div>
+      <div class="kiosk-actions">
+        <button class="btn btn-danger" id="kcSignOutBtn">Confirm Sign Out</button>
+        <button class="btn" id="kcNotMeBtn">Not you? Use a different name</button>
+      </div>
+      <div id="kcSignOutStatus" role="status" aria-live="polite"></div>`);
+    document.getElementById("kcSignOutBtn").addEventListener("click", () => submitContractorSignOut(visit));
+    document.getElementById("kcNotMeBtn").addEventListener("click", () => {
+      document.getElementById("kcBusiness").value = "";
+      document.getElementById("kcResult").innerHTML = "";
+      document.getElementById("kcBusiness").focus();
+    });
+    if (c.photo_path) {
+      contractors.photoSignedUrl(_companyId, c.photo_path).then(({ data }) => {
+        const av = document.getElementById("kcFoundAvatar");
+        if (av && data?.signedUrl) av.outerHTML = `<img class="avatar" id="kcFoundAvatar" src="${esc(data.signedUrl)}" alt="" style="object-fit:cover"/>`;
+      }).catch(() => {});
+    }
+  }
+
+  async function submitContractorSignOut(visit) {
+    const signOutBtn = document.getElementById("kcSignOutBtn");
+    const notMeBtn = document.getElementById("kcNotMeBtn");
+    if (signOutBtn) signOutBtn.disabled = true;
+    if (notMeBtn) notMeBtn.disabled = true;
+    setInner("kcSignOutStatus", loadingState("Signing out…"));
+    try {
+      await contractors.signOut(_companyId, visit.id);
+      const c = visit.presence_fire_safety_contractors || {};
+      renderKioskSuccess(c.business_name || "", "Contractor signed out");
+    } catch (e) {
+      if (signOutBtn) signOutBtn.disabled = false;
+      if (notMeBtn) notMeBtn.disabled = false;
+      setInner("kcSignOutStatus", errorState({ title: "Couldn't sign out", message: e.message, retryId: "kcSignOutRetry" }));
+      document.getElementById("kcSignOutRetry")?.addEventListener("click", () => submitContractorSignOut(visit));
+    }
   }
 
   async function submitKioskContractor(form, photoBlob) {
