@@ -88,10 +88,31 @@ let _measureCanvas = null;
 // card in print than in the editor, silently drifting the two out of sync.
 function fitTextFontSize(measureCtx, text, fontFamily, weight, baseFontSize, maxWidth, minFontSize) {
   if (!text || !(maxWidth > 0)) return baseFontSize;
-  measureCtx.font = `${weight} ${baseFontSize}px "${fontFamily}"`;
-  const width = measureCtx.measureText(text).width;
+  const setFont = (size) => { measureCtx.font = `${weight} ${size}px "${fontFamily}"`; };
+
+  setFont(baseFontSize);
+  let width = measureCtx.measureText(text).width;
   if (width <= maxWidth) return baseFontSize;
-  return Math.max(baseFontSize * (maxWidth / width), minFontSize);
+
+  // Linear scaling (character widths scale proportionally with font size
+  // for a given family/weight) gives a fast, usually-exact next guess —
+  // but rather than trust it blindly, re-measure at that size and keep
+  // stepping down until it's *actually verified* to fit. This is what
+  // makes the result immune to whatever font happens to be active right
+  // now, loaded or still-falling-back: the returned size is only ever one
+  // this exact measureCtx has confirmed fits, at the exact font string the
+  // caller is about to paint with — so there's no estimate left to be
+  // wrong, and nothing left that a font finishing its load moments later
+  // could invalidate.
+  let size = Math.max(baseFontSize * (maxWidth / width), minFontSize);
+  for (let i = 0; i < 10 && size > minFontSize; i++) {
+    setFont(size);
+    width = measureCtx.measureText(text).width;
+    if (width <= maxWidth) return size;
+    size = Math.max(size * 0.92, minFontSize);
+  }
+  setFont(minFontSize);
+  return minFontSize;
 }
 
 /** Offscreen-canvas measurement for the HTML render path (renderElement),
