@@ -22,7 +22,7 @@ function fmtDT(iso) {
   return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function bytesToBase64(bytes) {
+export function bytesToBase64(bytes) {
   let binary = '';
   const chunkSize = 0x8000;
   for (let i = 0; i < bytes.length; i += chunkSize) {
@@ -62,7 +62,7 @@ function safeRow(p) {
   </div>`;
 }
 
-function buildReportEmailHtml({ session, siteName, notSafe, safe }) {
+export function buildReportEmailHtml({ session, siteName, notSafe, safe }) {
   const allSafe = notSafe.length === 0;
   const headerColor = allSafe ? '#16a34a' : '#dc2626';
   const headerBg = allSafe ? '#f0fdf4' : '#fef2f2';
@@ -132,7 +132,7 @@ export async function onRequestPost({ request, env }) {
     const settingsRes = await sb(env, `/presence_fire_safety_settings?company_id=eq.${profile.company_id}&select=emergency_report_emails`);
     const [settingsRow] = await settingsRes.json();
     const emails = [...new Set((settingsRow?.emergency_report_emails || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean))].slice(0, 10);
-    if (!emails.length) return json({ success: true, notified: 0, reason: 'No emergency report emails configured' });
+    if (!emails.length) return json({ success: true, notified: 0, emails: [], reason: 'No emergency report emails configured' });
 
     let report;
     try {
@@ -158,7 +158,7 @@ export async function onRequestPost({ request, env }) {
       console.error('notify-evacuation-completed: some emails failed', failures.map((f) => f.reason?.message));
     }
 
-    return json({ success: true, notified: emails.length - failures.length, failed: failures.length });
+    return json({ success: true, notified: emails.length - failures.length, failed: failures.length, emails });
   } catch (e) {
     console.error('notify-evacuation-completed:', e.message);
     return json({ success: false, reason: e.message || 'Unexpected error' });

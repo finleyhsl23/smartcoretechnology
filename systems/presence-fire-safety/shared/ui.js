@@ -54,14 +54,17 @@ export function modal(html, { size = "" } = {}) {
  *  browser's own PDF viewer in an iframe — instead of a separate browser
  *  tab the person then has to find their way back from. All three ways a
  *  modal can close (overlay click, .modal-close, Escape — see modal()
- *  above) release the object URL; a generous fallback timeout covers any
- *  other removal path so it's never left leaking. */
-export function viewPdfBlob(blob, { title = "Document", filename = "document.pdf" } = {}) {
+ *  above) release the object URL and fire `onClose`; a generous fallback
+ *  timeout covers any other removal path so it's never left leaking.
+ *  `extraBodyHtml` renders below the iframe — e.g. evacuation.html's
+ *  "sent to" panel — leave unset for a plain viewer. */
+export function viewPdfBlob(blob, { title = "Document", filename = "document.pdf", extraBodyHtml = "", onClose } = {}) {
   const url = URL.createObjectURL(blob);
   const overlay = modal(`
     <div class="modal-header"><h3>${esc(title)}</h3></div>
     <div class="modal-body" style="padding:0;">
-      <iframe src="${esc(url)}" title="${esc(title)}" style="width:100%;height:75vh;border:none;display:block;"></iframe>
+      <iframe src="${esc(url)}" title="${esc(title)}" style="width:100%;height:65vh;border:none;display:block;"></iframe>
+      ${extraBodyHtml}
     </div>
     <div class="modal-footer">
       <a class="btn" href="${esc(url)}" download="${esc(filename)}">Download</a>
@@ -69,7 +72,7 @@ export function viewPdfBlob(blob, { title = "Document", filename = "document.pdf
     </div>
   `, { size: "modal-pdf" });
   let released = false;
-  const release = () => { if (released) return; released = true; URL.revokeObjectURL(url); };
+  const release = () => { if (released) return; released = true; URL.revokeObjectURL(url); onClose?.(); };
   overlay.addEventListener("click", e => { if (e.target === overlay) release(); });
   overlay.addEventListener("keydown", e => { if (e.key === "Escape") release(); });
   overlay.querySelectorAll(".modal-close").forEach(btn => btn.addEventListener("click", release));

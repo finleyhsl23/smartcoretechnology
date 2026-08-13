@@ -128,9 +128,17 @@
   .evac-person-photo-wrap img { width:100%; height:100%; object-fit:cover; display:block; }
   .evac-person-name { text-align:center; font-size:19px; font-weight:800; margin-bottom:2px; }
   .evac-person-sub { text-align:center; font-size:13px; color: var(--text3); margin-bottom:18px; }
-  .evac-person-fields { display:flex; flex-direction:column; gap:12px; }
+  .evac-person-fields { display:flex; flex-direction:column; align-items:center; gap:12px; text-align:center; }
   .evac-person-field-label { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color: var(--text3); margin-bottom:2px; }
   .evac-person-field-value { font-size:14px; color: var(--text); }
+
+  /* ── Post-completion report viewer's "sent to" panel ──────────────────── */
+  .evac-sent-to { padding: 16px 22px; border-top: 1px solid var(--line); }
+  .evac-sent-to-label { font-size: 12px; color: var(--text3); margin-bottom: 4px; }
+  .evac-sent-to-list { font-size: 13.5px; color: var(--text); margin-bottom: 12px; }
+  .evac-send-more-form { margin-top: 12px; }
+  .evac-send-more-inputs { display:flex; flex-direction:column; gap:8px; margin-bottom: 10px; }
+  .evac-send-more-form .form-error { margin-bottom: 10px; }
   @media (max-width: 640px) {
     .evac-keypad { gap: 8px; }
     .evac-key { min-height: 56px; font-size: 20px; }
@@ -826,12 +834,19 @@
           await evacuation.complete(completedSessionId);
           stopPolling();
           toast("success", "Evacuation completed", "The session has been closed.");
-          // Best-effort — the emergency report email must never look like it
-          // blocked or failed the completion itself, which has already
-          // succeeded by this point.
-          evacuation.notifyCompleted(completedSessionId).catch((e) => console.warn("notifyCompleted failed:", e.message));
-          await loadState(_currentSite.id);
-          offerEvacuationReportPdf(completedSessionId);
+          // Awaited (not fire-and-forget) so the report viewer can show who
+          // it went to — but a failure here still must never look like it
+          // failed the completion itself, which has already succeeded.
+          let sentEmails = [];
+          try {
+            const result = await evacuation.notifyCompleted(completedSessionId);
+            sentEmails = result?.emails || [];
+          } catch (e) {
+            console.warn("notifyCompleted failed:", e.message);
+          }
+          // loadState() (back to the normal site view) runs once the report
+          // viewer is closed, not before — see openEvacuationReportPdf.
+          await openEvacuationReportPdf(completedSessionId, sentEmails, () => loadState(_currentSite.id));
         } catch (e) {
           toast("error", "Couldn't complete evacuation", e.message || "Please try again.");
         }
@@ -840,42 +855,76 @@
     );
   }
 
-  /** Asks rather than auto-opening the report PDF — the same document is
-   *  also emailed to the Emergency Reports list, so nobody's stuck without
-   *  it if they'd rather not look at it right this second. */
-  function offerEvacuationReportPdf(sessionId) {
-    const overlay = modal(`
-      <div class="modal-header"><h3>View evacuation report?</h3></div>
-      <div class="modal-body"><p class="text-muted">The full report — everyone's photo, anyone not marked safe first — is ready and has also been emailed to the Emergency Reports list.</p></div>
-      <div class="modal-footer">
-        <button class="btn modal-close" type="button">Not now</button>
-        <button class="btn btn-primary" id="viewReportBtn" type="button">View Report</button>
-      </div>`);
-    overlay.querySelector("#viewReportBtn").addEventListener("click", async (e) => {
+  function sentToPanelHtml(emails) {
+    return `
+      <div class="evac-sent-to">
+        <div class="evac-sent-to-label">This report has been automatically sent to:</div>
+        <div class="evac-sent-to-list">${emails.length ? esc(emails.join(", ")) : "Nobody — no emergency report emails are configured in Settings."}</div>
+        <button type="button" class="btn" id="sendMoreBtn">Send to more</button>
+        <div class="evac-send-more-form" id="sendMoreForm" style="display:none">
+          <div class="evac-send-more-inputs">
+            ${Array.from({ length: 5 }).map((_, i) => `<input type="email" class="form-input" placeholder="email@example.com" data-more-email autocomplete="off"/>`).join("")}
+          </div>
+          <div class="form-error" id="sendMoreError" role="alert"></div>
+          <button type="button" class="btn btn-primary" id="sendMoreSubmit">Send</button>
+        </div>
+      </div>`;
+  }
+
+  function wireSentToPanel(overlay, sessionId) {
+    const sendMoreBtn = overlay.querySelector("#sendMoreBtn");
+    const form = overlay.querySelector("#sendMoreForm");
+    sendMoreBtn.addEventListener("click", () => {
+      form.style.display = "block";
+      sendMoreBtn.style.display = "none";
+      form.querySelector("[data-more-email]").focus();
+    });
+    overlay.querySelector("#sendMoreSubmit").addEventListener("click", async (e) => {
       const btn = e.currentTarget;
+      const errEl = overlay.querySelector("#sendMoreError");
+      const inputs = [...overlay.querySelectorAll("[data-more-email]")];
+      const emails = inputs.map(i => i.value.trim()).filter(Boolean);
+      errEl.textContent = "";
+      if (!emails.length) { errEl.textContent = "Enter at least one email address."; return; }
       btn.disabled = true;
-      btn.textContent = "Opening…";
+      btn.textContent = "Sending…";
       try {
-        await openEvacuationReportPdf(sessionId);
-        overlay.remove();
+        const result = await evacuation.sendReportToEmails(sessionId, emails);
+        toast("success", "Report sent", `Sent to ${result.sent} address${result.sent === 1 ? "" : "es"}.`);
+        inputs.forEach(i => { i.value = ""; });
+        form.style.display = "none";
+        sendMoreBtn.style.display = "";
       } catch (err) {
+        errEl.textContent = err.message || "Could not send the report.";
+      } finally {
         btn.disabled = false;
-        btn.textContent = "View Report";
+        btn.textContent = "Send";
       }
     });
   }
 
   /** Opens the full photo evacuation report PDF right inside the app
-   *  (in-page viewer, not a separate browser tab) — used both right after
-   *  completing and from evacuation history. */
-  async function openEvacuationReportPdf(sessionId) {
+   *  (in-page viewer, not a separate browser tab), with who it was already
+   *  emailed to and an option to send it to a few more addresses.
+   *  `onClose` fires once the viewer is dismissed — or immediately if the
+   *  PDF itself couldn't be loaded, since there's nothing to view either
+   *  way — so the caller can navigate on afterwards. */
+  async function openEvacuationReportPdf(sessionId, sentEmails, onClose) {
+    let blob;
     try {
-      const blob = await evacuation.reportPdfBlob(sessionId);
-      viewPdfBlob(blob, { title: "Evacuation Report", filename: `evacuation-report-${sessionId}.pdf` });
+      blob = await evacuation.reportPdfBlob(sessionId);
     } catch (e) {
       toast("error", "Couldn't open report PDF", "It's still on its way in the emergency report email.");
-      throw e;
+      onClose?.();
+      return;
     }
+    const overlay = viewPdfBlob(blob, {
+      title: "Evacuation Report",
+      filename: `evacuation-report-${sessionId}.pdf`,
+      extraBodyHtml: sentToPanelHtml(sentEmails),
+      onClose,
+    });
+    wireSentToPanel(overlay, sessionId);
   }
 
   // ── Polling ─────────────────────────────────────────────────────────────

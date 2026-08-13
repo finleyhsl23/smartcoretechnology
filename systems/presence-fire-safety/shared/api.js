@@ -609,16 +609,30 @@ export const evacuation = {
    *  failed to complete, so callers should swallow rejections. */
   async notifyCompleted(sessionId) {
     const { data: { session } } = await sb().auth.getSession();
-    if (!session) return;
+    if (!session) return { emails: [] };
     const res = await fetch("/api/presence-fire-safety/notify-evacuation-completed", {
       method: "POST",
       headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ evacuation_session_id: sessionId }),
     });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "Could not send evacuation report");
-    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not send evacuation report");
+    return data;
+  },
+
+  /** "Send to more" from the report viewer — up to 5 ad-hoc addresses that
+   *  aren't on the Emergency Reports list configured in Settings. */
+  async sendReportToEmails(sessionId, emails) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) throw new Error("Not signed in");
+    const res = await fetch("/api/presence-fire-safety/evacuation-report-send", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ evacuation_session_id: sessionId, emails }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not send the report");
+    return data;
   },
 
   /** The same photo evacuation report PDF sent by notifyCompleted, as a
