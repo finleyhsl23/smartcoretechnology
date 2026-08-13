@@ -361,6 +361,50 @@
     }
   }
 
+  async function viewBadgeRowCard(employeeId, btn) {
+    btn.disabled = true;
+    try {
+      const [emp, badge] = await Promise.all([
+        employees.forIdCard(_companyId, employeeId),
+        badges.forEmployee(employeeId),
+      ]);
+      if (!emp) throw new Error("Employee not found");
+      const qr = badge ? generateQrDataUrl(badge.badge_token) : null;
+      const ctx = { employee: emp, logoUrl: _logoUrl, qrDataUrl: qr };
+      const overlay = modal(`
+        <div class="modal-header"><h3>${esc(emp.full_name)}</h3></div>
+        <div class="modal-body">
+          <div class="idc-modal-preview">
+            <div>
+              <div class="idc-page-preview-label">Front</div>
+              <div id="cardViewFront">${renderCardFace(_template, "front", ctx)}</div>
+            </div>
+            <div>
+              <div class="idc-page-preview-label">Back</div>
+              <div id="cardViewBack">${renderCardFace(_template, "back", ctx)}</div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer"><button class="btn modal-close" type="button">Close</button></div>
+      `, { size: "" });
+      overlay.querySelector(".modal-close").addEventListener("click", () => overlay.remove());
+      // First paint can land before the card's webfont has loaded — see
+      // ensureCardFontsLoaded's own doc comment — so re-render once it's
+      // confirmed ready rather than leaving the preview stuck sized for a
+      // fallback font.
+      ensureCardFontsLoaded(_template).then(() => {
+        const front = overlay.querySelector("#cardViewFront");
+        const back = overlay.querySelector("#cardViewBack");
+        if (front) front.innerHTML = renderCardFace(_template, "front", ctx);
+        if (back) back.innerHTML = renderCardFace(_template, "back", ctx);
+      });
+    } catch (e) {
+      toast("error", "Couldn't preview card", e.message || "Please try again.");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   async function downloadBadgeRowPdf(employeeId, btn) {
     const original = btn.textContent;
     btn.disabled = true;
@@ -671,6 +715,7 @@
                 <td>${esc(fmtDateTime(b.issued_at))}</td>
                 <td>
                   <div class="idc-row-actions">
+                    <button class="icon-btn" data-view-badge="${esc(b.employee_id)}" type="button" title="View card" aria-label="View card"><i data-lucide="eye"></i></button>
                     <button class="btn" data-download-badge="${esc(b.employee_id)}" type="button">Download</button>
                     <button class="btn btn-danger" data-revoke-badge="${esc(b.id)}" type="button">Revoke</button>
                   </div>
@@ -680,6 +725,10 @@
         </table>
       </div>
     `);
+    refreshIcons();
+    document.querySelectorAll("[data-view-badge]").forEach(btn => {
+      btn.addEventListener("click", () => viewBadgeRowCard(btn.dataset.viewBadge, btn));
+    });
     document.querySelectorAll("[data-download-badge]").forEach(btn => {
       btn.addEventListener("click", () => downloadBadgeRowPdf(btn.dataset.downloadBadge, btn));
     });
