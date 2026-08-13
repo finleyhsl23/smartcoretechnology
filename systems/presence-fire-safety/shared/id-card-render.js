@@ -64,7 +64,7 @@ const fontSizeCss = refPxCss;
 // against both edges. Subtracted from the width available to measure
 // against/draw within, not just added as visual padding, so shrink-to-fit
 // targets the inset width rather than the full box.
-const TEXT_PADDING_X = 10;
+const TEXT_PADDING_X = 20;
 
 // Shrink-to-fit for "text" (field-bound) elements — an employee whose name
 // or job title is unusually long shouldn't have it clipped or overlapping
@@ -72,17 +72,26 @@ const TEXT_PADDING_X = 10;
 // shorter values. Font metrics scale linearly with px size for a given
 // family/weight, so one measurement at the configured size gives an exact
 // scale factor rather than needing an iterative search. Floors at
-// MIN_FIT_RATIO of the configured size — this only ever affects the one
-// card whose text is actually too long, never the template default.
-const MIN_FIT_RATIO = 0.55;
+// MIN_FONT_PX (an absolute size, not a ratio of the configured size) so a
+// long value always keeps shrinking until it actually fits within its
+// padding instead of giving up and falling back to ellipsis truncation —
+// this only ever affects the one card whose text is actually too long,
+// never the template default.
+const MIN_FONT_PX = 7;
 let _measureCanvas = null;
 
-function fitTextFontSize(measureCtx, text, fontFamily, weight, baseFontSize, maxWidth) {
+// `minFontSize` is a parameter (not just the MIN_FONT_PX constant used
+// inline) because the two callers below measure in different unit spaces —
+// the HTML preview always works in reference px, but the print/canvas path
+// scales everything (including the floor) by PX_SCALE first — passing the
+// wrong one would make the floor land at a different *proportion* of the
+// card in print than in the editor, silently drifting the two out of sync.
+function fitTextFontSize(measureCtx, text, fontFamily, weight, baseFontSize, maxWidth, minFontSize) {
   if (!text || !(maxWidth > 0)) return baseFontSize;
   measureCtx.font = `${weight} ${baseFontSize}px "${fontFamily}"`;
   const width = measureCtx.measureText(text).width;
   if (width <= maxWidth) return baseFontSize;
-  return Math.max(baseFontSize * (maxWidth / width), baseFontSize * MIN_FIT_RATIO);
+  return Math.max(baseFontSize * (maxWidth / width), minFontSize);
 }
 
 /** Offscreen-canvas measurement for the HTML render path (renderElement),
@@ -91,7 +100,7 @@ function fitTextFontSize(measureCtx, text, fontFamily, weight, baseFontSize, max
 function fitTextFontSizeHtml(text, fontFamily, weight, baseFontSize, maxWidth) {
   if (typeof document === "undefined") return baseFontSize;
   if (!_measureCanvas) _measureCanvas = document.createElement("canvas");
-  return fitTextFontSize(_measureCanvas.getContext("2d"), text, fontFamily, weight, baseFontSize, maxWidth);
+  return fitTextFontSize(_measureCanvas.getContext("2d"), text, fontFamily, weight, baseFontSize, maxWidth, MIN_FONT_PX);
 }
 
 const FIELD_MAP = { name: "full_name", jobTitle: "job_title", employeeCode: "employee_id", department: "department_name" };
@@ -421,7 +430,7 @@ async function drawElementShape(c, el, ctx, ex, ey, ew, eh) {
     // name) rather than only relying on the ellipsis-truncation below —
     // this only ever affects the one card whose text is actually too
     // long, not the template's configured size for everyone else.
-    const fontSize = el.type === "text" ? fitTextFontSize(c, value, family, weight, baseFontSize, innerEw) : baseFontSize;
+    const fontSize = el.type === "text" ? fitTextFontSize(c, value, family, weight, baseFontSize, innerEw, MIN_FONT_PX * PX_SCALE) : baseFontSize;
     c.font = `${weight} ${fontSize}px "${family}"`;
     c.fillStyle = el.color || (el.type === "text" ? "#fff" : "#334155");
     const align = el.align || "left";
@@ -431,8 +440,9 @@ async function drawElementShape(c, el, ctx, ex, ey, ew, eh) {
     if (el.type === "text") {
       // Single line, truncated with an ellipsis rather than wrapped —
       // matches the on-screen nowrap/text-overflow:ellipsis rendering.
-      // Shrinking above handles most long values; this is the fallback for
-      // the rare case even the minimum shrink ratio doesn't fit.
+      // Shrinking above handles long values on its own now; this only
+      // fires in the pathological case where even MIN_FONT_PX is still
+      // wider than the box.
       c.textBaseline = "middle";
       c.fillText(truncateToWidth(c, value, innerEw), anchorX, ey + eh / 2);
     } else {
