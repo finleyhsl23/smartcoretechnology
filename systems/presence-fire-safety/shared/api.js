@@ -284,13 +284,17 @@ export const visitors = {
     return data || [];
   },
 
-  async createVisit({ siteId, firstName, lastName, organisation, email, phone, vehicleRegistration, hostEmployeeId, visitReason, photoPath, acceptTerms, signInNow = true }) {
+  /** hostEmployeeIds (plural) supports selecting more than one host at the
+   *  kiosk; hostEmployeeId (singular) is still accepted for older callers —
+   *  the RPC treats the plural list as authoritative when both are given. */
+  async createVisit({ siteId, firstName, lastName, organisation, email, phone, vehicleRegistration, hostEmployeeId, hostEmployeeIds, visitReason, photoPath, acceptTerms, signInNow = true }) {
     const { companyId } = await ctx();
     const { data, error } = await sb().rpc("presence_fire_safety_create_visitor_visit", {
       p_company_id: companyId, p_site_id: siteId,
       p_first_name: firstName, p_last_name: lastName,
       p_organisation: organisation || null, p_email: email || null, p_phone: phone || null,
       p_vehicle_registration: vehicleRegistration || null, p_host_employee_id: hostEmployeeId || null,
+      p_host_employee_ids: hostEmployeeIds?.length ? hostEmployeeIds : null,
       p_visit_reason: visitReason || null, p_photo_path: photoPath || null,
       p_accept_terms: !!acceptTerms, p_sign_in_now: signInNow,
     });
