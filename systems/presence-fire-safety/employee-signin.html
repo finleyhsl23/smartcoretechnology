@@ -45,23 +45,23 @@
   .pfs-shell { height: 100vh; }
   .pfs-main { display: flex; flex-direction: column; height: 100vh; }
   .pfs-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  #kioskBody { flex: 1; min-height: 0; display: flex; }
+  #kioskBody { flex: 1; min-height: 0; display: flex; position: relative; }
   #kioskBody > * { margin: auto; width: 100%; }
-  /* .pfs-kiosk does its OWN vertical centering below (::before/::after
-     spacers) rather than relying on this margin:auto — a shrink-to-content
-     box centered via cross-axis margin:auto renders inconsistently between
-     browsers (content ends up off-centre in some), whereas stretching it to
-     fill kioskBody's full height and letting its internal flex-grow spacers
-     do the centering is well-supported everywhere. */
-  #kioskBody > .pfs-kiosk { margin: 0; height: 100%; }
-  /* justify-content:flex-start + growable/shrinkable spacers (instead of
-     justify-content:center) so content is vertically centered when it fits,
-     but — unlike plain flex centering — remains fully scrollable to its true
-     top and bottom once it's taller than the viewport (long visitor/
-     contractor forms). Plain centering clips the "start" side of overflow in
-     most browsers, which was why scrolling back up never reached the top. */
-  .pfs-kiosk { min-height: 0; max-height: 100%; overflow-y: auto; justify-content: flex-start; }
-  .pfs-kiosk::before, .pfs-kiosk::after { content: ""; flex: 1 1 0; min-height: 0; }
+  /* .pfs-kiosk centers itself with position:absolute + transform instead of
+     flexbox auto-margins/flex-grow spacers — those rendered inconsistently
+     across browsers (correctly centred in some, visibly off-centre in
+     others, worse the shorter the content). Transform-based centering has
+     none of that ambiguity: top/left 50% + translate(-50%,-50%) is exact
+     regardless of the box's own size. max-height + its own overflow-y:auto
+     caps it to the available space and keeps it scrollable to its true top
+     when content is taller than the screen (long visitor/contractor forms),
+     without the "can't scroll back to the start" clipping that plain
+     flex/grid centering has on overflow. */
+  #kioskBody > .pfs-kiosk {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    margin: 0; width: calc(100% - 48px); min-height: 0; max-height: calc(100% - 24px);
+    overflow-y: auto; justify-content: flex-start;
+  }
   .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
   .pfs-tabs { display:flex; gap:8px; margin-bottom: 22px; background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
   .pfs-tab { flex:1; border:none; background:transparent; color: var(--text2); padding: 10px 18px; border-radius: 999px; font-weight:700; font-size: 14px; min-height: 44px; }
@@ -811,13 +811,13 @@
     setInner("kioskPanel", `
         <div class="card kiosk-card">
           <h2 style="margin-top:0">Contractor Sign In / Out</h2>
-          <p class="text-muted" style="margin-top:-6px">Enter your business name to sign in — or to sign out if you're already here.</p>
-          <label class="form-label" for="kcBusiness">Business name *</label>
-          <input class="form-input" id="kcBusiness" autocomplete="off"/>
+          <p class="text-muted" style="margin-top:-6px">Enter your name to sign in — or to sign out if you're already here.</p>
+          <label class="form-label" for="kcContact">Your name *</label>
+          <input class="form-input" id="kcContact" autocomplete="off"/>
           <div id="kcResult"></div>
           <div id="kcMoreWrap" class="kiosk-reveal" aria-hidden="true">
-            <label class="form-label" for="kcContact" style="margin-top:10px">Contact name</label>
-            <input class="form-input" id="kcContact" autocomplete="off"/>
+            <label class="form-label" for="kcBusiness" style="margin-top:10px">Business name *</label>
+            <input class="form-input" id="kcBusiness" autocomplete="off"/>
             <label class="form-label" for="kcPhone" style="margin-top:10px">Phone</label>
             <input class="form-input" id="kcPhone" type="tel" autocomplete="off"/>
             <label class="form-label" for="kcEmail" style="margin-top:10px">Email</label>
@@ -843,13 +843,13 @@
     _kcCurrentVisits = [];
     contractors.currentVisits(_companyId, _siteId).then(rows => { _kcCurrentVisits = rows; }).catch(() => { _kcCurrentVisits = []; });
 
-    const businessInput = document.getElementById("kcBusiness");
-    businessInput.addEventListener("input", onContractorNameInput);
-    businessInput.focus();
+    const contactInput = document.getElementById("kcContact");
+    contactInput.addEventListener("input", onContractorNameInput);
+    contactInput.focus();
 
     document.getElementById("kcNextBtn").addEventListener("click", () => {
-      const businessName = document.getElementById("kcBusiness").value.trim();
       const contactName = document.getElementById("kcContact").value.trim();
+      const businessName = document.getElementById("kcBusiness").value.trim();
       const phone = document.getElementById("kcPhone").value.trim();
       const email = document.getElementById("kcEmail").value.trim();
       const vehicleRegistration = document.getElementById("kcVehicle").value.trim();
@@ -857,6 +857,7 @@
       const permitReference = document.getElementById("kcPermit").value.trim();
       const inductionConfirmed = document.getElementById("kcInduction").checked;
       const errBox = document.getElementById("kcError");
+      if (!contactName) { errBox.textContent = "Your name is required."; return; }
       if (!businessName) { errBox.textContent = "Business name is required."; return; }
       errBox.textContent = "";
       const form = { businessName, contactName, phone, email, vehicleRegistration, hostEmployeeId: hostId, workPurpose, permitReference, inductionConfirmed };
@@ -872,9 +873,9 @@
   // flow above — see onVisitorNameInput for why.
   function onContractorNameInput() {
     clearTimeout(_kcDebounce);
-    const business = document.getElementById("kcBusiness").value.trim();
-    if (!business) { resetContractorStep(); return; }
-    _kcDebounce = setTimeout(() => checkContractorName(business), 500);
+    const name = document.getElementById("kcContact").value.trim();
+    if (!name) { resetContractorStep(); return; }
+    _kcDebounce = setTimeout(() => checkContractorName(name), 500);
   }
 
   function resetContractorStep() {
@@ -886,24 +887,24 @@
     moreWrap.setAttribute("aria-hidden", "true");
   }
 
-  function checkContractorName(business) {
+  function checkContractorName(name) {
     const resultEl = document.getElementById("kcResult");
     const moreWrap = document.getElementById("kcMoreWrap");
     if (!resultEl || !moreWrap) return;
     moreWrap.classList.remove("kiosk-reveal-in");
     moreWrap.setAttribute("aria-hidden", "true");
     resultEl.innerHTML = `<div class="kiosk-checking"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
-    setTimeout(() => resolveContractorMatch(business), 300);
+    setTimeout(() => resolveContractorMatch(name), 300);
   }
 
-  function resolveContractorMatch(business) {
+  function resolveContractorMatch(name) {
     const resultEl = document.getElementById("kcResult");
     const moreWrap = document.getElementById("kcMoreWrap");
     if (!resultEl || !moreWrap) return;
-    const b2 = document.getElementById("kcBusiness")?.value.trim();
-    if (b2 !== business) return; // stale — a newer check is already queued
+    const n2 = document.getElementById("kcContact")?.value.trim();
+    if (n2 !== name) return; // stale — a newer check is already queued
     const norm = (s) => s.trim().toLowerCase();
-    const match = _kcCurrentVisits.find(v => norm(v.presence_fire_safety_contractors?.business_name || "") === norm(business));
+    const match = _kcCurrentVisits.find(v => norm(v.presence_fire_safety_contractors?.contact_name || "") === norm(name));
     if (match) {
       resultEl.innerHTML = "";
       renderContractorFoundCard(match);
@@ -918,9 +919,9 @@
     const c = visit.presence_fire_safety_contractors || {};
     setInner("kcResult", `
       <div class="kiosk-identity kiosk-pop-in">
-        <div class="avatar" id="kcFoundAvatar">${esc(initials(c.business_name))}</div>
-        <h2>${esc(c.business_name || "")}</h2>
-        ${c.contact_name ? `<p>${esc(c.contact_name)}</p>` : ""}
+        <div class="avatar" id="kcFoundAvatar">${esc(initials(c.contact_name))}</div>
+        <h2>${esc(c.contact_name || "")}</h2>
+        ${c.business_name ? `<p>${esc(c.business_name)}</p>` : ""}
         <span class="badge badge-green">Currently signed in</span>
         ${visit.signed_in_at ? `<p class="text-muted" style="margin-top:6px">Since ${fmtDateTime(new Date(visit.signed_in_at))}</p>` : ""}
       </div>
@@ -931,9 +932,9 @@
       <div id="kcSignOutStatus" role="status" aria-live="polite"></div>`);
     document.getElementById("kcSignOutBtn").addEventListener("click", () => submitContractorSignOut(visit));
     document.getElementById("kcNotMeBtn").addEventListener("click", () => {
-      document.getElementById("kcBusiness").value = "";
+      document.getElementById("kcContact").value = "";
       document.getElementById("kcResult").innerHTML = "";
-      document.getElementById("kcBusiness").focus();
+      document.getElementById("kcContact").focus();
     });
     if (c.photo_path) {
       contractors.photoSignedUrl(_companyId, c.photo_path).then(({ data }) => {
@@ -952,7 +953,7 @@
     try {
       await contractors.signOut(_companyId, visit.id);
       const c = visit.presence_fire_safety_contractors || {};
-      renderKioskSuccess(c.business_name || "", "Contractor signed out");
+      renderKioskSuccess(c.contact_name || c.business_name || "", "Contractor signed out");
     } catch (e) {
       if (signOutBtn) signOutBtn.disabled = false;
       if (notMeBtn) notMeBtn.disabled = false;
@@ -978,7 +979,7 @@
           toast("error", "Photo not saved", "The contractor was signed in, but the photo couldn't be uploaded.");
         }
       }
-      renderKioskSuccess(form.businessName, "Contractor signed in");
+      renderKioskSuccess(form.contactName || form.businessName, "Contractor signed in");
     } catch (e) {
       setInner("kioskPanel", errorState({ title: "Couldn't sign in contractor", message: e.message, retryId: "kcRetry" }));
       document.getElementById("kcRetry")?.addEventListener("click", () => submitKioskContractor(form, photoBlob));
