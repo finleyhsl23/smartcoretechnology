@@ -47,42 +47,34 @@
   .pfs-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   #kioskBody { flex: 1; min-height: 0; display: flex; }
   #kioskBody > * { margin: auto; width: 100%; }
-  /* .pfs-kiosk centers itself against the whole viewport (position:fixed),
-     not just the leftover space below the topbar/evacuation banner — those
-     only take up room at the top with nothing matching at the bottom, so
-     centering within "the space below them" always looks visibly high
-     relative to the full screen even when that's mathematically correct for
-     the narrower region. Fixed positioning + transform sidesteps that, and
-     is exact regardless of the box's own size or which browser renders it,
-     unlike the flexbox auto-margin/flex-grow approaches tried before it.
-     max-height + its own overflow-y:auto caps it to the viewport and keeps
-     it scrollable to its true top when content is taller than the screen
-     (long visitor/contractor forms), without the "can't scroll back to the
-     start" clipping that plain flex/grid centering has on overflow. */
-  /* --pfs-vkeyboard-height (set by shared/virtual-keyboard.js while the
-     custom on-screen keyboard is open) shifts the centering up and shrinks
-     the cap so the focused field never ends up hidden behind the keyboard. */
+  /* .pfs-kiosk is positioned by JS (positionKiosk(), see the module script)
+     rather than pure CSS centering — it needs to center within whatever
+     space is actually free (below the sticky topbar and the evacuation
+     banner, above the custom keyboard when open), and clamp so it never
+     rises above that safe top edge. Plain viewport-relative centering
+     doesn't know the banner is there and can end up overlapping it for
+     short content; centering only within #kioskBody's own box (tried
+     before this) avoided that but looked visibly high relative to the
+     whole screen since the banner only takes space from the top. JS
+     measuring both real element heights and clamping is the only way to
+     satisfy "centered when there's room" and "never covers the banner" at
+     the same time. --pfs-kiosk-top/--pfs-kiosk-max-height are the two
+     values it computes and writes here. */
   #kioskBody > .pfs-kiosk {
-    position: fixed; top: calc((100% - var(--pfs-vkeyboard-height, 0px)) / 2); left: 50%;
+    position: fixed; top: var(--pfs-kiosk-top, 50%); left: 50%;
     transform: translate(-50%, -50%);
     transition: top .2s ease, max-height .2s ease;
     margin: 0; width: calc(100% - 48px); min-height: 0;
-    max-height: calc(100% - var(--pfs-vkeyboard-height, 0px) - 24px);
+    max-height: var(--pfs-kiosk-max-height, calc(100% - 24px));
     overflow-y: auto; justify-content: flex-start;
   }
   /* While the custom keyboard is open (typing), free up screen space for
-     the field actually being used: drop the evacuation banner and the QR
-     scanner column (irrelevant mid-search anyway), and anchor near the top
-     instead of vertical-centering, so content doesn't sit awkwardly in a
-     shrinking middle band above the keyboard. */
+     the field actually being used — the evacuation banner and (Employee
+     tab) the QR scanner column are irrelevant mid-search anyway. */
   body.pfs-vk-typing #kioskEvacBanner,
   body.pfs-vk-typing #qrScanColumn,
   body.pfs-vk-typing .kiosk-or {
     display: none;
-  }
-  body.pfs-vk-typing #kioskBody > .pfs-kiosk {
-    top: 16px;
-    transform: translateX(-50%);
   }
   .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
   .pfs-tabs { display:flex; gap:8px; margin-bottom: 22px; background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
@@ -167,6 +159,7 @@
   let _camera = null;           // active camera controller for the visitor/contractor photo step
   let _kioskTab = "employee";   // which top-level Kiosk Mode section is active
   let _empPanelId = "kioskBody"; // container the employee scan/manual sub-tabs render into
+  let _kioskResizeObserver = null; // re-attached to .pfs-kiosk on every re-render, see positionKiosk()
   let _kvCurrentVisits = [];    // currently-signed-in visitors, fetched fresh each time the Visitor tab renders
   let _kvDebounce = null;
   let _kcCurrentVisits = [];    // currently-signed-in contractors, fetched fresh each time the Contractor tab renders
@@ -186,6 +179,7 @@
     initTopbar();
     initKioskToggle({ companyId: _companyId, currentPage: "employee-signin" });
     renderKioskEvacuationBanner("kioskEvacBanner");
+    setUpKioskPositioning();
     wireOfflineBanner();
     initSoundFromSettings(_companyId);
 
@@ -228,6 +222,52 @@
     }
   } catch (e) {
     if (e.message !== "__kiosk_redirect__") renderAccessBlocked(e);
+  }
+
+  // ── Kiosk panel positioning ──────────────────────────────────────────
+  // Centers .pfs-kiosk within whatever space is actually free — below the
+  // sticky topbar and the evacuation banner (when shown), above the custom
+  // keyboard (when open) — and clamps so it never rises above that safe top
+  // edge, which plain viewport-centering doesn't know to avoid. Recomputed
+  // whenever any of those elements actually change size, via ResizeObserver
+  // (also fires continuously during the reveal/keyboard CSS transitions, not
+  // just at the start/end, so the position tracks smoothly rather than
+  // snapping).
+  function positionKiosk() {
+    const kiosk = document.querySelector("#kioskBody > .pfs-kiosk");
+    const topbar = document.querySelector(".pfs-topbar");
+    const banner = document.getElementById("kioskEvacBanner");
+    if (!kiosk) return;
+    const topbarBottom = topbar?.getBoundingClientRect().bottom || 0;
+    const bannerBottom = banner?.getBoundingClientRect().bottom || 0;
+    const safeTop = Math.max(topbarBottom, bannerBottom, 0) + 16;
+    const kbHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pfs-vkeyboard-height")) || 0;
+    const safeBottom = window.innerHeight - kbHeight - 16;
+    const kioskHeight = kiosk.getBoundingClientRect().height || 0;
+    const centerTop = (safeTop + safeBottom) / 2;
+    const minTop = safeTop + kioskHeight / 2; // clamp: box's own top edge never rises above safeTop
+    const root = document.documentElement.style;
+    root.setProperty("--pfs-kiosk-top", `${Math.max(centerTop, minTop)}px`);
+    root.setProperty("--pfs-kiosk-max-height", `${Math.max(safeBottom - safeTop, 100)}px`);
+  }
+
+  function setUpKioskPositioning() {
+    const topbar = document.querySelector(".pfs-topbar");
+    const banner = document.getElementById("kioskEvacBanner");
+    if (topbar) new ResizeObserver(positionKiosk).observe(topbar);
+    if (banner) new ResizeObserver(positionKiosk).observe(banner);
+    window.addEventListener("resize", positionKiosk);
+    // .pfs-kiosk itself is replaced (setInner) on every tab switch/step, so
+    // its own ResizeObserver target has to be re-attached each time rather
+    // than observed once.
+    _kioskResizeObserver = new ResizeObserver(positionKiosk);
+    new MutationObserver(() => {
+      const kiosk = document.querySelector("#kioskBody > .pfs-kiosk");
+      if (!kiosk) return;
+      _kioskResizeObserver.disconnect();
+      _kioskResizeObserver.observe(kiosk);
+      positionKiosk();
+    }).observe(document.getElementById("kioskBody"), { childList: true });
   }
 
   // ── Kiosk shell: one screen, Employee / Visitor / Contractor tabs at the
