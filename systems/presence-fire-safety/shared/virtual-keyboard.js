@@ -153,6 +153,10 @@ function showKeyboardFor(el) {
   renderPanel();
   _panel.classList.add("pfs-vk-open");
   _panel.setAttribute("aria-hidden", "false");
+  // Pages opt into extra "typing" chrome (hiding banners/QR scanners,
+  // anchoring content near the top instead of centered) by styling off
+  // this body class — see employee-signin.html's #kioskEvacBanner/QR rules.
+  document.body.classList.add("pfs-vk-typing");
   updateHeightVar();
   requestAnimationFrame(() => el.scrollIntoView({ block: "center", behavior: "smooth" }));
 }
@@ -168,6 +172,7 @@ function hideKeyboard() {
   _activeInput = null;
   _panel?.classList.remove("pfs-vk-open");
   _panel?.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("pfs-vk-typing");
   updateHeightVar();
 }
 
