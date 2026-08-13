@@ -116,16 +116,30 @@
   .kiosk-chip-row:not(:empty) { margin-top:8px; }
   .kiosk-chip-row .set-selected-chip { margin-top:0; }
   .kiosk-phone-row { display:flex; gap:8px; }
-  /* The <select> itself keeps native option text ("+44 United Kingdom") so
-     the OPEN dropdown lists full country names — but its own text is made
-     invisible and a small overlay span shows just the dial code, so the
-     CLOSED box stays short instead of truncating mid-word. */
-  .kiosk-phone-country-wrap { position: relative; flex: 0 0 84px; }
-  .kiosk-phone-country-wrap .kiosk-phone-country { width: 100%; color: transparent; }
-  .kiosk-phone-country-display {
-    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
-    pointer-events: none; font-size: 16px; color: var(--text);
+  /* A custom button + list rather than a native <select> — trying to make a
+     closed <select> show just the dial code (transparent native text plus
+     an overlay span) looked broken on phones: the OS still reserves layout
+     space/height for its own (invisible) text and draws its own dropdown
+     arrow at a position CSS can't fully control, so the box came out an
+     inconsistent size with the arrow crowding the "+44" against a mobile
+     keyboard/picker wheel on top. This is fully our own markup instead. */
+  .kiosk-phone-country-wrap { position: relative; flex: 0 0 92px; }
+  .kiosk-phone-country-btn {
+    display: flex; align-items: center; justify-content: space-between; gap: 4px;
+    width: 100%; font-size: 16px; cursor: pointer;
   }
+  .kiosk-phone-country-btn i { width: 16px; height: 16px; color: var(--text3); flex-shrink: 0; }
+  .kiosk-phone-country-list {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+    width: max(100%, 220px); max-height: 260px; overflow-y: auto;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 6px;
+  }
+  .kiosk-phone-country-option {
+    display: block; width: 100%; text-align: left; padding: 9px 10px;
+    border: none; background: none; border-radius: 8px; font-size: 14px; color: var(--text);
+  }
+  .kiosk-phone-country-option:hover, .kiosk-phone-country-option.selected { background: var(--card2); }
   .kiosk-phone-row .form-input:last-child { flex: 1; min-width: 0; }
   #kvVehicle, #kcVehicle, #empCode { text-transform: uppercase; }
   .kiosk-result-meta { font-size:12px; color: var(--text3); }
@@ -684,22 +698,54 @@
       <label class="form-label" for="${idPrefix}Phone" style="margin-top:10px">${esc(label)}</label>
       <div class="kiosk-phone-row">
         <div class="kiosk-phone-country-wrap">
-          <select class="form-input kiosk-phone-country" id="${idPrefix}PhoneCountry" aria-label="Country code">
-            ${PHONE_COUNTRIES.map((c, i) => `<option value="${esc(c.code)}" ${i === 0 ? "selected" : ""}>${esc(c.code)} ${esc(c.label)}</option>`).join("")}
-          </select>
-          <span class="kiosk-phone-country-display" id="${idPrefix}PhoneCountryDisplay" aria-hidden="true">${esc(PHONE_COUNTRIES[0].code)}</span>
+          <button type="button" class="form-input kiosk-phone-country-btn" id="${idPrefix}PhoneCountryBtn" data-code="${esc(PHONE_COUNTRIES[0].code)}" aria-haspopup="true" aria-expanded="false" aria-label="Country code, ${esc(PHONE_COUNTRIES[0].label)}">
+            <span>${esc(PHONE_COUNTRIES[0].code)}</span>
+            <i data-lucide="chevron-down"></i>
+          </button>
+          <div class="kiosk-phone-country-list" id="${idPrefix}PhoneCountryList" hidden>
+            ${PHONE_COUNTRIES.map((c, i) => `<button type="button" class="kiosk-phone-country-option${i === 0 ? " selected" : ""}" data-code="${esc(c.code)}" data-label="${esc(c.label)}">${esc(c.code)} ${esc(c.label)}</button>`).join("")}
+          </div>
         </div>
         <input class="form-input" id="${idPrefix}Phone" type="tel" inputmode="numeric" autocomplete="off" placeholder="7700 900000"/>
       </div>`;
   }
 
-  /** Wires the country-code overlay (so the closed select shows just the
-   *  dial code) and restricts the number field to digits only — call once
-   *  right after the phoneFieldHtml() markup is in the DOM. */
+  // Closes any open country list on an outside tap — registered once at
+  // module scope (not per wirePhoneField() call, which runs again on every
+  // panel re-render) so it can't pile up duplicate document-level listeners
+  // the way an element-scoped one would naturally avoid just by the old
+  // element getting thrown away.
+  document.addEventListener("click", (e) => {
+    document.querySelectorAll(".kiosk-phone-country-list:not([hidden])").forEach((list) => {
+      if (list.contains(e.target) || list.previousElementSibling?.contains(e.target)) return;
+      list.hidden = true;
+      list.previousElementSibling?.setAttribute("aria-expanded", "false");
+    });
+  });
+
+  /** Wires the custom country-code dropdown and restricts the number field
+   *  to digits only — call once right after the phoneFieldHtml() markup is
+   *  in the DOM. */
   function wirePhoneField(idPrefix) {
-    const countrySelect = document.getElementById(`${idPrefix}PhoneCountry`);
-    const display = document.getElementById(`${idPrefix}PhoneCountryDisplay`);
-    countrySelect?.addEventListener("change", () => { if (display) display.textContent = countrySelect.value; });
+    const btn = document.getElementById(`${idPrefix}PhoneCountryBtn`);
+    const list = document.getElementById(`${idPrefix}PhoneCountryList`);
+    btn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const willOpen = list.hidden;
+      document.querySelectorAll(".kiosk-phone-country-list").forEach((l) => { l.hidden = true; });
+      list.hidden = !willOpen;
+      btn.setAttribute("aria-expanded", String(willOpen));
+    });
+    list?.querySelectorAll(".kiosk-phone-country-option").forEach((opt) => {
+      opt.addEventListener("click", () => {
+        btn.dataset.code = opt.dataset.code;
+        btn.setAttribute("aria-label", `Country code, ${opt.dataset.label}`);
+        btn.querySelector("span").textContent = opt.dataset.code;
+        list.querySelectorAll(".kiosk-phone-country-option").forEach((o) => o.classList.toggle("selected", o === opt));
+        list.hidden = true;
+        btn.setAttribute("aria-expanded", "false");
+      });
+    });
     const phoneInput = document.getElementById(`${idPrefix}Phone`);
     phoneInput?.addEventListener("input", () => {
       const digitsOnly = phoneInput.value.replace(/[^0-9]/g, "");
@@ -738,7 +784,7 @@
   function combinedPhone(idPrefix) {
     const number = document.getElementById(`${idPrefix}Phone`).value.trim();
     if (!number) return "";
-    const code = document.getElementById(`${idPrefix}PhoneCountry`).value;
+    const code = document.getElementById(`${idPrefix}PhoneCountryBtn`)?.dataset.code || PHONE_COUNTRIES[0].code;
     return `${code} ${number}`;
   }
 
