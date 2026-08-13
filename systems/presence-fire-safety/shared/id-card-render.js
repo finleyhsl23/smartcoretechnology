@@ -54,6 +54,34 @@ function fontSizeCss(px) {
   return `calc(${px} * 100cqw / var(--pfs-card-ref-w))`;
 }
 
+// Shrink-to-fit for "text" (field-bound) elements — an employee whose name
+// or job title is unusually long shouldn't have it clipped or overlapping
+// other elements just because the template's font size was tuned for
+// shorter values. Font metrics scale linearly with px size for a given
+// family/weight, so one measurement at the configured size gives an exact
+// scale factor rather than needing an iterative search. Floors at
+// MIN_FIT_RATIO of the configured size — this only ever affects the one
+// card whose text is actually too long, never the template default.
+const MIN_FIT_RATIO = 0.55;
+let _measureCanvas = null;
+
+function fitTextFontSize(measureCtx, text, fontFamily, weight, baseFontSize, maxWidth) {
+  if (!text || !(maxWidth > 0)) return baseFontSize;
+  measureCtx.font = `${weight} ${baseFontSize}px "${fontFamily}"`;
+  const width = measureCtx.measureText(text).width;
+  if (width <= maxWidth) return baseFontSize;
+  return Math.max(baseFontSize * (maxWidth / width), baseFontSize * MIN_FIT_RATIO);
+}
+
+/** Offscreen-canvas measurement for the HTML render path (renderElement),
+ *  which has no live canvas context of its own to measure against. No-op
+ *  (returns the base size unchanged) outside a browser. */
+function fitTextFontSizeHtml(text, fontFamily, weight, baseFontSize, maxWidth) {
+  if (typeof document === "undefined") return baseFontSize;
+  if (!_measureCanvas) _measureCanvas = document.createElement("canvas");
+  return fitTextFontSize(_measureCanvas.getContext("2d"), text, fontFamily, weight, baseFontSize, maxWidth);
+}
+
 const FIELD_MAP = { name: "full_name", jobTitle: "job_title", employeeCode: "employee_id", department: "department_name" };
 
 // Curated font choices for text elements — a mix of system fonts (always
@@ -163,7 +191,7 @@ function alignToJustify(align) {
   return align === "center" ? "center" : align === "right" ? "flex-end" : "flex-start";
 }
 
-function renderElement(el, ctx) {
+function renderElement(el, ctx, refCardWidth) {
   const style = `position:absolute;left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%;z-index:${el.z ?? 1};box-sizing:border-box;transform:rotate(${el.rotation || 0}deg);`;
   if (el.type === "photo") {
     const shape = el.shape === "square" ? "border-radius:10%" : "border-radius:50%";
@@ -183,7 +211,12 @@ function renderElement(el, ctx) {
   }
   if (el.type === "text") {
     const value = ctx.employee?.[FIELD_MAP[el.field]] || "";
-    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${fontSizeCss(el.fontSize ?? 14)};font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#fff")};font-weight:${el.bold ? 800 : 500};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:${el.align || "left"};">${esc(value)}</div>`;
+    const baseFontSize = el.fontSize ?? 14;
+    const family = primaryFontName(el.fontFamily);
+    const weight = el.bold ? 800 : 500;
+    const maxWidth = (el.w / 100) * (refCardWidth ?? REF_CARD_WIDTH.portrait);
+    const fitted = fitTextFontSizeHtml(value, family, weight, baseFontSize, maxWidth);
+    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${fontSizeCss(fitted)};font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#fff")};font-weight:${weight};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:${el.align || "left"};">${esc(value)}</div>`;
   }
   if (el.type === "statictext") {
     return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${fontSizeCss(el.fontSize ?? 12)};font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#334155")};text-align:${el.align || "left"};line-height:1.3;">${esc(el.text || "")}</div>`;
@@ -212,7 +245,7 @@ export function renderCardFace(template, face, ctx = {}) {
 
   return `
     <div class="pfs-idcard-face" style="position:relative;overflow:hidden;aspect-ratio:${CARD_RATIO[orientation]};border-radius:${radius}px;background:${esc(bg)};${border};container-type:inline-size;--pfs-card-ref-w:${REF_CARD_WIDTH[orientation]};">
-      ${elements.map((el) => renderElement(el, ctx)).join("")}
+      ${elements.map((el) => renderElement(el, ctx, REF_CARD_WIDTH[orientation])).join("")}
     </div>`;
 }
 
@@ -367,9 +400,15 @@ async function drawElementShape(c, el, ctx, ex, ey, ew, eh) {
 
   if (el.type === "text" || el.type === "statictext") {
     const value = el.type === "text" ? (ctx.employee?.[FIELD_MAP[el.field]] || "") : (el.text || "");
-    const fontSize = (el.fontSize ?? (el.type === "text" ? 14 : 12)) * PX_SCALE;
+    const baseFontSize = (el.fontSize ?? (el.type === "text" ? 14 : 12)) * PX_SCALE;
     const weight = el.type === "text" && el.bold ? 800 : 500;
-    c.font = `${weight} ${fontSize}px "${primaryFontName(el.fontFamily)}"`;
+    const family = primaryFontName(el.fontFamily);
+    // Text elements shrink to fit an unusually long value (e.g. a long
+    // name) rather than only relying on the ellipsis-truncation below —
+    // this only ever affects the one card whose text is actually too
+    // long, not the template's configured size for everyone else.
+    const fontSize = el.type === "text" ? fitTextFontSize(c, value, family, weight, baseFontSize, ew) : baseFontSize;
+    c.font = `${weight} ${fontSize}px "${family}"`;
     c.fillStyle = el.color || (el.type === "text" ? "#fff" : "#334155");
     const align = el.align || "left";
     c.textAlign = align === "center" ? "center" : align === "right" ? "right" : "left";
@@ -378,6 +417,8 @@ async function drawElementShape(c, el, ctx, ex, ey, ew, eh) {
     if (el.type === "text") {
       // Single line, truncated with an ellipsis rather than wrapped —
       // matches the on-screen nowrap/text-overflow:ellipsis rendering.
+      // Shrinking above handles most long values; this is the fallback for
+      // the rare case even the minimum shrink ratio doesn't fit.
       c.textBaseline = "middle";
       c.fillText(truncateToWidth(c, value, ew), anchorX, ey + eh / 2);
     } else {
