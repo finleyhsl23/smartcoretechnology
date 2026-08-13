@@ -27,6 +27,8 @@ let _shiftOn = false;
 let _symbolsOn = false;
 let _enabled = false;
 let _hideTimer = null;
+let _autoHideTimer = null;
+const AUTO_HIDE_MS = 30000; // put the keyboard away after 30s of not being tapped
 
 function isEligible(el) {
   if (!(el instanceof HTMLInputElement)) return false;
@@ -132,17 +134,31 @@ function renderPanel() {
 
 function handleKey(char) {
   if (!_activeInput) return;
+  scheduleAutoHide();
   insertText(_activeInput, char);
 }
 
 function handleAction(action) {
   if (!_activeInput) return;
+  scheduleAutoHide();
   if (action === "backspace") backspace(_activeInput);
   else if (action === "space") insertText(_activeInput, " ");
   else if (action === "clear") { _activeInput.value = ""; _activeInput.dispatchEvent(new Event("input", { bubbles: true })); }
   else if (action === "shift") { _shiftOn = !_shiftOn; renderPanel(); }
   else if (action === "toggle-symbols") { _symbolsOn = !_symbolsOn; renderPanel(); }
   else if (action === "done") { const el = _activeInput; hideKeyboard(); el.blur(); }
+}
+
+/** (Re)starts the 30s-of-no-taps countdown that puts the keyboard away on
+ *  its own — called on open and on every key/action tap so it only ever
+ *  fires after a genuine idle stretch, never mid-typing. */
+function scheduleAutoHide() {
+  clearTimeout(_autoHideTimer);
+  _autoHideTimer = setTimeout(() => {
+    const el = _activeInput;
+    hideKeyboard();
+    el?.blur();
+  }, AUTO_HIDE_MS);
 }
 
 function updateHeightVar() {
@@ -166,6 +182,7 @@ function showKeyboardFor(el) {
   document.body.classList.add("pfs-vk-typing");
   updateHeightVar();
   requestAnimationFrame(() => el.scrollIntoView({ block: "center", behavior: "smooth" }));
+  scheduleAutoHide();
 }
 
 function scheduleHide() {
@@ -176,6 +193,7 @@ function scheduleHide() {
 }
 
 function hideKeyboard() {
+  clearTimeout(_autoHideTimer);
   _activeInput = null;
   _panel?.classList.remove("pfs-vk-open");
   _panel?.setAttribute("aria-hidden", "true");
@@ -197,6 +215,10 @@ function prepareInput(el) {
   el.setAttribute("inputmode", "none");
   el.addEventListener("focus", () => showKeyboardFor(el));
   el.addEventListener("blur", scheduleHide);
+  // inputmode="none" only suppresses the OS's own on-screen keyboard — a
+  // kiosk tablet with a physical keyboard docked can still type directly,
+  // which should count as "being used" just as much as tapping our keys.
+  el.addEventListener("input", () => { if (_activeInput === el) scheduleAutoHide(); });
 }
 
 function scan(root) {
@@ -216,6 +238,18 @@ export function focusWithKeyboard(el) {
   if (!el) return;
   if (_enabled) prepareInput(el);
   el.focus();
+}
+
+/** Closes the keyboard right away and blurs whatever's focused, skipping
+ *  both the normal blur debounce and the 30s auto-hide countdown — for
+ *  callers that need it gone immediately rather than waiting for either,
+ *  e.g. the idle screensaver: it shouldn't ever be sitting open underneath
+ *  that. Safe to call whether or not the keyboard is currently showing. */
+export function hideVirtualKeyboard() {
+  clearTimeout(_hideTimer);
+  const el = _activeInput;
+  hideKeyboard();
+  el?.blur();
 }
 
 /** Call once per page (Kiosk Mode only — a physical keyboard is normal for
