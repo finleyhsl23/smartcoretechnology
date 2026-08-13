@@ -31,33 +31,35 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
+// Email HTML has to hold up in clients that ignore <style>/media queries
+// (older Outlook among them), so nothing here depends on either — the
+// stat tiles reflow because inline-block boxes wrap on their own at narrow
+// widths, and the roll call is a stack of full-width rows rather than a
+// <table>, so there are no columns for anything to run off the side of.
 function statTile(label, value, color) {
-  return `<td style="padding:14px 8px;text-align:center;background:#f8fafc;border-radius:10px">
+  return `<div style="display:inline-block;width:44%;min-width:120px;margin:1.5% 1.5% 0 0;vertical-align:top;box-sizing:border-box;padding:14px 8px;text-align:center;background:#f8fafc;border-radius:10px">
     <div style="font-size:22px;font-weight:800;color:${color}">${value}</div>
     <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${esc(label)}</div>
-  </td>`;
-}
-
-function tableHeaders(headers) {
-  return headers.map((h) => `<th style="text-align:left;padding:8px 12px;border-bottom:2px solid #e5e7eb;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#6b7280">${esc(h)}</th>`).join('');
+  </div>`;
 }
 
 function notSafeRow(p) {
-  return `<tr>
-    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;font-weight:600">${esc(p.display_name_snapshot)}</td>
-    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280;text-transform:capitalize">${esc(p.subject_type)}</td>
-    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280">${esc(p.department_snapshot || '—')}</td>
-    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;font-weight:700;color:#dc2626">${esc(STATUS_LABEL[p.roll_call_status] || p.roll_call_status)}</td>
-    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280">${esc(p.notes || '—')}</td>
-  </tr>`;
+  const status = esc(STATUS_LABEL[p.roll_call_status] || p.roll_call_status);
+  return `<div style="padding:10px 12px;border-bottom:1px solid #f3f4f6">
+    <div style="font-size:13px;font-weight:700">${esc(p.display_name_snapshot)}</div>
+    <div style="font-size:11.5px;color:#6b7280;text-transform:capitalize;margin-top:1px">${esc(p.subject_type)}${p.department_snapshot ? ` &middot; ${esc(p.department_snapshot)}` : ''}</div>
+    <div style="margin-top:6px">
+      <span style="display:inline-block;background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px">${status}</span>
+    </div>
+    ${p.notes ? `<div style="font-size:12px;color:#6b7280;margin-top:6px">${esc(p.notes)}</div>` : ''}
+  </div>`;
 }
 
 function safeRow(p) {
-  return `<tr>
-    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;font-weight:600">${esc(p.display_name_snapshot)}</td>
-    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280;text-transform:capitalize">${esc(p.subject_type)}</td>
-    <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280">${esc(p.department_snapshot || '—')}</td>
-  </tr>`;
+  return `<div style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:13px">
+    <strong>${esc(p.display_name_snapshot)}</strong>
+    <span style="color:#6b7280;text-transform:capitalize"> &mdash; ${esc(p.subject_type)}${p.department_snapshot ? `, ${esc(p.department_snapshot)}` : ''}</span>
+  </div>`;
 }
 
 function buildReportEmailHtml({ session, siteName, notSafe, safe }) {
@@ -66,18 +68,18 @@ function buildReportEmailHtml({ session, siteName, notSafe, safe }) {
   const headerBg = allSafe ? '#f0fdf4' : '#fef2f2';
   const headline = allSafe ? 'Everyone is accounted for' : `${notSafe.length} ${notSafe.length === 1 ? 'person is' : 'people are'} not marked safe`;
 
-  const statsRow = `<table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:20px 0"><tr>
+  const statsRow = `<div style="margin:20px 0;font-size:0">
     ${statTile('Snapshotted', session.snapshot_count ?? 0, '#111827')}
     ${statTile('Safe', session.safe_count ?? 0, '#16a34a')}
     ${statTile('Missing', session.missing_count ?? 0, '#dc2626')}
     ${statTile('Unaccounted', session.unaccounted_count ?? 0, '#d97706')}
-  </tr></table>`;
+  </div>`;
 
   const notSafeSection = `
     <div style="margin-top:24px;padding:16px;border-radius:12px;background:#fef2f2;border:1px solid #fecaca">
       <h3 style="margin:0 0 4px;font-size:14px;color:#991b1b">Not marked safe (${notSafe.length})</h3>
       ${notSafe.length
-        ? `<table style="width:100%;border-collapse:collapse;margin-top:4px"><thead><tr>${tableHeaders(['Name', 'Type', 'Department', 'Status', 'Notes'])}</tr></thead><tbody>${notSafe.map(notSafeRow).join('')}</tbody></table>`
+        ? `<div style="margin-top:8px;border-top:1px solid #f3f4f6">${notSafe.map(notSafeRow).join('')}</div>`
         : `<p style="margin:8px 0 0;font-size:13px;color:#16a34a;font-weight:600">Nobody — everyone was marked safe.</p>`}
     </div>`;
 
@@ -85,7 +87,7 @@ function buildReportEmailHtml({ session, siteName, notSafe, safe }) {
     <div style="margin-top:16px;padding:16px;border-radius:12px;background:#f0fdf4;border:1px solid #bbf7d0">
       <h3 style="margin:0 0 4px;font-size:14px;color:#166534">Marked safe (${safe.length})</h3>
       ${safe.length
-        ? `<table style="width:100%;border-collapse:collapse;margin-top:4px"><thead><tr>${tableHeaders(['Name', 'Type', 'Department'])}</tr></thead><tbody>${safe.map(safeRow).join('')}</tbody></table>`
+        ? `<div style="margin-top:8px;border-top:1px solid #f3f4f6">${safe.map(safeRow).join('')}</div>`
         : `<p style="margin:8px 0 0;font-size:13px;color:#6b7280">Nobody was marked safe yet.</p>`}
     </div>`;
 

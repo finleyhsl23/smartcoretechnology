@@ -40,11 +40,17 @@ function fmtDT(iso) {
   return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+function formatSiteAddress(site) {
+  if (!site) return '';
+  return [site.address_line_1, site.address_line_2, site.city, site.county, site.postcode, site.country].filter(Boolean).join(', ');
+}
+
 // ── Data loading ────────────────────────────────────────────────────────
 async function loadEvacuationReportData(env, companyId, sessionId) {
   const [sessionRes, peopleRes] = await Promise.all([
     sb(env, `/presence_fire_safety_evacuation_sessions?id=eq.${sessionId}&company_id=eq.${companyId}` +
-      `&select=id,started_at,completed_at,assembly_point,snapshot_count,safe_count,missing_count,unaccounted_count,site_id,sites(name)`),
+      `&select=id,started_at,completed_at,assembly_point,snapshot_count,safe_count,missing_count,unaccounted_count,site_id,` +
+      `sites(name,address_line_1,address_line_2,city,county,postcode,country)`),
     sb(env, `/presence_fire_safety_evacuation_people?evacuation_session_id=eq.${sessionId}&company_id=eq.${companyId}` +
       `&select=display_name_snapshot,subject_type,department_snapshot,roll_call_status,notes,` +
       `emp:core_employees!employee_id(profile_picture_url),` +
@@ -168,11 +174,56 @@ function estimateTextWidth(text, fontSize, bold = false) {
   return sanitizeText(text).length * fontSize * (bold ? 0.56 : 0.5);
 }
 
-function truncate(text, availWidth, fontSize, bold = false) {
+// Breaks a token too long to fit any line at hyphens first (the natural,
+// expected break for a double-barrelled surname like "Harrington-
+// Wolstencroft" — the hyphen stays with the piece before it, exactly how
+// it'd wrap in print), and only falls back to a hard character cut for a
+// fragment that's still too long with no hyphen left to break at.
+function splitLongWord(word, maxChars) {
+  if (word.length <= maxChars) return [word];
+  const parts = word.split('-');
+  if (parts.length > 1) {
+    return parts.flatMap((part, i) => splitLongWord(i < parts.length - 1 ? part + '-' : part, maxChars));
+  }
+  const out = [];
+  for (let i = 0; i < word.length; i += maxChars) out.push(word.slice(i, i + maxChars));
+  return out;
+}
+
+// Greedy word-wrap into up to `maxLines` lines rather than cutting a name
+// or department off mid-word with an ellipsis — only a pathologically long
+// remainder past maxLines still gets truncated (with "...") on the final
+// line, since a card can't grow indefinitely.
+function wrapLines(text, availWidth, fontSize, bold = false, maxLines = 2) {
   const t = sanitizeText(text);
   const charW = fontSize * (bold ? 0.56 : 0.5);
   const maxChars = Math.max(4, Math.floor(availWidth / charW));
-  return t.length <= maxChars ? t : t.slice(0, maxChars - 3) + '...';
+  const words = t.split(/\s+/).filter(Boolean).flatMap((w) => splitLongWord(w, maxChars));
+  const lines = [];
+  let current = '';
+  let i = 0;
+  while (i < words.length && lines.length < maxLines) {
+    const word = words[i];
+    // A piece ending in '-' came from splitLongWord breaking a compound
+    // word — glue the next piece straight on with no extra space, exactly
+    // as it'd read if the hyphen-wrap hadn't needed a line break at all.
+    const glue = current && !current.endsWith('-') ? ' ' : '';
+    const candidate = current + glue + word;
+    if (!current || candidate.length <= maxChars) {
+      current = candidate;
+      i++;
+    } else {
+      lines.push(current);
+      current = '';
+    }
+  }
+  if (current) lines.push(current);
+  if (i < words.length) {
+    const cut = Math.max(4, maxChars - 3);
+    const last = lines[lines.length - 1] || '';
+    lines[lines.length - 1] = (last.length > cut ? last.slice(0, cut) : last) + '...';
+  }
+  return lines.length ? lines : [''];
 }
 
 function initials(name) {
@@ -306,10 +357,17 @@ function drawSectionBanner(state, label, grad) {
 
 function drawTitleAndSummary(state, session) {
   const siteName = session.sites?.name || 'Site';
-  const headerH = 92;
+  const addressText = formatSiteAddress(session.sites);
+  const addressLines = addressText ? wrapLines(addressText, PAGE_W - 2 * MARGIN, 10, false, 2) : [];
+  const headerH = 80 + addressLines.length * 13;
   state.ops.push({ op: 'gradient', x: 0, y: PAGE_H - headerH, w: PAGE_W, h: headerH, r: 0, grad: 'header' });
   state.ops.push({ op: 'text', x: MARGIN, y: PAGE_H - 40, size: 22, bold: true, color: WHITE, text: 'Evacuation Report' });
   state.ops.push({ op: 'text', x: MARGIN, y: PAGE_H - 62, size: 12, bold: false, color: WHITE, text: siteName });
+  let addrY = PAGE_H - 78;
+  for (const line of addressLines) {
+    state.ops.push({ op: 'text', x: MARGIN, y: addrY, size: 10, bold: false, color: WHITE, text: line });
+    addrY -= 13;
+  }
   state.y = PAGE_H - headerH - 24;
 
   const metaRows = [
@@ -365,8 +423,11 @@ function drawCard(state, x, yTop, w, h, person, photo) {
   const textX = x + padding * 2 + photoR * 2;
   const availW = w - (padding * 2 + photoR * 2 + padding);
   let ty = yTop - padding - 9;
-  state.ops.push({ op: 'text', x: textX, y: ty, size: 10.5, bold: true, color: INK, text: truncate(person.display_name_snapshot, availW, 10.5, true) });
-  ty -= 16;
+  for (const line of wrapLines(person.display_name_snapshot, availW, 10.5, true, 3)) {
+    state.ops.push({ op: 'text', x: textX, y: ty, size: 10.5, bold: true, color: INK, text: line });
+    ty -= 13;
+  }
+  ty -= 3;
 
   const statusLabel = STATUS_LABEL[person.roll_call_status] || person.roll_call_status;
   const statusColor = STATUS_COLOR[person.roll_call_status] || INK_SOFT;
@@ -376,7 +437,10 @@ function drawCard(state, x, yTop, w, h, person, photo) {
   ty -= 22;
 
   if (person.department_snapshot) {
-    state.ops.push({ op: 'text', x: textX, y: ty, size: 8.5, bold: false, color: INK_SOFT, text: truncate(person.department_snapshot, availW, 8.5) });
+    for (const line of wrapLines(person.department_snapshot, availW, 8.5, false, 3)) {
+      state.ops.push({ op: 'text', x: textX, y: ty, size: 8.5, bold: false, color: INK_SOFT, text: line });
+      ty -= 11;
+    }
   }
 }
 
@@ -386,7 +450,7 @@ function layoutPeopleGrid(state, list, onContinuedPage) {
     state.y -= 20;
     return;
   }
-  const cols = 3, gap = 14, cardH = 96;
+  const cols = 3, gap = 14, cardH = 148; // tall enough for a 3-line wrapped name + status pill + 3-line wrapped department
   const cardW = (PAGE_W - 2 * MARGIN - (cols - 1) * gap) / cols;
   for (let i = 0; i < list.length; i += cols) {
     if (state.y - cardH < FOOTER_LIMIT) {

@@ -134,6 +134,23 @@
   @media (max-width: 640px) {
     .evac-keypad { gap: 8px; }
     .evac-key { min-height: 56px; font-size: 20px; }
+
+    /* Roll call as cards instead of a wide table — six columns (plus the
+       photo/name cell) never fit a phone width, and status/notes were the
+       ones getting pushed off-screen since they're rightmost. Each row
+       becomes its own bordered block; every cell but the name goes full
+       width with a small label above it, so nothing is off to the side —
+       everything just stacks. */
+    .evac-roll-wrap { overflow-x: visible; border: none; }
+    .evac-roll-tbl thead { display: none; }
+    .evac-roll-tbl, .evac-roll-tbl tbody, .evac-roll-tbl tr, .evac-roll-tbl td { display: block; width: 100%; }
+    .evac-roll-tbl tr { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+    .evac-roll-tbl td { padding: 6px 0; border-bottom: none; }
+    .evac-roll-tbl td[data-label]:not([data-label=""])::before {
+      content: attr(data-label); display: block; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--text3); margin-bottom: 3px;
+    }
+    .evac-row-notes { max-width: none; }
   }
 </style>
 
@@ -422,8 +439,8 @@
         ${CAN.complete ? `<button id="completeEvacBtn" class="btn btn-danger">Complete Evacuation</button>` : ""}
       </div>
 
-      <div class="tbl-wrap">
-        <table class="tbl">
+      <div class="tbl-wrap evac-roll-wrap">
+        <table class="tbl evac-roll-tbl">
           <thead><tr>
             <th>Name</th><th>Type</th><th>Department</th><th>Signed in</th><th>Status</th>
             ${CAN.manageRollCall ? "<th>Mark as</th>" : ""}
@@ -521,7 +538,7 @@
 
   function rollCallRow(p) {
     const actions = CAN.manageRollCall ? `
-      <td>
+      <td data-label="Mark as">
         <div class="evac-status-actions">
           ${statusBtn(p, "safe", "Safe")}
           ${statusBtn(p, "missing", "Missing")}
@@ -533,16 +550,16 @@
     const avatarInner = cachedUrl ? `<img src="${esc(cachedUrl)}" alt=""/>` : esc(initials(p.display_name_snapshot));
     return `
       <tr>
-        <td>
+        <td data-label="">
           <div class="evac-name-cell">
             <button type="button" class="evac-avatar-btn" id="avatar-${esc(p.id)}" data-person-id="${esc(p.id)}" aria-label="View ${esc(p.display_name_snapshot)}'s details">${avatarInner}</button>
             <button type="button" class="evac-name-link" data-person-id="${esc(p.id)}">${esc(p.display_name_snapshot)}</button>
           </div>
         </td>
-        <td><span class="badge ${TYPE_BADGE[p.subject_type] || "badge-grey"}">${esc(p.subject_type)}</span></td>
-        <td>${esc(p.department_snapshot || "—")}</td>
-        <td>${p.sign_in_time_snapshot ? esc(fmtTime(p.sign_in_time_snapshot)) : "—"}</td>
-        <td>
+        <td data-label="Type"><span class="badge ${TYPE_BADGE[p.subject_type] || "badge-grey"}">${esc(p.subject_type)}</span></td>
+        <td data-label="Department">${esc(p.department_snapshot || "—")}</td>
+        <td data-label="Signed in">${p.sign_in_time_snapshot ? esc(fmtTime(p.sign_in_time_snapshot)) : "—"}</td>
+        <td data-label="Status">
           <span class="badge ${STATUS_BADGE[p.roll_call_status] || "badge-grey"}">${esc(STATUS_LABEL[p.roll_call_status] || p.roll_call_status)}</span>
           ${p._pendingSync ? `<span class="badge badge-yellow" title="Saved on this device, not yet synced">Pending sync</span>` : ""}
           ${p.notes ? `<div class="evac-row-notes">${esc(p.notes)}</div>` : ""}
