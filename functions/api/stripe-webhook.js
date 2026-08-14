@@ -139,25 +139,19 @@ async function handleInvoiceFailed(env, invoice) {
 
   console.warn(`stripe-webhook: payment failed (attempt ${attemptCount}) for ${order.order_reference} (${order.company_name})`);
 
-  // Build Stripe billing portal URL for card update
-  let portalUrl = 'https://smartcoretechnology.co.uk';
-  try {
-    if (order.stripe_customer_id) {
-      const session = await stripeRequest(env, 'POST', '/billing_portal/sessions', {
-        customer:   order.stripe_customer_id,
-        return_url: 'https://smartcoretechnology.co.uk',
-      });
-      if (session?.url) portalUrl = session.url;
-    }
-  } catch (_) {}
-
+  // Use the hosted invoice URL (Stripe-hosted payment page for this invoice)
+  // Falls back to the update-payment page if not available
+  const hostedInvoiceUrl = invoice.hosted_invoice_url;
   const amountGbp = order.total || 0;
   const period    = order.billing_type === 'yearly' ? '/yr' : '/mo';
+
+  // Build branded update-payment page URL with amount + ref pre-filled
+  const updatePageUrl = `https://smartcoretechnology.co.uk/update-payment/?pay=${encodeURIComponent(hostedInvoiceUrl || '')}&amount=${encodeURIComponent(amountGbp)}&ref=${encodeURIComponent(order.order_reference || '')}`;
 
   // Send customer email
   try {
     const recipients = [...new Set([order.email, order.accounts_email].filter(Boolean))];
-    const html = paymentFailedHtml(order, amountGbp, period, portalUrl, attemptCount);
+    const html = paymentFailedHtml(order, amountGbp, period, updatePageUrl, attemptCount);
     await Promise.all(recipients.map(addr => sendEmail(env, {
       from:    FROM_BILLING,
       to:      addr,
@@ -192,39 +186,125 @@ async function handleInvoiceFailed(env, invoice) {
   }
 }
 
-function paymentFailedHtml(order, amountGbp, period, portalUrl, attemptCount) {
-  const fmt = n => '£' + Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function paymentFailedHtml(order, amountGbp, period, payUrl, attemptCount) {
+  const fmt       = n => '£' + Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const suspended = attemptCount >= 3;
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif">
-<div style="max-width:560px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.10)">
-  <div style="background:#020617;padding:24px 32px">
-    <img src="https://smartcoretechnology.co.uk/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png" alt="SmartCore" style="height:36px;width:auto;display:inline-block;vertical-align:middle;border-radius:8px;margin-right:12px"/>
-    <span style="color:#fff;font-size:16px;font-weight:700;vertical-align:middle">SmartCore Technology</span>
-  </div>
-  <div style="background:${suspended ? '#7f1d1d' : '#78350f'};padding:14px 32px;text-align:center">
-    <span style="color:#fff;font-weight:700;font-size:14px;letter-spacing:.5px">${suspended ? '🚫 MODULE ACCESS SUSPENDED' : '⚠ PAYMENT FAILED — ACTION REQUIRED'}</span>
-  </div>
-  <div style="padding:32px">
-    <p style="color:#0f172a;font-size:15px;margin:0 0 16px">Hi ${esc(order.company_name)},</p>
-    ${suspended
-      ? `<p style="color:#374151;font-size:14px;line-height:1.6;margin:0 0 20px">We were unable to collect payment after multiple attempts. As a result, <strong>access to your SmartCore modules has been suspended</strong>.</p>
-         <p style="color:#374151;font-size:14px;line-height:1.6;margin:0 0 20px">To restore access, please update your payment details using the button below. Your access will be reinstated automatically once payment is successful.</p>`
-      : `<p style="color:#374151;font-size:14px;line-height:1.6;margin:0 0 20px">We were unable to collect your SmartCore subscription payment. Please update your payment details as soon as possible to avoid any interruption to your service.</p>`
-    }
-    <div style="background:#fff7ed;border:2px solid #f97316;border-radius:10px;padding:16px 20px;margin-bottom:24px;text-align:center">
-      <div style="font-size:12px;color:#9a3412;font-weight:700;margin-bottom:4px;letter-spacing:.5px">AMOUNT DUE</div>
-      <div style="font-size:28px;font-weight:800;color:#0f172a">${fmt(amountGbp)}<span style="font-size:16px;font-weight:400;color:#64748b">${period}</span></div>
-    </div>
-    <div style="text-align:center;margin-bottom:24px">
-      <a href="${portalUrl}" style="background:#1e5cff;color:#fff;font-size:15px;font-weight:700;padding:14px 32px;border-radius:99px;text-decoration:none;display:inline-block">Update Payment Details →</a>
-    </div>
-    <p style="color:#64748b;font-size:13px;line-height:1.6;margin:0">If you have any questions or need assistance, please contact us at <a href="mailto:support@smartcoretechnology.co.uk" style="color:#1e5cff">support@smartcoretechnology.co.uk</a>.</p>
-  </div>
-  <div style="background:#000000;padding:16px 32px;text-align:center">
-    <span style="color:rgba(255,255,255,.5);font-size:12px">Powered by SmartCore Technology</span>
-  </div>
-</div>
+  const logoUrl   = 'https://smartcoretechnology.co.uk/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png';
+
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${suspended ? 'Module Suspended' : 'Payment Failed'} — SmartCore</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f9;padding:40px 16px">
+<tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.08)">
+
+  <!-- Header -->
+  <tr>
+    <td style="background:#020617;padding:24px 32px">
+      <table cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="padding-right:12px;vertical-align:middle">
+            <img src="${logoUrl}" width="36" height="36" alt="SC" style="display:block;border-radius:8px;border:0" />
+          </td>
+          <td style="vertical-align:middle">
+            <span style="color:#ffffff;font-size:15px;font-weight:700;letter-spacing:-.01em">SmartCore Technology</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Status strip -->
+  <tr>
+    <td style="background:${suspended ? '#431407' : '#431407'};border-bottom:2px solid ${suspended ? '#7c2d12' : '#92400e'};padding:13px 32px">
+      <table cellpadding="0" cellspacing="0" border="0" width="100%">
+        <tr>
+          <td>
+            <span style="display:inline-block;width:8px;height:8px;background:${suspended ? '#ef4444' : '#f59e0b'};border-radius:50%;margin-right:8px;vertical-align:middle"></span>
+            <span style="color:${suspended ? '#fca5a5' : '#fcd34d'};font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;vertical-align:middle">${suspended ? 'Module Access Suspended' : 'Payment Failed — Action Required'}</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Body -->
+  <tr>
+    <td style="padding:36px 32px 28px">
+
+      <!-- Greeting -->
+      <p style="margin:0 0 6px;font-size:13px;color:#94a3b8;letter-spacing:.04em;text-transform:uppercase;font-weight:600">For ${esc(order.company_name)}</p>
+      <h1 style="margin:0 0 20px;font-size:22px;font-weight:800;color:#0f172a;line-height:1.25;letter-spacing:-.02em">${suspended ? 'Your modules have been suspended' : 'We couldn\'t collect your payment'}</h1>
+
+      <p style="margin:0 0 28px;font-size:14px;color:#475569;line-height:1.7">
+        ${suspended
+          ? `After ${attemptCount} unsuccessful payment attempts, access to your SmartCore modules has been <strong style="color:#0f172a">temporarily suspended</strong>. Pay the outstanding amount below to restore access immediately.`
+          : `We were unable to collect your SmartCore subscription payment. Please pay the outstanding amount as soon as possible to avoid any interruption to your service.`
+        }
+      </p>
+
+      <!-- Amount card -->
+      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:28px">
+        <tr>
+          <td style="padding:20px 24px">
+            <table cellpadding="0" cellspacing="0" border="0" width="100%">
+              <tr>
+                <td>
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.08em;text-transform:uppercase">Amount Due</p>
+                  <p style="margin:0;font-size:30px;font-weight:800;color:#0f172a;letter-spacing:-.02em">${fmt(amountGbp)}<span style="font-size:15px;font-weight:400;color:#94a3b8">${period}</span></p>
+                </td>
+                <td align="right" style="padding-left:16px">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.08em;text-transform:uppercase">Reference</p>
+                  <p style="margin:0;font-size:13px;font-weight:600;color:#475569;font-family:'Courier New',monospace">${esc(order.order_reference || '')}</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+
+      <!-- CTA -->
+      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:28px">
+        <tr>
+          <td align="center">
+            <a href="${payUrl}" style="display:inline-block;background:#1e5cff;color:#ffffff;font-size:15px;font-weight:700;padding:15px 40px;border-radius:10px;text-decoration:none;letter-spacing:-.01em">Pay Outstanding Invoice →</a>
+          </td>
+        </tr>
+      </table>
+
+      <!-- Divider -->
+      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:20px">
+        <tr><td style="border-top:1px solid #f1f5f9;font-size:0">&nbsp;</td></tr>
+      </table>
+
+      <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.65;text-align:center">
+        Questions? Contact us at <a href="mailto:support@smartcoretechnology.co.uk" style="color:#1e5cff;text-decoration:none">support@smartcoretechnology.co.uk</a>
+      </p>
+
+    </td>
+  </tr>
+
+  <!-- Footer -->
+  <tr>
+    <td style="background:#000000;padding:18px 32px">
+      <table cellpadding="0" cellspacing="0" border="0" width="100%">
+        <tr>
+          <td>
+            <span style="color:rgba(255,255,255,.35);font-size:12px">Powered by SmartCore Technology</span>
+          </td>
+          <td align="right">
+            <a href="https://smartcoretechnology.co.uk" style="color:rgba(255,255,255,.35);font-size:12px;text-decoration:none">smartcoretechnology.co.uk</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+</table>
+</td></tr>
+</table>
 </body></html>`;
 }
 
