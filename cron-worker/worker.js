@@ -1,25 +1,36 @@
 /**
  * SmartCore Cron Worker
- * Runs daily at 08:00 UTC and calls all scheduled Pages Function endpoints.
+ * Two schedules (see wrangler.toml): daily jobs at 08:00 UTC, and a
+ * frequent (every-15-min) tick for jobs whose timing is per-record rather
+ * than a fixed UTC time.
  * Deploy separately with: wrangler deploy (from /cron-worker directory)
  */
 
 const SITE = 'https://smartcoretechnology.co.uk';
 
-const CRON_JOBS = [
+const DAILY_JOBS = [
   { name: 'Invoice generator', path: '/api/cron-invoice' },
   { name: 'Reminder emails',   path: '/api/cron-reminders' },
   { name: 'Convoy compliance reminders', path: '/api/convoy/cron-compliance-reminders' },
 ];
 
+const FREQUENT_JOBS = [
+  // Each site configures its own local sign-out time, so this can't be a
+  // single daily UTC firing — it has to check in often enough to catch
+  // every site's moment as it comes up in that site's own timezone.
+  { name: 'Presence auto sign-out', path: '/api/presence-fire-safety/cron-auto-sign-out' },
+];
+
 export default {
-  // Scheduled trigger — fires on the cron schedule in wrangler.toml
+  // Scheduled trigger — fires on each cron schedule in wrangler.toml
   async scheduled(event, env, ctx) {
-    const results = await runAllJobs(env);
-    console.log('SmartCore cron complete:', JSON.stringify(results));
+    const jobs = event.cron === '*/15 * * * *' ? FREQUENT_JOBS : DAILY_JOBS;
+    const results = await runJobs(jobs, env);
+    console.log('SmartCore cron complete:', event.cron, JSON.stringify(results));
   },
 
-  // HTTP trigger — GET /  — for manual testing from HQ or curl
+  // HTTP trigger — GET /  — for manual testing from HQ or curl. Runs
+  // everything regardless of schedule, since there's no cron context here.
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -32,17 +43,17 @@ export default {
       });
     }
 
-    const results = await runAllJobs(env);
+    const results = await runJobs([...DAILY_JOBS, ...FREQUENT_JOBS], env);
     return new Response(JSON.stringify({ ok: true, results }, null, 2), {
       headers: { 'Content-Type': 'application/json' },
     });
   },
 };
 
-async function runAllJobs(env) {
+async function runJobs(jobs, env) {
   const results = [];
 
-  for (const job of CRON_JOBS) {
+  for (const job of jobs) {
     const start = Date.now();
     try {
       const res = await fetch(`${SITE}${job.path}`, {
