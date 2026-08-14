@@ -422,6 +422,11 @@ export const contractors = {
 
 // ── Settings ─────────────────────────────────────────────────────────────
 export const settings = {
+  /** The company-wide row — used for editing the "Company Default" scope
+   *  in Settings, and by anything that genuinely doesn't care about
+   *  per-site overrides (ID card template, onboarding checklist). Most
+   *  site-scoped consumers (sign-in, evacuation, visitor/contractor
+   *  sign-in, sound) should call getEffective() instead. */
   async get(companyId) {
     const { data, error } = await sb().from("presence_fire_safety_settings").select("*").eq("company_id", companyId).maybeSingle();
     if (error) throw error;
@@ -435,25 +440,57 @@ export const settings = {
     if (error) throw error;
     return data;
   },
-  async siteOverride(companyId, siteId) {
+
+  /** The company row with this site's overrides (if any) merged on top —
+   *  same shape as get(), so callers don't need to know or care whether a
+   *  given field came from the site or the company default. */
+  async getEffective(companyId, siteId) {
+    const { data, error } = await sb().rpc("presence_fire_safety_effective_settings", { p_company_id: companyId, p_site_id: siteId });
+    if (error) throw error;
+    return data?.[0] || null;
+  },
+  /** The raw override row for one site, or null if it has none yet
+   *  (fully inheriting the company default). Used by Settings to know
+   *  whether to show "Reset to Company Default". */
+  async getSiteOverride(companyId, siteId) {
     const { data, error } = await sb().from("presence_fire_safety_site_settings").select("*").eq("company_id", companyId).eq("site_id", siteId).maybeSingle();
     if (error) throw error;
     return data;
   },
-  async setEvacuationPin(companyId, pin) {
-    const { error } = await sb().rpc("presence_fire_safety_set_evacuation_pin", { p_company_id: companyId, p_pin: pin });
+  /** Writes a full override row for one site — every Module Settings
+   *  field, not just the ones that differ from company default. Simpler
+   *  than per-field overrides; use clearSiteOverride() to go back to
+   *  fully inheriting. */
+  async upsertSiteOverride(companyId, siteId, fields) {
+    const { profile } = await ctx();
+    const { data, error } = await sb().from("presence_fire_safety_site_settings")
+      .upsert({ ...fields, company_id: companyId, site_id: siteId, updated_by: profile.id }, { onConflict: "company_id,site_id" })
+      .select().single();
+    if (error) throw error;
+    return data;
+  },
+  async clearSiteOverride(companyId, siteId) {
+    const { error } = await sb().from("presence_fire_safety_site_settings").delete().eq("company_id", companyId).eq("site_id", siteId);
+    if (error) throw error;
+  },
+
+  /** siteId omitted/null sets the company default (unchanged PIN for
+   *  every site without its own override); given, sets that one site's
+   *  PIN specifically. */
+  async setEvacuationPin(companyId, pin, siteId = null) {
+    const { error } = await sb().rpc("presence_fire_safety_set_evacuation_pin", { p_company_id: companyId, p_pin: pin, p_site_id: siteId });
     if (error) throw new Error(error.message || "Could not set PIN");
   },
 
   /** Kiosk exit PIN — deliberately separate from the evacuation PIN (see
    *  shared/kiosk.js). Admin-only to set; verify is callable by any
    *  authenticated employee since the PIN itself is the security boundary. */
-  async setKioskExitPin(companyId, pin) {
-    const { error } = await sb().rpc("presence_fire_safety_set_kiosk_exit_pin", { p_company_id: companyId, p_pin: pin });
+  async setKioskExitPin(companyId, pin, siteId = null) {
+    const { error } = await sb().rpc("presence_fire_safety_set_kiosk_exit_pin", { p_company_id: companyId, p_pin: pin, p_site_id: siteId });
     if (error) throw new Error(error.message || "Could not set PIN");
   },
-  async verifyKioskExitPin(companyId, pin) {
-    const { error } = await sb().rpc("presence_fire_safety_verify_kiosk_exit_pin", { p_company_id: companyId, p_pin: pin });
+  async verifyKioskExitPin(companyId, siteId, pin) {
+    const { error } = await sb().rpc("presence_fire_safety_verify_kiosk_exit_pin", { p_company_id: companyId, p_site_id: siteId, p_pin: pin });
     if (error) throw new Error(error.message || "Incorrect PIN");
     return true;
   },

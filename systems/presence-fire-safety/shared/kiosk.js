@@ -7,7 +7,7 @@
 // SmartCore sign-in if the PIN is wrong or forgotten.
 
 import { sb } from "./supabase.js";
-import { getProfile, clearProfileCache, getMyPermissions, hasPermission } from "./auth.js";
+import { getProfile, clearProfileCache, getMyPermissions, hasPermission, getSelectedSiteId } from "./auth.js";
 import { settings } from "./api.js";
 import { esc, toast, modal } from "./ui.js";
 import { focusWithKeyboard } from "./virtual-keyboard.js";
@@ -147,7 +147,7 @@ export async function requestExitKioskMode({ companyId }) {
       if (!fallbackShown) {
         const pin = pinInput.value.trim();
         if (!pin) { submitBtn.disabled = false; return; }
-        await settings.verifyKioskExitPin(companyId, pin);
+        await settings.verifyKioskExitPin(companyId, getSelectedSiteId(), pin);
         // Success — release kiosk mode and return to the admin dashboard.
         setKioskModeActive(false);
         overlay.remove();

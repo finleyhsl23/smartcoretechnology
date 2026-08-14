@@ -229,13 +229,16 @@
 
     const siteList = await listSites(_companyId);
     _siteId = await ensureSiteSelected(_companyId);
-    renderSiteSwitcher(document.getElementById("siteSwitcher"), siteList, _siteId, (newSiteId) => {
+    renderSiteSwitcher(document.getElementById("siteSwitcher"), siteList, _siteId, async (newSiteId) => {
       setSelectedSiteId(newSiteId);
       _siteId = newSiteId;
+      // Module settings can differ per site (default sign-in method, auto
+      // sign-out, lookups enabled, etc.) — re-resolve for the new site.
+      _companySettings = await settings.getEffective(_companyId, _siteId).catch(() => null);
       toast("info", "Site changed", "Sign-ins will now be recorded at the newly selected site.");
     });
 
-    _companySettings = await settings.get(_companyId).catch(() => null);
+    _companySettings = await settings.getEffective(_companyId, _siteId).catch(() => null);
 
     if (!_siteId) {
       setInner("kioskBody", emptyState({ icon: "map-pin", title: "No site configured", message: "Ask an administrator to set up a site before signing in." }));

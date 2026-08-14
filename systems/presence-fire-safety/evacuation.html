@@ -1016,14 +1016,6 @@
     initKioskToggle({ companyId: _companyId, currentPage: "evacuation" });
     wireOfflineBanner();
     initSoundFromSettings(_companyId);
-    // Custom on-screen keyboard — kiosk mode only (same reasoning as
-    // employee-signin.html) and behind its own settings toggle, since
-    // unlike sound/screensaver this isn't universally wanted even on
-    // kiosk tablets (some are docked with a physical keyboard).
-    if (isKioskModeActive()) {
-      const companySettings = await settings.get(_companyId).catch(() => null);
-      if (companySettings?.custom_keyboard_enabled) initVirtualKeyboard();
-    }
 
     _siteList = await sites.list(_companyId);
     const selectedSiteId = await ensureSiteSelected(_companyId);
@@ -1031,6 +1023,15 @@
       setSelectedSiteId(newSiteId);
       await loadState(newSiteId);
     });
+
+    // Custom on-screen keyboard — kiosk mode only (same reasoning as
+    // employee-signin.html) and behind its own settings toggle, since
+    // unlike sound/screensaver this isn't universally wanted even on
+    // kiosk tablets (some are docked with a physical keyboard).
+    if (isKioskModeActive()) {
+      const companySettings = await settings.getEffective(_companyId, selectedSiteId).catch(() => null);
+      if (companySettings?.custom_keyboard_enabled) initVirtualKeyboard();
+    }
 
     await loadState(selectedSiteId);
 
