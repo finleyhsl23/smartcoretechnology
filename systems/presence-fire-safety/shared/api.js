@@ -762,7 +762,7 @@ export const leavingCheck = {
 export const timesheet = {
   async events(companyId, { siteId, from, to } = {}) {
     let q = sb().from("presence_fire_safety_events")
-      .select("employee_id, direction, occurred_at, site_id, core_employees(full_name, job_title, core_departments(name))")
+      .select("employee_id, direction, occurred_at, site_id, core_employees!employee_id(full_name, job_title, core_departments(name))")
       .eq("company_id", companyId).eq("subject_type", "employee")
       .order("occurred_at");
     if (siteId) q = q.eq("site_id", siteId);
