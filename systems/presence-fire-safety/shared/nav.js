@@ -10,7 +10,10 @@ const NAV_LINKS = [
   { id: "contractors",    icon: "hard-hat",         label: "Contractors",     href: "/systems/presence-fire-safety/contractors.html", permission: "presence.manage_contractors" },
   { id: "live-register",  icon: "users",            label: "Live Register",   href: "/systems/presence-fire-safety/live-register.html", permission: "presence.view_live_register" },
   { id: "evacuation",     icon: "flame",            label: "Evacuation",      href: "/systems/presence-fire-safety/evacuation.html", permission: "evacuation.unlock" },
-  { id: "leaving-check",  icon: "log-out",          label: "Leaving Check",   href: "/systems/presence-fire-safety/leaving-check.html", permission: "presence.leaving_check" },
+  // Leaving Check is deliberately NOT in the sidebar — it's reached via the
+  // "Open Leaving Check" prompt after a kiosk sign-out (employee-signin.html),
+  // not something to browse to normally. Page itself is untouched, still
+  // reachable directly and still permission-gated.
   { id: "timesheets",     icon: "clock",            label: "Timesheets",      href: "/systems/presence-fire-safety/timesheets.html", permission: "presence.view_timesheets" },
   { id: "reports",        icon: "bar-chart-3",      label: "Reports",         href: "/systems/presence-fire-safety/reports.html", permission: "presence.export_reports" },
   { id: "id-cards",       icon: "badge-check",      label: "ID Cards",        href: "/systems/presence-fire-safety/id-cards.html", permission: "presence.manage_badges" },

@@ -61,6 +61,21 @@
   let _profile = null, _companyId = null, _siteList = [], _currentSiteId = null;
   let _chart = null;
 
+  // Chart colors are read from CSS vars once at creation time — Chart.js
+  // doesn't pick up var() changes on its own, so without this the axis
+  // labels stay stuck at whichever theme was active when the chart was
+  // built (e.g. switching to light mode leaves them at the dark-mode
+  // color, unreadable against a white background).
+  new MutationObserver(() => {
+    if (!_chart) return;
+    const textColor = cssVar("--text3"), gridColor = cssVar("--line");
+    _chart.options.scales.x.ticks.color = textColor;
+    _chart.options.scales.x.grid.color = gridColor;
+    _chart.options.scales.y.ticks.color = textColor;
+    _chart.options.scales.y.grid.color = gridColor;
+    _chart.update();
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
   function isoDate(d) { return d.toISOString().slice(0, 10); }
   function startOfWeek(d) {
     const day = d.getDay(); // 0 = Sunday
