@@ -1,15 +1,15 @@
-// POST /api/presence-fire-safety/notify-leaving-pin-flag
+// POST /api/presence-fire-safety/notify-leaving-check-flag
 // Called right after the client flags one or more people as not signed out
 // via presence_fire_safety_flag_not_signed_out() (see shared/api.js
-// leavingPin.flagNotSignedOut). Sends one summary email — not one per
+// leavingCheck.flagNotSignedOut). Sends one summary email — not one per
 // person — to the query address(es) configured in Settings.
 //
 // Doesn't trust the client's word for who got flagged: it re-reads the
 // flag rows the RPC just inserted (scoped to this caller, this company,
 // and the last few minutes) and builds the email from those, so this
 // endpoint can only ever report flags that were actually recorded through
-// the properly PIN-gated RPC — never arbitrary names a compromised or
-// buggy client happened to send.
+// the permission-gated RPC — never arbitrary names a compromised or buggy
+// client happened to send.
 import { json, options, getCallerProfile, sb } from './_auth.js';
 import { sendResendEmail, smartcoreEmailShell } from '../_utils.js';
 
@@ -41,9 +41,9 @@ export async function onRequestPost({ request, env }) {
     const flags = (await flagsRes.json()) || [];
     if (!flags.length) return json({ success: true, notified: 0, reason: 'No recent flags found for this caller' });
 
-    const settingsRes = await sb(env, `/presence_fire_safety_settings?company_id=eq.${profile.company_id}&select=leaving_pin_query_emails`);
+    const settingsRes = await sb(env, `/presence_fire_safety_settings?company_id=eq.${profile.company_id}&select=leaving_check_query_emails`);
     const [settingsRow] = await settingsRes.json();
-    const emails = [...new Set((settingsRow?.leaving_pin_query_emails || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean))].slice(0, 10);
+    const emails = [...new Set((settingsRow?.leaving_check_query_emails || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean))].slice(0, 10);
     if (!emails.length) return json({ success: true, notified: 0, reason: 'No query emails configured' });
 
     const siteRes = await sb(env, `/sites?id=eq.${siteId}&select=name`);
@@ -58,7 +58,7 @@ export async function onRequestPost({ request, env }) {
 
     const html = smartcoreEmailShell({
       title: `Not signed out — ${esc(site?.name || 'site')}`,
-      intro: `<strong>${esc(flaggedByName)}</strong> used the Leaving PIN at <strong>${esc(site?.name || 'the site')}</strong> and flagged ${flags.length} ${flags.length === 1 ? 'person' : 'people'} who the register still shows as signed in.`,
+      intro: `<strong>${esc(flaggedByName)}</strong> ran a Leaving Check at <strong>${esc(site?.name || 'the site')}</strong> and flagged ${flags.length} ${flags.length === 1 ? 'person' : 'people'} who the register still shows as signed in.`,
       bodyHtml: `
         <table style="width:100%;border-collapse:collapse;margin-top:8px">
           <thead><tr>
@@ -78,7 +78,7 @@ export async function onRequestPost({ request, env }) {
 
     return json({ success: true, notified: emails.length - failures.length, failed: failures.length, flagged: flags.length });
   } catch (e) {
-    console.error('notify-leaving-pin-flag:', e.message);
+    console.error('notify-leaving-check-flag:', e.message);
     return json({ success: false, reason: e.message || 'Unexpected error' }, 500);
   }
 }

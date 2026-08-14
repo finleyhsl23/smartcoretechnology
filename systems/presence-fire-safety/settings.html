@@ -60,7 +60,6 @@
   .combobox-results { position:absolute; z-index:10; top:100%; left:0; right:0; background: var(--card); border:1px solid var(--line); border-radius:10px; margin-top:4px; max-height:220px; overflow-y:auto; box-shadow:0 12px 32px rgba(0,0,0,.3); }
   .combobox-result { display:block; width:100%; text-align:left; background:transparent; border:none; padding:9px 12px; color: var(--text); font-size:13.5px; }
   .combobox-result:hover, .combobox-result:focus-visible { background: var(--card2); }
-  .set-leaving-pin-value { font-family: ui-monospace, monospace; font-size: 22px; font-weight: 800; letter-spacing: .1em; color: var(--accent2); }
   .set-card-header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
   .set-reveal-secret { font-family: ui-monospace, monospace; font-size: 14px; background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; word-break: break-all; margin: 12px 0; }
 
@@ -128,7 +127,7 @@
   let _profile = null, _companyId = null, _siteList = [];
   let _emergencyEmails = []; // emergency evacuation report recipients, up to 10 — see renderModuleSettings()
   let _leavingQueryEmails = []; // "didn't clock out" flag recipients, up to 10 — mirrors _emergencyEmails
-  let _leavingPinHolders = []; // [{ id, employee_id, core_employees: {full_name, job_title} }]
+  let _leavingCheckHolders = []; // presence.leaving_check permission grants: [{ id, employee_id, core_employees: {full_name, job_title} }]
   let _activeTab = "module";
   // Unsaved-changes tracking — Module Settings tab only (Site/Badge/Device
   // panels each save immediately per-action via their own modals).
@@ -192,9 +191,9 @@
     try {
       const [row, holders] = await Promise.all([
         settings.get(_companyId),
-        settings.leavingPinHolders(_companyId),
+        settings.permissionGrants(_companyId, "presence.leaving_check"),
       ]);
-      _leavingPinHolders = holders;
+      _leavingCheckHolders = holders;
       renderModuleSettings({ ...DEFAULT_SETTINGS, ...(row || {}) }, !!row?.evacuation_pin_hash, !!row?.kiosk_exit_pin_hash);
     } catch (e) {
       setInner("panel-module", errorState({ title: "Couldn't load settings", message: e.message, retryId: "moduleRetry" }));
@@ -204,7 +203,7 @@
 
   function renderModuleSettings(s, pinConfigured, kioskPinConfigured) {
     _emergencyEmails = [...(s.emergency_report_emails || [])];
-    _leavingQueryEmails = [...(s.leaving_pin_query_emails || [])];
+    _leavingQueryEmails = [...(s.leaving_check_query_emails || [])];
     setInner("panel-module", `
       <div class="card" style="margin-bottom:20px">
         <div class="set-pin-row">
@@ -288,21 +287,12 @@
         </div>
         <p class="set-section-desc" id="emergencyEmailHint" style="margin:6px 0 0">${_emergencyEmails.length >= 10 ? "Maximum of 10 addresses reached." : `${_emergencyEmails.length}/10 addresses added.`}</p>
 
-        <h2 class="set-section-title" style="margin-top:8px">Leaving PIN</h2>
-        <p class="set-section-desc">For whoever's last to leave the building — a shared PIN that rotates every week, letting anyone on the list below check who the register still shows as signed in and flag anyone who forgot to sign out.</p>
-        <div class="set-pin-row">
-          <i data-lucide="${s.leaving_pin_hash ? "key-round" : "key"}"></i>
-          <div>
-            <strong>${s.leaving_pin_hash ? "PIN is active" : "No leaving PIN set up yet"}</strong>
-            <p class="set-section-desc" style="margin:2px 0 0">${s.leaving_pin_hash ? `Rotates automatically every week — last rotated ${fmtDateTime(s.leaving_pin_rotated_at)}.` : "Rotate now to generate the first one — it'll be emailed to everyone on the holders list below."}</p>
-          </div>
-          <button class="btn btn-primary" id="rotateLeavingPinBtn" type="button">${s.leaving_pin_hash ? "Rotate Now" : "Set Up"}</button>
-        </div>
+        <h2 class="set-section-title" style="margin-top:8px">Leaving Check</h2>
+        <p class="set-section-desc">Lets whoever's last to leave the building check who the register still shows as signed in and flag anyone who forgot to sign out — no PIN, just permission. Anyone below is prompted automatically right after signing themselves out, and can also open Leaving Check any time.</p>
 
-        <p class="form-label" style="margin-bottom:6px">Leaving PIN holders</p>
-        <p class="set-section-desc">Everyone here shares the same PIN — if the usual person can't do it, anyone else on this list can.</p>
-        <div class="set-chip-row" id="leavingPinHolderChips"></div>
-        <div class="full combobox" style="margin-top:${_leavingPinHolders.length ? "8px" : "0"}">
+        <p class="form-label" style="margin-bottom:6px">Who has access</p>
+        <div class="set-chip-row" id="leavingCheckHolderChips"></div>
+        <div class="full combobox" style="margin-top:${_leavingCheckHolders.length ? "8px" : "0"}">
           <input class="form-input" id="f_leaving_holder_search" autocomplete="off" placeholder="Search employees to add…"/>
           <div class="combobox-results" id="leavingHolderResults" hidden></div>
         </div>
@@ -323,7 +313,7 @@
     `);
     refreshIcons();
     renderEmergencyEmailChips();
-    renderLeavingPinHolderChips();
+    renderLeavingCheckHolderChips();
     renderLeavingQueryEmailChips();
 
     document.getElementById("f_auto_sign_out_enabled").addEventListener("change", e => {
@@ -336,7 +326,6 @@
     document.getElementById("f_emergency_email_input").addEventListener("keydown", e => {
       if (e.key === "Enter") { e.preventDefault(); addEmergencyEmail(); }
     });
-    document.getElementById("rotateLeavingPinBtn").addEventListener("click", rotateLeavingPin);
     document.getElementById("addLeavingQueryEmailBtn").addEventListener("click", addLeavingQueryEmail);
     document.getElementById("f_leaving_query_email_input").addEventListener("keydown", e => {
       if (e.key === "Enter") { e.preventDefault(); addLeavingQueryEmail(); }
@@ -437,24 +426,23 @@
     syncLeavingQueryEmailInputState();
   }
 
-  // ── Leaving PIN holders ──────────────────────────────────────────────
-  // Unlike the email lists above, holders write straight to the database
-  // on add/remove (settings.addLeavingPinHolder/removeLeavingPinHolder)
-  // rather than batching into the Save Settings button — there's no
-  // in-between "unsaved" state for who's on this list, matching how a
-  // permission grant would work.
-  function renderLeavingPinHolderChips() {
-    const wrap = document.getElementById("leavingPinHolderChips");
+  // ── Leaving Check access ─────────────────────────────────────────────
+  // Backed by generic presence_fire_safety_permission_grants rows, not a
+  // bespoke table — unlike the email lists above, holders write straight
+  // to the database on add/remove (settings.grantPermission/
+  // revokePermission) rather than batching into the Save Settings button.
+  function renderLeavingCheckHolderChips() {
+    const wrap = document.getElementById("leavingCheckHolderChips");
     if (!wrap) return;
-    wrap.innerHTML = _leavingPinHolders.map(h => `
+    wrap.innerHTML = _leavingCheckHolders.map(h => `
       <span class="set-selected-chip">${esc(h.core_employees?.full_name || "Unknown")}<button type="button" data-holder-id="${esc(h.id)}" aria-label="Remove ${esc(h.core_employees?.full_name || "")}">&times;</button></span>
     `).join("");
     wrap.querySelectorAll("button[data-holder-id]").forEach(btn => {
       btn.addEventListener("click", async () => {
         try {
-          await settings.removeLeavingPinHolder(btn.dataset.holderId);
-          _leavingPinHolders = _leavingPinHolders.filter(h => h.id !== btn.dataset.holderId);
-          renderLeavingPinHolderChips();
+          await settings.revokePermission(btn.dataset.holderId);
+          _leavingCheckHolders = _leavingCheckHolders.filter(h => h.id !== btn.dataset.holderId);
+          renderLeavingCheckHolderChips();
         } catch (e) {
           toast("error", "Couldn't remove", e.message || "Please try again.");
         }
@@ -473,7 +461,7 @@
       debounce = setTimeout(async () => {
         try {
           const rows = await employees.search(_companyId, q);
-          const existingIds = new Set(_leavingPinHolders.map(h => h.employee_id));
+          const existingIds = new Set(_leavingCheckHolders.map(h => h.employee_id));
           const candidates = rows.filter(r => !existingIds.has(r.id));
           results.innerHTML = candidates.length
             ? candidates.map(r => `<button type="button" class="combobox-result" data-id="${esc(r.id)}" data-name="${esc(r.full_name)}">${esc(r.full_name)}${r.job_title ? " — " + esc(r.job_title) : ""}</button>`).join("")
@@ -484,9 +472,9 @@
               results.hidden = true;
               input.value = "";
               try {
-                await settings.addLeavingPinHolder(_companyId, btn.dataset.id);
-                _leavingPinHolders.push({ id: `pending-${btn.dataset.id}`, employee_id: btn.dataset.id, core_employees: { full_name: btn.dataset.name } });
-                renderLeavingPinHolderChips();
+                await settings.grantPermission(_companyId, btn.dataset.id, "presence.leaving_check");
+                _leavingCheckHolders.push({ id: `pending-${btn.dataset.id}`, employee_id: btn.dataset.id, core_employees: { full_name: btn.dataset.name } });
+                renderLeavingCheckHolderChips();
                 loadModuleSettings(); // reconcile the pending chip's real id from the server
               } catch (e) {
                 toast("error", "Couldn't add", e.message || "Please try again.");
@@ -497,28 +485,6 @@
       }, 300);
     });
     document.addEventListener("click", (e) => { if (!e.target.closest(".combobox")) results.hidden = true; }, { once: false });
-  }
-
-  async function rotateLeavingPin() {
-    const btn = document.getElementById("rotateLeavingPinBtn");
-    btn.disabled = true;
-    btn.textContent = "Rotating…";
-    try {
-      const newPin = await settings.rotateLeavingPin(_companyId);
-      modal(`
-        <div class="modal-header"><h3>New Leaving PIN</h3></div>
-        <div class="modal-body">
-          <p class="text-muted" style="margin-bottom:14px">This has also been emailed to everyone on the holders list.</p>
-          <div class="set-leaving-pin-value" style="text-align:center">${esc(newPin)}</div>
-        </div>
-        <div class="modal-footer"><button class="btn btn-primary modal-close" type="button">Done</button></div>
-      `);
-      loadModuleSettings();
-    } catch (e) {
-      toast("error", "Couldn't rotate the PIN", e.message || "Please try again.");
-      btn.disabled = false;
-      btn.textContent = "Rotate Now";
-    }
   }
 
   async function saveModuleSettings() {
@@ -542,7 +508,7 @@
       failed_pin_lockout_minutes: parseInt(document.getElementById("f_failed_pin_lockout_minutes").value, 10),
       data_retention_days: parseInt(document.getElementById("f_data_retention_days").value, 10),
       emergency_report_emails: _emergencyEmails,
-      leaving_pin_query_emails: _leavingQueryEmails,
+      leaving_check_query_emails: _leavingQueryEmails,
     };
     btn.disabled = true;
     btn.textContent = "Saving…";

@@ -168,7 +168,7 @@
 
 <script type="module">
   import { requirePresenceModuleAccess, hasPermission, listSites, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
-  import { employees, badges, presence, settings, visitors, contractors } from "/systems/presence-fire-safety/shared/api.js";
+  import { employees, badges, presence, settings, visitors, contractors, leavingCheck } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { isQrScanningSupported, startQrScanner } from "/systems/presence-fire-safety/shared/qr.js";
@@ -190,6 +190,7 @@
   let _canSignOthers = false;
   let _canManageVisitors = false;
   let _canManageContractors = false;
+  let _canLeavingCheck = false;
   let _companySettings = null;
   let _qrSupported = isQrScanningSupported();
   let _scanner = null;          // { stop, switchCamera } while the scan tab is active
@@ -215,6 +216,7 @@
     _canSignOthers = hasPermission("presence.sign_others_in_out");
     _canManageVisitors = hasPermission("presence.manage_visitors");
     _canManageContractors = hasPermission("presence.manage_contractors");
+    _canLeavingCheck = hasPermission("presence.leaving_check");
 
     renderNav("employee-signin", profile);
     initMobileNav();
@@ -587,7 +589,7 @@
       } else {
         await presence.signOthersByEmployee({ siteId: _siteId, employeeId: _selected.id, direction, method: recordMethod, requestId: _requestId });
       }
-      renderSuccess(direction);
+      renderSuccess(direction, isSelf);
     } catch (e) {
       btns.forEach(b => b.disabled = false);
       setInner("confirmStatus", errorState({
@@ -604,22 +606,40 @@
     }
   }
 
-  function renderSuccess(direction) {
+  function renderSuccess(direction, isSelf) {
     const name = esc(_selected.full_name);
+    const showLeavingCheck = direction === "out" && isSelf && _canLeavingCheck;
     setInner("tabPanel", `
       <div class="kiosk-identity">
         <div class="success-icon"><i data-lucide="check-circle-2"></i></div>
         <h2>${direction === "in" ? "Signed In" : "Signed Out"}</h2>
         <p>${name} — ${fmtDateTime(new Date())}</p>
       </div>
+      <div id="leavingCheckPrompt"></div>
       <div class="kiosk-actions">
         <button class="btn btn-primary" id="doneBtn">Done</button>
       </div>`);
     document.getElementById("doneBtn").addEventListener("click", resetToStart);
     toast("success", direction === "in" ? "Signed in" : "Signed out", name);
-    // Auto-return to the scan/search screen after a short pause so the kiosk
-    // is ready for the next person without requiring a tap.
-    setTimeout(resetToStart, 4000);
+    // Auto-return to the scan/search screen so the kiosk is ready for the
+    // next person without requiring a tap — held open longer when there's
+    // a leaving-check prompt to actually read and act on.
+    setTimeout(resetToStart, showLeavingCheck ? 12000 : 4000);
+    if (showLeavingCheck) renderLeavingCheckPrompt();
+  }
+
+  /** Best-effort — a failed lookup here shouldn't block or blemish an
+   *  already-successful sign-out, so errors are swallowed silently. */
+  async function renderLeavingCheckPrompt() {
+    try {
+      const onSite = await leavingCheck.onSite(_companyId, _siteId);
+      const remaining = onSite.filter(r => r.core_employees?.id !== _profile.id);
+      const el = document.getElementById("leavingCheckPrompt");
+      if (!el) return; // already navigated away
+      el.innerHTML = remaining.length
+        ? `<a class="btn" href="/systems/presence-fire-safety/leaving-check.html" style="display:block;text-align:center;margin-top:14px">${remaining.length} still shown as signed in — Review →</a>`
+        : `<p class="text-muted" style="text-align:center;margin-top:14px">Everyone else is signed out.</p>`;
+    } catch { /* non-fatal */ }
   }
 
   function resetToStart() {

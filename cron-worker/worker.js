@@ -10,7 +10,6 @@ const CRON_JOBS = [
   { name: 'Invoice generator', path: '/api/cron-invoice' },
   { name: 'Reminder emails',   path: '/api/cron-reminders' },
   { name: 'Convoy compliance reminders', path: '/api/convoy/cron-compliance-reminders' },
-  { name: 'Leaving PIN rotation', path: '/api/presence-fire-safety/cron-rotate-leaving-pin' },
 ];
 
 export default {
