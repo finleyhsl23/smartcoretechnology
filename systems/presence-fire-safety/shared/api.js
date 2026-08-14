@@ -470,7 +470,7 @@ export const settings = {
   },
   async leavingPinHolders(companyId) {
     const { data, error } = await sb().from("presence_fire_safety_leaving_pin_holders")
-      .select("id, employee_id, added_at, core_employees(full_name, job_title)")
+      .select("id, employee_id, added_at, core_employees!employee_id(full_name, job_title)")
       .eq("company_id", companyId).order("added_at");
     if (error) throw error;
     return data || [];

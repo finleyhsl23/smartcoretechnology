@@ -67,7 +67,7 @@ async function rotateForCompany(env, companyId) {
   const newPin = await rpcRes.json();
 
   const holdersRes = await sb(env, `/presence_fire_safety_leaving_pin_holders?company_id=eq.${companyId}` +
-    `&select=core_employees(full_name,work_email)`);
+    `&select=core_employees!employee_id(full_name,work_email)`);
   const holders = (await holdersRes.json()) || [];
   const emails = holders.map((h) => h.core_employees).filter((e) => e?.work_email);
 
