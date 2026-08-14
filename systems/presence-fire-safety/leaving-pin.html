@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Leaving PIN — SmartCore Presence &amp; Fire Safety</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="pfs-shell">
+  <nav class="pfs-sidebar" id="pfsNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="pfs-main">
+    <div class="pfs-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Leaving PIN</h1>
+      <label class="sr-only" for="siteSwitcher">Search sites by name or location</label>
+      <div class="pfs-site-search-wrap">
+        <input type="text" id="siteSwitcher" class="form-input" placeholder="Search sites…" aria-label="Search sites by name or location" autocomplete="off"/>
+        <div class="pfs-site-search-dropdown" style="display:none"></div>
+      </div>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="pfs-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="lpBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<style>
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+
+  /* ── PIN entry — same untappable-div pattern as evacuation.html's PIN,
+     driven entirely by the on-screen keypad, no real <input> to carry OS
+     keyboard chrome. ─────────────────────────────────────────────────── */
+  .lp-wrap { display:flex; justify-content:center; padding: 12px 0 32px; }
+  .lp-pin-card { max-width: 440px; width:100%; text-align:center; padding: 32px 28px; }
+  .lp-icon { width:64px; height:64px; border-radius:50%; background:rgba(30,92,255,.14); color:var(--accent2); display:flex; align-items:center; justify-content:center; margin: 0 auto 16px; }
+  .lp-icon i { width:32px; height:32px; }
+  .lp-icon-ok { background: rgba(34,197,94,.14); color: var(--good); }
+  .lp-kiosk-back-btn { display:flex; align-items:center; gap:6px; background:none; border:none; color: var(--text2); font-size: 13.5px; font-weight:600; padding: 6px 2px; margin: -8px 0 12px -2px; }
+  .lp-kiosk-back-btn:hover { color: var(--text); }
+  .lp-kiosk-back-btn i { width: 16px; height: 16px; }
+  .lp-pin-card h2 { margin: 0 0 8px; font-size: 22px; }
+  .lp-pin-card p { margin: 0 0 20px; color: var(--text2); font-size: 14px; }
+  .lp-pin-input {
+    width:100%; text-align:center; font-size: 32px; letter-spacing: 12px; font-weight:700;
+    padding: 14px 12px; border-radius: 12px; background: var(--card2); border: 1px solid var(--line);
+    color: var(--text); margin-bottom: 18px; min-height: 60px;
+  }
+  .lp-keypad { display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 22px; }
+  .lp-key {
+    min-height: 64px; font-size: 22px; font-weight: 700; border-radius: 14px;
+    background: var(--card2); border: 1px solid var(--line); color: var(--text);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .lp-key:hover:not(:disabled) { border-color: var(--accent); }
+  .lp-key:disabled { opacity: .4; }
+  .lp-key i { width: 24px; height: 24px; }
+  .lp-key-clear { font-size: 14px; }
+  .lp-big-btn { width:100%; min-height: 60px; font-size: 18px; font-weight: 800; letter-spacing: .3px; border-radius: 14px; }
+  .lp-pin-error { text-align:left; margin-bottom: 12px; font-size: 14px; }
+  #lpPinAlert .btn { margin-top: 4px; }
+
+  /* ── On-site list ──────────────────────────────────────────────────── */
+  .lp-unlocked-banner {
+    display:flex; align-items:center; gap:14px; background: rgba(30,92,255,.1);
+    border: 1px solid rgba(30,92,255,.25); color: var(--text); padding: 14px 18px;
+    border-radius: 14px; margin-bottom: 18px;
+  }
+  .lp-unlocked-banner i { width:22px; height:22px; color:var(--accent2); flex-shrink:0; }
+  .lp-unlocked-banner strong { display:block; font-size: 14.5px; }
+  .lp-unlocked-banner span { display:block; font-size: 12.5px; color: var(--text2); }
+  .lp-person-row {
+    display:flex; align-items:center; gap:14px; padding: 14px 16px; border: 1px solid var(--line);
+    border-radius: 12px; margin-bottom: 10px;
+  }
+  .lp-person-row input[type=checkbox] { width:20px; height:20px; flex-shrink:0; }
+  .lp-person-info { flex:1; min-width:0; }
+  .lp-person-info strong { display:block; font-size: 14.5px; }
+  .lp-person-info span { display:block; font-size: 12.5px; color: var(--text3); }
+  .lp-flagged-row { opacity: .55; }
+  .lp-actions-bar { display:flex; gap:10px; flex-wrap:wrap; margin-top: 18px; }
+  .lp-actions-bar .btn { flex:1; min-height:52px; }
+</style>
+
+<script type="module">
+  import { requirePresenceModuleAccess, hasPermission, getSelectedSiteId, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
+  import { sites, presence, leavingPin } from "/systems/presence-fire-safety/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
+  import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import { enforceKioskGuard, initKioskToggle, isKioskModeActive } from "/systems/presence-fire-safety/shared/kiosk.js";
+  import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
+  import {
+    esc, toast, fmtTime, confirmDialog,
+    loadingState, emptyState, errorState, permissionDeniedState,
+    offlineBanner, setInner, refreshIcons,
+  } from "/systems/presence-fire-safety/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null, _companyId = null, _siteList = [], _currentSite = null;
+  let _unlockToken = null, _unlockExpiresAt = null;
+  let _onSitePeople = [];
+  let _flaggedIds = new Set();
+
+  async function loadState(siteId) {
+    _currentSite = _siteList.find(s => s.id === siteId) || null;
+    _unlockToken = null;
+    _unlockExpiresAt = null;
+    _flaggedIds = new Set();
+    renderUnlockForm();
+  }
+
+  function renderUnlockForm() {
+    const kiosk = isKioskModeActive();
+    setInner("lpBody", `
+      <div class="lp-wrap">
+        <div class="card lp-pin-card">
+          ${kiosk ? `<button type="button" class="lp-kiosk-back-btn" id="lpKioskBackBtn"><i data-lucide="arrow-left"></i> Back to sign-in</button>` : ""}
+          <div class="lp-icon"><i data-lucide="log-out"></i></div>
+          <h2>Leaving PIN</h2>
+          <p>Enter this week's Leaving PIN to check who's still signed in at <strong>${esc(_currentSite?.name || "this site")}</strong>.</p>
+          <div id="lpPinAlert" aria-live="assertive"></div>
+          <div id="pinInput" class="lp-pin-input" role="textbox" aria-readonly="true" aria-label="Leaving PIN entered"></div>
+          <div class="lp-keypad" role="group" aria-label="PIN keypad">
+            ${[1,2,3,4,5,6,7,8,9].map(n => `<button type="button" class="lp-key" data-key="${n}">${n}</button>`).join("")}
+            <button type="button" class="lp-key lp-key-clear" data-key="clear">Clear</button>
+            <button type="button" class="lp-key" data-key="0">0</button>
+            <button type="button" class="lp-key lp-key-back" data-key="back" aria-label="Backspace"><i data-lucide="delete"></i></button>
+          </div>
+          <button id="unlockBtn" class="btn btn-primary lp-big-btn" disabled>Unlock</button>
+        </div>
+      </div>`);
+
+    document.getElementById("lpKioskBackBtn")?.addEventListener("click", () => {
+      window.location.href = "/systems/presence-fire-safety/employee-signin.html";
+    });
+
+    const pinInput = document.getElementById("pinInput");
+    const unlockBtn = document.getElementById("unlockBtn");
+    let locked = false;
+    let pinValue = "";
+
+    function renderPin() {
+      pinInput.textContent = pinValue ? "•".repeat(pinValue.length) : "";
+    }
+    function updateBtnState() {
+      unlockBtn.disabled = locked || pinValue.length < 4;
+    }
+    document.querySelectorAll(".lp-key").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (locked) return;
+        const key = btn.dataset.key;
+        if (key === "clear") pinValue = "";
+        else if (key === "back") pinValue = pinValue.slice(0, -1);
+        else if (pinValue.length < 12) pinValue += key;
+        renderPin();
+        updateBtnState();
+      });
+    });
+
+    unlockBtn.addEventListener("click", async () => {
+      const pin = pinValue;
+      unlockBtn.disabled = true;
+      unlockBtn.textContent = "Verifying…";
+      document.getElementById("lpPinAlert").innerHTML = "";
+      try {
+        const result = await leavingPin.verify(_companyId, _currentSite.id, pin);
+        _unlockToken = result.unlock_token;
+        _unlockExpiresAt = result.expires_at;
+        await loadOnSiteList();
+      } catch (e) {
+        const msg = e.message || "Incorrect PIN";
+        const lockedOut = /too many failed attempts/i.test(msg);
+        pinValue = "";
+        renderPin();
+        document.getElementById("lpPinAlert").innerHTML = `
+          <div class="form-error lp-pin-error" role="alert">${esc(msg)}</div>
+          ${lockedOut ? `<button class="btn" id="pinTryAgainBtn" type="button">Try again</button>` : ""}`;
+        if (lockedOut) {
+          locked = true;
+          document.querySelectorAll(".lp-key").forEach(b => b.disabled = true);
+          unlockBtn.disabled = true;
+          unlockBtn.textContent = "Unlock";
+          document.getElementById("pinTryAgainBtn")?.addEventListener("click", () => {
+            locked = false;
+            document.querySelectorAll(".lp-key").forEach(b => b.disabled = false);
+            document.getElementById("lpPinAlert").innerHTML = "";
+            updateBtnState();
+          });
+        } else {
+          unlockBtn.textContent = "Unlock";
+          updateBtnState();
+        }
+        refreshIcons();
+      }
+    });
+    refreshIcons();
+  }
+
+  async function loadOnSiteList() {
+    setInner("lpBody", loadingState("Checking who's still signed in…"));
+    try {
+      const rows = await leavingPin.onSite(_companyId, _currentSite.id);
+      // Exclude the leaving person themselves — flagging your own row makes
+      // no sense while you're the one mid-way through this exact flow.
+      _onSitePeople = rows.filter(r => r.core_employees?.id !== _profile.id);
+      renderOnSiteList();
+    } catch (e) {
+      setInner("lpBody", errorState({ title: "Couldn't load who's on site", message: e.message, retryId: "lpRetry" }));
+      document.getElementById("lpRetry")?.addEventListener("click", loadOnSiteList);
+    }
+  }
+
+  function renderOnSiteList() {
+    const nobody = _onSitePeople.length === 0;
+    setInner("lpBody", `
+      <div class="lp-unlocked-banner">
+        <i data-lucide="lock-open"></i>
+        <div>
+          <strong>Unlocked</strong>
+          <span>Unlock expires at ${esc(fmtTime(_unlockExpiresAt))} — ${esc(_currentSite?.name || "this site")}</span>
+        </div>
+      </div>
+      ${nobody
+        ? emptyState({ icon: "check-circle-2", title: "Everyone's signed out", message: "The register shows nobody else on site — you're clear to be the last one out." })
+        : `
+        <p class="text-muted" style="margin-bottom:14px">The register still shows these people signed in. Tick anyone who's actually left without signing out, then Query them — this emails the configured query address(es) and logs who flagged whom.</p>
+        <div id="lpPeopleList"></div>
+        <div class="lp-actions-bar">
+          <button class="btn btn-primary" id="querySelectedBtn" type="button" disabled>Query Selected</button>
+        </div>`}
+      <div class="lp-actions-bar">
+        <button class="btn" id="signSelfOutBtn" type="button">Sign yourself out</button>
+      </div>
+    `);
+    refreshIcons();
+
+    if (!nobody) {
+      renderPeopleList();
+      document.getElementById("querySelectedBtn").addEventListener("click", queryUpdatedSelected);
+    }
+    document.getElementById("signSelfOutBtn").addEventListener("click", onSignSelfOut);
+  }
+
+  function personLabel(row) {
+    const emp = row.core_employees;
+    return { name: emp?.full_name || "Unknown", sub: [emp?.job_title, emp?.core_departments?.name].filter(Boolean).join(" · ") };
+  }
+
+  function renderPeopleList() {
+    const list = document.getElementById("lpPeopleList");
+    list.innerHTML = _onSitePeople.map(row => {
+      const { name, sub } = personLabel(row);
+      const flagged = _flaggedIds.has(row.core_employees.id);
+      return `
+        <label class="lp-person-row ${flagged ? "lp-flagged-row" : ""}">
+          <input type="checkbox" data-employee-id="${esc(row.core_employees.id)}" ${flagged ? "disabled checked" : ""}/>
+          <div class="lp-person-info">
+            <strong>${esc(name)}</strong>
+            <span>${sub ? esc(sub) : "&nbsp;"}${flagged ? " — Flagged" : ""}</span>
+          </div>
+        </label>`;
+    }).join("");
+    list.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(cb => {
+      cb.addEventListener("change", updateQueryBtnState);
+    });
+    updateQueryBtnState();
+  }
+
+  function updateQueryBtnState() {
+    const btn = document.getElementById("querySelectedBtn");
+    if (!btn) return;
+    const anyChecked = !![...document.querySelectorAll('#lpPeopleList input[type=checkbox]:checked:not(:disabled)')].length;
+    btn.disabled = !anyChecked;
+  }
+
+  function queryUpdatedSelected() {
+    const checked = [...document.querySelectorAll('#lpPeopleList input[type=checkbox]:checked:not(:disabled)')];
+    const ids = checked.map(cb => cb.dataset.employeeId);
+    if (!ids.length) return;
+    confirmDialog(
+      "Query Selected?",
+      `This flags ${ids.length} ${ids.length === 1 ? "person" : "people"} as not signed out and emails the query address(es) configured in Settings.`,
+      async () => {
+        const btn = document.getElementById("querySelectedBtn");
+        btn.disabled = true;
+        btn.textContent = "Sending…";
+        try {
+          for (const employeeId of ids) {
+            await leavingPin.flagNotSignedOut(_companyId, _currentSite.id, employeeId, _unlockToken);
+            _flaggedIds.add(employeeId);
+          }
+          await leavingPin.notifyFlags(_currentSite.id).catch((e) => console.warn("notifyFlags failed:", e.message));
+          toast("success", "Flagged", `${ids.length} ${ids.length === 1 ? "person has" : "people have"} been flagged and the query email sent.`);
+          renderPeopleList();
+        } catch (e) {
+          toast("error", "Couldn't flag everyone selected", e.message || "Please try again.");
+          btn.disabled = false;
+          btn.textContent = "Query Selected";
+        }
+      },
+      { confirmLabel: "Query Selected", danger: false }
+    );
+  }
+
+  async function onSignSelfOut() {
+    const btn = document.getElementById("signSelfOutBtn");
+    btn.disabled = true;
+    btn.textContent = "Signing out…";
+    try {
+      await presence.signSelf({ siteId: _currentSite.id, direction: "out", method: "manual" });
+      toast("success", "Signed out", "You've been signed out.");
+      btn.textContent = "Signed out";
+    } catch (e) {
+      toast("error", "Couldn't sign you out", e.message || "Please try again.");
+      btn.disabled = false;
+      btn.textContent = "Sign yourself out";
+    }
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+
+  // ── Bootstrap ────────────────────────────────────────────────────────
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    if (enforceKioskGuard("leaving-pin")) throw new Error("__kiosk_redirect__");
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    if (!hasPermission("presence.sign_self_in_out")) {
+      setInner("lpBody", permissionDeniedState("You don't have permission to use the Leaving PIN."));
+    } else {
+      renderNav("leaving-pin", profile);
+      initMobileNav();
+      initTopbar();
+      initKioskToggle({ companyId: _companyId, currentPage: "leaving-pin" });
+      wireOfflineBanner();
+      initSoundFromSettings(_companyId);
+
+      _siteList = await sites.list(_companyId);
+      const selectedSiteId = await ensureSiteSelected(_companyId);
+      renderSiteSwitcher(document.getElementById("siteSwitcher"), _siteList, selectedSiteId, async (newSiteId) => {
+        setSelectedSiteId(newSiteId);
+        await loadState(newSiteId);
+      });
+
+      await loadState(selectedSiteId);
+    }
+  } catch (e) {
+    if (e.message !== "__kiosk_redirect__") {
+      console.error(e);
+      setInner("lpBody", errorState({ title: "Couldn't load", message: e.message }));
+    }
+  }
+</script>
+</body>
+</html>

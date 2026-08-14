@@ -23,7 +23,7 @@ const SC_ICON_LIGHT = "/systems/presence-fire-safety/shared/assets/sc-icon-light
 const STORAGE_KEY = "smartcore-pfs-kiosk-mode";
 const SIGNIN_PAGE = "/systems/presence-fire-safety/employee-signin.html";
 const DASHBOARD_PAGE = "/systems/presence-fire-safety/index.html";
-const KIOSK_ALLOWED_PAGES = ["employee-signin", "evacuation"];
+const KIOSK_ALLOWED_PAGES = ["employee-signin", "evacuation", "leaving-pin"];
 
 export function isKioskModeActive() {
   return localStorage.getItem(STORAGE_KEY) === "1";

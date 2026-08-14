@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Timesheets — SmartCore Presence &amp; Fire Safety</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="pfs-shell">
+  <nav class="pfs-sidebar" id="pfsNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="pfs-main">
+    <div class="pfs-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Timesheets</h1>
+      <label class="sr-only" for="siteSwitcher">Search sites by name or location</label>
+      <div class="pfs-site-search-wrap">
+        <input type="text" id="siteSwitcher" class="form-input" placeholder="Search sites…" aria-label="Search sites by name or location" autocomplete="off"/>
+        <div class="pfs-site-search-dropdown" style="display:none"></div>
+      </div>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="pfs-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="tsBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<style>
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .ts-filter-bar { display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap; margin-bottom: 20px; }
+  .ts-filter-field { display:flex; flex-direction:column; gap:4px; }
+  .ts-filter-field .form-label { margin:0; }
+  .ts-chart-wrap { height: 320px; margin-bottom: 24px; }
+  .ts-still-in { color: var(--accent2); font-weight:600; }
+</style>
+
+<script type="module">
+  import { requirePresenceModuleAccess, hasPermission, getSelectedSiteId, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
+  import { sites, timesheet } from "/systems/presence-fire-safety/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
+  import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import {
+    esc, loadingState, emptyState, errorState, permissionDeniedState,
+    offlineBanner, setInner, refreshIcons,
+  } from "/systems/presence-fire-safety/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null, _companyId = null, _siteList = [], _currentSiteId = null;
+  let _chart = null;
+
+  function isoDate(d) { return d.toISOString().slice(0, 10); }
+  function startOfWeek(d) {
+    const day = d.getDay(); // 0 = Sunday
+    const diff = day === 0 ? -6 : 1 - day; // back to Monday
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + diff);
+    return monday;
+  }
+
+  function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+  function defaultRange() {
+    const today = new Date();
+    return { from: isoDate(startOfWeek(today)), to: isoDate(today) };
+  }
+
+  /** Pairs each employee's in/out events within the range into shifts and
+   *  totals the hours. An unmatched trailing "in" (still signed in, or the
+   *  range ends before they signed out) counts up to the range end capped
+   *  at "now", and is flagged so the table can show it rather than quietly
+   *  under- or over-counting. */
+  function computeHours(events, rangeToIso) {
+    const byEmployee = new Map();
+    for (const e of events) {
+      if (!byEmployee.has(e.employee_id)) {
+        byEmployee.set(e.employee_id, {
+          name: e.core_employees?.full_name || "Unknown",
+          jobTitle: e.core_employees?.job_title || "",
+          dept: e.core_employees?.core_departments?.name || "",
+          events: [],
+        });
+      }
+      byEmployee.get(e.employee_id).events.push(e);
+    }
+
+    const rangeEndMs = Math.min(new Date(`${rangeToIso}T23:59:59`).getTime(), Date.now());
+    const rows = [];
+    for (const [employeeId, info] of byEmployee) {
+      info.events.sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
+      let totalMs = 0, shifts = 0, openIn = null, stillIn = false;
+      for (const ev of info.events) {
+        if (ev.direction === "in") {
+          openIn = ev.occurred_at;
+        } else if (ev.direction === "out" && openIn) {
+          totalMs += new Date(ev.occurred_at) - new Date(openIn);
+          shifts++;
+          openIn = null;
+        }
+      }
+      if (openIn) {
+        totalMs += Math.max(0, rangeEndMs - new Date(openIn).getTime());
+        shifts++;
+        stillIn = true;
+      }
+      if (!info.events.length) continue;
+      rows.push({ employeeId, name: info.name, jobTitle: info.jobTitle, dept: info.dept, hours: totalMs / 3600000, shifts, stillIn });
+    }
+    return rows.sort((a, b) => b.hours - a.hours);
+  }
+
+  function fmtHours(h) {
+    const hrs = Math.floor(h);
+    const mins = Math.round((h - hrs) * 60);
+    return `${hrs}h ${mins}m`;
+  }
+
+  async function loadTimesheet() {
+    const from = document.getElementById("tsFrom")?.value || defaultRange().from;
+    const to = document.getElementById("tsTo")?.value || defaultRange().to;
+    setInner("tsResults", loadingState("Loading events…"));
+    try {
+      const events = await timesheet.events(_companyId, {
+        siteId: _currentSiteId,
+        from: `${from}T00:00:00`,
+        to: `${to}T23:59:59`,
+      });
+      const rows = computeHours(events, to);
+      renderResults(rows);
+    } catch (e) {
+      setInner("tsResults", errorState({ title: "Couldn't load timesheet data", message: e.message, retryId: "tsRetry" }));
+      document.getElementById("tsRetry")?.addEventListener("click", loadTimesheet);
+    }
+  }
+
+  function renderResults(rows) {
+    if (_chart) { _chart.destroy(); _chart = null; }
+    if (!rows.length) {
+      setInner("tsResults", emptyState({ icon: "clock", title: "No sign-ins in this range", message: "Try a different date range or site." }));
+      return;
+    }
+
+    setInner("tsResults", `
+      <div class="card ts-chart-wrap"><canvas id="tsChart"></canvas></div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Employee</th><th>Department</th><th>Shifts</th><th>Total hours</th></tr></thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td>${esc(r.name)}</td>
+                <td>${esc(r.dept || "—")}</td>
+                <td>${r.shifts}</td>
+                <td>${esc(fmtHours(r.hours))}${r.stillIn ? ` <span class="ts-still-in">(still signed in)</span>` : ""}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    `);
+
+    const textColor = cssVar("--text3"), gridColor = cssVar("--line");
+    const top = rows.slice(0, 20); // keep the chart legible for large rosters
+    _chart = new Chart(document.getElementById("tsChart").getContext("2d"), {
+      type: "bar",
+      data: {
+        labels: top.map(r => r.name),
+        datasets: [{ label: "Hours", data: top.map(r => Math.round(r.hours * 100) / 100), backgroundColor: "rgba(30,92,255,.6)", borderRadius: 6 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: gridColor }, ticks: { color: textColor, autoSkip: false, maxRotation: 60, minRotation: 0 } },
+          y: { grid: { color: gridColor }, ticks: { color: textColor }, beginAtZero: true },
+        },
+      },
+    });
+  }
+
+  function renderShell() {
+    const { from, to } = defaultRange();
+    setInner("tsBody", `
+      <div class="ts-filter-bar">
+        <div class="ts-filter-field">
+          <span class="form-label">From</span>
+          <input type="date" id="tsFrom" class="form-input" value="${from}"/>
+        </div>
+        <div class="ts-filter-field">
+          <span class="form-label">To</span>
+          <input type="date" id="tsTo" class="form-input" value="${to}"/>
+        </div>
+        <button class="btn btn-primary" id="tsApplyBtn" type="button">Apply</button>
+      </div>
+      <div id="tsResults"></div>
+    `);
+    document.getElementById("tsApplyBtn").addEventListener("click", loadTimesheet);
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+
+  // ── Bootstrap ────────────────────────────────────────────────────────
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    if (!hasPermission("presence.view_timesheets")) {
+      setInner("tsBody", permissionDeniedState("You don't have permission to view timesheets. Ask an owner or administrator."));
+    } else {
+      renderNav("timesheets", profile);
+      initMobileNav();
+      initTopbar();
+      wireOfflineBanner();
+
+      _siteList = await sites.list(_companyId);
+      _currentSiteId = await ensureSiteSelected(_companyId);
+      renderSiteSwitcher(document.getElementById("siteSwitcher"), _siteList, _currentSiteId, async (newSiteId) => {
+        setSelectedSiteId(newSiteId);
+        _currentSiteId = newSiteId;
+        await loadTimesheet();
+      });
+
+      renderShell();
+      await loadTimesheet();
+    }
+  } catch (e) {
+    console.error(e);
+    setInner("tsBody", errorState({ title: "Couldn't load", message: e.message }));
+  }
+</script>
+</body>
+</html>

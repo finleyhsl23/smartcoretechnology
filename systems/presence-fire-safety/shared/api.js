@@ -458,6 +458,34 @@ export const settings = {
     return true;
   },
 
+  /** Leaving PIN — shared by everyone in leavingPinHolders(), rotates
+   *  weekly on its own (see cron-rotate-leaving-pin.js). This is the
+   *  manual "Rotate now" version, for admins — returns the new plaintext
+   *  PIN so it can be shown immediately; it's also emailed to every
+   *  holder either way. */
+  async rotateLeavingPin(companyId) {
+    const { data, error } = await sb().rpc("presence_fire_safety_rotate_leaving_pin", { p_company_id: companyId });
+    if (error) throw new Error(error.message || "Could not rotate the leaving PIN");
+    return data;
+  },
+  async leavingPinHolders(companyId) {
+    const { data, error } = await sb().from("presence_fire_safety_leaving_pin_holders")
+      .select("id, employee_id, added_at, core_employees(full_name, job_title)")
+      .eq("company_id", companyId).order("added_at");
+    if (error) throw error;
+    return data || [];
+  },
+  async addLeavingPinHolder(companyId, employeeId) {
+    const { profile } = await ctx();
+    const { error } = await sb().from("presence_fire_safety_leaving_pin_holders")
+      .insert({ company_id: companyId, employee_id: employeeId, added_by: profile.id });
+    if (error) throw error;
+  },
+  async removeLeavingPinHolder(holderId) {
+    const { error } = await sb().from("presence_fire_safety_leaving_pin_holders").delete().eq("id", holderId);
+    if (error) throw error;
+  },
+
   /** Company logo for the ID card template. Public bucket, one object per
    *  company at a stable path — upsert overwrites on re-upload.
    *  Reads the file into bytes immediately rather than handing the raw
@@ -651,6 +679,73 @@ export const evacuation = {
       throw new Error(data.error || "Could not generate the evacuation report");
     }
     return res.blob();
+  },
+};
+
+// ── Leaving PIN ─────────────────────────────────────────────────────────
+// Kiosk-facing side of the shared leaving PIN — for whoever's last to
+// leave the building. Verify issues a short (15-minute) unlock token,
+// same shape/purpose as evacuation's, which flagNotSignedOut then requires
+// — so flagging someone always has to follow an actual PIN entry, not just
+// being on the holders list (see settings.leavingPinHolders for that list).
+export const leavingPin = {
+  async verify(companyId, siteId, pin) {
+    const { data, error } = await sb().rpc("presence_fire_safety_verify_leaving_pin", { p_company_id: companyId, p_site_id: siteId, p_pin: pin });
+    if (error) throw new Error(error.message || "Incorrect PIN");
+    const [row] = data || [];
+    return row; // { unlock_token, expires_at }
+  },
+
+  /** Who the live register currently shows as signed in at this site,
+   *  employees only — visitors/contractors are normally signed out by
+   *  their host, not something this flow is meant to police. */
+  async onSite(companyId, siteId) {
+    const rows = await presence.liveRegister(companyId, siteId);
+    return rows.filter((r) => r.subject_type === "employee");
+  },
+
+  async flagNotSignedOut(companyId, siteId, employeeId, unlockToken) {
+    const { error } = await sb().rpc("presence_fire_safety_flag_not_signed_out", {
+      p_company_id: companyId, p_site_id: siteId, p_flagged_employee_id: employeeId, p_unlock_token: unlockToken,
+    });
+    if (error) throw new Error(error.message || "Could not flag this person");
+  },
+
+  /** Sends the "these people didn't clock out" email — call once after
+   *  flagging everyone selected, not once per person; the endpoint reads
+   *  back the flags that were just recorded rather than trusting names
+   *  passed in here, so there's nothing to pass but the site. */
+  async notifyFlags(siteId) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) return;
+    const res = await fetch("/api/presence-fire-safety/notify-leaving-pin-flag", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ site_id: siteId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not send the flag notification");
+    return data;
+  },
+};
+
+// ── Timesheet ───────────────────────────────────────────────────────────
+// Admin/owner only (presence.view_timesheets) — pairs each employee's
+// sign-in/sign-out events within a date range into shifts and totals the
+// hours. Built from the same append-only event ledger the live register
+// and history pages already read, no separate aggregation table.
+export const timesheet = {
+  async events(companyId, { siteId, from, to } = {}) {
+    let q = sb().from("presence_fire_safety_events")
+      .select("employee_id, direction, occurred_at, site_id, core_employees(full_name, job_title, core_departments(name))")
+      .eq("company_id", companyId).eq("subject_type", "employee")
+      .order("occurred_at");
+    if (siteId) q = q.eq("site_id", siteId);
+    if (from) q = q.gte("occurred_at", from);
+    if (to) q = q.lte("occurred_at", to);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
   },
 };
 
