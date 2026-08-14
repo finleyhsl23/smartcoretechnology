@@ -83,7 +83,7 @@ export async function requireCRMAccess() {
     .eq("module_key", "smartcore-crm")
     .maybeSingle();
 
-  if (error || !mod?.enabled) {
+  if (error || !mod) {
     wireEscapeButtons();
     document.body.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#05081a;color:#e9f0ff;font-family:system-ui">
@@ -95,6 +95,19 @@ export async function requireCRMAccess() {
         </div>
       </div>`;
     throw new Error("CRM not enabled");
+  }
+  if (!mod.enabled) {
+    wireEscapeButtons();
+    document.body.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#05081a;color:#e9f0ff;font-family:system-ui">
+        <div style="text-align:center;max-width:480px;padding:24px">
+          <div style="font-size:48px;margin-bottom:16px">⚠️</div>
+          <h2 style="font-size:20px;margin-bottom:8px">Module Suspended</h2>
+          <p style="color:rgba(233,240,255,.6);margin-bottom:20px">Sorry, this module has been suspended due to an outstanding payment. Please contact your administrator or email <strong style="color:#e9f0ff">support@smartcoretechnology.co.uk</strong> to resolve this.</p>
+          <a href="/modules/" style="background:#1e3a8a;color:#fff;padding:10px 24px;border-radius:99px;text-decoration:none;font-weight:600">← Back to Modules</a>
+        </div>
+      </div>`;
+    throw new Error("Module suspended");
   }
 
   const resolvedTier = mod.tier || "lite";

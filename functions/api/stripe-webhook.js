@@ -79,6 +79,21 @@ async function handleInvoicePaid(env, invoice) {
   }
   let order = orders[0];
 
+  // Restore suspended access when a previously failed payment finally goes through
+  if (order.status === 'suspended') {
+    try {
+      const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=id&limit=1`);
+      const company   = companies?.[0];
+      if (company?.id) {
+        await dbPatch(env, `/company_modules?company_id=eq.${enc(company.id)}`, { enabled: true });
+      }
+      await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, { status: 'active' });
+      console.log(`stripe-webhook: restored access for ${order.company_name} after successful payment`);
+    } catch (e) {
+      console.error('stripe-webhook: restoration error:', e);
+    }
+  }
+
   // For the very first invoice (billing_reason = subscription_create), provisioning is
   // handled by the payment-complete Cloudflare Function called from the browser.
   // We only do extra work here for renewals (subscription_cycle) or if order isn't confirmed yet.
@@ -117,21 +132,100 @@ async function handleInvoiceFailed(env, invoice) {
   const subscriptionId = invoice.subscription;
   if (!subscriptionId) return;
 
-  const orders = await dbGet(env, `/marketplace_orders?stripe_subscription_id=eq.${enc(subscriptionId)}&select=id,company_name,email,order_reference&limit=1`);
+  const orders = await dbGet(env, `/marketplace_orders?stripe_subscription_id=eq.${enc(subscriptionId)}&select=id,company_name,email,accounts_email,order_reference,total,billing_type,stripe_customer_id&limit=1`);
   if (!orders?.[0]) return;
   const order = orders[0];
+  const attemptCount = invoice.attempt_count || 1;
 
-  console.warn(`stripe-webhook: payment failed for ${order.order_reference} (${order.company_name})`);
+  console.warn(`stripe-webhook: payment failed (attempt ${attemptCount}) for ${order.order_reference} (${order.company_name})`);
 
-  // Send failure email to admin
+  // Build Stripe billing portal URL for card update
+  let portalUrl = 'https://smartcoretechnology.co.uk';
+  try {
+    if (order.stripe_customer_id) {
+      const session = await stripeRequest(env, 'POST', '/billing_portal/sessions', {
+        customer:   order.stripe_customer_id,
+        return_url: 'https://smartcoretechnology.co.uk',
+      });
+      if (session?.url) portalUrl = session.url;
+    }
+  } catch (_) {}
+
+  const amountGbp = order.total || 0;
+  const period    = order.billing_type === 'yearly' ? '/yr' : '/mo';
+
+  // Send customer email
+  try {
+    const recipients = [...new Set([order.email, order.accounts_email].filter(Boolean))];
+    const html = paymentFailedHtml(order, amountGbp, period, portalUrl, attemptCount);
+    await Promise.all(recipients.map(addr => sendEmail(env, {
+      from:    FROM_BILLING,
+      to:      addr,
+      subject: `Action Required: Payment Failed — ${order.company_name} | SmartCore`,
+      html,
+    })));
+  } catch (_) {}
+
+  // Send admin notification
   try {
     await sendEmail(env, {
       from:    FROM_BILLING,
       to:      ADMIN_EMAIL,
-      subject: `Payment Failed — ${order.order_reference} | ${order.company_name}`,
-      html:    `<p>Stripe payment failed for <strong>${order.company_name}</strong> (${order.order_reference}).<br>Invoice: ${invoice.id}</p>`,
+      subject: `Payment Failed (attempt ${attemptCount}) — ${order.order_reference} | ${order.company_name}`,
+      html:    `<p>Stripe payment failed for <strong>${order.company_name}</strong> (${order.order_reference}).<br>Attempt: ${attemptCount}<br>Invoice: ${invoice.id}</p>`,
     });
   } catch (_) {}
+
+  // After 3 failed attempts suspend module access
+  if (attemptCount >= 3) {
+    try {
+      const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=id&limit=1`);
+      const company   = companies?.[0];
+      if (company?.id) {
+        await dbPatch(env, `/company_modules?company_id=eq.${enc(company.id)}`, { enabled: false });
+      }
+      await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, { status: 'suspended' });
+      console.warn(`stripe-webhook: suspended access for ${order.company_name} after ${attemptCount} failed attempts`);
+    } catch (e) {
+      console.error('stripe-webhook: suspension error:', e);
+    }
+  }
+}
+
+function paymentFailedHtml(order, amountGbp, period, portalUrl, attemptCount) {
+  const fmt = n => '£' + Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const suspended = attemptCount >= 3;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif">
+<div style="max-width:560px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.10)">
+  <div style="background:#020617;padding:24px 32px">
+    <img src="https://smartcoretechnology.co.uk/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png" alt="SmartCore" style="height:36px;width:auto;display:inline-block;vertical-align:middle;border-radius:8px;margin-right:12px"/>
+    <span style="color:#fff;font-size:16px;font-weight:700;vertical-align:middle">SmartCore Technology</span>
+  </div>
+  <div style="background:${suspended ? '#7f1d1d' : '#78350f'};padding:14px 32px;text-align:center">
+    <span style="color:#fff;font-weight:700;font-size:14px;letter-spacing:.5px">${suspended ? '🚫 MODULE ACCESS SUSPENDED' : '⚠ PAYMENT FAILED — ACTION REQUIRED'}</span>
+  </div>
+  <div style="padding:32px">
+    <p style="color:#0f172a;font-size:15px;margin:0 0 16px">Hi ${esc(order.company_name)},</p>
+    ${suspended
+      ? `<p style="color:#374151;font-size:14px;line-height:1.6;margin:0 0 20px">We were unable to collect payment after multiple attempts. As a result, <strong>access to your SmartCore modules has been suspended</strong>.</p>
+         <p style="color:#374151;font-size:14px;line-height:1.6;margin:0 0 20px">To restore access, please update your payment details using the button below. Your access will be reinstated automatically once payment is successful.</p>`
+      : `<p style="color:#374151;font-size:14px;line-height:1.6;margin:0 0 20px">We were unable to collect your SmartCore subscription payment. Please update your payment details as soon as possible to avoid any interruption to your service.</p>`
+    }
+    <div style="background:#fff7ed;border:2px solid #f97316;border-radius:10px;padding:16px 20px;margin-bottom:24px;text-align:center">
+      <div style="font-size:12px;color:#9a3412;font-weight:700;margin-bottom:4px;letter-spacing:.5px">AMOUNT DUE</div>
+      <div style="font-size:28px;font-weight:800;color:#0f172a">${fmt(amountGbp)}<span style="font-size:16px;font-weight:400;color:#64748b">${period}</span></div>
+    </div>
+    <div style="text-align:center;margin-bottom:24px">
+      <a href="${portalUrl}" style="background:#1e5cff;color:#fff;font-size:15px;font-weight:700;padding:14px 32px;border-radius:99px;text-decoration:none;display:inline-block">Update Payment Details →</a>
+    </div>
+    <p style="color:#64748b;font-size:13px;line-height:1.6;margin:0">If you have any questions or need assistance, please contact us at <a href="mailto:support@smartcoretechnology.co.uk" style="color:#1e5cff">support@smartcoretechnology.co.uk</a>.</p>
+  </div>
+  <div style="background:#000000;padding:16px 32px;text-align:center">
+    <span style="color:rgba(255,255,255,.5);font-size:12px">Powered by SmartCore Technology</span>
+  </div>
+</div>
+</body></html>`;
 }
 
 // ---------------------------------------------------------------------------
