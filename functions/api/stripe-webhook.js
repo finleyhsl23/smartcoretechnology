@@ -139,14 +139,24 @@ async function handleInvoiceFailed(env, invoice) {
 
   console.warn(`stripe-webhook: payment failed (attempt ${attemptCount}) for ${order.order_reference} (${order.company_name})`);
 
-  // Use the hosted invoice URL (Stripe-hosted payment page for this invoice)
-  // Falls back to the update-payment page if not available
   const hostedInvoiceUrl = invoice.hosted_invoice_url;
   const amountGbp = order.total || 0;
   const period    = order.billing_type === 'yearly' ? '/yr' : '/mo';
 
+  // Try to create a Stripe Billing Portal session so customer can update card + pay invoice
+  let stripePayUrl = hostedInvoiceUrl || '';
+  try {
+    if (order.stripe_customer_id) {
+      const session = await stripeRequest(env, 'POST', '/billing_portal/sessions', {
+        customer:   order.stripe_customer_id,
+        return_url: `https://smartcoretechnology.co.uk/update-payment/?paid=1`,
+      });
+      if (session?.url) stripePayUrl = session.url;
+    }
+  } catch (_) {}
+
   // Build branded update-payment page URL with amount + ref pre-filled
-  const updatePageUrl = `https://smartcoretechnology.co.uk/update-payment/?pay=${encodeURIComponent(hostedInvoiceUrl || '')}&amount=${encodeURIComponent(amountGbp)}&ref=${encodeURIComponent(order.order_reference || '')}`;
+  const updatePageUrl = `https://smartcoretechnology.co.uk/update-payment/?pay=${encodeURIComponent(stripePayUrl)}&amount=${encodeURIComponent(amountGbp)}&ref=${encodeURIComponent(order.order_reference || '')}`;
 
   // Send customer email
   try {
