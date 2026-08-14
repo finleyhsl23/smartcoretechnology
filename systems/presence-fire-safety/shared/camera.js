@@ -104,8 +104,19 @@ export function isCameraSupported() {
  *   opts.onCaptured(blob) - called once with the confirmed photo Blob
  *   opts.onSkip()         - called if the person chooses not to take a photo
  *   opts.title            - heading text (default "Take a photo")
+ *   opts.required         - if true, no "Skip photo" button — a photo is
+ *                            mandatory here, so there's no choice to offer
+ *                            (used by the kiosk visitor/contractor flow,
+ *                            which only shows this step at all because an
+ *                            admin turned photos on as a requirement; the
+ *                            admin-facing sign-in forms show it as an
+ *                            explicitly optional action instead, and don't
+ *                            set this). The "camera not available on this
+ *                            device" fallback still offers to continue
+ *                            regardless — that's a hardware limitation,
+ *                            not something the person is choosing to skip.
  */
-export function renderPhotoCaptureStep(containerEl, { onCaptured, onSkip, title = "Take a photo" } = {}) {
+export function renderPhotoCaptureStep(containerEl, { onCaptured, onSkip, title = "Take a photo", required = false } = {}) {
   let controller = null;
   let capturedBlob = null;
 
@@ -130,7 +141,7 @@ export function renderPhotoCaptureStep(containerEl, { onCaptured, onSkip, title 
         <div class="pfs-camera-actions">
           <button class="btn" type="button" id="camSwitchBtn">Switch camera</button>
           <button class="btn btn-primary" type="button" id="camTakeBtn">Take Picture</button>
-          <button class="btn" type="button" id="camSkipBtn">Skip photo</button>
+          ${required ? "" : `<button class="btn" type="button" id="camSkipBtn">Skip photo</button>`}
         </div>
       </div>`;
 
@@ -143,7 +154,7 @@ export function renderPhotoCaptureStep(containerEl, { onCaptured, onSkip, title 
     });
 
     containerEl.querySelector("#camSwitchBtn").addEventListener("click", () => controller.switchCamera());
-    containerEl.querySelector("#camSkipBtn").addEventListener("click", () => { controller?.stop(); onSkip?.(); });
+    containerEl.querySelector("#camSkipBtn")?.addEventListener("click", () => { controller?.stop(); onSkip?.(); });
     containerEl.querySelector("#camTakeBtn").addEventListener("click", async () => {
       try {
         capturedBlob = await controller.captureBlob();
