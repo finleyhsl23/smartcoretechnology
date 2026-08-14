@@ -10,7 +10,6 @@ import { sb } from "./supabase.js";
 import { getProfile, clearProfileCache, getMyPermissions, hasPermission, getSelectedSiteId } from "./auth.js";
 import { settings } from "./api.js";
 import { esc, toast, modal } from "./ui.js";
-import { focusWithKeyboard } from "./virtual-keyboard.js";
 import { getTheme } from "./theme.js";
 
 // SC mark for the idle screensaver — each file is a solid square tile (not
@@ -113,9 +112,13 @@ export async function requestExitKioskMode({ companyId }) {
     <div class="modal-body">
       <p class="text-muted" id="kioskExitIntro">Enter the kiosk exit PIN to return to admin mode.</p>
       <div id="kioskExitAlert" aria-live="assertive"></div>
-      <label class="form-label" for="kioskExitPin">Exit PIN</label>
-      <input type="password" id="kioskExitPin" class="form-input" inputmode="numeric" pattern="[0-9]*"
-             autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12" aria-label="Kiosk exit PIN"/>
+      <div id="kioskExitPin" class="pfs-pin-display" role="textbox" aria-readonly="true" aria-label="Kiosk exit PIN entered"></div>
+      <div class="pfs-pin-keypad" role="group" aria-label="PIN keypad">
+        ${[1,2,3,4,5,6,7,8,9].map(n => `<button type="button" class="pfs-pin-key" data-key="${n}">${n}</button>`).join("")}
+        <button type="button" class="pfs-pin-key pfs-pin-key-clear" data-key="clear">Clear</button>
+        <button type="button" class="pfs-pin-key" data-key="0">0</button>
+        <button type="button" class="pfs-pin-key" data-key="back" aria-label="Backspace"><i data-lucide="delete"></i></button>
+      </div>
       <div id="kioskFallback" style="display:none;margin-top:18px">
         <div class="pfs-divider">or sign in with your SmartCore account</div>
         <label class="form-label" for="kioskEmail">Email</label>
@@ -126,16 +129,34 @@ export async function requestExitKioskMode({ companyId }) {
     </div>
     <div class="modal-footer">
       <button class="btn" id="kioskExitCancel">Cancel</button>
-      <button class="btn btn-primary" id="kioskExitSubmit">Submit</button>
+      <button class="btn btn-primary" id="kioskExitSubmit" disabled>Submit</button>
     </div>
   `, { size: "" });
 
-  const pinInput = overlay.querySelector("#kioskExitPin");
+  const pinDisplay = overlay.querySelector("#kioskExitPin");
   const alertBox = overlay.querySelector("#kioskExitAlert");
   const fallback = overlay.querySelector("#kioskFallback");
   const submitBtn = overlay.querySelector("#kioskExitSubmit");
   const cancelBtn = overlay.querySelector("#kioskExitCancel");
-  focusWithKeyboard(pinInput);
+  window.lucide?.createIcons?.();
+
+  // Plain div + on-screen keypad, not a real <input> — same reasoning as
+  // evacuation.html/leaving-check.html's PIN screens: a real input here
+  // (even with inputmode="none") can flash a native or virtual keyboard
+  // before this module's own code corrects the layout or dismisses it.
+  let pinValue = "";
+  function renderPin() { pinDisplay.textContent = pinValue ? "•".repeat(pinValue.length) : ""; }
+  function updateSubmitState() { submitBtn.disabled = pinValue.length < 4; }
+  overlay.querySelectorAll(".pfs-pin-key").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.key;
+      if (key === "clear") pinValue = "";
+      else if (key === "back") pinValue = pinValue.slice(0, -1);
+      else if (pinValue.length < 12) pinValue += key;
+      renderPin();
+      updateSubmitState();
+    });
+  });
 
   let fallbackShown = false;
 
@@ -145,8 +166,8 @@ export async function requestExitKioskMode({ companyId }) {
     submitBtn.disabled = true;
     try {
       if (!fallbackShown) {
-        const pin = pinInput.value.trim();
-        if (!pin) { submitBtn.disabled = false; return; }
+        const pin = pinValue;
+        if (!pin) { updateSubmitState(); return; }
         await settings.verifyKioskExitPin(companyId, getSelectedSiteId(), pin);
         // Success — release kiosk mode and return to the admin dashboard.
         setKioskModeActive(false);
@@ -197,8 +218,6 @@ export async function requestExitKioskMode({ companyId }) {
       }
     }
   });
-
-  pinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submitBtn.click(); });
 }
 
 // ── Idle screensaver ─────────────────────────────────────────────────────
