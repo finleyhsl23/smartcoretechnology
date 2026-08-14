@@ -68,7 +68,7 @@ export async function onRequestPost(context) {
 // invoice.payment_succeeded
 // ---------------------------------------------------------------------------
 async function handleInvoicePaid(env, invoice) {
-  const subscriptionId = invoice.subscription;
+  const subscriptionId = invoice.subscription ?? invoice.parent?.subscription_details?.subscription;
   if (!subscriptionId) return;
 
   // Find the order by stripe_subscription_id
@@ -129,7 +129,7 @@ async function handleInvoicePaid(env, invoice) {
 // invoice.payment_failed
 // ---------------------------------------------------------------------------
 async function handleInvoiceFailed(env, invoice) {
-  const subscriptionId = invoice.subscription;
+  const subscriptionId = invoice.subscription ?? invoice.parent?.subscription_details?.subscription;
   if (!subscriptionId) return;
 
   const orders = await dbGet(env, `/marketplace_orders?stripe_subscription_id=eq.${enc(subscriptionId)}&select=id,company_name,email,accounts_email,order_reference,total,billing_type,stripe_customer_id&limit=1`);
