@@ -10,6 +10,7 @@ import { sb } from "./supabase.js";
 import { getProfile, clearProfileCache, getMyPermissions, hasPermission, getSelectedSiteId } from "./auth.js";
 import { settings } from "./api.js";
 import { esc, toast, modal } from "./ui.js";
+import { hideVirtualKeyboard } from "./virtual-keyboard.js";
 import { getTheme } from "./theme.js";
 
 // SC mark for the idle screensaver — each file is a solid square tile (not
@@ -107,6 +108,14 @@ export function renderKioskEvacuationBanner(containerId) {
  * to hold presence.manage_settings before kiosk mode is actually released.
  */
 export async function requestExitKioskMode({ companyId }) {
+  // Whatever was focused on the underlying kiosk screen (an employee
+  // search box, a visitor form field, etc.) never gets blurred just by
+  // tapping the kiosk toggle button on some mobile browsers, so its
+  // native/virtual keyboard can stay open and visible underneath this
+  // modal for a moment. Dismiss it explicitly before rendering anything.
+  hideVirtualKeyboard();
+  document.activeElement?.blur?.();
+
   const overlay = modal(`
     <div class="modal-header"><h3>Exit Kiosk Mode</h3></div>
     <div class="modal-body">

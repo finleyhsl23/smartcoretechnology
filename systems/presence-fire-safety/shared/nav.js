@@ -89,6 +89,20 @@ export function initTopbar() {
       window.location.href = "/modules/";
     }
   });
+
+  // Back-to-modules link, top-left of the topbar — same placement/label as
+  // every other SmartCore module. Hidden in kiosk mode (see
+  // body.pfs-kiosk-mode-active .topbar-back-btn in the shared stylesheet).
+  const topbar = document.querySelector(".pfs-topbar");
+  if (topbar && !topbar.querySelector(".topbar-back-btn")) {
+    const backBtn = document.createElement("a");
+    backBtn.href = "/modules/";
+    backBtn.className = "topbar-back-btn";
+    backBtn.innerHTML = `← Modules`;
+    const hamburger = topbar.querySelector(".hamburger");
+    if (hamburger) hamburger.after(backBtn);
+    else topbar.prepend(backBtn);
+  }
 }
 
 /**
