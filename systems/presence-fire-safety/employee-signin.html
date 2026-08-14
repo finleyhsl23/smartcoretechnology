@@ -190,7 +190,6 @@
   let _canSignOthers = false;
   let _canManageVisitors = false;
   let _canManageContractors = false;
-  let _canLeavingCheck = false;
   let _companySettings = null;
   let _qrSupported = isQrScanningSupported();
   let _scanner = null;          // { stop, switchCamera } while the scan tab is active
@@ -216,7 +215,6 @@
     _canSignOthers = hasPermission("presence.sign_others_in_out");
     _canManageVisitors = hasPermission("presence.manage_visitors");
     _canManageContractors = hasPermission("presence.manage_contractors");
-    _canLeavingCheck = hasPermission("presence.leaving_check");
 
     renderNav("employee-signin", profile);
     initMobileNav();
@@ -592,7 +590,7 @@
       } else {
         await presence.signOthersByEmployee({ siteId: _siteId, employeeId: _selected.id, direction, method: recordMethod, requestId: _requestId });
       }
-      renderSuccess(direction, isSelf);
+      renderSuccess(direction);
     } catch (e) {
       btns.forEach(b => b.disabled = false);
       setInner("confirmStatus", errorState({
@@ -609,9 +607,9 @@
     }
   }
 
-  function renderSuccess(direction, isSelf) {
+  function renderSuccess(direction) {
     const name = esc(_selected.full_name);
-    const showLeavingCheck = direction === "out" && isSelf && _canLeavingCheck;
+    const signedOutId = _selected.id;
     setInner("tabPanel", `
       <div class="kiosk-identity">
         <div class="success-icon"><i data-lucide="check-circle-2"></i></div>
@@ -625,22 +623,34 @@
     document.getElementById("doneBtn").addEventListener("click", resetToStart);
     toast("success", direction === "in" ? "Signed in" : "Signed out", name);
     // Auto-return to the scan/search screen so the kiosk is ready for the
-    // next person without requiring a tap — held open longer when there's
-    // a leaving-check prompt to actually read and act on.
-    setTimeout(resetToStart, showLeavingCheck ? 12000 : 4000);
-    if (showLeavingCheck) renderLeavingCheckPrompt();
+    // next person without requiring a tap — extended if a leaving-check
+    // prompt ends up showing, so there's actually time to read and tap it.
+    let autoReturnTimer = setTimeout(resetToStart, 4000);
+    if (direction === "out") {
+      maybeShowLeavingCheckPrompt(signedOutId, () => {
+        clearTimeout(autoReturnTimer);
+        autoReturnTimer = setTimeout(resetToStart, 12000);
+      });
+    }
   }
 
-  /** Best-effort — a failed lookup here shouldn't block or blemish an
+  /** Checks the person who JUST signed out (not the browser's own
+   *  session — on a shared kiosk that's a fixed device login, not
+   *  whichever employee tapped their name) for presence.leaving_check,
+   *  and shows the "review who's left" prompt if they have it. Best-
+   *  effort — a failed lookup here shouldn't block or blemish an
    *  already-successful sign-out, so errors are swallowed silently. */
-  async function renderLeavingCheckPrompt() {
+  async function maybeShowLeavingCheckPrompt(signedOutEmployeeId, onShown) {
     try {
+      const hasAccess = await leavingCheck.employeeHasAccess(_companyId, signedOutEmployeeId);
+      if (!hasAccess) return;
       const onSite = await leavingCheck.onSite(_companyId, _siteId);
-      const remaining = onSite.filter(r => r.core_employees?.id !== _profile.id);
+      const remaining = onSite.filter(r => r.core_employees?.id !== signedOutEmployeeId);
       const el = document.getElementById("leavingCheckPrompt");
       if (!el) return; // already navigated away
+      onShown();
       el.innerHTML = remaining.length
-        ? `<a class="btn" href="/systems/presence-fire-safety/leaving-check.html" style="display:block;text-align:center;margin-top:14px">${remaining.length} still shown as signed in — Review →</a>`
+        ? `<a class="btn" href="/systems/presence-fire-safety/leaving-check.html" style="display:block;text-align:center;margin-top:14px">Open Leaving Check — ${remaining.length} still shown as signed in →</a>`
         : `<p class="text-muted" style="text-align:center;margin-top:14px">Everyone else is signed out.</p>`;
     } catch { /* non-fatal */ }
   }

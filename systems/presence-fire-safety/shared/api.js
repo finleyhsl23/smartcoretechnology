@@ -729,6 +729,23 @@ export const leavingCheck = {
     return rows.filter((r) => r.subject_type === "employee");
   },
 
+  /** Whether a SPECIFIC employee holds presence.leaving_check — not the
+   *  browser session's own permissions (hasPermission()/getMyPermissions
+   *  reflect whoever is authenticated in this browser, which on a shared
+   *  kiosk is a fixed device login, not whichever employee just tapped
+   *  their name to sign out). Owner/admin/administrator always have it,
+   *  same as presence_fire_safety_my_permissions() grants it to them
+   *  unconditionally; everyone else needs an explicit grant. */
+  async employeeHasAccess(companyId, employeeId) {
+    const { data: emp, error: empErr } = await sb().from("core_employees").select("role").eq("id", employeeId).maybeSingle();
+    if (empErr) throw empErr;
+    if (["owner", "admin", "administrator"].includes(emp?.role)) return true;
+    const { data: grant, error: grantErr } = await sb().from("presence_fire_safety_permission_grants")
+      .select("id").eq("company_id", companyId).eq("employee_id", employeeId).eq("permission", "presence.leaving_check").maybeSingle();
+    if (grantErr) throw grantErr;
+    return !!grant;
+  },
+
   async flagNotSignedOut(companyId, siteId, employeeId) {
     const { error } = await sb().rpc("presence_fire_safety_flag_not_signed_out", {
       p_company_id: companyId, p_site_id: siteId, p_flagged_employee_id: employeeId,
