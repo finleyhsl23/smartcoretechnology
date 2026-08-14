@@ -177,7 +177,7 @@
   import { enforceKioskGuard, initKioskToggle, renderKioskEvacuationBanner, isKioskModeActive, initIdleScreensaver } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initVirtualKeyboard, focusWithKeyboard, hideVirtualKeyboard } from "/systems/presence-fire-safety/shared/virtual-keyboard.js";
   import {
-    esc, toast, fmtDateTime, initials,
+    esc, toast, fmtDateTime, initials, modal,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
     offlineBanner, setInner,
   } from "/systems/presence-fire-safety/shared/ui.js";
@@ -623,27 +623,28 @@
     document.getElementById("doneBtn").addEventListener("click", resetToStart);
     toast("success", direction === "in" ? "Signed in" : "Signed out", name);
     // Auto-return to the scan/search screen so the kiosk is ready for the
-    // next person without requiring a tap — extended if a leaving-check
-    // prompt ends up showing, so there's actually time to read and tap it.
+    // next person without requiring a tap — suspended entirely while a
+    // leaving-check question or popup is actively on screen, since that
+    // can easily take longer than any fixed delay; resumes once dismissed.
     let autoReturnTimer = setTimeout(resetToStart, 4000);
+    const suspendAutoReturn = () => clearTimeout(autoReturnTimer);
+    const resumeAutoReturn = (ms) => { autoReturnTimer = setTimeout(resetToStart, ms); };
     // Kiosk-only: this is specifically for whoever's last out tapping their
     // own name on a shared device, not something to surface on a personal,
     // already-authenticated sign-out.
     if (direction === "out" && isKioskModeActive()) {
-      maybeShowLeavingCheckPrompt(signedOutId, () => {
-        clearTimeout(autoReturnTimer);
-        autoReturnTimer = setTimeout(resetToStart, 12000);
-      });
+      maybeShowLeavingCheckPrompt(signedOutId, suspendAutoReturn, resumeAutoReturn);
     }
   }
 
   /** Checks the person who JUST signed out (not the browser's own
    *  session — on a shared kiosk that's a fixed device login, not
    *  whichever employee tapped their name) for presence.leaving_check,
-   *  and shows the "review who's left" prompt if they have it. Best-
-   *  effort — a failed lookup here shouldn't block or blemish an
-   *  already-successful sign-out, so errors are swallowed silently. */
-  async function maybeShowLeavingCheckPrompt(signedOutEmployeeId, onShown) {
+   *  and asks whether to run a leaving check if they have it and anyone
+   *  else is still shown as signed in. Best-effort — a failed lookup
+   *  here shouldn't block or blemish an already-successful sign-out, so
+   *  errors are swallowed silently. */
+  async function maybeShowLeavingCheckPrompt(signedOutEmployeeId, suspendAutoReturn, resumeAutoReturn) {
     try {
       const hasAccess = await leavingCheck.employeeHasAccess(_companyId, signedOutEmployeeId);
       if (!hasAccess) return;
@@ -651,11 +652,105 @@
       const remaining = onSite.filter(r => r.core_employees?.id !== signedOutEmployeeId);
       const el = document.getElementById("leavingCheckPrompt");
       if (!el) return; // already navigated away
-      onShown();
-      el.innerHTML = remaining.length
-        ? `<a class="btn" href="/systems/presence-fire-safety/leaving-check.html" style="display:block;text-align:center;margin-top:14px">Open Leaving Check — ${remaining.length} still shown as signed in →</a>`
-        : `<p class="text-muted" style="text-align:center;margin-top:14px">Everyone else is signed out.</p>`;
+      suspendAutoReturn();
+      if (!remaining.length) {
+        el.innerHTML = `<p class="text-muted" style="text-align:center;margin-top:14px">Everyone else is signed out.</p>`;
+        resumeAutoReturn(4000);
+        return;
+      }
+      el.innerHTML = `
+        <div style="margin-top:16px;text-align:center">
+          <p style="margin:0 0 12px;font-weight:600">Would you like to perform a leaving check?</p>
+          <div style="display:flex;gap:10px;justify-content:center">
+            <button class="btn" id="lcNoBtn" type="button">No</button>
+            <button class="btn btn-primary" id="lcYesBtn" type="button">Yes</button>
+          </div>
+        </div>`;
+      document.getElementById("lcNoBtn").addEventListener("click", () => { el.innerHTML = ""; resumeAutoReturn(4000); });
+      document.getElementById("lcYesBtn").addEventListener("click", () => {
+        el.innerHTML = "";
+        openLeavingCheckPopup(remaining, () => resumeAutoReturn(4000));
+      });
     } catch { /* non-fatal */ }
+  }
+
+  /** The Leaving Check flow as an in-page popup rather than a full-page
+   *  navigation — reuses the same people list already fetched to decide
+   *  whether to ask the question, so no extra round trip. Calls onClose
+   *  once dismissed (any of overlay click, Escape, or Close) so the
+   *  kiosk's auto-return-to-start can resume. */
+  function openLeavingCheckPopup(people, onClose) {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Leaving Check</h3></div>
+      <div class="modal-body">
+        <p class="text-muted" style="margin-top:0">The register still shows these people signed in. Tick anyone who's actually left, then Query them.</p>
+        <div id="lcPeopleList"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn modal-close" type="button">Close</button>
+        <button class="btn btn-primary" id="lcQueryBtn" type="button" disabled>Query Selected</button>
+      </div>
+    `, { size: "modal-glass" });
+    overlay.classList.add("modal-overlay-glass");
+    let closed = false;
+    const fireOnClose = () => { if (closed) return; closed = true; onClose?.(); };
+    overlay.addEventListener("click", e => { if (e.target === overlay) fireOnClose(); });
+    overlay.addEventListener("keydown", e => { if (e.key === "Escape") fireOnClose(); });
+    overlay.querySelectorAll(".modal-close").forEach(btn => btn.addEventListener("click", fireOnClose));
+
+    function renderList(flaggedIds) {
+      const list = overlay.querySelector("#lcPeopleList");
+      list.innerHTML = people.map(row => {
+        const emp = row.core_employees;
+        const name = emp?.full_name || "Unknown";
+        const sub = [emp?.job_title, emp?.core_departments?.name].filter(Boolean).join(" · ");
+        const flagged = flaggedIds.has(emp.id);
+        return `
+          <label class="pfs-person-row ${flagged ? "pfs-person-row-flagged" : ""}">
+            <input type="checkbox" data-employee-id="${esc(emp.id)}" ${flagged ? "disabled checked" : ""}/>
+            <div class="pfs-person-info">
+              <strong>${esc(name)}</strong>
+              <span>${sub ? esc(sub) : "&nbsp;"}${flagged ? " — Flagged" : ""}</span>
+            </div>
+          </label>`;
+      }).join("");
+      list.querySelectorAll("input[type=checkbox]:not(:disabled)").forEach(cb => {
+        cb.addEventListener("change", updateQueryBtn);
+      });
+      updateQueryBtn();
+    }
+
+    function updateQueryBtn() {
+      const btn = overlay.querySelector("#lcQueryBtn");
+      const anyChecked = !![...overlay.querySelectorAll("#lcPeopleList input:checked:not(:disabled)")].length;
+      btn.disabled = !anyChecked;
+    }
+
+    renderList(new Set());
+
+    overlay.querySelector("#lcQueryBtn").addEventListener("click", async () => {
+      const checked = [...overlay.querySelectorAll("#lcPeopleList input:checked:not(:disabled)")];
+      const ids = checked.map(cb => cb.dataset.employeeId);
+      if (!ids.length) return;
+      const btn = overlay.querySelector("#lcQueryBtn");
+      btn.disabled = true;
+      btn.textContent = "Sending…";
+      const flagged = new Set();
+      try {
+        for (const employeeId of ids) {
+          await leavingCheck.flagNotSignedOut(_companyId, _siteId, employeeId);
+          flagged.add(employeeId);
+        }
+        await leavingCheck.notifyFlags(_siteId).catch((e) => console.warn("notifyFlags failed:", e.message));
+        toast("success", "Flagged", `${ids.length} ${ids.length === 1 ? "person has" : "people have"} been flagged and the query email sent.`);
+        renderList(flagged);
+        btn.textContent = "Query Selected";
+      } catch (e) {
+        toast("error", "Couldn't flag everyone selected", e.message || "Please try again.");
+        btn.disabled = false;
+        btn.textContent = "Query Selected";
+      }
+    });
   }
 
   function resetToStart() {
