@@ -160,6 +160,20 @@
   .kiosk-result-meta { font-size:12px; color: var(--text3); }
   .kiosk-actions { display:flex; flex-direction:column; gap:12px; width:100%; }
   .kiosk-actions .btn { width:100%; }
+  #leavingCheckPrompt:not(:empty) { margin: 18px 0; width:100%; }
+  .lc-ask-card {
+    display:flex; flex-direction:column; align-items:center; gap:14px; width:100%;
+    padding:20px; border-radius:16px; text-align:center;
+    background: linear-gradient(160deg, rgba(30,92,255,.12), rgba(30,92,255,.04));
+    border: 1px solid rgba(30,92,255,.28);
+    animation: lc-ask-in .25s cubic-bezier(.34,1.56,.64,1);
+  }
+  .lc-ask-icon { width:40px; height:40px; border-radius:50%; background:rgba(30,92,255,.16); color:var(--accent2); display:flex; align-items:center; justify-content:center; }
+  .lc-ask-icon i { width:22px; height:22px; }
+  .lc-ask-card p { margin:0; font-size:15.5px; font-weight:700; }
+  .lc-ask-buttons { display:flex; gap:10px; width:100%; }
+  .lc-ask-buttons .btn { flex:1; min-height:50px; }
+  @keyframes lc-ask-in { from { opacity:0; transform:translateY(-6px) scale(.97); } to { opacity:1; transform:none; } }
   .code-row { display:flex; gap:8px; width:100%; margin-top: 10px; }
   .code-row .form-input { flex:1; }
   .pfs-divider { display:flex; align-items:center; gap:10px; color: var(--text3); font-size:12px; margin: 16px 0; width:100%; }
@@ -659,13 +673,15 @@
         return;
       }
       el.innerHTML = `
-        <div style="margin-top:16px;text-align:center">
-          <p style="margin:0 0 12px;font-weight:600">Would you like to perform a leaving check?</p>
-          <div style="display:flex;gap:10px;justify-content:center">
+        <div class="lc-ask-card">
+          <div class="lc-ask-icon"><i data-lucide="door-open"></i></div>
+          <p>Would you like to perform a leaving check?</p>
+          <div class="lc-ask-buttons">
             <button class="btn" id="lcNoBtn" type="button">No</button>
             <button class="btn btn-primary" id="lcYesBtn" type="button">Yes</button>
           </div>
         </div>`;
+      window.lucide?.createIcons?.();
       document.getElementById("lcNoBtn").addEventListener("click", () => { el.innerHTML = ""; resumeAutoReturn(4000); });
       document.getElementById("lcYesBtn").addEventListener("click", () => {
         el.innerHTML = "";
@@ -743,8 +759,8 @@
         }
         await leavingCheck.notifyFlags(_siteId).catch((e) => console.warn("notifyFlags failed:", e.message));
         toast("success", "Flagged", `${ids.length} ${ids.length === 1 ? "person has" : "people have"} been flagged and the query email sent.`);
-        renderList(flagged);
-        btn.textContent = "Query Selected";
+        overlay.remove();
+        resetToStart();
       } catch (e) {
         toast("error", "Couldn't flag everyone selected", e.message || "Please try again.");
         btn.disabled = false;
