@@ -12,7 +12,7 @@
 
 import { esc } from "./ui.js";
 
-const ELIGIBLE_SELECTOR = 'input[type="text"], input[type="email"], input[type="tel"], input[type="search"], input[type="password"], input:not([type])';
+const ELIGIBLE_SELECTOR = 'input[type="text"], input[type="email"], input[type="tel"], input[type="search"], input[type="password"], input:not([type]), textarea';
 
 const QWERTY_NUM = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 const QWERTY_R1 = ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"];
@@ -31,8 +31,9 @@ let _autoHideTimer = null;
 const AUTO_HIDE_MS = 30000; // put the keyboard away after 30s of not being tapped
 
 function isEligible(el) {
-  if (!(el instanceof HTMLInputElement)) return false;
+  if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return false;
   if (el.disabled || el.readOnly) return false;
+  if (el instanceof HTMLTextAreaElement) return true;
   const type = (el.type || "text").toLowerCase();
   return ["text", "email", "tel", "search", "password"].includes(type);
 }

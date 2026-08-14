@@ -163,11 +163,12 @@
 
 <script type="module">
   import { requirePresenceModuleAccess, hasPermission, getSelectedSiteId, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
-  import { sites, evacuation, visitors, contractors } from "/systems/presence-fire-safety/shared/api.js";
+  import { sites, evacuation, visitors, contractors, settings } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { enforceKioskGuard, initKioskToggle, isKioskModeActive } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
+  import { initVirtualKeyboard } from "/systems/presence-fire-safety/shared/virtual-keyboard.js";
   import { enhanceSelect } from "/systems/presence-fire-safety/shared/combobox.js";
   import {
     esc, initials, toast, fmtDateTime, fmtTime, confirmDialog, modal, viewPdfBlob,
@@ -1015,6 +1016,14 @@
     initKioskToggle({ companyId: _companyId, currentPage: "evacuation" });
     wireOfflineBanner();
     initSoundFromSettings(_companyId);
+    // Custom on-screen keyboard — kiosk mode only (same reasoning as
+    // employee-signin.html) and behind its own settings toggle, since
+    // unlike sound/screensaver this isn't universally wanted even on
+    // kiosk tablets (some are docked with a physical keyboard).
+    if (isKioskModeActive()) {
+      const companySettings = await settings.get(_companyId).catch(() => null);
+      if (companySettings?.custom_keyboard_enabled) initVirtualKeyboard();
+    }
 
     _siteList = await sites.list(_companyId);
     const selectedSiteId = await ensureSiteSelected(_companyId);
