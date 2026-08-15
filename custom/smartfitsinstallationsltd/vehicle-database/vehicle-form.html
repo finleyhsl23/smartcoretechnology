@@ -66,7 +66,6 @@
   let _lookupTimer = null;
   let _lastAutoCheckedReg = null;
   let _stepIndex = 0;
-  let _autoOpenedConfigure = false;
 
   // Referenced by the functions further down (which are hoisted function
   // declarations, so the references below are safe) — declared here for the
@@ -79,11 +78,6 @@
       render: () => renderStepReg(), wire: () => wireStepReg(),
       validate: () => !!(_vehicle.registration || "").trim(),
       validateError: "Enter a registration first",
-    },
-    {
-      title: "Vehicle Details", icon: "car",
-      blurb: "Filled in automatically where possible — check them over and adjust anything that's missing or wrong.",
-      render: () => renderStepDetails(),
     },
     {
       title: "Body Variant", icon: "settings-2",
@@ -500,17 +494,23 @@
         toast("error", "Lookup failed", e.message);
       }
     }
+    revealDetails();
   }
 
-  // The wizard's steps only exist in the DOM one at a time, so a lookup
-  // fired from the Registration step (before Vehicle Details has ever been
-  // rendered) has nowhere to write make/model/year/fuel type directly —
-  // _vehicle above is what actually carries the value forward; this just
-  // keeps whatever's currently on screen in sync too, when there's a field
-  // to sync into.
+  // The wizard's Registration step only has the plate field on screen until
+  // a lookup has actually been attempted — _vehicle is what carries
+  // make/model/year/fuel type forward regardless; this just keeps whatever
+  // field happens to be on screen right now in sync too.
   function setFieldValueIfPresent(id, value) {
     const el = document.getElementById(id);
     if (el) el.value = value;
+  }
+
+  // Reveals the make/model/year/fuel-type fields under the registration
+  // field once a lookup has been attempted (whether or not it found
+  // anything) — no-op on edit mode, which shows everything at once anyway.
+  function revealDetails() {
+    document.getElementById("detailsReveal")?.classList.add("show");
   }
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -766,6 +766,11 @@
 
   function renderStepReg() {
     const v = _vehicle;
+    // The details grid starts collapsed and animates open the first time a
+    // lookup attempt finishes (see revealDetails()) — but if we're arriving
+    // here with data already known (prefill, or coming back from a later
+    // step), it should just be there already, with no pop-in to replay.
+    const alreadyHasDetails = !!(v.make || v.model || v.year_of_manufacture || v.fuel_type);
     return `
       <div class="vform-row">
         <label class="form-label" for="f_registration">Registration *</label>
@@ -776,6 +781,16 @@
         <p class="text-muted" style="font-size:12px;margin-top:8px">Finish typing (or click away from) the registration and it'll check MOT history automatically — the button forces a re-check.</p>
         <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:2px"></p>
         <div id="dupStatus"></div>
+      </div>
+      <div class="wiz-reveal ${alreadyHasDetails ? "show no-anim" : ""}" id="detailsReveal">
+        <div class="wiz-reveal-inner">
+          <div class="vform-grid" style="margin-top:22px">
+            ${fieldInput({ key: "make", label: "Make" }, v)}
+            ${fieldInput({ key: "model", label: "Model" }, v)}
+            ${fieldInput({ key: "year_of_manufacture", label: "Year", type: "number" }, v)}
+            ${fieldInput({ key: "fuel_type", label: "Fuel Type" }, v)}
+          </div>
+        </div>
       </div>`;
   }
   function wireStepReg() {
@@ -787,40 +802,108 @@
     if ((_vehicle.registration || prefillReg) && !isEdit) handleRegistrationTyped(_vehicle.registration || prefillReg);
   }
 
-  function renderStepDetails() {
-    const v = _vehicle;
-    return `<div class="vform-grid">
-      ${fieldInput({ key: "make", label: "Make" }, v)}
-      ${fieldInput({ key: "model", label: "Model" }, v)}
-      ${fieldInput({ key: "year_of_manufacture", label: "Year", type: "number" }, v)}
-      ${fieldInput({ key: "fuel_type", label: "Fuel Type" }, v)}
-    </div>`;
+  // A single big, easy-to-tap selectable card — used for both Body Variant
+  // and Fitment in the wizard, since they're both one-of-N choices that
+  // matter enough (wiring/component locations differ by both) to deserve
+  // more than a small text pill.
+  function choiceCard({ key, label, icon, group, active }) {
+    return `
+      <button type="button" class="choice-card ${active ? "active" : ""}" data-choice="${esc(key)}" data-choice-group="${esc(group)}">
+        <span class="choice-card-icon"><i data-lucide="${esc(icon)}"></i></span>
+        <span class="choice-card-label">${esc(label)}</span>
+      </button>`;
   }
 
+  function wireChoiceGroup(group, onPick) {
+    const buttons = document.querySelectorAll(`[data-choice-group="${group}"]`);
+    buttons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        onPick(btn.dataset.choice);
+        buttons.forEach(b => b.classList.toggle("active", b === btn));
+      });
+    });
+  }
+
+  // Re-renders just the current step's card content in place — used when a
+  // choice/photo changes something the step's own markup needs to reflect
+  // (e.g. a new photo thumbnail), without replaying the progress bar/section
+  // header/scroll-to-top that a full renderCurrentStep() would also trigger.
+  function refreshStepCard() {
+    const step = ADD_STEPS[_stepIndex];
+    const card = document.getElementById("wizStepCard");
+    if (!card) return;
+    card.innerHTML = (step.blurb ? `<p class="text-muted" style="font-size:13px;margin:0 0 16px">${esc(step.blurb)}</p>` : "") + step.render();
+    step.wire?.();
+    window.lucide?.createIcons?.();
+  }
+
+  const VARIANT_ICONS = { standard: "car", facelift: "sparkles" };
+
+  // Inline instead of the old "Configure" modal — the choice and both
+  // photos are right there on the step, nothing to pop open.
   function renderStepVariant() {
-    return `<div id="bodyVariantSummary"></div>`;
+    const v = _vehicle;
+    const frontStaged = _stagedPhotos.find(p => p.category === "front");
+    const backStaged = _stagedPhotos.find(p => p.category === "back");
+    return `
+      <div class="choice-grid">
+        ${BODY_VARIANTS.map(b => choiceCard({ key: b.key, label: b.label, icon: VARIANT_ICONS[b.key] || "car", group: "variant", active: v.body_variant === b.key })).join("")}
+      </div>
+      <div class="vform-grid" style="margin-top:22px">
+        ${singularPhotoField("front", "Front of Vehicle", frontStaged)}
+        ${singularPhotoField("back", "Back of Vehicle", backStaged)}
+      </div>`;
   }
   function wireStepVariant() {
-    renderBodyVariantSummary();
-    if (prefillVariant && !_vehicle.body_variant && !_autoOpenedConfigure) {
-      _autoOpenedConfigure = true;
-      openConfigureWizard();
-    }
+    wireChoiceGroup("variant", key => { _vehicle.body_variant = key; });
+    document.querySelectorAll("[data-singular-photo]").forEach(input => {
+      input.addEventListener("change", async e => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const category = input.dataset.singularPhoto;
+        const frozen = await freezeFile(file);
+        _stagedPhotos = _stagedPhotos.filter(p => p.category !== category);
+        _stagedPhotos.push({ id: crypto.randomUUID(), category, file: frozen, previewUrl: URL.createObjectURL(frozen) });
+        refreshStepCard();
+      });
+    });
+    document.querySelectorAll("[data-remove-singular]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _stagedPhotos = _stagedPhotos.filter(p => p.category !== btn.dataset.removeSingular);
+        refreshStepCard();
+      });
+    });
   }
+
+  // front/back are singular per vehicle — a new photo replaces whatever was
+  // staged before rather than adding a second one alongside it.
+  function singularPhotoField(category, label, staged) {
+    return `
+      <div class="vform-row">
+        <label class="form-label">${esc(label)}</label>
+        <div class="vform-field-photos">
+          ${staged ? `
+            <div class="vform-photo-thumbs">
+              <div class="photo-thumb photo-thumb-sm">
+                <img src="${esc(staged.previewUrl)}" alt=""/>
+                <span class="photo-remove" data-remove-singular="${esc(category)}"><i data-lucide="x"></i></span>
+              </div>
+            </div>` : ""}
+          <label class="btn photo-add-btn-wide"><i data-lucide="camera"></i> ${staged ? "Change photo" : "Add photo"}<input type="file" accept="image/*" data-singular-photo="${esc(category)}" hidden/></label>
+        </div>
+      </div>`;
+  }
+
+  const FITMENT_ICONS = { obd_tracker: "cpu", lightfoot: "footprints", three_wire_tracker_camera: "camera" };
 
   function renderStepFitment() {
     const v = _vehicle;
-    return `<div class="pill-row" id="fitmentTypeRow" style="display:flex">
-      ${FITMENT_TYPES.map(ft => `<button type="button" class="pill ${v.fitment_type === ft.key ? "active" : ""}" data-fitment="${esc(ft.key)}">${esc(ft.label)}</button>`).join("")}
+    return `<div class="choice-grid choice-grid-3">
+      ${FITMENT_TYPES.map(ft => choiceCard({ key: ft.key, label: ft.label, icon: FITMENT_ICONS[ft.key] || "wrench", group: "fitment", active: v.fitment_type === ft.key })).join("")}
     </div>`;
   }
   function wireStepFitment() {
-    document.querySelectorAll("#fitmentTypeRow [data-fitment]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        _vehicle.fitment_type = btn.dataset.fitment;
-        document.querySelectorAll("#fitmentTypeRow [data-fitment]").forEach(b => b.classList.toggle("active", b === btn));
-      });
-    });
+    wireChoiceGroup("fitment", key => { _vehicle.fitment_type = key; });
   }
 
   function renderStepReview() {
