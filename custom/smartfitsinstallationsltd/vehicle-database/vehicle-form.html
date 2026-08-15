@@ -34,7 +34,7 @@
   import {
     getVehicle, createVehicle, updateVehicle, lookupRegistration, getVehicleByRegistration, FIELD_GROUPS,
     listVehiclePhotos, uploadVehiclePhoto, deleteVehiclePhoto, getPhotoUrl, BODY_VARIANTS, FITMENT_TYPES,
-    createNewVehicleRequest, uploadRequestPhoto,
+    createNewVehicleRequest, uploadRequestPhoto, fieldRelevantForFitment,
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
@@ -146,12 +146,10 @@
           </div>
         </div>
 
-        ${FIELD_GROUPS.slice(1).map(group => `
+        ${FIELD_GROUPS.slice(1).map((group, i) => `
           <div class="section-header"><div class="section-header-icon"><i data-lucide="${groupIcon(group.title)}"></i></div><h3>${esc(group.title)}</h3></div>
-          <div class="card" style="margin-bottom:24px">
-            <div class="vform-grid">
-              ${group.fields.map(f => fieldInput(f, v)).join("")}
-            </div>
+          <div class="card" style="margin-bottom:24px" id="fieldGroupCard_${i}">
+            ${renderFieldGroupInner(group, v)}
           </div>
         `).join("")}
 
@@ -168,6 +166,7 @@
       btn.addEventListener("click", () => {
         _vehicle.fitment_type = btn.dataset.fitment;
         document.querySelectorAll("#fitmentTypeRow [data-fitment]").forEach(b => b.classList.toggle("active", b === btn));
+        reRenderFitmentGatedGroups();
       });
     });
 
@@ -191,6 +190,30 @@
     if (title.includes("Wiring")) return "zap";
     if (title.includes("Placement")) return "map-pin";
     return "clipboard-list";
+  }
+
+  function renderFieldGroupInner(group, v) {
+    const fields = group.fields.filter(f => fieldRelevantForFitment(f, v.fitment_type));
+    return `<div class="vform-grid">${fields.map(f => fieldInput(f, v)).join("")}</div>`;
+  }
+
+  // Only Component Placement currently has any fitment-gated fields
+  // (Lightfoot's Driver ID / B&P Button locations), but this re-renders
+  // whichever group cards actually contain one, so it stays correct if that
+  // ever changes. Reads back whatever's already typed in that group first —
+  // rebuilding its HTML would otherwise silently discard it.
+  function reRenderFitmentGatedGroups() {
+    FIELD_GROUPS.slice(1).forEach((group, i) => {
+      if (!group.fields.some(f => f.relevantFitment)) return;
+      const container = document.getElementById(`fieldGroupCard_${i}`);
+      if (!container) return;
+      container.querySelectorAll("[data-field]").forEach(el => { _vehicle[el.dataset.field] = el.value; });
+      container.innerHTML = renderFieldGroupInner(group, _vehicle);
+      group.fields
+        .filter(f => f.photoCategory && fieldRelevantForFitment(f, _vehicle.fitment_type))
+        .forEach(f => renderPhotoStrip(f.photoCategory));
+      window.lucide?.createIcons?.();
+    });
   }
 
   function fieldInput(f, v) {

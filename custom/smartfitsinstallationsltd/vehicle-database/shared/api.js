@@ -87,8 +87,8 @@ export const FIELD_GROUPS = [
       { key: "adas_camera_position",         label: "ADAS Camera Position", type: "textarea", photoCategory: "adas_camera" },
       { key: "dashcam_mounting_location",    label: "Best Dashcam Mounting Location", type: "textarea", photoCategory: "dashcam_mounting" },
       { key: "tracker_mounting_location",    label: "Best Tracker Mounting Location", type: "textarea", photoCategory: "tracker_mounting" },
-      { key: "lightfoot_driver_id_location", label: "Lightfoot — Driver ID Location", type: "textarea", photoCategory: "lightfoot_driver_id" },
-      { key: "lightfoot_bp_button_location", label: "Lightfoot — B&P Button Exact Location", type: "textarea", photoCategory: "lightfoot_bp_button" },
+      { key: "lightfoot_driver_id_location", label: "Lightfoot — Driver ID Location", type: "textarea", photoCategory: "lightfoot_driver_id", relevantFitment: ["lightfoot"] },
+      { key: "lightfoot_bp_button_location", label: "Lightfoot — B&P Button Exact Location", type: "textarea", photoCategory: "lightfoot_bp_button", relevantFitment: ["lightfoot"] },
     ],
   },
   {
@@ -115,6 +115,17 @@ export function fieldLabel(key) {
 
 export function categoryLabel(key) {
   return PHOTO_CATEGORIES.find(c => c.key === key)?.label || key;
+}
+
+// Some fields only make sense for a specific fitment (e.g. Lightfoot's
+// Driver ID / B&P Button locations don't apply to an OBD Tracker fit).
+// Fields with no relevantFitment are always shown; when fitmentType isn't
+// known yet, nothing is hidden — better to show a field that turns out
+// irrelevant than to hide one before the choice has even been made.
+export function fieldRelevantForFitment(field, fitmentType) {
+  if (!field.relevantFitment) return true;
+  if (!fitmentType) return true;
+  return field.relevantFitment.includes(fitmentType);
 }
 
 // Which photo category (if any) a field is paired with, so a field's photos
