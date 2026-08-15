@@ -56,6 +56,74 @@
   let _stagedPhotos = []; // add mode only: [{ id, category, file, previewUrl }] uploaded after createVehicle/request succeeds
   let _canDirectCreate = false; // manager/admin creates the vehicle immediately; employees submit a request instead
 
+  // These are declared here (rather than nearer the code that uses them,
+  // which would read more naturally) because the top-level `await render()`
+  // below can synchronously reach into the wizard on the very first tick —
+  // a `let`/`const` declared later in module scope is still in its temporal
+  // dead zone at that point, so referencing it before this line would throw
+  // "Cannot access '...' before initialization" and silently abort the
+  // render with a half-empty page.
+  let _lookupTimer = null;
+  let _lastAutoCheckedReg = null;
+  let _stepIndex = 0;
+  let _autoOpenedConfigure = false;
+
+  // Referenced by the functions further down (which are hoisted function
+  // declarations, so the references below are safe) — declared here for the
+  // same TDZ reason as the state above, since ADD_STEPS.length is read on
+  // the very first synchronous render.
+  const ADD_STEPS = [
+    {
+      title: "Registration", icon: "id-card",
+      blurb: "Start with the plate — we'll pull make, model, year and fuel type from MOT history automatically.",
+      render: () => renderStepReg(), wire: () => wireStepReg(),
+      validate: () => !!(_vehicle.registration || "").trim(),
+      validateError: "Enter a registration first",
+    },
+    {
+      title: "Vehicle Details", icon: "car",
+      blurb: "Filled in automatically where possible — check them over and adjust anything that's missing or wrong.",
+      render: () => renderStepDetails(),
+    },
+    {
+      title: "Body Variant", icon: "settings-2",
+      blurb: "Standard or facelift, plus a front and back photo — wiring can differ between them, so this makes the photos meaningful on their own.",
+      render: () => renderStepVariant(), wire: () => wireStepVariant(),
+      validate: () => !!_vehicle.body_variant,
+      validateError: "Select Standard or Facelift with front/back photos first",
+    },
+    {
+      title: "Fitment", icon: "wrench",
+      blurb: "What's being fitted — wiring and component locations differ by this, so an engineer searching later finds the right install guide.",
+      render: () => renderStepFitment(), wire: () => wireStepFitment(),
+      validate: () => !!_vehicle.fitment_type,
+      validateError: "Select OBD Tracker, Lightfoot, or 3 Wire Tracker/Camera first",
+    },
+    {
+      title: "Wiring & Electrical", icon: "zap",
+      blurb: "Leave anything blank you don't know yet — it can always be filled in later.",
+      render: () => renderFieldGroupInner(FIELD_GROUPS[1], _vehicle),
+      wire: () => wireFieldGroupPhotos(FIELD_GROUPS[1]),
+    },
+    {
+      title: "Component Placement", icon: "map-pin",
+      blurb: "Best-known locations for cameras, dashcams and trackers.",
+      render: () => renderFieldGroupInner(FIELD_GROUPS[2], _vehicle),
+      wire: () => wireFieldGroupPhotos(FIELD_GROUPS[2]),
+    },
+    {
+      title: "Install Notes", icon: "clipboard-list",
+      blurb: "Anything else worth knowing for next time.",
+      render: () => renderFieldGroupInner(FIELD_GROUPS[3], _vehicle),
+      wire: () => wireFieldGroupPhotos(FIELD_GROUPS[3]),
+    },
+    {
+      title: "Review & Submit", icon: "check-circle",
+      blurb: null,
+      render: () => renderStepReview(),
+    },
+  ];
+
   try {
     const { profile, tier } = await requireModuleAccess();
     _profile = profile; _tier = tier;
@@ -70,7 +138,7 @@
       await render();
     }
   } catch (e) {
-    if (!document.body.innerHTML.includes("vdb-state")) {
+    if (document.getElementById("body")) {
       setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
     }
   }
@@ -351,9 +419,6 @@
     await uploadVehiclePhoto(vehicleId, category, file, _profile.id);
   }
 
-  let _lookupTimer = null;
-  let _lastAutoCheckedReg = null;
-
   // Fires on every keystroke in the registration field (debounced ~350ms —
   // fast enough to feel instant without spamming a request per keystroke),
   // and immediately on blur/tab-away with no wait at all. Checks whether
@@ -583,61 +648,6 @@
      Each step persists whatever's on screen into _vehicle before moving on,
      so nothing typed is ever lost switching steps back and forth.
      ══════════════════════════════════════════════════════════════════════ */
-  let _stepIndex = 0;
-  let _autoOpenedConfigure = false;
-
-  const ADD_STEPS = [
-    {
-      title: "Registration", icon: "id-card",
-      blurb: "Start with the plate — we'll pull make, model, year and fuel type from MOT history automatically.",
-      render: renderStepReg, wire: wireStepReg,
-      validate: () => !!(_vehicle.registration || "").trim(),
-      validateError: "Enter a registration first",
-    },
-    {
-      title: "Vehicle Details", icon: "car",
-      blurb: "Filled in automatically where possible — check them over and adjust anything that's missing or wrong.",
-      render: renderStepDetails,
-    },
-    {
-      title: "Body Variant", icon: "settings-2",
-      blurb: "Standard or facelift, plus a front and back photo — wiring can differ between them, so this makes the photos meaningful on their own.",
-      render: renderStepVariant, wire: wireStepVariant,
-      validate: () => !!_vehicle.body_variant,
-      validateError: "Select Standard or Facelift with front/back photos first",
-    },
-    {
-      title: "Fitment", icon: "wrench",
-      blurb: "What's being fitted — wiring and component locations differ by this, so an engineer searching later finds the right install guide.",
-      render: renderStepFitment, wire: wireStepFitment,
-      validate: () => !!_vehicle.fitment_type,
-      validateError: "Select OBD Tracker, Lightfoot, or 3 Wire Tracker/Camera first",
-    },
-    {
-      title: "Wiring & Electrical", icon: "zap",
-      blurb: "Leave anything blank you don't know yet — it can always be filled in later.",
-      render: () => renderFieldGroupInner(FIELD_GROUPS[1], _vehicle),
-      wire: () => wireFieldGroupPhotos(FIELD_GROUPS[1]),
-    },
-    {
-      title: "Component Placement", icon: "map-pin",
-      blurb: "Best-known locations for cameras, dashcams and trackers.",
-      render: () => renderFieldGroupInner(FIELD_GROUPS[2], _vehicle),
-      wire: () => wireFieldGroupPhotos(FIELD_GROUPS[2]),
-    },
-    {
-      title: "Install Notes", icon: "clipboard-list",
-      blurb: "Anything else worth knowing for next time.",
-      render: () => renderFieldGroupInner(FIELD_GROUPS[3], _vehicle),
-      wire: () => wireFieldGroupPhotos(FIELD_GROUPS[3]),
-    },
-    {
-      title: "Review & Submit", icon: "check-circle",
-      blurb: null,
-      render: renderStepReview,
-    },
-  ];
-
   function drawAddWizard() {
     if (prefillMake && !_vehicle.make) _vehicle.make = prefillMake;
     if (prefillModel && !_vehicle.model) _vehicle.model = prefillModel;
