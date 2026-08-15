@@ -43,7 +43,7 @@
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
   import {
-    esc, toast, fmtDateTime, modal,
+    esc, toast, fmtDateTime, modal, viewPdfBlob,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
     offlineBanner, setInner, refreshIcons,
   } from "/systems/presence-fire-safety/shared/ui.js";
@@ -104,7 +104,10 @@
                 <td>${r.safe_count}</td>
                 <td>${r.missing_count}</td>
                 <td>${r.unaccounted_count}</td>
-                <td><button class="btn" data-view-session="${esc(r.id)}" type="button">View roll call</button></td>
+                <td>
+                  <button class="btn" data-view-session="${esc(r.id)}" type="button">View roll call</button>
+                  ${r.status === "completed" ? `<button class="btn" data-download-pdf="${esc(r.id)}" type="button" style="margin-left:6px">Download PDF</button>` : ""}
+                </td>
               </tr>`).join("")}
           </tbody>
         </table>
@@ -113,6 +116,27 @@
     document.querySelectorAll("[data-view-session]").forEach(btn => {
       btn.addEventListener("click", () => viewSession(btn.dataset.viewSession));
     });
+    document.querySelectorAll("[data-download-pdf]").forEach(btn => {
+      btn.addEventListener("click", () => downloadReportPdf(btn.dataset.downloadPdf, btn));
+    });
+  }
+
+  /** Opens the full photo evacuation report PDF for a past session right
+   *  inside the app (in-page viewer) — the same report emailed to
+   *  Emergency Reports when it completed. */
+  async function downloadReportPdf(sessionId, btn) {
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Preparing…";
+    try {
+      const blob = await evacuation.reportPdfBlob(sessionId);
+      viewPdfBlob(blob, { title: "Evacuation Report", filename: `evacuation-report-${sessionId}.pdf` });
+    } catch (e) {
+      toast("error", "Couldn't generate report PDF", e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
   }
 
   async function viewSession(sessionId) {

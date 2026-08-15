@@ -7,6 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Extra font choices for the ID card text editor (settings.html#badges) — matched by an
+       identical link in id-cards.html so the print/PDF preview renders the same fonts. -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&family=Montserrat:wght@400;700&family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
@@ -48,7 +51,15 @@
   .set-pin-row i { color: var(--warn); width: 22px; height: 22px; }
   .set-pin-row > div { flex:1; }
   .set-actions-bar { display:flex; justify-content:flex-end; gap:10px; margin-top: 8px; }
+  .code-row { display:flex; gap:8px; width:100%; }
+  .code-row .form-input { flex:1; }
+  .set-chip-row { display:flex; flex-wrap:wrap; gap:8px; }
+  .set-chip-row .set-selected-chip { margin-top:0; }
   .set-token { font-family: ui-monospace, monospace; font-size: 12px; }
+  .combobox { position:relative; }
+  .combobox-results { position:absolute; z-index:10; top:100%; left:0; right:0; background: var(--card); border:1px solid var(--line); border-radius:10px; margin-top:4px; max-height:220px; overflow-y:auto; box-shadow:0 12px 32px rgba(0,0,0,.3); }
+  .combobox-result { display:block; width:100%; text-align:left; background:transparent; border:none; padding:9px 12px; color: var(--text); font-size:13.5px; }
+  .combobox-result:hover, .combobox-result:focus-visible { background: var(--card2); }
   .set-card-header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
   .set-reveal-secret { font-family: ui-monospace, monospace; font-size: 14px; background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; word-break: break-all; margin: 12px 0; }
 
@@ -82,6 +93,9 @@
   .idc-resize-handle.ne { top:-6px; right:-6px; cursor:nesw-resize; }
   .idc-resize-handle.sw { bottom:-6px; left:-6px; cursor:nesw-resize; }
   .idc-resize-handle.se { bottom:-6px; right:-6px; cursor:nwse-resize; }
+  .idc-rotate-line { position:absolute; left:50%; top:-26px; width:1.5px; height:26px; background:var(--accent); transform:translateX(-50%); }
+  .idc-rotate-handle { position:absolute; left:50%; top:-34px; width:14px; height:14px; margin-left:-7px; background:var(--accent); border:2px solid #fff; border-radius:50%; cursor:grab; }
+  .idc-rotate-handle:active { cursor:grabbing; }
   .idc-properties { background:var(--bg2); border:1px solid var(--line); border-radius:14px; padding:16px; min-height:200px; }
   .idc-props-title { font-size:13px; font-weight:800; margin-bottom:12px; }
   .idc-props-empty { font-size:12.5px; color:var(--text3); text-align:center; padding:24px 8px; }
@@ -95,13 +109,13 @@
 
 <script type="module">
   import { requirePresenceModuleAccess, hasPermission } from "/systems/presence-fire-safety/shared/auth.js";
-  import { sites, settings, devices } from "/systems/presence-fire-safety/shared/api.js";
+  import { sites, settings, devices, employees } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings, setSoundEnabled } from "/systems/presence-fire-safety/shared/sound.js";
   import { enhanceSelect } from "/systems/presence-fire-safety/shared/combobox.js";
-  import { renderCardFace, normalizeTemplate, newElement, generateQrDataUrl } from "/systems/presence-fire-safety/shared/id-card-render.js";
+  import { renderCardFace, normalizeTemplate, newElement, generateQrDataUrl, FONT_OPTIONS, ensureCardFontsLoaded } from "/systems/presence-fire-safety/shared/id-card-render.js";
   import {
     esc, toast, fmtDateTime, timeAgo, confirmDialog, modal,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
@@ -111,6 +125,11 @@
   initTheme();
 
   let _profile = null, _companyId = null, _siteList = [];
+  let _emergencyEmails = []; // emergency evacuation report recipients, up to 10 — see renderModuleSettings()
+  let _leavingQueryEmails = []; // "didn't clock out" flag recipients, up to 10 — mirrors _emergencyEmails
+  let _leavingCheckHolders = []; // presence.leaving_check permission grants: [{ id, employee_id, core_employees: {full_name, job_title} }]
+  let _settingsScope = null; // null = editing the Company Default row; otherwise a site id being overridden
+  let _hasSiteOverride = false; // whether the currently-scoped site already has its own override row
   let _activeTab = "module";
   // Unsaved-changes tracking — Module Settings tab only (Site/Badge/Device
   // panels each save immediately per-action via their own modals).
@@ -165,12 +184,20 @@
     failed_pin_lockout_minutes: 10,
     data_retention_days: 730,
     sound_effects_enabled: true,
+    kiosk_screensaver_enabled: true,
+    custom_keyboard_enabled: false,
   };
 
   async function loadModuleSettings() {
     setInner("panel-module", loadingState("Loading settings…"));
     try {
-      const row = await settings.get(_companyId);
+      const [row, holders, override] = await Promise.all([
+        _settingsScope ? settings.getEffective(_companyId, _settingsScope) : settings.get(_companyId),
+        settings.permissionGrants(_companyId, "presence.leaving_check"),
+        _settingsScope ? settings.getSiteOverride(_companyId, _settingsScope) : Promise.resolve(null),
+      ]);
+      _leavingCheckHolders = holders;
+      _hasSiteOverride = !!override;
       renderModuleSettings({ ...DEFAULT_SETTINGS, ...(row || {}) }, !!row?.evacuation_pin_hash, !!row?.kiosk_exit_pin_hash);
     } catch (e) {
       setInner("panel-module", errorState({ title: "Couldn't load settings", message: e.message, retryId: "moduleRetry" }));
@@ -179,13 +206,29 @@
   }
 
   function renderModuleSettings(s, pinConfigured, kioskPinConfigured) {
+    _emergencyEmails = [...(s.emergency_report_emails || [])];
+    _leavingQueryEmails = [...(s.leaving_check_query_emails || [])];
+    const scopeSiteName = _settingsScope ? (_siteList.find(x => x.id === _settingsScope)?.name || "this site") : null;
     setInner("panel-module", `
       <div class="card" style="margin-bottom:20px">
+        <label class="set-field full" style="margin-bottom:${_settingsScope ? "10px" : "20px"}">
+          <span class="form-label">Editing settings for</span>
+          <select id="f_settings_scope" class="form-input">
+            <option value="" ${!_settingsScope ? "selected" : ""}>Company Default (all sites)</option>
+            ${_siteList.map(site => `<option value="${esc(site.id)}" ${_settingsScope === site.id ? "selected" : ""}>${esc(site.name)}</option>`).join("")}
+          </select>
+        </label>
+        ${_settingsScope ? `
+          <div class="set-section-desc" style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <span>${_hasSiteOverride ? `${esc(scopeSiteName)} has its own settings below.` : `Inheriting the Company Default below — saving will give ${esc(scopeSiteName)} its own settings.`}</span>
+            ${_hasSiteOverride ? `<button class="btn" id="resetSiteOverrideBtn" type="button">Reset to Company Default</button>` : ""}
+          </div>` : ""}
+
         <div class="set-pin-row">
           <i data-lucide="${pinConfigured ? "shield-check" : "shield-alert"}"></i>
           <div>
             <strong>Evacuation PIN</strong>
-            <p class="set-section-desc" style="margin:2px 0 0">${pinConfigured ? "A PIN is configured for this company." : "No evacuation PIN has been set yet — evacuations can't be unlocked until one is set."}</p>
+            <p class="set-section-desc" style="margin:2px 0 0">${pinConfigured ? `A PIN is configured for ${_settingsScope ? esc(scopeSiteName) : "this company"}.` : `No evacuation PIN has been set yet for ${_settingsScope ? esc(scopeSiteName) : "this company"} — evacuations can't be unlocked until one is set.`}</p>
           </div>
           <button class="btn btn-primary" id="setPinBtn" type="button">${pinConfigured ? "Change PIN" : "Set PIN"}</button>
         </div>
@@ -220,6 +263,12 @@
         <label class="set-checkbox-field"><input type="checkbox" id="f_visitor_photo_enabled" ${s.visitor_photo_enabled ? "checked" : ""}/> Capture a photo when signing in visitors</label>
         <label class="set-checkbox-field"><input type="checkbox" id="f_contractor_management_enabled" ${s.contractor_management_enabled ? "checked" : ""}/> Enable contractor management</label>
         <label class="set-checkbox-field"><input type="checkbox" id="f_sound_effects_enabled" ${s.sound_effects_enabled !== false ? "checked" : ""}/> Enable sound effects (confirmations, errors, kiosk taps — everywhere in this module)</label>
+        <label class="set-checkbox-field"><input type="checkbox" id="f_kiosk_screensaver_enabled" ${s.kiosk_screensaver_enabled !== false ? "checked" : ""}/> Show a bouncing screensaver after a minute of inactivity in Kiosk Mode (helps prevent screen burn-in)</label>
+        <label class="set-checkbox-field">
+          <input type="checkbox" id="f_custom_keyboard_enabled" ${s.custom_keyboard_enabled ? "checked" : ""}/>
+          Use the SmartCore on-screen keyboard for text entry in Kiosk Mode, instead of the device's own keyboard
+          <span class="badge badge-blue">Recommended for tablet kiosks</span>
+        </label>
         <label class="set-checkbox-field">
           <input type="checkbox" id="f_auto_sign_out_enabled" ${s.auto_sign_out_enabled ? "checked" : ""}/> Automatically sign everyone out at a fixed time
         </label>
@@ -247,19 +296,80 @@
           </label>
         </div>
 
+        <h2 class="set-section-title" style="margin-top:8px">Emergency Reports</h2>
+        <p class="set-section-desc">Up to 10 email addresses that receive a full evacuation report — roll call summary, everyone not marked Safe, and everyone marked Safe — as soon as an emergency evacuation is completed, with a PDF of everyone's photo attached.</p>
+        <div class="set-chip-row" id="emergencyEmailChips"></div>
+        <div class="code-row" style="margin-top:${_emergencyEmails.length ? "8px" : "0"}">
+          <input type="email" id="f_emergency_email_input" class="form-input" placeholder="ops@yourcompany.com" autocomplete="off" ${_emergencyEmails.length >= 10 ? "disabled" : ""}/>
+          <button class="btn" id="addEmergencyEmailBtn" type="button" ${_emergencyEmails.length >= 10 ? "disabled" : ""}>Add</button>
+        </div>
+        <p class="set-section-desc" id="emergencyEmailHint" style="margin:6px 0 0">${_emergencyEmails.length >= 10 ? "Maximum of 10 addresses reached." : `${_emergencyEmails.length}/10 addresses added.`}</p>
+
+        <h2 class="set-section-title" style="margin-top:8px">Leaving Check</h2>
+        <p class="set-section-desc">Lets whoever's last to leave the building check who the register still shows as signed in and flag anyone who forgot to sign out — no PIN, just permission. Anyone below is prompted automatically right after signing themselves out, and can also open Leaving Check any time.</p>
+
+        <p class="form-label" style="margin-bottom:6px">Who has access</p>
+        <div class="set-chip-row" id="leavingCheckHolderChips"></div>
+        <div class="full combobox" style="margin-top:${_leavingCheckHolders.length ? "8px" : "0"}">
+          <input class="form-input" id="f_leaving_holder_search" autocomplete="off" placeholder="Search employees to add…"/>
+          <div class="combobox-results" id="leavingHolderResults" hidden></div>
+        </div>
+
+        <p class="form-label" style="margin:18px 0 6px">Query email(s)</p>
+        <p class="set-section-desc">Up to 10 addresses that get an email listing anyone flagged as not signed out.</p>
+        <div class="set-chip-row" id="leavingQueryEmailChips"></div>
+        <div class="code-row" style="margin-top:${_leavingQueryEmails.length ? "8px" : "0"}">
+          <input type="email" id="f_leaving_query_email_input" class="form-input" placeholder="ops@yourcompany.com" autocomplete="off" ${_leavingQueryEmails.length >= 10 ? "disabled" : ""}/>
+          <button class="btn" id="addLeavingQueryEmailBtn" type="button" ${_leavingQueryEmails.length >= 10 ? "disabled" : ""}>Add</button>
+        </div>
+        <p class="set-section-desc" id="leavingQueryEmailHint" style="margin:6px 0 0">${_leavingQueryEmails.length >= 10 ? "Maximum of 10 addresses reached." : `${_leavingQueryEmails.length}/10 addresses added.`}</p>
+
         <div class="set-actions-bar">
           <button class="btn btn-primary" id="saveModuleSettingsBtn" type="button">Save Settings</button>
         </div>
       </div>
     `);
     refreshIcons();
+    renderEmergencyEmailChips();
+    renderLeavingCheckHolderChips();
+    renderLeavingQueryEmailChips();
 
     document.getElementById("f_auto_sign_out_enabled").addEventListener("change", e => {
       document.getElementById("autoSignOutTimeGrid").style.display = e.target.checked ? "" : "none";
     });
+    document.getElementById("f_settings_scope").addEventListener("change", e => {
+      const newScope = e.target.value || null;
+      const apply = () => { _settingsScope = newScope; loadModuleSettings(); };
+      if (_settingsDirty) confirmUnsavedChanges(apply); else apply();
+    });
+    document.getElementById("resetSiteOverrideBtn")?.addEventListener("click", () => {
+      confirmDialog(
+        "Reset to Company Default?",
+        `${esc(scopeSiteName)} will go back to using the Company Default settings for every field below.`,
+        async () => {
+          try {
+            await settings.clearSiteOverride(_companyId, _settingsScope);
+            toast("success", "Reset", `${scopeSiteName} now inherits the Company Default.`);
+            loadModuleSettings();
+          } catch (e) {
+            toast("error", "Couldn't reset", e.message || "Please try again.");
+          }
+        },
+        { confirmLabel: "Reset to Default", danger: true }
+      );
+    });
     document.getElementById("setPinBtn").addEventListener("click", openSetPinModal);
     document.getElementById("setKioskPinBtn").addEventListener("click", openSetKioskPinModal);
     document.getElementById("saveModuleSettingsBtn").addEventListener("click", saveModuleSettings);
+    document.getElementById("addEmergencyEmailBtn").addEventListener("click", addEmergencyEmail);
+    document.getElementById("f_emergency_email_input").addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); addEmergencyEmail(); }
+    });
+    document.getElementById("addLeavingQueryEmailBtn").addEventListener("click", addLeavingQueryEmail);
+    document.getElementById("f_leaving_query_email_input").addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); addLeavingQueryEmail(); }
+    });
+    wireLeavingHolderSearch();
 
     // Unsaved-changes tracking: any edit to a module-settings field marks the
     // form dirty; loading/saving resets it back to clean. The combobox search
@@ -268,11 +378,153 @@
     // actually picked; without this, just typing to search would false-flag
     // the form dirty before anything was ever selected.
     _settingsDirty = false;
-    document.querySelectorAll("#panel-module input:not(.pfs-combo-input), #panel-module select").forEach(el => {
+    document.querySelectorAll("#panel-module input:not(.pfs-combo-input), #panel-module select:not(#f_settings_scope)").forEach(el => {
       el.addEventListener("input", () => { _settingsDirty = true; });
       el.addEventListener("change", () => { _settingsDirty = true; });
     });
     enhanceSelect(document.getElementById("f_default_sign_in_method"));
+    enhanceSelect(document.getElementById("f_settings_scope"));
+  }
+
+  function renderEmergencyEmailChips() {
+    const wrap = document.getElementById("emergencyEmailChips");
+    if (!wrap) return;
+    wrap.innerHTML = _emergencyEmails.map(email => `
+      <span class="set-selected-chip">${esc(email)}<button type="button" data-email="${esc(email)}" aria-label="Remove ${esc(email)}">&times;</button></span>
+    `).join("");
+    wrap.querySelectorAll("button[data-email]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _emergencyEmails = _emergencyEmails.filter(e => e !== btn.dataset.email);
+        _settingsDirty = true;
+        renderEmergencyEmailChips();
+        syncEmergencyEmailInputState();
+      });
+    });
+  }
+
+  function syncEmergencyEmailInputState() {
+    const input = document.getElementById("f_emergency_email_input");
+    const addBtn = document.getElementById("addEmergencyEmailBtn");
+    const hint = document.getElementById("emergencyEmailHint");
+    const full = _emergencyEmails.length >= 10;
+    if (input) input.disabled = full;
+    if (addBtn) addBtn.disabled = full;
+    if (hint) hint.textContent = full ? "Maximum of 10 addresses reached." : `${_emergencyEmails.length}/10 addresses added.`;
+  }
+
+  function addEmergencyEmail() {
+    const input = document.getElementById("f_emergency_email_input");
+    const raw = input.value.trim().toLowerCase();
+    if (!raw) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) { toast("error", "Invalid email", `"${raw}" doesn't look like a valid email address.`); return; }
+    if (_emergencyEmails.includes(raw)) { toast("info", "Already added", `${raw} is already in the list.`); input.value = ""; return; }
+    if (_emergencyEmails.length >= 10) return;
+    _emergencyEmails.push(raw);
+    _settingsDirty = true;
+    input.value = "";
+    renderEmergencyEmailChips();
+    syncEmergencyEmailInputState();
+  }
+
+  function renderLeavingQueryEmailChips() {
+    const wrap = document.getElementById("leavingQueryEmailChips");
+    if (!wrap) return;
+    wrap.innerHTML = _leavingQueryEmails.map(email => `
+      <span class="set-selected-chip">${esc(email)}<button type="button" data-email="${esc(email)}" aria-label="Remove ${esc(email)}">&times;</button></span>
+    `).join("");
+    wrap.querySelectorAll("button[data-email]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _leavingQueryEmails = _leavingQueryEmails.filter(e => e !== btn.dataset.email);
+        _settingsDirty = true;
+        renderLeavingQueryEmailChips();
+        syncLeavingQueryEmailInputState();
+      });
+    });
+  }
+
+  function syncLeavingQueryEmailInputState() {
+    const input = document.getElementById("f_leaving_query_email_input");
+    const addBtn = document.getElementById("addLeavingQueryEmailBtn");
+    const hint = document.getElementById("leavingQueryEmailHint");
+    const full = _leavingQueryEmails.length >= 10;
+    if (input) input.disabled = full;
+    if (addBtn) addBtn.disabled = full;
+    if (hint) hint.textContent = full ? "Maximum of 10 addresses reached." : `${_leavingQueryEmails.length}/10 addresses added.`;
+  }
+
+  function addLeavingQueryEmail() {
+    const input = document.getElementById("f_leaving_query_email_input");
+    const raw = input.value.trim().toLowerCase();
+    if (!raw) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) { toast("error", "Invalid email", `"${raw}" doesn't look like a valid email address.`); return; }
+    if (_leavingQueryEmails.includes(raw)) { toast("info", "Already added", `${raw} is already in the list.`); input.value = ""; return; }
+    if (_leavingQueryEmails.length >= 10) return;
+    _leavingQueryEmails.push(raw);
+    _settingsDirty = true;
+    input.value = "";
+    renderLeavingQueryEmailChips();
+    syncLeavingQueryEmailInputState();
+  }
+
+  // ── Leaving Check access ─────────────────────────────────────────────
+  // Backed by generic presence_fire_safety_permission_grants rows, not a
+  // bespoke table — unlike the email lists above, holders write straight
+  // to the database on add/remove (settings.grantPermission/
+  // revokePermission) rather than batching into the Save Settings button.
+  function renderLeavingCheckHolderChips() {
+    const wrap = document.getElementById("leavingCheckHolderChips");
+    if (!wrap) return;
+    wrap.innerHTML = _leavingCheckHolders.map(h => `
+      <span class="set-selected-chip">${esc(h.core_employees?.full_name || "Unknown")}<button type="button" data-holder-id="${esc(h.id)}" aria-label="Remove ${esc(h.core_employees?.full_name || "")}">&times;</button></span>
+    `).join("");
+    wrap.querySelectorAll("button[data-holder-id]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        try {
+          await settings.revokePermission(btn.dataset.holderId);
+          _leavingCheckHolders = _leavingCheckHolders.filter(h => h.id !== btn.dataset.holderId);
+          renderLeavingCheckHolderChips();
+        } catch (e) {
+          toast("error", "Couldn't remove", e.message || "Please try again.");
+        }
+      });
+    });
+  }
+
+  function wireLeavingHolderSearch() {
+    const input = document.getElementById("f_leaving_holder_search");
+    const results = document.getElementById("leavingHolderResults");
+    let debounce;
+    input.addEventListener("input", () => {
+      clearTimeout(debounce);
+      const q = input.value.trim();
+      if (!q) { results.hidden = true; return; }
+      debounce = setTimeout(async () => {
+        try {
+          const rows = await employees.search(_companyId, q);
+          const existingIds = new Set(_leavingCheckHolders.map(h => h.employee_id));
+          const candidates = rows.filter(r => !existingIds.has(r.id));
+          results.innerHTML = candidates.length
+            ? candidates.map(r => `<button type="button" class="combobox-result" data-id="${esc(r.id)}" data-name="${esc(r.full_name)}">${esc(r.full_name)}${r.job_title ? " — " + esc(r.job_title) : ""}</button>`).join("")
+            : `<div class="combobox-result" style="color:var(--text3)">No matches</div>`;
+          results.hidden = false;
+          results.querySelectorAll("button[data-id]").forEach(btn => {
+            btn.addEventListener("click", async () => {
+              results.hidden = true;
+              input.value = "";
+              try {
+                await settings.grantPermission(_companyId, btn.dataset.id, "presence.leaving_check");
+                _leavingCheckHolders.push({ id: `pending-${btn.dataset.id}`, employee_id: btn.dataset.id, core_employees: { full_name: btn.dataset.name } });
+                renderLeavingCheckHolderChips();
+                loadModuleSettings(); // reconcile the pending chip's real id from the server
+              } catch (e) {
+                toast("error", "Couldn't add", e.message || "Please try again.");
+              }
+            });
+          });
+        } catch { /* non-fatal: search is best-effort */ }
+      }, 300);
+    });
+    document.addEventListener("click", (e) => { if (!e.target.closest(".combobox")) results.hidden = true; }, { once: false });
   }
 
   async function saveModuleSettings() {
@@ -287,20 +539,32 @@
       visitor_photo_enabled: document.getElementById("f_visitor_photo_enabled").checked,
       contractor_management_enabled: document.getElementById("f_contractor_management_enabled").checked,
       sound_effects_enabled: document.getElementById("f_sound_effects_enabled").checked,
+      kiosk_screensaver_enabled: document.getElementById("f_kiosk_screensaver_enabled").checked,
+      custom_keyboard_enabled: document.getElementById("f_custom_keyboard_enabled").checked,
       auto_sign_out_enabled: autoSignOutEnabled,
       auto_sign_out_time: autoSignOutEnabled ? (document.getElementById("f_auto_sign_out_time").value || null) : null,
       evacuation_unlock_duration_minutes: parseInt(document.getElementById("f_evacuation_unlock_duration_minutes").value, 10),
       failed_pin_limit: parseInt(document.getElementById("f_failed_pin_limit").value, 10),
       failed_pin_lockout_minutes: parseInt(document.getElementById("f_failed_pin_lockout_minutes").value, 10),
       data_retention_days: parseInt(document.getElementById("f_data_retention_days").value, 10),
+      emergency_report_emails: _emergencyEmails,
+      leaving_check_query_emails: _leavingQueryEmails,
     };
     btn.disabled = true;
     btn.textContent = "Saving…";
     try {
-      await settings.upsert(_companyId, fields);
+      if (_settingsScope) {
+        await settings.upsertSiteOverride(_companyId, _settingsScope, fields);
+      } else {
+        await settings.upsert(_companyId, fields);
+      }
       setSoundEnabled(fields.sound_effects_enabled);
       _settingsDirty = false;
       toast("success", "Settings saved");
+      // Refresh so the "inherits / has its own settings" banner (and Reset
+      // button) reflect the override that was just created, if this was
+      // the first save for this site.
+      if (_settingsScope) loadModuleSettings();
       return true;
     } catch (e) {
       toast("error", "Couldn't save settings", e.message || "Please try again.");
@@ -312,8 +576,9 @@
   }
 
   function openSetPinModal() {
+    const scopeLabel = _settingsScope ? (_siteList.find(x => x.id === _settingsScope)?.name || "this site") : "the Company Default";
     const overlay = modal(`
-      <div class="modal-header"><h3>Set Evacuation PIN</h3></div>
+      <div class="modal-header"><h3>Set Evacuation PIN — ${esc(scopeLabel)}</h3></div>
       <div class="modal-body">
         <p class="text-muted" style="margin-top:0">4–12 digits. This PIN unlocks the emergency evacuation start screen — share it only with designated fire marshals.</p>
         <label class="form-label" for="newPin">New PIN</label>
@@ -338,7 +603,7 @@
       btn.disabled = true;
       btn.textContent = "Saving…";
       try {
-        await settings.setEvacuationPin(_companyId, pin);
+        await settings.setEvacuationPin(_companyId, pin, _settingsScope);
         overlay.remove();
         toast("success", "Evacuation PIN updated");
         loadModuleSettings();
@@ -351,8 +616,9 @@
   }
 
   function openSetKioskPinModal() {
+    const scopeLabel = _settingsScope ? (_siteList.find(x => x.id === _settingsScope)?.name || "this site") : "the Company Default";
     const overlay = modal(`
-      <div class="modal-header"><h3>Set Kiosk Exit PIN</h3></div>
+      <div class="modal-header"><h3>Set Kiosk Exit PIN — ${esc(scopeLabel)}</h3></div>
       <div class="modal-body">
         <p class="text-muted" style="margin-top:0">4–12 digits. This PIN is used to exit Kiosk Mode back to admin mode on a device — it is deliberately separate from the Evacuation PIN. If it's entered incorrectly, the device falls back to a full SmartCore sign-in instead.</p>
         <label class="form-label" for="newKioskPin">New PIN</label>
@@ -377,7 +643,7 @@
       btn.disabled = true;
       btn.textContent = "Saving…";
       try {
-        await settings.setKioskExitPin(_companyId, pin);
+        await settings.setKioskExitPin(_companyId, pin, _settingsScope);
         overlay.remove();
         toast("success", "Kiosk exit PIN updated");
         loadModuleSettings();
@@ -525,6 +791,14 @@
       _idcFace = "front";
       _idcSelectedId = null;
       renderIdCardShell();
+      // The very first paint can land before the card's webfont has
+      // loaded, sizing shrink-to-fit text against a fallback font that's
+      // narrower than the real one — re-render the canvas once fonts are
+      // confirmed ready so a long value doesn't stay stuck looking (and
+      // truncating) as if it never fit. Editing itself doesn't need this:
+      // by the time the user drags/types anything, fonts are already
+      // loaded and every subsequent renderCanvas() call is correct.
+      ensureCardFontsLoaded(_idCardTemplate).then(() => renderCanvas());
     } catch (e) {
       setInner("panel-badges", errorState({ title: "Couldn't load ID card template", message: e.message, retryId: "idCardRetry" }));
       document.getElementById("idCardRetry")?.addEventListener("click", loadIdCardTemplate);
@@ -536,7 +810,7 @@
   }
 
   function elTypeLabel(type) {
-    return { photo: "Photo", logo: "Logo", text: "Text field", statictext: "Text", shape: "Shape", qr: "QR code" }[type] || type;
+    return { photo: "Photo", logo: "Logo", image: "Custom image", text: "Text field", statictext: "Text", shape: "Shape", qr: "QR code" }[type] || type;
   }
 
   function renderIdCardShell() {
@@ -568,6 +842,7 @@
           <button type="button" class="idc-palette-btn" data-add="statictext">¶ Free text</button>
           <button type="button" class="idc-palette-btn" data-add="photo">☺ Photo</button>
           <button type="button" class="idc-palette-btn" data-add="logo">▥ Logo</button>
+          <button type="button" class="idc-palette-btn" data-add="image">🖼 Custom image</button>
           <button type="button" class="idc-palette-btn" data-add="qr">▦ QR code</button>
           <div class="idc-palette-title" style="margin-top:18px">Company logo</div>
           ${_idCardLogoUrl ? `<img src="${esc(_idCardLogoUrl)}" alt="Company logo" class="idc-logo-preview"/>` : `<div class="idc-logo-preview idc-logo-placeholder">No logo</div>`}
@@ -635,6 +910,7 @@
     const sample = {
       full_name: _profile?.full_name || "Jane Doe",
       job_title: _profile?.job_title || "Job Title",
+      department_name: _profile?.department_name || "Department",
       employee_id: _profile?.employee_id || "EMP0000001",
       profile_picture_url: null,
     };
@@ -648,12 +924,14 @@
         <div class="idc-overlay">
           ${elements.map(el => `
             <div class="idc-handle ${el.id === _idcSelectedId ? "selected" : ""}" data-el-id="${el.id}"
-                 style="left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%;z-index:${(el.z ?? 1) + 1000}">
+                 style="left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%;z-index:${(el.z ?? 1) + 1000};transform:rotate(${el.rotation || 0}deg);">
               ${el.id === _idcSelectedId ? `
                 <div class="idc-resize-handle nw" data-corner="nw"></div>
                 <div class="idc-resize-handle ne" data-corner="ne"></div>
                 <div class="idc-resize-handle sw" data-corner="sw"></div>
                 <div class="idc-resize-handle se" data-corner="se"></div>
+                <div class="idc-rotate-line"></div>
+                <div class="idc-rotate-handle" data-rotate="1" title="Drag to rotate"></div>
               ` : ""}
             </div>`).join("")}
         </div>
@@ -665,7 +943,7 @@
   function wireCanvasInteractions() {
     document.querySelectorAll(".idc-handle").forEach(handle => {
       handle.addEventListener("mousedown", (e) => {
-        if (e.target.classList.contains("idc-resize-handle")) return;
+        if (e.target.classList.contains("idc-resize-handle") || e.target.classList.contains("idc-rotate-handle")) return;
         e.preventDefault();
         selectElement(handle.dataset.elId);
         startDrag(handle.dataset.elId, e, "move");
@@ -675,6 +953,10 @@
           e.preventDefault(); e.stopPropagation();
           startDrag(handle.dataset.elId, e, rh.dataset.corner);
         });
+      });
+      handle.querySelector(".idc-rotate-handle")?.addEventListener("mousedown", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        startRotate(handle.dataset.elId, e);
       });
     });
     document.getElementById("idcCanvas").addEventListener("mousedown", (e) => {
@@ -737,6 +1019,36 @@
     document.addEventListener("mouseup", onUp);
   }
 
+  /** Drag-to-rotate: angle is measured from the element's own screen-space
+   *  center (which stays fixed through a rotation, however the axis-aligned
+   *  bounding rect around it changes) to the pointer, offset so "straight
+   *  up" (where the handle starts) reads as 0°. */
+  function startRotate(elId, startEvent) {
+    const el = findElement(elId);
+    if (!el) return;
+    const handleEl = document.querySelector(`.idc-handle[data-el-id="${elId}"]`);
+    const rect = handleEl.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+
+    function angleAt(clientX, clientY) {
+      const deg = Math.atan2(clientY - cy, clientX - cx) * (180 / Math.PI) + 90;
+      return Math.round(((deg % 360) + 360) % 360);
+    }
+    function onMove(e) {
+      el.rotation = angleAt(e.clientX, e.clientY);
+      renderCanvas();
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      renderProperties();
+    }
+    el.rotation = angleAt(startEvent.clientX, startEvent.clientY);
+    renderCanvas();
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
   function renderProperties() {
     const panel = document.getElementById("idcProperties");
     if (!_idcSelectedId) {
@@ -745,6 +1057,13 @@
     }
     const el = findElement(_idcSelectedId);
     if (!el) { panel.innerHTML = ""; return; }
+
+    const fontFieldHtml = `
+      <label class="set-field"><span class="form-label">Font</span>
+        <select class="form-input" data-prop="fontFamily">
+          ${FONT_OPTIONS.map(f => `<option value="${esc(f.value)}" ${(el.fontFamily || FONT_OPTIONS[0].value) === f.value ? "selected" : ""}>${esc(f.label)}</option>`).join("")}
+        </select>
+      </label>`;
 
     let fields = "";
     if (el.type === "shape") {
@@ -764,10 +1083,12 @@
           <select class="form-input" data-prop="field">
             <option value="name" ${el.field === "name" ? "selected" : ""}>Employee name</option>
             <option value="jobTitle" ${el.field === "jobTitle" ? "selected" : ""}>Job title</option>
+            <option value="department" ${el.field === "department" ? "selected" : ""}>Department</option>
             <option value="employeeCode" ${el.field === "employeeCode" ? "selected" : ""}>Employee code</option>
           </select>
         </label>
         <label class="set-field"><span class="form-label">Colour</span><input type="color" class="idc-color-input" data-prop="color" value="${el.color}"/></label>
+        ${fontFieldHtml}
         <label class="set-field"><span class="form-label">Font size</span><input type="range" min="8" max="32" data-prop="fontSize" value="${el.fontSize}"/></label>
         <label class="set-checkbox-field"><input type="checkbox" data-prop="bold" ${el.bold ? "checked" : ""}/> Bold</label>
         <label class="set-field"><span class="form-label">Align</span>
@@ -780,6 +1101,7 @@
       fields = `
         <label class="set-field"><span class="form-label">Text</span><textarea class="form-input" rows="2" data-prop="text">${esc(el.text || "")}</textarea></label>
         <label class="set-field"><span class="form-label">Colour</span><input type="color" class="idc-color-input" data-prop="color" value="${el.color}"/></label>
+        ${fontFieldHtml}
         <label class="set-field"><span class="form-label">Font size</span><input type="range" min="8" max="32" data-prop="fontSize" value="${el.fontSize}"/></label>
         <label class="set-field"><span class="form-label">Align</span>
           <div class="idc-toggle-group">
@@ -800,11 +1122,24 @@
       `;
     } else if (el.type === "logo" || el.type === "qr") {
       fields = `<p class="set-section-desc">Drag to move or resize. ${el.type === "logo" ? "Upload your logo from the panel on the left." : "Shows the employee's active QR sign-in badge."}</p>`;
+    } else if (el.type === "image") {
+      fields = `
+        ${el.imageUrl ? `<img src="${esc(el.imageUrl)}" alt="" class="idc-logo-preview"/>` : `<div class="idc-logo-preview idc-logo-placeholder">No image</div>`}
+        <button type="button" class="btn" id="idcElImageUploadBtn" style="margin-top:8px;width:100%">${el.imageUrl ? "Replace image" : "Upload image"}</button>
+        <input type="file" id="idcElImageInput" accept="image/jpeg,image/png,image/webp,image/svg+xml" style="display:none"/>
+        <label class="set-field" style="margin-top:10px"><span class="form-label">Fit</span>
+          <div class="idc-toggle-group">
+            <button type="button" class="idc-toggle-btn ${el.fit !== "contain" ? "active" : ""}" data-prop="fit" data-val="cover">Cover (fill &amp; crop)</button>
+            <button type="button" class="idc-toggle-btn ${el.fit === "contain" ? "active" : ""}" data-prop="fit" data-val="contain">Contain (fit whole image)</button>
+          </div>
+        </label>
+      `;
     }
 
     panel.innerHTML = `
       <div class="idc-props-title">${elTypeLabel(el.type)}</div>
       ${fields}
+      <label class="set-field"><span class="form-label">Rotation (${Math.round(el.rotation || 0)}°)</span><input type="range" min="0" max="359" data-prop="rotation" value="${el.rotation || 0}"/></label>
       <div class="idc-props-actions">
         <button class="btn btn-sm" id="idcBringFront" type="button">Bring to front</button>
         <button class="btn btn-sm" id="idcSendBack" type="button">Send to back</button>
@@ -830,6 +1165,26 @@
         input.addEventListener("input", (e) => apply(e.target.value));
       }
     });
+
+    if (el.type === "image") {
+      document.getElementById("idcElImageUploadBtn").addEventListener("click", () => document.getElementById("idcElImageInput").click());
+      document.getElementById("idcElImageInput").addEventListener("change", async (e) => {
+        const input = e.target;
+        const file = input.files?.[0];
+        if (!file) return;
+        const btn = document.getElementById("idcElImageUploadBtn");
+        const original = btn.textContent;
+        btn.disabled = true; btn.textContent = "Uploading…";
+        try {
+          el.imageUrl = await settings.uploadIdCardImage(_companyId, file);
+          renderCanvas(); renderProperties();
+        } catch (err) {
+          toast("error", "Couldn't upload image", err.message || "Please try again.");
+          btn.disabled = false; btn.textContent = original;
+          input.value = "";
+        }
+      });
+    }
 
     document.getElementById("idcBringFront").addEventListener("click", () => {
       const maxZ = Math.max(0, ..._idCardTemplate[_idcFace].elements.map(e => e.z ?? 0));

@@ -50,12 +50,17 @@
   .evac-kiosk-back-btn i { width: 16px; height: 16px; }
   .evac-pin-card h2 { margin: 0 0 8px; font-size: 22px; }
   .evac-pin-card p { margin: 0 0 20px; color: var(--text2); font-size: 14px; }
+  /* A plain div, not a real <input> — PIN entry is done entirely through
+     the on-screen keypad below, and a real text input (even non-focusable)
+     still carries OS/browser chrome on some Android builds — autofill
+     icons, a password-reveal glyph, system-styled highlighting — that a
+     custom keypad-driven display shouldn't have. This just renders masked
+     dots for whatever the keypad has typed into a JS variable. */
   .evac-pin-input {
     width:100%; text-align:center; font-size: 32px; letter-spacing: 12px; font-weight:700;
     padding: 14px 12px; border-radius: 12px; background: var(--card2); border: 1px solid var(--line);
     color: var(--text); margin-bottom: 18px; min-height: 60px;
   }
-  .evac-pin-input:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
   .evac-keypad { display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 22px; }
   .evac-key {
     min-height: 64px; font-size: 22px; font-weight: 700; border-radius: 14px;
@@ -95,22 +100,78 @@
   .evac-status-btn-active { background: var(--accent); border-color: var(--accent); color:#fff; }
   .evac-row-notes { font-size: 11.5px; color: var(--text3); margin-top: 4px; max-width: 220px; }
   .evac-readonly-note { display:flex; align-items:center; gap:8px; font-size: 13px; color: var(--text3); margin-bottom: 14px; }
+
+  /* ── Roll call photo + details modal ──────────────────────────────────
+     Photos come straight from each person's live record — SmartCore Core
+     for employees, whatever was captured at kiosk sign-in for visitors/
+     contractors — not stored per evacuation, so a name change or new
+     photo afterwards is reflected immediately, same as everywhere else
+     photos are shown in this module. */
+  .evac-name-cell { display:flex; align-items:center; gap:10px; }
+  .evac-avatar-btn {
+    flex-shrink:0; width:36px; height:36px; border-radius:50%; border:none; padding:0;
+    background: var(--accent2); color:#fff; font-size:12px; font-weight:800;
+    display:flex; align-items:center; justify-content:center; overflow:hidden;
+    cursor:pointer;
+  }
+  .evac-avatar-btn:hover, .evac-avatar-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .evac-avatar-btn img { width:100%; height:100%; object-fit:cover; display:block; }
+  .evac-name-cell button.evac-name-link { background:none; border:none; padding:0; color: var(--text); font: inherit; font-weight:600; cursor:pointer; text-align:left; }
+  .evac-name-cell button.evac-name-link:hover { color: var(--accent); text-decoration: underline; }
+  .evac-person-modal { max-width: 380px; }
+  .evac-person-photo-wrap {
+    width:140px; height:140px; border-radius:50%; margin: 4px auto 16px; overflow:hidden;
+    background: var(--accent2); color:#fff; font-size:40px; font-weight:800;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .evac-person-photo-wrap img { width:100%; height:100%; object-fit:cover; display:block; }
+  .evac-person-name { text-align:center; font-size:19px; font-weight:800; margin-bottom:2px; }
+  .evac-person-sub { text-align:center; font-size:13px; color: var(--text3); margin-bottom:18px; }
+  .evac-person-fields { display:flex; flex-direction:column; align-items:center; gap:12px; text-align:center; }
+  .evac-person-field-label { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color: var(--text3); margin-bottom:2px; }
+  .evac-person-field-value { font-size:14px; color: var(--text); }
+
+  /* ── Post-completion report viewer's "sent to" panel ──────────────────── */
+  .evac-sent-to { padding: 16px 22px; border-top: 1px solid var(--line); }
+  .evac-sent-to-label { font-size: 12px; color: var(--text3); margin-bottom: 4px; }
+  .evac-sent-to-list { font-size: 13.5px; color: var(--text); margin-bottom: 12px; }
+  .evac-send-more-form { margin-top: 12px; }
+  .evac-send-more-inputs { display:flex; flex-direction:column; gap:8px; margin-bottom: 10px; }
+  .evac-send-more-form .form-error { margin-bottom: 10px; }
   @media (max-width: 640px) {
     .evac-keypad { gap: 8px; }
     .evac-key { min-height: 56px; font-size: 20px; }
+
+    /* Roll call as cards instead of a wide table — six columns (plus the
+       photo/name cell) never fit a phone width, and status/notes were the
+       ones getting pushed off-screen since they're rightmost. Each row
+       becomes its own bordered block; every cell but the name goes full
+       width with a small label above it, so nothing is off to the side —
+       everything just stacks. */
+    .evac-roll-wrap { overflow-x: visible; border: none; }
+    .evac-roll-tbl thead { display: none; }
+    .evac-roll-tbl, .evac-roll-tbl tbody, .evac-roll-tbl tr, .evac-roll-tbl td { display: block; width: 100%; }
+    .evac-roll-tbl tr { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+    .evac-roll-tbl td { padding: 6px 0; border-bottom: none; }
+    .evac-roll-tbl td[data-label]:not([data-label=""])::before {
+      content: attr(data-label); display: block; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--text3); margin-bottom: 3px;
+    }
+    .evac-row-notes { max-width: none; }
   }
 </style>
 
 <script type="module">
   import { requirePresenceModuleAccess, hasPermission, getSelectedSiteId, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
-  import { sites, evacuation } from "/systems/presence-fire-safety/shared/api.js";
+  import { sites, evacuation, visitors, contractors, settings } from "/systems/presence-fire-safety/shared/api.js";
   import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
   import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
   import { enforceKioskGuard, initKioskToggle, isKioskModeActive } from "/systems/presence-fire-safety/shared/kiosk.js";
   import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
+  import { initVirtualKeyboard } from "/systems/presence-fire-safety/shared/virtual-keyboard.js";
   import { enhanceSelect } from "/systems/presence-fire-safety/shared/combobox.js";
   import {
-    esc, toast, fmtDateTime, fmtTime, confirmDialog, modal,
+    esc, initials, toast, fmtDateTime, fmtTime, confirmDialog, modal, viewPdfBlob,
     loadingState, emptyState, errorState, permissionDeniedState, moduleDisabledState,
     offlineBanner, staleBadge, setInner, refreshIcons,
   } from "/systems/presence-fire-safety/shared/ui.js";
@@ -125,6 +186,12 @@
   let _people = [];
   let _lastRefreshed = null;
   let _filters = { q: "", type: "", dept: "" };
+  // Visitor/contractor photos live in a private bucket and need a signed
+  // URL per photo — cached by evacuation_person id so the 6s roll call poll
+  // doesn't re-request one for every photo on every tick (each is a real
+  // network call, and the underlying photo never changes mid-evacuation
+  // since evacuation_people is an immutable snapshot).
+  const _photoUrlCache = new Map();
 
   const CAN = {};
 
@@ -153,8 +220,11 @@
         const people = await evacuation.rollCall(session.id);
         if (token !== _loadToken) return;
         _people = people;
+        applyQueuedOverlay(session.id);
         renderActiveSession();
+        updateSyncBanner(session.id);
         startPolling(siteId);
+        trySyncQueue(session.id); // flush anything queued from before this load (e.g. a reload while offline)
       } else {
         _session = null;
         _people = [];
@@ -195,8 +265,7 @@
           <h2>Emergency Evacuation</h2>
           <p>Enter the evacuation PIN to unlock the start screen for <strong>${esc(_currentSite?.name || "this site")}</strong>.</p>
           <div id="evacPinAlert" aria-live="assertive"></div>
-          <input type="password" id="pinInput" class="evac-pin-input" inputmode="numeric" pattern="[0-9]*"
-                 autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12" aria-label="Evacuation PIN"/>
+          <div id="pinInput" class="evac-pin-input" role="textbox" aria-readonly="true" aria-label="Evacuation PIN entered"></div>
           <div class="evac-keypad" role="group" aria-label="PIN keypad">
             ${[1,2,3,4,5,6,7,8,9].map(n => `<button type="button" class="evac-key" data-key="${n}">${n}</button>`).join("")}
             <button type="button" class="evac-key evac-key-clear" data-key="clear">Clear</button>
@@ -214,31 +283,28 @@
     const pinInput = document.getElementById("pinInput");
     const unlockBtn = document.getElementById("unlockBtn");
     let locked = false;
+    let pinValue = "";
 
-    function updateBtnState() {
-      unlockBtn.disabled = locked || pinInput.value.length < 4;
+    function renderPin() {
+      pinInput.textContent = pinValue ? "•".repeat(pinValue.length) : "";
     }
-    pinInput.addEventListener("input", () => {
-      pinInput.value = pinInput.value.replace(/[^0-9]/g, "").slice(0, 12);
-      updateBtnState();
-    });
+    function updateBtnState() {
+      unlockBtn.disabled = locked || pinValue.length < 4;
+    }
     document.querySelectorAll(".evac-key").forEach(btn => {
       btn.addEventListener("click", () => {
         if (locked) return;
         const key = btn.dataset.key;
-        if (key === "clear") pinInput.value = "";
-        else if (key === "back") pinInput.value = pinInput.value.slice(0, -1);
-        else if (pinInput.value.length < 12) pinInput.value += key;
+        if (key === "clear") pinValue = "";
+        else if (key === "back") pinValue = pinValue.slice(0, -1);
+        else if (pinValue.length < 12) pinValue += key;
+        renderPin();
         updateBtnState();
-        // Deliberately not calling pinInput.focus() here — PIN entry is done
-        // entirely via these on-screen buttons, and focusing the (hidden)
-        // text input from inside a click handler is exactly what triggers
-        // the on-screen OS keyboard to pop up over the custom keypad.
       });
     });
 
     unlockBtn.addEventListener("click", async () => {
-      const pin = pinInput.value;
+      const pin = pinValue;
       unlockBtn.disabled = true;
       unlockBtn.textContent = "Verifying…";
       document.getElementById("evacPinAlert").innerHTML = "";
@@ -253,19 +319,18 @@
         // server's authoritative signal — we surface it verbatim and disable
         // the form rather than tracking our own countdown/attempt count.
         const lockedOut = /too many failed attempts/i.test(msg);
-        pinInput.value = "";
+        pinValue = "";
+        renderPin();
         document.getElementById("evacPinAlert").innerHTML = `
           <div class="form-error evac-pin-error" role="alert">${esc(msg)}</div>
           ${lockedOut ? `<button class="btn" id="pinTryAgainBtn" type="button">Try again</button>` : ""}`;
         if (lockedOut) {
           locked = true;
-          pinInput.disabled = true;
           document.querySelectorAll(".evac-key").forEach(b => b.disabled = true);
           unlockBtn.disabled = true;
           unlockBtn.textContent = "Unlock";
           document.getElementById("pinTryAgainBtn")?.addEventListener("click", () => {
             locked = false;
-            pinInput.disabled = false;
             document.querySelectorAll(".evac-key").forEach(b => b.disabled = false);
             document.getElementById("evacPinAlert").innerHTML = "";
             updateBtnState();
@@ -278,7 +343,6 @@
       }
     });
     refreshIcons();
-    pinInput.focus();
   }
 
   function renderUnlockedForm() {
@@ -352,6 +416,8 @@
         <span id="evacStaleBadge">${staleBadge(_lastRefreshed)}</span>
       </div>
 
+      <div id="evacSyncBanner"></div>
+
       ${!CAN.manageRollCall ? `<div class="evac-readonly-note"><i data-lucide="eye"></i> Read-only — you don't have permission to update roll call status.</div>` : ""}
 
       <div class="stat-grid evac-stat-grid" id="evacStats" aria-live="polite"></div>
@@ -375,8 +441,8 @@
         ${CAN.complete ? `<button id="completeEvacBtn" class="btn btn-danger">Complete Evacuation</button>` : ""}
       </div>
 
-      <div class="tbl-wrap">
-        <table class="tbl">
+      <div class="tbl-wrap evac-roll-wrap">
+        <table class="tbl evac-roll-tbl">
           <thead><tr>
             <th>Name</th><th>Type</th><th>Department</th><th>Signed in</th><th>Status</th>
             ${CAN.manageRollCall ? "<th>Mark as</th>" : ""}
@@ -396,6 +462,10 @@
     enhanceSelect(document.getElementById("rcDeptFilter"));
     document.getElementById("completeEvacBtn")?.addEventListener("click", onCompleteEvacuation);
     document.getElementById("rollCallBody").addEventListener("click", onRollCallAction);
+    document.getElementById("rollCallBody").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-person-id]");
+      if (btn) openPersonModal(btn.dataset.personId);
+    });
 
     refreshIcons();
   }
@@ -430,31 +500,137 @@
 
     tbody.innerHTML = filtered.map(rollCallRow).join("");
     refreshIcons();
+    loadRowPhotos();
+  }
+
+  /** Employees' photos come straight from SmartCore Core (a public URL, so
+   *  they can be used as-is); visitor/contractor photos live in a private
+   *  storage bucket and need a signed URL fetched separately — see
+   *  loadRowPhotos() and openPersonModal(). */
+  function resolvePersonPhoto(p) {
+    if (p.subject_type === "employee" && p.emp?.profile_picture_url) return { kind: "url", value: p.emp.profile_picture_url };
+    if (p.subject_type === "visitor" && p.vv?.visitor?.photo_path) return { kind: "storage", value: p.vv.visitor.photo_path };
+    if (p.subject_type === "contractor" && p.cv?.contractor?.photo_path) return { kind: "storage", value: p.cv.contractor.photo_path };
+    return null;
+  }
+
+  /** Resolves signed URLs for any visitor/contractor photos in the current
+   *  roll call (cached — see _photoUrlCache) and swaps them into the
+   *  already-rendered avatar buttons once ready, rather than blocking the
+   *  table render on a round trip per photo. */
+  function loadRowPhotos() {
+    for (const p of _people) {
+      const photo = resolvePersonPhoto(p);
+      if (photo?.kind !== "storage") continue;
+      if (_photoUrlCache.has(p.id)) {
+        const cached = _photoUrlCache.get(p.id);
+        const el = document.getElementById(`avatar-${p.id}`);
+        if (cached && el) el.innerHTML = `<img src="${esc(cached)}" alt=""/>`;
+        continue;
+      }
+      const fn = p.subject_type === "visitor" ? visitors.photoSignedUrl : contractors.photoSignedUrl;
+      fn(_companyId, photo.value).then(({ data, error }) => {
+        const url = error ? null : (data?.signedUrl || null);
+        _photoUrlCache.set(p.id, url);
+        const el = document.getElementById(`avatar-${p.id}`);
+        if (url && el) el.innerHTML = `<img src="${esc(url)}" alt=""/>`;
+      }).catch(() => { _photoUrlCache.set(p.id, null); });
+    }
   }
 
   function rollCallRow(p) {
     const actions = CAN.manageRollCall ? `
-      <td>
+      <td data-label="Mark as">
         <div class="evac-status-actions">
           ${statusBtn(p, "safe", "Safe")}
           ${statusBtn(p, "missing", "Missing")}
-          ${statusBtn(p, "left_before_roll_call", "Left")}
-          ${statusBtn(p, "not_expected", "N/Exp")}
           ${statusBtn(p, "other", "Other")}
         </div>
       </td>` : "";
+    const photo = resolvePersonPhoto(p);
+    const cachedUrl = photo?.kind === "url" ? photo.value : (photo?.kind === "storage" ? _photoUrlCache.get(p.id) : null);
+    const avatarInner = cachedUrl ? `<img src="${esc(cachedUrl)}" alt=""/>` : esc(initials(p.display_name_snapshot));
     return `
       <tr>
-        <td>${esc(p.display_name_snapshot)}</td>
-        <td><span class="badge ${TYPE_BADGE[p.subject_type] || "badge-grey"}">${esc(p.subject_type)}</span></td>
-        <td>${esc(p.department_snapshot || "—")}</td>
-        <td>${p.sign_in_time_snapshot ? esc(fmtTime(p.sign_in_time_snapshot)) : "—"}</td>
-        <td>
+        <td data-label="">
+          <div class="evac-name-cell">
+            <button type="button" class="evac-avatar-btn" id="avatar-${esc(p.id)}" data-person-id="${esc(p.id)}" aria-label="View ${esc(p.display_name_snapshot)}'s details">${avatarInner}</button>
+            <button type="button" class="evac-name-link" data-person-id="${esc(p.id)}">${esc(p.display_name_snapshot)}</button>
+          </div>
+        </td>
+        <td data-label="Type"><span class="badge ${TYPE_BADGE[p.subject_type] || "badge-grey"}">${esc(p.subject_type)}</span></td>
+        <td data-label="Department">${esc(p.department_snapshot || "—")}</td>
+        <td data-label="Signed in">${p.sign_in_time_snapshot ? esc(fmtTime(p.sign_in_time_snapshot)) : "—"}</td>
+        <td data-label="Status">
           <span class="badge ${STATUS_BADGE[p.roll_call_status] || "badge-grey"}">${esc(STATUS_LABEL[p.roll_call_status] || p.roll_call_status)}</span>
+          ${p._pendingSync ? `<span class="badge badge-yellow" title="Saved on this device, not yet synced">Pending sync</span>` : ""}
           ${p.notes ? `<div class="evac-row-notes">${esc(p.notes)}</div>` : ""}
         </td>
         ${actions}
       </tr>`;
+  }
+
+  /** Bigger photo + live details for one person — opened by tapping their
+   *  avatar or name in the roll call. */
+  function openPersonModal(personId) {
+    const p = _people.find(x => x.id === personId);
+    if (!p) return;
+    const photo = resolvePersonPhoto(p);
+    const cachedUrl = photo?.kind === "url" ? photo.value : (photo?.kind === "storage" ? _photoUrlCache.get(p.id) : null);
+    const photoInner = cachedUrl ? `<img src="${esc(cachedUrl)}" alt=""/>` : esc(initials(p.display_name_snapshot));
+
+    let subtitle = "";
+    const fields = [];
+    if (p.subject_type === "employee") {
+      subtitle = p.emp?.job_title || "Employee";
+      fields.push(["Department", p.department_snapshot || p.emp?.department?.name || "—"]);
+      fields.push(["Employee ID", p.emp?.employee_id || "—"]);
+      fields.push(["Email", p.emp?.work_email || "—"]);
+    } else if (p.subject_type === "visitor") {
+      subtitle = p.vv?.visitor?.organisation || "Visitor";
+      fields.push(["Organisation", p.vv?.visitor?.organisation || "—"]);
+      fields.push(["Phone", p.vv?.visitor?.phone || "—"]);
+      fields.push(["Email", p.vv?.visitor?.email || "—"]);
+      fields.push(["Visit reason", p.vv?.visit_reason || "—"]);
+    } else if (p.subject_type === "contractor") {
+      subtitle = "Contractor";
+      fields.push(["Contact", p.cv?.contractor?.contact_name || "—"]);
+      fields.push(["Phone", p.cv?.contractor?.phone || "—"]);
+      fields.push(["Email", p.cv?.contractor?.email || "—"]);
+      fields.push(["Work purpose", p.cv?.work_purpose || "—"]);
+      fields.push(["Vehicle", p.cv?.vehicle_registration || "—"]);
+    }
+    fields.push(["Roll call status", STATUS_LABEL[p.roll_call_status] || p.roll_call_status]);
+    if (p.sign_in_time_snapshot) fields.push(["Signed in", fmtDateTime(p.sign_in_time_snapshot)]);
+    if (p.notes) fields.push(["Notes", p.notes]);
+
+    const overlay = modal(`
+      <div class="modal-body evac-person-modal">
+        <div class="evac-person-photo-wrap" id="personModalPhoto">${photoInner}</div>
+        <div class="evac-person-name">${esc(p.display_name_snapshot)}</div>
+        <div class="evac-person-sub">${esc(subtitle)}</div>
+        <div class="evac-person-fields">
+          ${fields.map(([label, value]) => `
+            <div>
+              <div class="evac-person-field-label">${esc(label)}</div>
+              <div class="evac-person-field-value">${esc(value)}</div>
+            </div>`).join("")}
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn modal-close" type="button">Close</button></div>
+    `);
+
+    if (photo?.kind === "storage" && !_photoUrlCache.has(p.id)) {
+      const fn = p.subject_type === "visitor" ? visitors.photoSignedUrl : contractors.photoSignedUrl;
+      fn(_companyId, photo.value).then(({ data, error }) => {
+        const url = error ? null : (data?.signedUrl || null);
+        _photoUrlCache.set(p.id, url);
+        if (url) {
+          const wrap = overlay.querySelector("#personModalPhoto");
+          if (wrap) wrap.innerHTML = `<img src="${esc(url)}" alt=""/>`;
+        }
+      }).catch(() => {});
+    }
   }
 
   function statusBtn(p, status, label) {
@@ -492,18 +668,130 @@
     await applyRollCallUpdate(personId, status, null);
   }
 
-  async function applyRollCallUpdate(personId, status, notes) {
-    try {
-      const updated = await evacuation.updateRollCall(personId, status, notes);
-      const idx = _people.findIndex(p => p.id === personId);
-      const name = idx !== -1 ? _people[idx].display_name_snapshot : "Person";
-      if (idx !== -1) _people[idx] = { ..._people[idx], ...updated };
+  // ── Offline roll call queue ────────────────────────────────────────────
+  // Wifi at an assembly point is often patchy or down outright — marking
+  // someone safe/missing must never be blocked by connectivity. Every mark
+  // is applied to local state + the UI immediately; the network write is
+  // attempted in the background and, if it fails for what looks like a
+  // connectivity reason, queued in localStorage (keyed per evacuation
+  // session, one entry per person so a later mark overwrites an earlier
+  // queued one rather than piling up) and retried automatically once the
+  // browser comes back online, on the next poll tick, or on page reload.
+  function queueKey(sessionId) { return `smartcore-pfs-evac-queue-${sessionId}`; }
+
+  function readQueue(sessionId) {
+    if (!sessionId) return {};
+    try { return JSON.parse(localStorage.getItem(queueKey(sessionId)) || "{}"); }
+    catch { return {}; }
+  }
+  function writeQueue(sessionId, queue) {
+    localStorage.setItem(queueKey(sessionId), JSON.stringify(queue));
+  }
+  function queueUpdate(sessionId, personId, status, notes) {
+    const queue = readQueue(sessionId);
+    queue[personId] = { status, notes: notes || null, ts: Date.now() };
+    writeQueue(sessionId, queue);
+  }
+  function dequeueUpdate(sessionId, personId) {
+    const queue = readQueue(sessionId);
+    if (personId in queue) { delete queue[personId]; writeQueue(sessionId, queue); }
+  }
+  function queueSize(sessionId) { return Object.keys(readQueue(sessionId)).length; }
+
+  function isNetworkError(e) {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+    const msg = (e?.message || String(e || "")).toLowerCase();
+    return /failed to fetch|networkerror|network request failed|load failed|internet connection|err_internet|err_connection|err_network|ERR_NAME_NOT_RESOLVED/i.test(msg);
+  }
+
+  // Reapplies any queued-but-not-yet-synced marks on top of freshly-fetched
+  // server data, so a reload while offline doesn't show stale statuses —
+  // the queue (this device's own unsynced intent) always wins over what the
+  // server last knew.
+  function applyQueuedOverlay(sessionId) {
+    const queue = readQueue(sessionId);
+    for (const p of _people) {
+      const q = queue[p.id];
+      if (q) { p.roll_call_status = q.status; p.notes = q.notes; p._pendingSync = true; }
+    }
+  }
+
+  let _syncingQueue = false;
+  async function trySyncQueue(sessionId) {
+    if (_syncingQueue || !sessionId) return;
+    const queue = readQueue(sessionId);
+    const personIds = Object.keys(queue);
+    if (!personIds.length) return;
+    _syncingQueue = true;
+    let synced = 0;
+    for (const personId of personIds) {
+      const { status, notes } = queue[personId];
+      try {
+        const updated = await evacuation.updateRollCall(personId, status, notes);
+        dequeueUpdate(sessionId, personId);
+        synced++;
+        const idx = _people.findIndex(p => p.id === personId);
+        if (idx !== -1) _people[idx] = { ..._people[idx], ...updated, _pendingSync: false };
+      } catch (e) {
+        if (isNetworkError(e)) break; // still offline — stop and retry later
+        dequeueUpdate(sessionId, personId); // genuine rejection — don't retry forever
+      }
+    }
+    _syncingQueue = false;
+    if (synced > 0) {
       recomputeLocalCounts();
       updateStatsTiles();
       renderRollCallRows();
+      toast("success", "Synced", `${synced} offline roll call update${synced === 1 ? "" : "s"} uploaded.`);
+    }
+    updateSyncBanner(sessionId);
+  }
+
+  function updateSyncBanner(sessionId) {
+    const el = document.getElementById("evacSyncBanner");
+    if (!el) return;
+    const n = queueSize(sessionId);
+    el.innerHTML = n > 0
+      ? `<div class="pfs-offline-banner"><i data-lucide="cloud-off"></i> ${n} roll call update${n === 1 ? "" : "s"} saved on this device — will upload automatically once you're back online.</div>`
+      : "";
+    refreshIcons();
+  }
+
+  async function applyRollCallUpdate(personId, status, notes) {
+    const idx = _people.findIndex(p => p.id === personId);
+    if (idx === -1) return;
+    const name = _people[idx].display_name_snapshot;
+    const previous = { roll_call_status: _people[idx].roll_call_status, notes: _people[idx].notes };
+
+    // Optimistic local update — marking works instantly regardless of
+    // whether the network write below actually reaches the server.
+    _people[idx] = { ..._people[idx], roll_call_status: status, notes, _pendingSync: true };
+    recomputeLocalCounts();
+    updateStatsTiles();
+    renderRollCallRows();
+
+    try {
+      const updated = await evacuation.updateRollCall(personId, status, notes);
+      _people[idx] = { ..._people[idx], ...updated, _pendingSync: false };
+      dequeueUpdate(_session.id, personId);
+      recomputeLocalCounts();
+      updateStatsTiles();
+      renderRollCallRows();
+      updateSyncBanner(_session.id);
       toast("success", "Roll call updated", `${name} marked ${(STATUS_LABEL[status] || status).toLowerCase()}.`);
     } catch (e) {
-      toast("error", "Couldn't update roll call", e.message || "Please try again.");
+      if (isNetworkError(e)) {
+        queueUpdate(_session.id, personId, status, notes);
+        updateSyncBanner(_session.id);
+        toast("info", "Saved offline", `${name} marked ${(STATUS_LABEL[status] || status).toLowerCase()} — will sync once you're back online.`);
+      } else {
+        // Genuine failure (permission/validation) — revert the optimistic change.
+        _people[idx] = { ..._people[idx], ...previous, _pendingSync: false };
+        recomputeLocalCounts();
+        updateStatsTiles();
+        renderRollCallRows();
+        toast("error", "Couldn't update roll call", e.message || "Please try again.");
+      }
     }
   }
 
@@ -518,22 +806,119 @@
     };
   }
 
-  function onCompleteEvacuation() {
+  async function onCompleteEvacuation() {
+    // Completing while marks are still only queued on this device would
+    // close the session on server data that doesn't yet include them —
+    // try to flush first, and refuse to complete if that still leaves marks
+    // stuck (i.e. we're genuinely still offline).
+    if (queueSize(_session.id) > 0) {
+      await trySyncQueue(_session.id);
+      const remaining = queueSize(_session.id);
+      if (remaining > 0) {
+        toast("error", "Can't complete yet", `${remaining} roll call update${remaining === 1 ? "" : "s"} on this device ${remaining === 1 ? "hasn't" : "haven't"} synced yet — reconnect to wifi and try again.`);
+        return;
+      }
+    }
     confirmDialog(
       "Complete Evacuation?",
       `This ends the active evacuation session for ${_currentSite?.name || "this site"}. This cannot be undone — make sure the roll call is finished.`,
       async () => {
         try {
-          await evacuation.complete(_session.id);
+          const completedSessionId = _session.id;
+          await evacuation.complete(completedSessionId);
           stopPolling();
           toast("success", "Evacuation completed", "The session has been closed.");
-          await loadState(_currentSite.id);
+          // Awaited (not fire-and-forget) so the report viewer can show who
+          // it went to — but a failure here still must never look like it
+          // failed the completion itself, which has already succeeded.
+          let sentEmails = [];
+          try {
+            const result = await evacuation.notifyCompleted(completedSessionId);
+            sentEmails = result?.emails || [];
+          } catch (e) {
+            console.warn("notifyCompleted failed:", e.message);
+          }
+          // loadState() (back to the normal site view) runs once the report
+          // viewer is closed, not before — see openEvacuationReportPdf.
+          await openEvacuationReportPdf(completedSessionId, sentEmails, () => loadState(_currentSite.id));
         } catch (e) {
           toast("error", "Couldn't complete evacuation", e.message || "Please try again.");
         }
       },
       { confirmLabel: "Complete Evacuation" }
     );
+  }
+
+  function sentToPanelHtml(emails) {
+    return `
+      <div class="evac-sent-to">
+        <div class="evac-sent-to-label">This report has been automatically sent to:</div>
+        <div class="evac-sent-to-list">${emails.length ? esc(emails.join(", ")) : "Nobody — no emergency report emails are configured in Settings."}</div>
+        <button type="button" class="btn" id="sendMoreBtn">Send to more</button>
+        <div class="evac-send-more-form" id="sendMoreForm" style="display:none">
+          <div class="evac-send-more-inputs">
+            ${Array.from({ length: 5 }).map((_, i) => `<input type="email" class="form-input" placeholder="email@example.com" data-more-email autocomplete="off"/>`).join("")}
+          </div>
+          <div class="form-error" id="sendMoreError" role="alert"></div>
+          <button type="button" class="btn btn-primary" id="sendMoreSubmit">Send</button>
+        </div>
+      </div>`;
+  }
+
+  function wireSentToPanel(overlay, sessionId) {
+    const sendMoreBtn = overlay.querySelector("#sendMoreBtn");
+    const form = overlay.querySelector("#sendMoreForm");
+    sendMoreBtn.addEventListener("click", () => {
+      form.style.display = "block";
+      sendMoreBtn.style.display = "none";
+      form.querySelector("[data-more-email]").focus();
+    });
+    overlay.querySelector("#sendMoreSubmit").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      const errEl = overlay.querySelector("#sendMoreError");
+      const inputs = [...overlay.querySelectorAll("[data-more-email]")];
+      const emails = inputs.map(i => i.value.trim()).filter(Boolean);
+      errEl.textContent = "";
+      if (!emails.length) { errEl.textContent = "Enter at least one email address."; return; }
+      btn.disabled = true;
+      btn.textContent = "Sending…";
+      try {
+        const result = await evacuation.sendReportToEmails(sessionId, emails);
+        toast("success", "Report sent", `Sent to ${result.sent} address${result.sent === 1 ? "" : "es"}.`);
+        inputs.forEach(i => { i.value = ""; });
+        form.style.display = "none";
+        sendMoreBtn.style.display = "";
+      } catch (err) {
+        errEl.textContent = err.message || "Could not send the report.";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Send";
+      }
+    });
+  }
+
+  /** Opens the full photo evacuation report PDF right inside the app
+   *  (in-page viewer, not a separate browser tab), with who it was already
+   *  emailed to and an option to send it to a few more addresses.
+   *  `onClose` fires once the viewer is dismissed — or immediately if the
+   *  PDF itself couldn't be loaded, since there's nothing to view either
+   *  way — so the caller can navigate on afterwards. */
+  async function openEvacuationReportPdf(sessionId, sentEmails, onClose) {
+    let blob;
+    try {
+      blob = await evacuation.reportPdfBlob(sessionId);
+    } catch (e) {
+      toast("error", "Couldn't open report PDF", "It's still on its way in the emergency report email.");
+      onClose?.();
+      return;
+    }
+    const overlay = viewPdfBlob(blob, {
+      title: "Evacuation Report",
+      filename: `evacuation-report-${sessionId}.pdf`,
+      extraBodyHtml: sentToPanelHtml(sentEmails),
+      onClose,
+    });
+    wireSentToPanel(overlay, sessionId);
   }
 
   // ── Polling ─────────────────────────────────────────────────────────────
@@ -563,10 +948,12 @@
       const people = await evacuation.rollCall(session.id);
       _session = session;
       _people = people;
+      applyQueuedOverlay(session.id); // server data may not yet reflect marks still queued on this device
       _lastRefreshed = new Date();
       updateStatsTiles();
       renderRollCallRows();
       setInner("evacStaleBadge", staleBadge(_lastRefreshed));
+      trySyncQueue(session.id); // this poll reached the server, so it's a good moment to flush any queued marks
     } catch (e) {
       // Transient poll failures are not surfaced as page-level errors — the
       // next tick retries; the page keeps showing the last-known state.
@@ -607,6 +994,7 @@
     render();
     window.addEventListener("online", render);
     window.addEventListener("offline", render);
+    window.addEventListener("online", () => { if (_session) trySyncQueue(_session.id); });
   }
 
   // ── Bootstrap — runs last, after every const/function above is defined ──
@@ -635,6 +1023,15 @@
       setSelectedSiteId(newSiteId);
       await loadState(newSiteId);
     });
+
+    // Custom on-screen keyboard — kiosk mode only (same reasoning as
+    // employee-signin.html) and behind its own settings toggle, since
+    // unlike sound/screensaver this isn't universally wanted even on
+    // kiosk tablets (some are docked with a physical keyboard).
+    if (isKioskModeActive()) {
+      const companySettings = await settings.getEffective(_companyId, selectedSiteId).catch(() => null);
+      if (companySettings?.custom_keyboard_enabled) initVirtualKeyboard();
+    }
 
     await loadState(selectedSiteId);
 

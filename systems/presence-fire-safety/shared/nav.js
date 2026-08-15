@@ -10,6 +10,11 @@ const NAV_LINKS = [
   { id: "contractors",    icon: "hard-hat",         label: "Contractors",     href: "/systems/presence-fire-safety/contractors.html", permission: "presence.manage_contractors" },
   { id: "live-register",  icon: "users",            label: "Live Register",   href: "/systems/presence-fire-safety/live-register.html", permission: "presence.view_live_register" },
   { id: "evacuation",     icon: "flame",            label: "Evacuation",      href: "/systems/presence-fire-safety/evacuation.html", permission: "evacuation.unlock" },
+  // Leaving Check is deliberately NOT in the sidebar — it's reached via the
+  // "Open Leaving Check" prompt after a kiosk sign-out (employee-signin.html),
+  // not something to browse to normally. Page itself is untouched, still
+  // reachable directly and still permission-gated.
+  { id: "timesheets",     icon: "clock",            label: "Timesheets",      href: "/systems/presence-fire-safety/timesheets.html", permission: "presence.view_timesheets" },
   { id: "reports",        icon: "bar-chart-3",      label: "Reports",         href: "/systems/presence-fire-safety/reports.html", permission: "presence.export_reports" },
   { id: "id-cards",       icon: "badge-check",      label: "ID Cards",        href: "/systems/presence-fire-safety/id-cards.html", permission: "presence.manage_badges" },
   { id: "settings",       icon: "settings",         label: "Settings",        href: "/systems/presence-fire-safety/settings.html", permission: "presence.manage_settings" },
@@ -84,6 +89,20 @@ export function initTopbar() {
       window.location.href = "/modules/";
     }
   });
+
+  // Back-to-modules link, top-left of the topbar — same placement/label as
+  // every other SmartCore module. Hidden in kiosk mode (see
+  // body.pfs-kiosk-mode-active .topbar-back-btn in the shared stylesheet).
+  const topbar = document.querySelector(".pfs-topbar");
+  if (topbar && !topbar.querySelector(".topbar-back-btn")) {
+    const backBtn = document.createElement("a");
+    backBtn.href = "/modules/";
+    backBtn.className = "topbar-back-btn";
+    backBtn.innerHTML = `← Modules`;
+    const hamburger = topbar.querySelector(".hamburger");
+    if (hamburger) hamburger.after(backBtn);
+    else topbar.prepend(backBtn);
+  }
 }
 
 /**

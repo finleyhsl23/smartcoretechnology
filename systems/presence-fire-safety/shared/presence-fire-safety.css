@@ -92,11 +92,25 @@ a { color: inherit; }
 .pfs-topbar { display: flex; align-items: center; gap: 14px; padding: 14px 22px; border-bottom: 1px solid var(--line); background: var(--card); position: sticky; top: 0; z-index: 20; }
 .pfs-topbar h1 { font-size: 17px; margin: 0; flex: 1; }
 .pfs-topbar select { background: var(--card2); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 7px 10px; font-size: 13px; }
+.topbar-back-btn {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 700; color: var(--text);
+  text-decoration: none; flex-shrink: 0;
+  background: var(--card2); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 13px;
+  transition: color .15s, border-color .15s, background .15s;
+  white-space: nowrap; letter-spacing: .01em;
+}
+.topbar-back-btn:hover { color: var(--accent2); border-color: rgba(30,92,255,.5); background: rgba(30,92,255,.1); }
 .icon-btn { background: var(--card2); border: 1px solid var(--line); color: var(--text2); width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
 .icon-btn:hover { color: var(--text); }
 .hamburger { display: none; }
 
-.pfs-content { padding: 22px; max-width: 1400px; margin: 0 auto; width: 100%; }
+/* Bottom padding is extra-generous so page content — save/action bars in
+   particular — never ends up sitting underneath the fixed-position kiosk
+   mode toggle button, which floats over the bottom-right corner of every
+   page regardless of scroll position. */
+.pfs-content { padding: 22px 22px 90px; max-width: 1400px; margin: 0 auto; width: 100%; }
 
 @media (max-width: 900px) {
   .pfs-sidebar { position: fixed; left: -260px; top: 0; z-index: 40; transition: left .2s ease; }
@@ -147,7 +161,95 @@ a { color: inherit; }
 .modal-header { padding: 18px 22px; border-bottom: 1px solid var(--line); }
 .modal-body { padding: 20px 22px; }
 .modal-footer { padding: 16px 22px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 10px; }
+.modal-pdf { max-width: 860px; }
 .text-muted { color: var(--text2); }
+
+/* ── PIN keypad — a plain div (not a real <input>) masking entered digits,
+   driven entirely by on-screen keys. Shared so any PIN prompt built from
+   JS (e.g. the kiosk exit modal) gets the same touch-sized, no-native-
+   keyboard entry already used on evacuation.html/leaving-check.html's
+   full-page PIN screens, instead of a real <input> that can trigger a
+   native/virtual keyboard flash before this module's own code corrects
+   or dismisses it. ───────────────────────────────────────────────────── */
+.pfs-pin-display {
+  width:100%; text-align:center; font-size: 28px; letter-spacing: 10px; font-weight:700;
+  padding: 12px 10px; border-radius: 12px; background: var(--card2); border: 1px solid var(--line);
+  color: var(--text); margin-bottom: 16px; min-height: 52px;
+}
+.pfs-pin-keypad { display:grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 18px; }
+.pfs-pin-key {
+  min-height: 54px; font-size: 20px; font-weight: 700; border-radius: 12px;
+  background: var(--card2); border: 1px solid var(--line); color: var(--text);
+  display:flex; align-items:center; justify-content:center;
+}
+.pfs-pin-key:hover:not(:disabled) { border-color: var(--accent); }
+.pfs-pin-key:disabled { opacity: .4; }
+.pfs-pin-key i { width: 20px; height: 20px; }
+.pfs-pin-key-clear { font-size: 13px; }
+
+/* ── Glass modal — a translucent, blurred variant for standout moments
+   (e.g. the Leaving Check popup) rather than the flat default modal.
+   Soft color blobs bleed through the blur behind the card for a "liquid"
+   feel; overlay gets its own blur so the page behind genuinely frosts
+   rather than just dimming. ───────────────────────────────────────── */
+.modal-overlay-glass { backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%); background: rgba(5,8,26,.4); }
+[data-theme="light"] .modal-overlay-glass { background: rgba(226,232,244,.45); }
+.modal-glass {
+  position: relative;
+  background: linear-gradient(160deg, rgba(255,255,255,.14), rgba(255,255,255,.03));
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255,255,255,.16);
+  box-shadow: 0 24px 70px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.22);
+  overflow: hidden;
+}
+[data-theme="light"] .modal-glass {
+  background: linear-gradient(160deg, rgba(255,255,255,.8), rgba(255,255,255,.5));
+  border: 1px solid rgba(255,255,255,.7);
+  box-shadow: 0 24px 70px rgba(30,41,59,.14), inset 0 1px 0 rgba(255,255,255,.7);
+}
+.modal-glass::before, .modal-glass::after { content:""; position:absolute; border-radius:50%; filter:blur(50px); z-index:-1; pointer-events:none; }
+.modal-glass::before { width:240px; height:240px; background:var(--accent); opacity:.35; top:-90px; right:-70px; }
+.modal-glass::after { width:200px; height:200px; background:var(--good); opacity:.3; bottom:-80px; left:-60px; }
+.modal-glass .modal-header, .modal-glass .modal-footer { border-color: rgba(255,255,255,.14); }
+[data-theme="light"] .modal-glass .modal-header, [data-theme="light"] .modal-glass .modal-footer { border-color: rgba(15,23,42,.08); }
+
+/* ── Person row — a checkable name/subtitle row, e.g. Leaving Check's
+   on-site list. Shared so it looks the same whether it's on the full
+   leaving-check.html page or in the sign-out popup. ─────────────────── */
+.pfs-person-row {
+  display:flex; align-items:center; gap:14px; padding: 14px 16px; border: 1px solid var(--line);
+  border-radius: 12px; margin-bottom: 10px; cursor:pointer;
+  transition: border-color .18s ease, background-color .18s ease, opacity .3s ease;
+}
+.pfs-person-row:has(input:checked) { border-color: var(--accent); background: rgba(30,92,255,.07); }
+.pfs-person-info { flex:1; min-width:0; }
+.pfs-person-info strong { display:block; font-size: 14.5px; }
+.pfs-person-info span { display:block; font-size: 12.5px; color: var(--text3); }
+.pfs-person-row-flagged { opacity: .55; }
+
+/* Custom checkbox — rounded square, filled + checkmark that pops in on
+   check rather than the plain browser default. */
+.pfs-person-row input[type=checkbox] {
+  appearance: none; -webkit-appearance: none; margin:0;
+  width:24px; height:24px; flex-shrink:0; position:relative;
+  border-radius: 8px; border: 2px solid var(--line); background: var(--card2);
+  cursor:pointer; transition: background-color .18s ease, border-color .18s ease, transform .12s ease;
+}
+.pfs-person-row input[type=checkbox]:hover:not(:disabled) { border-color: var(--accent2); }
+.pfs-person-row input[type=checkbox]:active:not(:disabled) { transform: scale(.85); }
+.pfs-person-row input[type=checkbox]:checked {
+  background: var(--accent); border-color: var(--accent);
+  animation: pfs-checkbox-pop .3s cubic-bezier(.34,1.56,.64,1);
+}
+.pfs-person-row input[type=checkbox]:checked::after {
+  content:""; position:absolute; left:7px; top:3px; width:6px; height:11px;
+  border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
+  animation: pfs-checkmark-draw .2s ease .06s both;
+}
+.pfs-person-row input[type=checkbox]:disabled { cursor:default; opacity:.7; }
+@keyframes pfs-checkbox-pop { 0% { transform:scale(1); } 45% { transform:scale(1.18); } 100% { transform:scale(1); } }
+@keyframes pfs-checkmark-draw { from { opacity:0; transform:rotate(45deg) scale(.4); } to { opacity:1; transform:rotate(45deg) scale(1); } }
 
 /* ── Toasts ────────────────────────────────────────────────────────────── */
 #toastwrap { position: fixed; top: 18px; right: 18px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
@@ -179,7 +281,12 @@ a { color: inherit; }
 
 /* ── Kiosk mode toggle (device lock-down, not the .pfs-kiosk layout above) ── */
 .pfs-kiosk-toggle {
-  position: fixed; right: 18px; bottom: 18px; z-index: 500;
+  /* Floats up above the custom on-screen keyboard (shared/virtual-keyboard.js)
+     when it's open, via the same height var the kiosk panel uses to avoid
+     it — otherwise the keyboard's fixed bottom panel covers this button
+     entirely, blocking the exit-kiosk escape hatch while typing. */
+  position: fixed; right: 18px; bottom: calc(18px + var(--pfs-vkeyboard-height, 0px)); z-index: 500;
+  transition: bottom .2s ease;
   display: flex; align-items: center; gap: 8px;
   background: var(--card); border: 1px solid var(--line); color: var(--text2);
   padding: 10px 16px; border-radius: 999px; font-size: 13px; font-weight: 700;
@@ -216,17 +323,50 @@ body.pfs-kiosk-mode-active .pfs-topbar h1::after {
   font-weight: 500;
 }
 
+/* ── Custom on-screen keyboard (kiosk/tablet devices) ────────────────────
+   Fixed to the bottom, slides up on focus of a prepared input. Suppresses
+   the native OS keyboard (see shared/virtual-keyboard.js) so the layout
+   never squishes/reflows the way it does when Android's own keyboard
+   appears. */
+.pfs-vkeyboard {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10000;
+  background: var(--card); border-top: 1px solid var(--line);
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  transform: translateY(100%); transition: transform .2s ease;
+  box-shadow: 0 -8px 24px rgba(0,0,0,.25);
+}
+.pfs-vkeyboard.pfs-vk-open { transform: translateY(0); }
+.pfs-vk-keys { max-width: 720px; margin: 0 auto; }
+.pfs-vk-row { display: flex; gap: 6px; justify-content: center; margin-bottom: 6px; }
+.pfs-vk-row:last-child { margin-bottom: 0; }
+.pfs-vk-key, .pfs-vk-special {
+  flex: 1; max-width: 60px; min-height: 48px; border-radius: 8px;
+  background: var(--card2); border: 1px solid var(--line); color: var(--text);
+  font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+  -webkit-user-select: none; user-select: none; touch-action: manipulation; padding: 0;
+}
+.pfs-vk-key:active, .pfs-vk-special:active { background: var(--accent); color: #fff; }
+.pfs-vk-special.pfs-vk-active { background: var(--accent); color: #fff; }
+.pfs-vk-special { max-width: 84px; font-size: 13px; }
+.pfs-vk-space { flex: 4; max-width: none; }
+.pfs-vk-done { flex: 2; max-width: none; background: var(--accent); color: #fff; }
+
 /* ── Camera photo capture ──────────────────────────────────────────────── */
 .pfs-camera-step { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
 .pfs-camera-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
 
 /* ── Idle screensaver (burn-in prevention on public kiosk devices) ──────── */
-.pfs-screensaver { position: fixed; inset: 0; background: #000; z-index: 9999; cursor: pointer; overflow: hidden; }
-.pfs-screensaver-text {
-  position: absolute; top: 0; left: 0; font-size: clamp(20px, 4vw, 40px); font-weight: 800;
-  letter-spacing: .5px; white-space: nowrap; will-change: transform;
-  text-shadow: 0 0 28px currentColor, 0 0 6px rgba(255,255,255,.25);
+.pfs-screensaver { position: fixed; inset: 0; background: var(--bg); z-index: 9999; cursor: pointer; overflow: hidden; }
+.pfs-screensaver-block {
+  position: absolute; top: 0; left: 0; display: flex; flex-direction: column; align-items: center;
+  gap: 14px; padding: 24px; white-space: nowrap; will-change: transform;
 }
+.pfs-screensaver-logo { max-width: 120px; max-height: 76px; object-fit: contain; border-radius: 14px; }
+.pfs-screensaver-clock {
+  font-size: clamp(42px, 7vw, 76px); font-weight: 800; color: var(--text);
+  letter-spacing: -1px; font-variant-numeric: tabular-nums; line-height: 1;
+}
+.pfs-screensaver-text { font-size: clamp(15px, 2vw, 20px); font-weight: 600; color: var(--text3); letter-spacing: .3px; }
 
 /* ── Identity/success blocks — kiosk sign-in confirm screens, order success
    screens, anywhere a centered avatar/icon + heading + text is needed ──── */
@@ -236,6 +376,31 @@ body.pfs-kiosk-mode-active .pfs-topbar h1::after {
 .kiosk-identity p { margin: 0; color: var(--text2); font-size: 13.5px; }
 .success-icon { width: 64px; height: 64px; color: var(--good); }
 .success-icon i { width: 64px; height: 64px; }
+
+/* ── Kiosk name-lookup sign-in/out (visitor & contractor) ────────────────
+   Typing a name checks it against who's currently signed in: a match
+   reveals a sign-out confirmation (kiosk-pop-in), no match smoothly reveals
+   the rest of the sign-in form (kiosk-reveal) instead of it just appearing. */
+.kiosk-checking { display: flex; align-items: center; gap: 6px; padding: 10px 2px; color: var(--text3); font-size: 13px; }
+.kiosk-checking .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: kiosk-checking-pulse 1s ease-in-out infinite; }
+.kiosk-checking .dot:nth-child(2) { animation-delay: .15s; }
+.kiosk-checking .dot:nth-child(3) { animation-delay: .3s; }
+@keyframes kiosk-checking-pulse { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+.kiosk-reveal {
+  /* overflow:hidden drives the height-animation clip, but it also clips the
+     focus outline of any full-width field inside (the outline extends a
+     couple px past the input's own edges, which sit flush with this
+     container's edges) — the padding+negative-margin pair below carves out
+     just enough room for that outline without shifting the field layout. */
+  overflow: hidden; max-height: 0; opacity: 0; transform: translateY(-8px);
+  padding: 0 3px; margin: 0 -3px;
+  transition: max-height .45s cubic-bezier(.16,1,.3,1), opacity .35s ease, transform .35s ease;
+}
+.kiosk-reveal.kiosk-reveal-in { max-height: 1600px; opacity: 1; transform: translateY(0); }
+
+@keyframes kiosk-pop-in { from { opacity: 0; transform: scale(.96) translateY(6px); } to { opacity: 1; transform: none; } }
+.kiosk-pop-in { animation: kiosk-pop-in .3s ease both; }
 
 /* ── Searchable site combobox ──────────────────────────────────────────── */
 .pfs-site-search-wrap { position: relative; }

@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Leaving Check — SmartCore Presence &amp; Fire Safety</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/systems/presence-fire-safety/shared/presence-fire-safety.css"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+<div class="pfs-shell">
+  <nav class="pfs-sidebar" id="pfsNav" aria-label="Main navigation"></nav>
+  <div id="sidebarOverlay"></div>
+
+  <div class="pfs-main">
+    <div class="pfs-topbar">
+      <button class="hamburger icon-btn" id="hamburger" aria-label="Open menu"><i data-lucide="menu"></i></button>
+      <h1>Leaving Check</h1>
+      <label class="sr-only" for="siteSwitcher">Search sites by name or location</label>
+      <div class="pfs-site-search-wrap">
+        <input type="text" id="siteSwitcher" class="form-input" placeholder="Search sites…" aria-label="Search sites by name or location" autocomplete="off"/>
+        <div class="pfs-site-search-dropdown" style="display:none"></div>
+      </div>
+      <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"><i data-lucide="moon"></i></button>
+      <button class="icon-btn" id="logoutBtn" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button>
+    </div>
+
+    <div class="pfs-content" id="content">
+      <div id="offlineArea"></div>
+      <div id="lpBody"></div>
+    </div>
+  </div>
+</div>
+<div id="toastwrap" aria-live="polite"></div>
+
+<style>
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .lp-actions-bar { display:flex; gap:10px; flex-wrap:wrap; margin-top: 18px; }
+  .lp-actions-bar .btn { flex:1; min-height:52px; }
+</style>
+
+<script type="module">
+  import { requirePresenceModuleAccess, hasPermission, getSelectedSiteId, setSelectedSiteId, ensureSiteSelected } from "/systems/presence-fire-safety/shared/auth.js";
+  import { sites, leavingCheck } from "/systems/presence-fire-safety/shared/api.js";
+  import { renderNav, initMobileNav, initTopbar, renderSiteSwitcher } from "/systems/presence-fire-safety/shared/nav.js";
+  import { initTheme } from "/systems/presence-fire-safety/shared/theme.js";
+  import { enforceKioskGuard, initKioskToggle } from "/systems/presence-fire-safety/shared/kiosk.js";
+  import { initSoundFromSettings } from "/systems/presence-fire-safety/shared/sound.js";
+  import {
+    esc, toast, confirmDialog,
+    loadingState, emptyState, errorState, permissionDeniedState,
+    offlineBanner, setInner, refreshIcons,
+  } from "/systems/presence-fire-safety/shared/ui.js";
+
+  initTheme();
+
+  let _profile = null, _companyId = null, _siteList = [], _currentSite = null;
+  let _onSitePeople = [];
+  let _flaggedIds = new Set();
+
+  async function loadState(siteId) {
+    _currentSite = _siteList.find(s => s.id === siteId) || null;
+    _flaggedIds = new Set();
+    await loadOnSiteList();
+  }
+
+  async function loadOnSiteList() {
+    setInner("lpBody", loadingState("Checking who's still signed in…"));
+    try {
+      const rows = await leavingCheck.onSite(_companyId, _currentSite.id);
+      // Exclude the checker themselves — flagging your own row makes no
+      // sense while you're the one running this check.
+      _onSitePeople = rows.filter(r => r.core_employees?.id !== _profile.id);
+      renderOnSiteList();
+    } catch (e) {
+      setInner("lpBody", errorState({ title: "Couldn't load who's on site", message: e.message, retryId: "lpRetry" }));
+      document.getElementById("lpRetry")?.addEventListener("click", loadOnSiteList);
+    }
+  }
+
+  function renderOnSiteList() {
+    const nobody = _onSitePeople.length === 0;
+    setInner("lpBody", `
+      <p class="text-muted" style="margin-bottom:14px">Checking <strong>${esc(_currentSite?.name || "this site")}</strong>.</p>
+      ${nobody
+        ? emptyState({ icon: "check-circle-2", title: "Everyone's signed out", message: "The register shows nobody else on site." })
+        : `
+        <p class="text-muted" style="margin-bottom:14px">The register still shows these people signed in. Tick anyone who's actually left without signing out, then Query them — this emails the configured query address(es) and logs who flagged whom.</p>
+        <div id="lpPeopleList"></div>
+        <div class="lp-actions-bar">
+          <button class="btn btn-primary" id="querySelectedBtn" type="button" disabled>Query Selected</button>
+        </div>`}
+    `);
+    refreshIcons();
+
+    if (!nobody) {
+      renderPeopleList();
+      document.getElementById("querySelectedBtn").addEventListener("click", queryUpdatedSelected);
+    }
+  }
+
+  function personLabel(row) {
+    const emp = row.core_employees;
+    return { name: emp?.full_name || "Unknown", sub: [emp?.job_title, emp?.core_departments?.name].filter(Boolean).join(" · ") };
+  }
+
+  function renderPeopleList() {
+    const list = document.getElementById("lpPeopleList");
+    list.innerHTML = _onSitePeople.map(row => {
+      const { name, sub } = personLabel(row);
+      const flagged = _flaggedIds.has(row.core_employees.id);
+      return `
+        <label class="pfs-person-row ${flagged ? "pfs-person-row-flagged" : ""}">
+          <input type="checkbox" data-employee-id="${esc(row.core_employees.id)}" ${flagged ? "disabled checked" : ""}/>
+          <div class="pfs-person-info">
+            <strong>${esc(name)}</strong>
+            <span>${sub ? esc(sub) : "&nbsp;"}${flagged ? " — Flagged" : ""}</span>
+          </div>
+        </label>`;
+    }).join("");
+    list.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(cb => {
+      cb.addEventListener("change", updateQueryBtnState);
+    });
+    updateQueryBtnState();
+  }
+
+  function updateQueryBtnState() {
+    const btn = document.getElementById("querySelectedBtn");
+    if (!btn) return;
+    const anyChecked = !![...document.querySelectorAll('#lpPeopleList input[type=checkbox]:checked:not(:disabled)')].length;
+    btn.disabled = !anyChecked;
+  }
+
+  function queryUpdatedSelected() {
+    const checked = [...document.querySelectorAll('#lpPeopleList input[type=checkbox]:checked:not(:disabled)')];
+    const ids = checked.map(cb => cb.dataset.employeeId);
+    if (!ids.length) return;
+    confirmDialog(
+      "Query Selected?",
+      `This flags ${ids.length} ${ids.length === 1 ? "person" : "people"} as not signed out and emails the query address(es) configured in Settings.`,
+      async () => {
+        const btn = document.getElementById("querySelectedBtn");
+        btn.disabled = true;
+        btn.textContent = "Sending…";
+        try {
+          for (const employeeId of ids) {
+            await leavingCheck.flagNotSignedOut(_companyId, _currentSite.id, employeeId);
+            _flaggedIds.add(employeeId);
+          }
+          await leavingCheck.notifyFlags(_currentSite.id).catch((e) => console.warn("notifyFlags failed:", e.message));
+          toast("success", "Flagged", `${ids.length} ${ids.length === 1 ? "person has" : "people have"} been flagged and the query email sent.`);
+          renderPeopleList();
+        } catch (e) {
+          toast("error", "Couldn't flag everyone selected", e.message || "Please try again.");
+          btn.disabled = false;
+          btn.textContent = "Query Selected";
+        }
+      },
+      { confirmLabel: "Query Selected", danger: false }
+    );
+  }
+
+  function wireOfflineBanner() {
+    const render = () => setInner("offlineArea", navigator.onLine ? "" : offlineBanner());
+    render();
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+  }
+
+  // ── Bootstrap ────────────────────────────────────────────────────────
+  try {
+    const { profile } = await requirePresenceModuleAccess();
+    if (enforceKioskGuard("leaving-check")) throw new Error("__kiosk_redirect__");
+    _profile = profile;
+    _companyId = profile.company_id;
+
+    if (!hasPermission("presence.leaving_check")) {
+      setInner("lpBody", permissionDeniedState("You don't have permission to use Leaving Check. Ask an owner or administrator to grant it in Settings."));
+    } else {
+      renderNav("leaving-check", profile);
+      initMobileNav();
+      initTopbar();
+      initKioskToggle({ companyId: _companyId, currentPage: "leaving-check" });
+      wireOfflineBanner();
+      initSoundFromSettings(_companyId);
+
+      _siteList = await sites.list(_companyId);
+      const selectedSiteId = await ensureSiteSelected(_companyId);
+      renderSiteSwitcher(document.getElementById("siteSwitcher"), _siteList, selectedSiteId, async (newSiteId) => {
+        setSelectedSiteId(newSiteId);
+        await loadState(newSiteId);
+      });
+
+      await loadState(selectedSiteId);
+    }
+  } catch (e) {
+    if (e.message !== "__kiosk_redirect__") {
+      console.error(e);
+      setInner("lpBody", errorState({ title: "Couldn't load", message: e.message }));
+    }
+  }
+</script>
+</body>
+</html>

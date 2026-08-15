@@ -60,22 +60,22 @@ export const employees = {
     if (error) throw error;
     return data || [];
   },
-  /** Full data needed to render an ID card: photo, name, job title, code. */
+  /** Full data needed to render an ID card: photo, name, job title, code, department. */
   async forIdCard(companyId, employeeId) {
     const { data, error } = await sb().from("core_employees")
-      .select("id, full_name, job_title, employee_id, profile_picture_url")
+      .select("id, full_name, job_title, employee_id, profile_picture_url, department:core_departments(name)")
       .eq("company_id", companyId).eq("id", employeeId).maybeSingle();
     if (error) throw error;
-    return data;
+    return data ? { ...data, department_name: data.department?.name || null } : data;
   },
   /** Same shape as forIdCard, for multiple employees at once (print orders). */
   async forIdCardBulk(companyId, employeeIds) {
     if (!employeeIds?.length) return [];
     const { data, error } = await sb().from("core_employees")
-      .select("id, full_name, job_title, employee_id, profile_picture_url")
+      .select("id, full_name, job_title, employee_id, profile_picture_url, department:core_departments(name)")
       .eq("company_id", companyId).in("id", employeeIds);
     if (error) throw error;
-    return data || [];
+    return (data || []).map((row) => ({ ...row, department_name: row.department?.name || null }));
   },
 };
 
@@ -284,13 +284,17 @@ export const visitors = {
     return data || [];
   },
 
-  async createVisit({ siteId, firstName, lastName, organisation, email, phone, vehicleRegistration, hostEmployeeId, visitReason, photoPath, acceptTerms, signInNow = true }) {
+  /** hostEmployeeIds (plural) supports selecting more than one host at the
+   *  kiosk; hostEmployeeId (singular) is still accepted for older callers —
+   *  the RPC treats the plural list as authoritative when both are given. */
+  async createVisit({ siteId, firstName, lastName, organisation, email, phone, vehicleRegistration, hostEmployeeId, hostEmployeeIds, visitReason, photoPath, acceptTerms, signInNow = true }) {
     const { companyId } = await ctx();
     const { data, error } = await sb().rpc("presence_fire_safety_create_visitor_visit", {
       p_company_id: companyId, p_site_id: siteId,
       p_first_name: firstName, p_last_name: lastName,
       p_organisation: organisation || null, p_email: email || null, p_phone: phone || null,
       p_vehicle_registration: vehicleRegistration || null, p_host_employee_id: hostEmployeeId || null,
+      p_host_employee_ids: hostEmployeeIds?.length ? hostEmployeeIds : null,
       p_visit_reason: visitReason || null, p_photo_path: photoPath || null,
       p_accept_terms: !!acceptTerms, p_sign_in_now: signInNow,
     });
@@ -304,8 +308,11 @@ export const visitors = {
     return data;
   },
 
+  // `path` is already the full storage key — uploadPhoto() below returns
+  // (and setPhoto() stores) `${companyId}/${visitorId}/...`, so re-adding
+  // companyId here would double it up into a key that was never uploaded.
   photoSignedUrl(companyId, path) {
-    return sb().storage.from("presence-fire-safety-photos").createSignedUrl(`${companyId}/${path}`, 3600);
+    return sb().storage.from("presence-fire-safety-photos").createSignedUrl(path, 3600);
   },
 
   async uploadPhoto(companyId, visitorId, file) {
@@ -344,7 +351,7 @@ export const contractors = {
 
   async currentVisits(companyId, siteId) {
     let q = sb().from("presence_fire_safety_contractor_visits")
-      .select("*, presence_fire_safety_contractors(business_name, contact_name, phone), core_employees!host_employee_id(full_name)")
+      .select("*, presence_fire_safety_contractors(business_name, contact_name, phone, photo_path), core_employees!host_employee_id(full_name)")
       .eq("company_id", companyId).eq("status", "signed_in").order("signed_in_at", { ascending: false });
     if (siteId) q = q.eq("site_id", siteId);
     const { data, error } = await q;
@@ -364,12 +371,17 @@ export const contractors = {
     return data || [];
   },
 
-  async createVisit({ siteId, businessName, contactName, phone, email, hostEmployeeId, workPurpose, permitReference, vehicleRegistration, inductionConfirmed, photoPath, signInNow = true }) {
+  /** hostEmployeeIds (plural) supports selecting more than one host at the
+   *  kiosk; hostEmployeeId (singular) is still accepted for older callers —
+   *  the RPC treats the plural list as authoritative when both are given. */
+  async createVisit({ siteId, businessName, contactName, phone, email, hostEmployeeId, hostEmployeeIds, workPurpose, permitReference, vehicleRegistration, inductionConfirmed, photoPath, signInNow = true }) {
     const { companyId } = await ctx();
     const { data, error } = await sb().rpc("presence_fire_safety_create_contractor_visit", {
       p_company_id: companyId, p_site_id: siteId,
       p_business_name: businessName, p_contact_name: contactName || null, p_phone: phone || null, p_email: email || null,
-      p_host_employee_id: hostEmployeeId || null, p_work_purpose: workPurpose || null, p_permit_reference: permitReference || null,
+      p_host_employee_id: hostEmployeeId || null,
+      p_host_employee_ids: hostEmployeeIds?.length ? hostEmployeeIds : null,
+      p_work_purpose: workPurpose || null, p_permit_reference: permitReference || null,
       p_vehicle_registration: vehicleRegistration || null, p_induction_confirmed: !!inductionConfirmed, p_sign_in_now: signInNow,
       p_photo_path: photoPath || null,
     });
@@ -400,10 +412,21 @@ export const contractors = {
     if (error) throw error;
     return data;
   },
+
+  // Same fix as visitors.photoSignedUrl above — `path` already carries the
+  // companyId prefix from uploadPhoto()/setPhoto().
+  photoSignedUrl(companyId, path) {
+    return sb().storage.from("presence-fire-safety-photos").createSignedUrl(path, 3600);
+  },
 };
 
 // ── Settings ─────────────────────────────────────────────────────────────
 export const settings = {
+  /** The company-wide row — used for editing the "Company Default" scope
+   *  in Settings, and by anything that genuinely doesn't care about
+   *  per-site overrides (ID card template, onboarding checklist). Most
+   *  site-scoped consumers (sign-in, evacuation, visitor/contractor
+   *  sign-in, sound) should call getEffective() instead. */
   async get(companyId) {
     const { data, error } = await sb().from("presence_fire_safety_settings").select("*").eq("company_id", companyId).maybeSingle();
     if (error) throw error;
@@ -417,27 +440,82 @@ export const settings = {
     if (error) throw error;
     return data;
   },
-  async siteOverride(companyId, siteId) {
+
+  /** The company row with this site's overrides (if any) merged on top —
+   *  same shape as get(), so callers don't need to know or care whether a
+   *  given field came from the site or the company default. */
+  async getEffective(companyId, siteId) {
+    const { data, error } = await sb().rpc("presence_fire_safety_effective_settings", { p_company_id: companyId, p_site_id: siteId });
+    if (error) throw error;
+    return data?.[0] || null;
+  },
+  /** The raw override row for one site, or null if it has none yet
+   *  (fully inheriting the company default). Used by Settings to know
+   *  whether to show "Reset to Company Default". */
+  async getSiteOverride(companyId, siteId) {
     const { data, error } = await sb().from("presence_fire_safety_site_settings").select("*").eq("company_id", companyId).eq("site_id", siteId).maybeSingle();
     if (error) throw error;
     return data;
   },
-  async setEvacuationPin(companyId, pin) {
-    const { error } = await sb().rpc("presence_fire_safety_set_evacuation_pin", { p_company_id: companyId, p_pin: pin });
+  /** Writes a full override row for one site — every Module Settings
+   *  field, not just the ones that differ from company default. Simpler
+   *  than per-field overrides; use clearSiteOverride() to go back to
+   *  fully inheriting. */
+  async upsertSiteOverride(companyId, siteId, fields) {
+    const { profile } = await ctx();
+    const { data, error } = await sb().from("presence_fire_safety_site_settings")
+      .upsert({ ...fields, company_id: companyId, site_id: siteId, updated_by: profile.id }, { onConflict: "company_id,site_id" })
+      .select().single();
+    if (error) throw error;
+    return data;
+  },
+  async clearSiteOverride(companyId, siteId) {
+    const { error } = await sb().from("presence_fire_safety_site_settings").delete().eq("company_id", companyId).eq("site_id", siteId);
+    if (error) throw error;
+  },
+
+  /** siteId omitted/null sets the company default (unchanged PIN for
+   *  every site without its own override); given, sets that one site's
+   *  PIN specifically. */
+  async setEvacuationPin(companyId, pin, siteId = null) {
+    const { error } = await sb().rpc("presence_fire_safety_set_evacuation_pin", { p_company_id: companyId, p_pin: pin, p_site_id: siteId });
     if (error) throw new Error(error.message || "Could not set PIN");
   },
 
   /** Kiosk exit PIN — deliberately separate from the evacuation PIN (see
    *  shared/kiosk.js). Admin-only to set; verify is callable by any
    *  authenticated employee since the PIN itself is the security boundary. */
-  async setKioskExitPin(companyId, pin) {
-    const { error } = await sb().rpc("presence_fire_safety_set_kiosk_exit_pin", { p_company_id: companyId, p_pin: pin });
+  async setKioskExitPin(companyId, pin, siteId = null) {
+    const { error } = await sb().rpc("presence_fire_safety_set_kiosk_exit_pin", { p_company_id: companyId, p_pin: pin, p_site_id: siteId });
     if (error) throw new Error(error.message || "Could not set PIN");
   },
-  async verifyKioskExitPin(companyId, pin) {
-    const { error } = await sb().rpc("presence_fire_safety_verify_kiosk_exit_pin", { p_company_id: companyId, p_pin: pin });
+  async verifyKioskExitPin(companyId, siteId, pin) {
+    const { error } = await sb().rpc("presence_fire_safety_verify_kiosk_exit_pin", { p_company_id: companyId, p_site_id: siteId, p_pin: pin });
     if (error) throw new Error(error.message || "Incorrect PIN");
     return true;
+  },
+
+  /** Generic per-employee permission grants — for any permission that
+   *  isn't already covered by a role's defaults (see
+   *  presence_fire_safety_default_permissions). Currently used for
+   *  presence.leaving_check ("who has access to flag stragglers after
+   *  signing out"), but works for any permission key. */
+  async permissionGrants(companyId, permission) {
+    const { data, error } = await sb().from("presence_fire_safety_permission_grants")
+      .select("id, employee_id, granted_at, core_employees!employee_id(full_name, job_title)")
+      .eq("company_id", companyId).eq("permission", permission).order("granted_at");
+    if (error) throw error;
+    return data || [];
+  },
+  async grantPermission(companyId, employeeId, permission) {
+    const { profile } = await ctx();
+    const { error } = await sb().from("presence_fire_safety_permission_grants")
+      .insert({ company_id: companyId, employee_id: employeeId, permission, granted_by: profile.id });
+    if (error) throw error;
+  },
+  async revokePermission(grantId) {
+    const { error } = await sb().from("presence_fire_safety_permission_grants").delete().eq("id", grantId);
+    if (error) throw error;
   },
 
   /** Company logo for the ID card template. Public bucket, one object per
@@ -459,6 +537,25 @@ export const settings = {
     const { data: { session } } = await sb().auth.getSession();
     if (!session) throw new Error("Not signed in");
     const res = await fetch("/api/presence-fire-safety/upload-logo", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": file.type,
+      },
+      body: file,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Upload failed");
+    return data.url;
+  },
+  /** Uploads a custom decorative image for use in an ID card "image" element
+   *  (distinct from the one company logo — a company can have any number of
+   *  these, one per element, each keeping its own uploaded file). Same
+   *  server-side-upload pattern as uploadIdCardLogo, see its comment. */
+  async uploadIdCardImage(companyId, file) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) throw new Error("Not signed in");
+    const res = await fetch("/api/presence-fire-safety/upload-card-image", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${session.access_token}`,
@@ -514,9 +611,19 @@ export const evacuation = {
     return data;
   },
 
+  /** Embeds enough of each person's live record (photo + a few identifying
+   *  details) for the roll call UI's photo grid and its "tap for details"
+   *  modal — RLS-safe: presence.view_live_register (already required to see
+   *  the roll call at all) also covers reading core_employees/visitors/
+   *  contractors, so this needs no extra permission. */
   async rollCall(sessionId) {
     const { data, error } = await sb().from("presence_fire_safety_evacuation_people")
-      .select("*").eq("evacuation_session_id", sessionId).order("display_name_snapshot");
+      .select(`*,
+        emp:core_employees!employee_id(job_title,work_email,employee_id,profile_picture_url,department:core_departments(name)),
+        vv:presence_fire_safety_visitor_visits!visitor_visit_id(visit_reason,visitor:presence_fire_safety_visitors(organisation,phone,email,photo_path)),
+        cv:presence_fire_safety_contractor_visits!contractor_visit_id(work_purpose,vehicle_registration,contractor:presence_fire_safety_contractors(contact_name,phone,email,photo_path))
+      `)
+      .eq("evacuation_session_id", sessionId).order("display_name_snapshot");
     if (error) throw error;
     return data || [];
   },
@@ -554,6 +661,133 @@ export const evacuation = {
     const { data, error } = await sb().rpc("presence_fire_safety_complete_evacuation", { p_session_id: sessionId });
     if (error) throw new Error(error.message || "Could not complete evacuation");
     return data;
+  },
+
+  /** Best-effort — sends the evacuation report to the "Emergency Reports"
+   *  email list configured in Settings. Call after complete() has already
+   *  succeeded; a failure here should never look like the evacuation itself
+   *  failed to complete, so callers should swallow rejections. */
+  async notifyCompleted(sessionId) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) return { emails: [] };
+    const res = await fetch("/api/presence-fire-safety/notify-evacuation-completed", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ evacuation_session_id: sessionId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not send evacuation report");
+    return data;
+  },
+
+  /** "Send to more" from the report viewer — up to 5 ad-hoc addresses that
+   *  aren't on the Emergency Reports list configured in Settings. */
+  async sendReportToEmails(sessionId, emails) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) throw new Error("Not signed in");
+    const res = await fetch("/api/presence-fire-safety/evacuation-report-send", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ evacuation_session_id: sessionId, emails }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not send the report");
+    return data;
+  },
+
+  /** The same photo evacuation report PDF sent by notifyCompleted, as a
+   *  Blob — used to open/download it in-browser (right after completing,
+   *  or from evacuation history). */
+  async reportPdfBlob(sessionId) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) throw new Error("Not signed in");
+    const res = await fetch("/api/presence-fire-safety/evacuation-report-pdf", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ evacuation_session_id: sessionId }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Could not generate the evacuation report");
+    }
+    return res.blob();
+  },
+};
+
+// ── Leaving Check ───────────────────────────────────────────────────────
+// No PIN — gated by the presence.leaving_check permission (grantable per-
+// employee, see settings.permissionGrants/grantPermission). Anyone who
+// holds it can, at any time (and is prompted right after signing
+// themselves out — see employee-signin.html), check who the live register
+// still shows as signed in and flag anyone who forgot to sign out.
+export const leavingCheck = {
+  /** Who the live register currently shows as signed in at this site,
+   *  employees only — visitors/contractors are normally signed out by
+   *  their host, not something this flow is meant to police. */
+  async onSite(companyId, siteId) {
+    const rows = await presence.liveRegister(companyId, siteId);
+    return rows.filter((r) => r.subject_type === "employee");
+  },
+
+  /** Whether a SPECIFIC employee holds presence.leaving_check — not the
+   *  browser session's own permissions (hasPermission()/getMyPermissions
+   *  reflect whoever is authenticated in this browser, which on a shared
+   *  kiosk is a fixed device login, not whichever employee just tapped
+   *  their name to sign out). Owner/admin/administrator always have it,
+   *  same as presence_fire_safety_my_permissions() grants it to them
+   *  unconditionally; everyone else needs an explicit grant. */
+  async employeeHasAccess(companyId, employeeId) {
+    const { data: emp, error: empErr } = await sb().from("core_employees").select("role").eq("id", employeeId).maybeSingle();
+    if (empErr) throw empErr;
+    if (["owner", "admin", "administrator"].includes(emp?.role)) return true;
+    const { data: grant, error: grantErr } = await sb().from("presence_fire_safety_permission_grants")
+      .select("id").eq("company_id", companyId).eq("employee_id", employeeId).eq("permission", "presence.leaving_check").maybeSingle();
+    if (grantErr) throw grantErr;
+    return !!grant;
+  },
+
+  async flagNotSignedOut(companyId, siteId, employeeId) {
+    const { error } = await sb().rpc("presence_fire_safety_flag_not_signed_out", {
+      p_company_id: companyId, p_site_id: siteId, p_flagged_employee_id: employeeId,
+    });
+    if (error) throw new Error(error.message || "Could not flag this person");
+  },
+
+  /** Sends the "these people didn't clock out" email — call once after
+   *  flagging everyone selected, not once per person; the endpoint reads
+   *  back the flags that were just recorded rather than trusting names
+   *  passed in here, so there's nothing to pass but the site. */
+  async notifyFlags(siteId) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) return;
+    const res = await fetch("/api/presence-fire-safety/notify-leaving-check-flag", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ site_id: siteId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not send the flag notification");
+    return data;
+  },
+};
+
+// ── Timesheet ───────────────────────────────────────────────────────────
+// Admin/owner only (presence.view_timesheets) — pairs each employee's
+// sign-in/sign-out events within a date range into shifts and totals the
+// hours. Built from the same append-only event ledger the live register
+// and history pages already read, no separate aggregation table.
+export const timesheet = {
+  async events(companyId, { siteId, from, to } = {}) {
+    let q = sb().from("presence_fire_safety_events")
+      .select("employee_id, direction, occurred_at, site_id, core_employees!employee_id(full_name, job_title, core_departments(name))")
+      .eq("company_id", companyId).eq("subject_type", "employee")
+      .order("occurred_at");
+    if (siteId) q = q.eq("site_id", siteId);
+    if (from) q = q.gte("occurred_at", from);
+    if (to) q = q.lte("occurred_at", to);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
   },
 };
 

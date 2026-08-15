@@ -14,13 +14,18 @@
 //     front: { background: { color }, elements: [Element, ...] },
 //     back:  { background: { color }, elements: [Element, ...] },
 //   }
-// Element (x/y/w/h are % of the card's own width/height; z controls stacking):
-//   photo:      { type:"photo", x,y,w,h,z, shape:"circle"|"square", borderColor, borderWidth }
-//   logo:       { type:"logo", x,y,w,h,z }
-//   text:       { type:"text", x,y,w,h,z, field:"name"|"jobTitle"|"employeeCode", fontSize, color, bold, align }
-//   statictext: { type:"statictext", x,y,w,h,z, text, fontSize, color, align }
-//   shape:      { type:"shape", x,y,w,h,z, shapeType:"circle"|"rect", color, opacity }
-//   qr:         { type:"qr", x,y,w,h,z }
+// Element (x/y/w/h are % of the card's own width/height; z controls stacking;
+// rotation is degrees clockwise around the element's own center, same on
+// every element type):
+//   photo:      { type:"photo", x,y,w,h,z,rotation, shape:"circle"|"square", borderColor, borderWidth }
+//   logo:       { type:"logo", x,y,w,h,z,rotation }
+//   image:      { type:"image", x,y,w,h,z,rotation, imageUrl, fit:"cover"|"contain" } — a
+//               custom uploaded image, independent per element (unlike the one
+//               shared company logo), for icons/seals/decorative art etc.
+//   text:       { type:"text", x,y,w,h,z,rotation, field:"name"|"jobTitle"|"employeeCode"|"department", fontSize, color, bold, align, fontFamily }
+//   statictext: { type:"statictext", x,y,w,h,z,rotation, text, fontSize, color, align, fontFamily }
+//   shape:      { type:"shape", x,y,w,h,z,rotation, shapeType:"circle"|"rect", color, opacity }
+//   qr:         { type:"qr", x,y,w,h,z,rotation }
 
 import qrcode from "./qrcode-lib.js";
 
@@ -30,7 +35,168 @@ export function esc(s) {
 
 export const CARD_RATIO = { landscape: 85.6 / 54, portrait: 54 / 85.6 };
 
-const FIELD_MAP = { name: "full_name", jobTitle: "job_title", employeeCode: "employee_id" };
+// `fontSize` on text/statictext elements is a raw px number, calibrated
+// against the card's *physical* size at a 96dpi basis (same basis
+// renderCardToCanvas scales from via PX_SCALE, see below) — not against
+// whatever CSS pixel width the card happens to render at on screen. The
+// editor renders the card much larger than that physical size for
+// usability (up to 420px wide vs. ~204px true physical width for a
+// portrait card), so without correcting for it, a font size that looks
+// right in the editor comes out roughly 2x too large — and overlapping
+// other elements — once actually rasterized for print/PDF at true size.
+// Container query units (cqw) rescale the font in proportion to however
+// wide `.pfs-idcard-face` actually renders, using this constant as the
+// reference "100%" point, so the editor and the print output always agree.
+const REF_PX_PER_MM = 96 / 25.4;
+const REF_CARD_WIDTH = { landscape: 85.6 * REF_PX_PER_MM, portrait: 54 * REF_PX_PER_MM };
+
+// Generic "N reference px as a responsive CSS length" — same cqw-based
+// scaling as fontSizeCss below, just not specific to font-size (also used
+// for text elements' horizontal padding, see TEXT_PADDING_X).
+function refPxCss(px) {
+  return `calc(${px} * 100cqw / var(--pfs-card-ref-w))`;
+}
+const fontSizeCss = refPxCss;
+
+// Horizontal breathing room for text/statictext elements, in the same
+// reference-px terms as fontSize — without it, text that exactly fills its
+// box (especially once shrink-to-fit above has done its job) sits flush
+// against both edges. Subtracted from the width available to measure
+// against/draw within, not just added as visual padding, so shrink-to-fit
+// targets the inset width rather than the full box.
+const TEXT_PADDING_X = 20;
+
+// Shrink-to-fit for "text" (field-bound) elements — an employee whose name
+// or job title is unusually long shouldn't have it clipped or overlapping
+// other elements just because the template's font size was tuned for
+// shorter values. Font metrics scale linearly with px size for a given
+// family/weight, so one measurement at the configured size gives an exact
+// scale factor rather than needing an iterative search. Floors at
+// MIN_FONT_PX (an absolute size, not a ratio of the configured size) so a
+// long value always keeps shrinking until it actually fits within its
+// padding instead of giving up and falling back to ellipsis truncation —
+// this only ever affects the one card whose text is actually too long,
+// never the template default.
+const MIN_FONT_PX = 7;
+let _measureCanvas = null;
+
+// `minFontSize` is a parameter (not just the MIN_FONT_PX constant used
+// inline) because the two callers below measure in different unit spaces —
+// the HTML preview always works in reference px, but the print/canvas path
+// scales everything (including the floor) by PX_SCALE first — passing the
+// wrong one would make the floor land at a different *proportion* of the
+// card in print than in the editor, silently drifting the two out of sync.
+function fitTextFontSize(measureCtx, text, fontFamily, weight, baseFontSize, maxWidth, minFontSize) {
+  if (!text || !(maxWidth > 0)) return baseFontSize;
+  const setFont = (size) => { measureCtx.font = `${weight} ${size}px "${fontFamily}"`; };
+
+  setFont(baseFontSize);
+  let width = measureCtx.measureText(text).width;
+  if (width <= maxWidth) return baseFontSize;
+
+  // Linear scaling (character widths scale proportionally with font size
+  // for a given family/weight) gives a fast, usually-exact next guess —
+  // but rather than trust it blindly, re-measure at that size and keep
+  // stepping down until it's *actually verified* to fit. This is what
+  // makes the result immune to whatever font happens to be active right
+  // now, loaded or still-falling-back: the returned size is only ever one
+  // this exact measureCtx has confirmed fits, at the exact font string the
+  // caller is about to paint with — so there's no estimate left to be
+  // wrong, and nothing left that a font finishing its load moments later
+  // could invalidate.
+  let size = Math.max(baseFontSize * (maxWidth / width), minFontSize);
+  for (let i = 0; i < 10 && size > minFontSize; i++) {
+    setFont(size);
+    width = measureCtx.measureText(text).width;
+    if (width <= maxWidth) return size;
+    size = Math.max(size * 0.92, minFontSize);
+  }
+  setFont(minFontSize);
+  return minFontSize;
+}
+
+/** Offscreen-canvas measurement for the HTML render path (renderElement),
+ *  which has no live canvas context of its own to measure against. No-op
+ *  (returns the base size unchanged) outside a browser. */
+function fitTextFontSizeHtml(text, fontFamily, weight, baseFontSize, maxWidth) {
+  if (typeof document === "undefined") return baseFontSize;
+  if (!_measureCanvas) _measureCanvas = document.createElement("canvas");
+  return fitTextFontSize(_measureCanvas.getContext("2d"), text, fontFamily, weight, baseFontSize, maxWidth, MIN_FONT_PX);
+}
+
+const FIELD_MAP = { name: "full_name", jobTitle: "job_title", employeeCode: "employee_id", department: "department_name" };
+
+// Curated font choices for text elements — a mix of system fonts (always
+// available, no loading needed) and a few Google Fonts for real variety.
+// `value` is the full CSS font-family stack used for rendering; the primary
+// name (before the first comma) is what gets passed to the Font Loading API
+// before canvas rasterization, see ensureFontsLoaded() below.
+export const FONT_OPTIONS = [
+  { label: "Inter (default)", value: "Inter, sans-serif" },
+  { label: "Arial", value: "Arial, Helvetica, sans-serif" },
+  { label: "Georgia", value: "Georgia, 'Times New Roman', serif" },
+  { label: "Times New Roman", value: "'Times New Roman', Georgia, serif" },
+  { label: "Courier New", value: "'Courier New', Courier, monospace" },
+  { label: "Poppins", value: "Poppins, sans-serif" },
+  { label: "Montserrat", value: "Montserrat, sans-serif" },
+  { label: "Playfair Display", value: "'Playfair Display', Georgia, serif" },
+];
+const DEFAULT_FONT = FONT_OPTIONS[0].value;
+
+function primaryFontName(stack) {
+  return (stack || DEFAULT_FONT).split(",")[0].trim().replace(/^['"]|['"]$/g, "");
+}
+
+/** Kicks off loading (if needed) every font family used by text elements on
+ *  this face, and waits for them — canvas text silently falls back to a
+ *  default font if you draw with a webfont before it's actually loaded, so
+ *  this has to run before any fillText() call for the fonts to show up
+ *  correctly in the rasterized PNG (print/PDF/download). No-op in
+ *  non-browser contexts or for already-available system fonts. */
+async function ensureFontsLoaded(elements) {
+  if (typeof document === "undefined" || !document.fonts) return;
+  const specs = new Set();
+  for (const el of elements) {
+    if (el.type !== "text" && el.type !== "statictext") continue;
+    const name = primaryFontName(el.fontFamily);
+    // Must match the weight drawElementShape actually measures/draws with
+    // (el.type === "text" && el.bold ? 700 : 400) — the curated fonts are
+    // only ever loaded from Google Fonts at 400/700 (see id-cards.html's
+    // <link>), so requesting anything else here would ask the Font Loading
+    // API to wait for a font file that was never fetched in the first
+    // place, which it can't do.
+    const weight = el.type === "text" && el.bold ? "700" : "400";
+    specs.add(`${weight} 16px "${name}"`);
+  }
+  if (!specs.size) return;
+  await Promise.all([...specs].map((spec) => document.fonts.load(spec).catch(() => {})));
+  // Belt-and-braces: document.fonts.load() resolving for a given spec
+  // doesn't always mean the browser's own canvas font resolution has
+  // caught up yet (a known source of "first paint used the fallback"
+  // canvas text bugs) — document.fonts.ready is the platform's own signal
+  // that font loading/matching has fully settled, so wait on that too
+  // before any measureText()/fillText() call relies on the result.
+  await document.fonts.ready;
+}
+
+/** Public wrapper for renderCardFace() callers (the HTML/CSS preview path,
+ *  used by the editor and by anything printed via window.print() rather
+ *  than downloaded as a PDF). Unlike renderCardToCanvas — which already
+ *  awaits this internally before drawing — renderCardFace itself has to
+ *  stay synchronous (it returns a plain HTML string that many callers
+ *  splice straight into innerHTML), so it can't wait for fonts on its own.
+ *  Any caller whose text uses a webfont should render once immediately for
+ *  a fast first paint, await this, then render again — the same shrink-to-
+ *  fit race that renderCardToCanvas guards against otherwise applies here
+ *  too: the *first* paint may measure against a fallback font and end up
+ *  sized for text that overflows once the real webfont loads, and canvas
+ *  wouldn't be the one drawing it this time — plain CSS text-overflow:
+ *  ellipsis would, cutting it off exactly like the print/PDF path did. */
+export async function ensureCardFontsLoaded(template) {
+  const t = template || getDefaultTemplate();
+  const elements = [...(t.front?.elements || []), ...(t.back?.elements || [])];
+  await ensureFontsLoaded(elements);
+}
 
 export function initials(name) {
   return (name || "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
@@ -45,12 +211,13 @@ export function generateQrDataUrl(text, { cellSize = 6, margin = 2 } = {}) {
 }
 
 export function newElement(type, overrides = {}) {
-  const base = { id: `el_${Math.random().toString(36).slice(2, 10)}`, x: 30, y: 30, w: 30, h: 20, z: 1 };
+  const base = { id: `el_${Math.random().toString(36).slice(2, 10)}`, x: 30, y: 30, w: 30, h: 20, z: 1, rotation: 0 };
   const defaults = {
     photo: { w: 28, h: 44, shape: "circle", borderColor: "#ffffff", borderWidth: 3 },
     logo: { w: 20, h: 12 },
-    text: { w: 50, h: 14, field: "name", fontSize: 16, color: "#ffffff", bold: true, align: "left" },
-    statictext: { w: 60, h: 16, text: "Text", fontSize: 12, color: "#334155", align: "left" },
+    image: { w: 24, h: 24, imageUrl: null, fit: "cover" },
+    text: { w: 50, h: 14, field: "name", fontSize: 16, color: "#ffffff", bold: true, align: "left", fontFamily: DEFAULT_FONT },
+    statictext: { w: 60, h: 16, text: "Text", fontSize: 12, color: "#334155", align: "left", fontFamily: DEFAULT_FONT },
     shape: { w: 30, h: 30, shapeType: "circle", color: "#1e5cff", opacity: 0.25 },
     qr: { w: 36, h: 36 },
   };
@@ -99,8 +266,8 @@ function alignToJustify(align) {
   return align === "center" ? "center" : align === "right" ? "flex-end" : "flex-start";
 }
 
-function renderElement(el, ctx) {
-  const style = `position:absolute;left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%;z-index:${el.z ?? 1};box-sizing:border-box;`;
+function renderElement(el, ctx, refCardWidth) {
+  const style = `position:absolute;left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%;z-index:${el.z ?? 1};box-sizing:border-box;transform:rotate(${el.rotation || 0}deg);`;
   if (el.type === "photo") {
     const shape = el.shape === "square" ? "border-radius:10%" : "border-radius:50%";
     const border = `border:${el.borderWidth ?? 3}px solid ${esc(el.borderColor || "#ffffff")}`;
@@ -114,12 +281,27 @@ function renderElement(el, ctx) {
   if (el.type === "logo") {
     return ctx.logoUrl ? `<img src="${esc(ctx.logoUrl)}" alt="" style="${style}object-fit:contain;"/>` : "";
   }
+  if (el.type === "image") {
+    return el.imageUrl ? `<img src="${esc(el.imageUrl)}" alt="" style="${style}object-fit:${el.fit === "contain" ? "contain" : "cover"};"/>` : "";
+  }
   if (el.type === "text") {
     const value = ctx.employee?.[FIELD_MAP[el.field]] || "";
-    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${el.fontSize ?? 14}px;color:${esc(el.color || "#fff")};font-weight:${el.bold ? 800 : 500};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:${el.align || "left"};">${esc(value)}</div>`;
+    const baseFontSize = el.fontSize ?? 14;
+    const family = primaryFontName(el.fontFamily);
+    // 400/700 (standard "regular"/"bold"), not 500/800 — the curated fonts
+    // in FONT_OPTIONS are only loaded from Google Fonts at 400 and 700 (see
+    // id-cards.html/settings.html's <link>), so 500/800 was never a real,
+    // loadable font file for anything but Inter (which happens to ship
+    // every weight) — the browser would silently substitute a narrower
+    // fallback for measurement, then paint the real (wider) 400-weight
+    // glyphs once that inevitably resolved, overflowing the box.
+    const weight = el.bold ? 700 : 400;
+    const maxWidth = (el.w / 100) * (refCardWidth ?? REF_CARD_WIDTH.portrait) - 2 * TEXT_PADDING_X;
+    const fitted = fitTextFontSizeHtml(value, family, weight, baseFontSize, maxWidth);
+    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};padding:0 ${refPxCss(TEXT_PADDING_X)};font-size:${fontSizeCss(fitted)};font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#fff")};font-weight:${weight};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:${el.align || "left"};">${esc(value)}</div>`;
   }
   if (el.type === "statictext") {
-    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};font-size:${el.fontSize ?? 12}px;color:${esc(el.color || "#334155")};text-align:${el.align || "left"};line-height:1.3;">${esc(el.text || "")}</div>`;
+    return `<div style="${style}display:flex;align-items:center;justify-content:${alignToJustify(el.align)};padding:0 ${refPxCss(TEXT_PADDING_X)};font-size:${fontSizeCss(el.fontSize ?? 12)};font-family:${esc(el.fontFamily || DEFAULT_FONT)};color:${esc(el.color || "#334155")};text-align:${el.align || "left"};line-height:1.3;">${esc(el.text || "")}</div>`;
   }
   if (el.type === "shape") {
     const radius = el.shapeType === "rect" ? "border-radius:8px" : "border-radius:50%";
@@ -144,8 +326,8 @@ export function renderCardFace(template, face, ctx = {}) {
   const elements = [...(faceData.elements || [])].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
 
   return `
-    <div class="pfs-idcard-face" style="position:relative;overflow:hidden;aspect-ratio:${CARD_RATIO[orientation]};border-radius:${radius}px;background:${esc(bg)};${border};">
-      ${elements.map((el) => renderElement(el, ctx)).join("")}
+    <div class="pfs-idcard-face" style="position:relative;overflow:hidden;aspect-ratio:${CARD_RATIO[orientation]};border-radius:${radius}px;background:${esc(bg)};${border};container-type:inline-size;--pfs-card-ref-w:${REF_CARD_WIDTH[orientation]};">
+      ${elements.map((el) => renderElement(el, ctx, REF_CARD_WIDTH[orientation])).join("")}
     </div>`;
 }
 
@@ -227,7 +409,19 @@ function truncateToWidth(c, text, maxWidth) {
 
 async function drawElementOnCanvas(c, el, ctx, W, H) {
   const ex = (el.x / 100) * W, ey = (el.y / 100) * H, ew = (el.w / 100) * W, eh = (el.h / 100) * H;
+  const rotation = el.rotation || 0;
+  if (rotation) {
+    const cx = ex + ew / 2, cy = ey + eh / 2;
+    c.save();
+    c.translate(cx, cy);
+    c.rotate((rotation * Math.PI) / 180);
+    c.translate(-cx, -cy);
+  }
+  await drawElementShape(c, el, ctx, ex, ey, ew, eh);
+  if (rotation) c.restore();
+}
 
+async function drawElementShape(c, el, ctx, ex, ey, ew, eh) {
   if (el.type === "photo") {
     c.save();
     if (el.shape === "square") roundRectPath(c, ex, ey, ew, eh, Math.min(ew, eh) * 0.1);
@@ -268,23 +462,55 @@ async function drawElementOnCanvas(c, el, ctx, W, H) {
     return;
   }
 
+  if (el.type === "image") {
+    const img = await loadImage(el.imageUrl);
+    if (!img) return;
+    if (el.fit === "contain") {
+      const scale = Math.min(ew / img.width, eh / img.height);
+      const dw = img.width * scale, dh = img.height * scale;
+      c.drawImage(img, ex + (ew - dw) / 2, ey + (eh - dh) / 2, dw, dh);
+    } else {
+      c.save();
+      c.beginPath();
+      c.rect(ex, ey, ew, eh);
+      c.clip();
+      drawCover(c, img, ex, ey, ew, eh);
+      c.restore();
+    }
+    return;
+  }
+
   if (el.type === "text" || el.type === "statictext") {
     const value = el.type === "text" ? (ctx.employee?.[FIELD_MAP[el.field]] || "") : (el.text || "");
-    const fontSize = (el.fontSize ?? (el.type === "text" ? 14 : 12)) * PX_SCALE;
-    const weight = el.type === "text" && el.bold ? 800 : 500;
-    c.font = `${weight} ${fontSize}px sans-serif`;
+    const baseFontSize = (el.fontSize ?? (el.type === "text" ? 14 : 12)) * PX_SCALE;
+    // 400/700, not 500/800 — see the matching comment in renderElement()
+    // above; must stay identical to that path's weight or shrink-to-fit
+    // measures against a different font than what actually gets painted.
+    const weight = el.type === "text" && el.bold ? 700 : 400;
+    const family = primaryFontName(el.fontFamily);
+    const padX = TEXT_PADDING_X * PX_SCALE;
+    const innerEw = Math.max(ew - 2 * padX, 0); // width actually available to text, inset from both edges
+    // Text elements shrink to fit an unusually long value (e.g. a long
+    // name) rather than only relying on the ellipsis-truncation below —
+    // this only ever affects the one card whose text is actually too
+    // long, not the template's configured size for everyone else.
+    const fontSize = el.type === "text" ? fitTextFontSize(c, value, family, weight, baseFontSize, innerEw, MIN_FONT_PX * PX_SCALE) : baseFontSize;
+    c.font = `${weight} ${fontSize}px "${family}"`;
     c.fillStyle = el.color || (el.type === "text" ? "#fff" : "#334155");
     const align = el.align || "left";
     c.textAlign = align === "center" ? "center" : align === "right" ? "right" : "left";
-    const anchorX = align === "center" ? ex + ew / 2 : align === "right" ? ex + ew : ex;
+    const anchorX = align === "center" ? ex + ew / 2 : align === "right" ? ex + ew - padX : ex + padX;
 
     if (el.type === "text") {
       // Single line, truncated with an ellipsis rather than wrapped —
       // matches the on-screen nowrap/text-overflow:ellipsis rendering.
+      // Shrinking above handles long values on its own now; this only
+      // fires in the pathological case where even MIN_FONT_PX is still
+      // wider than the box.
       c.textBaseline = "middle";
-      c.fillText(truncateToWidth(c, value, ew), anchorX, ey + eh / 2);
+      c.fillText(truncateToWidth(c, value, innerEw), anchorX, ey + eh / 2);
     } else {
-      const lines = wrapLines(c, value, ew);
+      const lines = wrapLines(c, value, innerEw);
       const lineHeight = fontSize * 1.3;
       const totalHeight = lines.length * lineHeight;
       let ly = ey + eh / 2 - totalHeight / 2 + lineHeight / 2;
@@ -339,6 +565,7 @@ export async function renderCardToCanvas(template, face, ctx = {}) {
   c.clip();
 
   const elements = [...(faceData.elements || [])].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
+  await ensureFontsLoaded(elements);
   for (const el of elements) await drawElementOnCanvas(c, el, ctx, W, H);
   c.restore();
 

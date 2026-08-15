@@ -203,10 +203,8 @@ export async function onRequestPost({ request, env }) {
   function buildHtml(r) {
     const filledSubject = fillVars(subject, r);
     const filledBody    = fillVars(body, r);
-    const bodyHtml = filledBody
-      .split(/\n{2,}/)
-      .map(p => `<p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.75;font-family:Arial,Helvetica,sans-serif">${p.replace(/\n/g,'<br>')}</p>`)
-      .join('');
+    // body is HTML from the rich-text editor; wrap in consistent email font styles
+    const bodyHtml = `<div style="font-size:15px;color:#374151;line-height:1.75;font-family:Arial,Helvetica,sans-serif">${filledBody}</div>`;
 
     return `<!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
@@ -216,19 +214,19 @@ export async function onRequestPost({ request, env }) {
 <!--[if mso]><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
 <style>body,table,td,p,a{font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}table,td{mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse}img{-ms-interpolation-mode:bicubic;display:block;border:0;outline:none;text-decoration:none}</style>
 </head>
-<body style="margin:0;padding:0;background-color:${secondaryColor}" bgcolor="${secondaryColor}">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${secondaryColor}" style="background-color:${secondaryColor}">
+<body style="margin:0;padding:0;background-color:#ffffff" bgcolor="#ffffff">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background-color:#ffffff">
   <tr>
-    <td align="center" bgcolor="${secondaryColor}" style="background-color:${secondaryColor};padding:40px 16px">
-      <!--[if mso]><table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-      <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%">
+    <td align="center" bgcolor="#ffffff" style="background-color:#ffffff;padding:40px 16px">
+      <!--[if mso]><table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-radius:16px;overflow:hidden"><![endif]-->
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.10)">
 
         <!-- Header — gradient for modern clients, solid fallback for Outlook -->
         <tr>
-          <td align="center" bgcolor="${primaryColor}" style="background:linear-gradient(135deg,${primaryColor} 0%,${primaryLight} 100%);background-color:${primaryColor};padding:34px 40px 30px">
+          <td align="center" bgcolor="${primaryColor}" style="background:linear-gradient(135deg,${primaryColor} 0%,${primaryLight} 100%);background-color:${primaryColor};padding:34px 40px 30px;border-radius:16px 16px 0 0">
             <!--[if mso]><v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="mso-width-percent:1000;height:100px"><v:fill type="gradient" color="${primaryColor}" color2="${primaryLight}" angle="135"/><v:textbox inset="0,0,0,0"><div style="text-align:center;padding:20px 0"><![endif]-->
             ${logoUrl
-              ? `<img src="${logoUrl}" alt="${companyName}" height="44" style="height:44px;max-width:200px;width:auto;display:block;border:0;outline:none;margin:0 auto"/>`
+              ? `<img src="${logoUrl}" alt="${companyName}" style="max-height:48px;max-width:180px;width:auto;height:auto;display:block;border:0;outline:none;margin:0 auto"/>`
               : `<p style="margin:0;font-size:24px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;font-family:Arial,Helvetica,sans-serif">${companyName}</p>`
             }
             <!--[if mso]></div></v:textbox></v:rect><![endif]-->
@@ -242,20 +240,15 @@ export async function onRequestPost({ request, env }) {
 
         <!-- White body -->
         <tr>
-          <td bgcolor="#ffffff" style="background-color:#ffffff;padding:44px 44px 36px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb">
+          <td bgcolor="#ffffff" style="background-color:#ffffff;padding:44px 44px 36px">
             ${filledSubject ? `<h1 style="margin:0 0 24px;font-size:24px;font-weight:800;color:#111827;line-height:1.2;font-family:Arial,Helvetica,sans-serif;letter-spacing:-0.5px">${filledSubject}</h1>` : ''}
             ${bodyHtml}
           </td>
         </tr>
 
-        <!-- Bottom border under body -->
-        <tr>
-          <td height="1" bgcolor="#e5e7eb" style="background-color:#e5e7eb;font-size:0;line-height:0;mso-line-height-rule:exactly">&nbsp;</td>
-        </tr>
-
         <!-- Footer -->
         <tr>
-          <td align="center" bgcolor="#000000" style="background-color:#000000;padding:20px 40px">
+          <td align="center" bgcolor="#000000" style="background-color:#000000;padding:20px 40px;border-radius:0 0 16px 16px">
             <p style="margin:0;font-size:12px;color:#888888;font-family:Arial,Helvetica,sans-serif;letter-spacing:0.3px">${companyName} &middot; Powered by <a href="https://smartcoretechnology.co.uk" style="color:#aaaaaa;text-decoration:none">SmartCore</a></p>
           </td>
         </tr>

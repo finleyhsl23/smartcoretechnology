@@ -7,14 +7,23 @@
 // SmartCore sign-in if the PIN is wrong or forgotten.
 
 import { sb } from "./supabase.js";
-import { getProfile, clearProfileCache, getMyPermissions, hasPermission } from "./auth.js";
+import { getProfile, clearProfileCache, getMyPermissions, hasPermission, getSelectedSiteId } from "./auth.js";
 import { settings } from "./api.js";
 import { esc, toast, modal } from "./ui.js";
+import { hideVirtualKeyboard } from "./virtual-keyboard.js";
+import { getTheme } from "./theme.js";
+
+// SC mark for the idle screensaver — each file is a solid square tile (not
+// transparent), so the dark-mode file has a black background/white mark and
+// the light-mode file has a white background/black mark; whichever matches
+// the current theme blends into the screensaver's own background.
+const SC_ICON_DARK = "/systems/presence-fire-safety/shared/assets/sc-icon-dark.png";
+const SC_ICON_LIGHT = "/systems/presence-fire-safety/shared/assets/sc-icon-light.png";
 
 const STORAGE_KEY = "smartcore-pfs-kiosk-mode";
 const SIGNIN_PAGE = "/systems/presence-fire-safety/employee-signin.html";
 const DASHBOARD_PAGE = "/systems/presence-fire-safety/index.html";
-const KIOSK_ALLOWED_PAGES = ["employee-signin", "evacuation"];
+const KIOSK_ALLOWED_PAGES = ["employee-signin", "evacuation", "leaving-check"];
 
 export function isKioskModeActive() {
   return localStorage.getItem(STORAGE_KEY) === "1";
@@ -99,14 +108,26 @@ export function renderKioskEvacuationBanner(containerId) {
  * to hold presence.manage_settings before kiosk mode is actually released.
  */
 export async function requestExitKioskMode({ companyId }) {
+  // Whatever was focused on the underlying kiosk screen (an employee
+  // search box, a visitor form field, etc.) never gets blurred just by
+  // tapping the kiosk toggle button on some mobile browsers, so its
+  // native/virtual keyboard can stay open and visible underneath this
+  // modal for a moment. Dismiss it explicitly before rendering anything.
+  hideVirtualKeyboard();
+  document.activeElement?.blur?.();
+
   const overlay = modal(`
     <div class="modal-header"><h3>Exit Kiosk Mode</h3></div>
     <div class="modal-body">
       <p class="text-muted" id="kioskExitIntro">Enter the kiosk exit PIN to return to admin mode.</p>
       <div id="kioskExitAlert" aria-live="assertive"></div>
-      <label class="form-label" for="kioskExitPin">Exit PIN</label>
-      <input type="password" id="kioskExitPin" class="form-input" inputmode="numeric" pattern="[0-9]*"
-             autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12" aria-label="Kiosk exit PIN"/>
+      <div id="kioskExitPin" class="pfs-pin-display" role="textbox" aria-readonly="true" aria-label="Kiosk exit PIN entered"></div>
+      <div class="pfs-pin-keypad" role="group" aria-label="PIN keypad">
+        ${[1,2,3,4,5,6,7,8,9].map(n => `<button type="button" class="pfs-pin-key" data-key="${n}">${n}</button>`).join("")}
+        <button type="button" class="pfs-pin-key pfs-pin-key-clear" data-key="clear">Clear</button>
+        <button type="button" class="pfs-pin-key" data-key="0">0</button>
+        <button type="button" class="pfs-pin-key" data-key="back" aria-label="Backspace"><i data-lucide="delete"></i></button>
+      </div>
       <div id="kioskFallback" style="display:none;margin-top:18px">
         <div class="pfs-divider">or sign in with your SmartCore account</div>
         <label class="form-label" for="kioskEmail">Email</label>
@@ -117,16 +138,34 @@ export async function requestExitKioskMode({ companyId }) {
     </div>
     <div class="modal-footer">
       <button class="btn" id="kioskExitCancel">Cancel</button>
-      <button class="btn btn-primary" id="kioskExitSubmit">Submit</button>
+      <button class="btn btn-primary" id="kioskExitSubmit" disabled>Submit</button>
     </div>
   `, { size: "" });
 
-  const pinInput = overlay.querySelector("#kioskExitPin");
+  const pinDisplay = overlay.querySelector("#kioskExitPin");
   const alertBox = overlay.querySelector("#kioskExitAlert");
   const fallback = overlay.querySelector("#kioskFallback");
   const submitBtn = overlay.querySelector("#kioskExitSubmit");
   const cancelBtn = overlay.querySelector("#kioskExitCancel");
-  pinInput.focus();
+  window.lucide?.createIcons?.();
+
+  // Plain div + on-screen keypad, not a real <input> — same reasoning as
+  // evacuation.html/leaving-check.html's PIN screens: a real input here
+  // (even with inputmode="none") can flash a native or virtual keyboard
+  // before this module's own code corrects the layout or dismisses it.
+  let pinValue = "";
+  function renderPin() { pinDisplay.textContent = pinValue ? "•".repeat(pinValue.length) : ""; }
+  function updateSubmitState() { submitBtn.disabled = pinValue.length < 4; }
+  overlay.querySelectorAll(".pfs-pin-key").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.key;
+      if (key === "clear") pinValue = "";
+      else if (key === "back") pinValue = pinValue.slice(0, -1);
+      else if (pinValue.length < 12) pinValue += key;
+      renderPin();
+      updateSubmitState();
+    });
+  });
 
   let fallbackShown = false;
 
@@ -136,9 +175,9 @@ export async function requestExitKioskMode({ companyId }) {
     submitBtn.disabled = true;
     try {
       if (!fallbackShown) {
-        const pin = pinInput.value.trim();
-        if (!pin) { submitBtn.disabled = false; return; }
-        await settings.verifyKioskExitPin(companyId, pin);
+        const pin = pinValue;
+        if (!pin) { updateSubmitState(); return; }
+        await settings.verifyKioskExitPin(companyId, getSelectedSiteId(), pin);
         // Success — release kiosk mode and return to the admin dashboard.
         setKioskModeActive(false);
         overlay.remove();
@@ -188,27 +227,27 @@ export async function requestExitKioskMode({ companyId }) {
       }
     }
   });
-
-  pinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submitBtn.click(); });
 }
 
 // ── Idle screensaver ─────────────────────────────────────────────────────
 // Public-facing kiosk devices sit on the same screen for hours at a time,
 // which risks OLED/LCD burn-in of the static sign-in UI. After a period of
-// no touches/clicks/keys, this shows a full-screen bouncing-text screensaver
-// (DVD-logo style) that drifts around and changes colour on every bounce, so
-// no pixel stays lit the same way for long. Any interaction dismisses it.
+// no touches/clicks/keys, this shows a full-screen screensaver — a clean
+// white backdrop with the company logo, a live clock, and a call to action —
+// that gently drifts around (DVD-logo style, but without the neon colour
+// cycling) so no pixel stays lit the same way for long. Any interaction
+// dismisses it.
 let _idleTimer = null;
 let _idleOverlay = null;
 let _idleBounceRaf = null;
+let _idleClockInterval = null;
 let _idleInitialized = false;
 const IDLE_ACTIVITY_EVENTS = ["pointerdown", "pointermove", "keydown", "touchstart", "wheel"];
-const IDLE_BOUNCE_COLORS = ["#6ee7ff", "#a78bfa", "#34d399", "#fbbf24", "#f472b6", "#60a5fa"];
 
 /**
  * @param {object} opts
  *   opts.idleMs   - milliseconds of inactivity before the screensaver shows (default 60000)
- *   opts.text     - the bouncing text (default "Touch to sign in")
+ *   opts.text     - the call-to-action text (default "Touch to sign in")
  *   opts.onIdle   - called right before the screensaver appears (e.g. to stop a camera)
  *   opts.onResume - called right after the screensaver is dismissed (e.g. to reset the UI)
  */
@@ -222,18 +261,31 @@ export function initIdleScreensaver({ idleMs = 60000, text = "Touch to sign in",
     _idleTimer = setTimeout(showScreensaver, idleMs);
   }
 
+  function formatClock(d) {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
   function showScreensaver() {
     onIdle?.();
+    const scIcon = getTheme() === "light" ? SC_ICON_LIGHT : SC_ICON_DARK;
     _idleOverlay = document.createElement("div");
     _idleOverlay.className = "pfs-screensaver";
-    _idleOverlay.innerHTML = `<span class="pfs-screensaver-text">${esc(text)}</span>`;
+    _idleOverlay.innerHTML = `
+      <div class="pfs-screensaver-block">
+        <img src="${esc(scIcon)}" class="pfs-screensaver-logo" alt="SmartCore"/>
+        <div class="pfs-screensaver-clock">${esc(formatClock(new Date()))}</div>
+        <div class="pfs-screensaver-text">${esc(text)}</div>
+      </div>`;
     document.body.appendChild(_idleOverlay);
     IDLE_ACTIVITY_EVENTS.forEach(ev => _idleOverlay.addEventListener(ev, dismissScreensaver, { once: true }));
-    startBounce(_idleOverlay.querySelector(".pfs-screensaver-text"));
+    const clockEl = _idleOverlay.querySelector(".pfs-screensaver-clock");
+    _idleClockInterval = setInterval(() => { clockEl.textContent = formatClock(new Date()); }, 1000);
+    startBounce(_idleOverlay.querySelector(".pfs-screensaver-block"));
   }
 
   function dismissScreensaver() {
     cancelAnimationFrame(_idleBounceRaf);
+    clearInterval(_idleClockInterval);
     _idleOverlay?.remove();
     _idleOverlay = null;
     onResume?.();
@@ -243,10 +295,8 @@ export function initIdleScreensaver({ idleMs = 60000, text = "Touch to sign in",
   function startBounce(el) {
     let x = Math.random() * Math.max(0, window.innerWidth - 260);
     let y = Math.random() * Math.max(0, window.innerHeight - 60);
-    let vx = (Math.random() < 0.5 ? -1 : 1) * (1.1 + Math.random() * 0.7);
-    let vy = (Math.random() < 0.5 ? -1 : 1) * (1.1 + Math.random() * 0.7);
-    let colorIdx = 0;
-    el.style.color = IDLE_BOUNCE_COLORS[0];
+    let vx = (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random() * 0.35);
+    let vy = (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random() * 0.35);
 
     function frame() {
       const rect = el.getBoundingClientRect();
@@ -254,15 +304,10 @@ export function initIdleScreensaver({ idleMs = 60000, text = "Touch to sign in",
       const maxY = Math.max(0, window.innerHeight - rect.height);
       x += vx;
       y += vy;
-      let bounced = false;
-      if (x <= 0) { x = 0; vx = Math.abs(vx); bounced = true; }
-      else if (x >= maxX) { x = maxX; vx = -Math.abs(vx); bounced = true; }
-      if (y <= 0) { y = 0; vy = Math.abs(vy); bounced = true; }
-      else if (y >= maxY) { y = maxY; vy = -Math.abs(vy); bounced = true; }
-      if (bounced) {
-        colorIdx = (colorIdx + 1) % IDLE_BOUNCE_COLORS.length;
-        el.style.color = IDLE_BOUNCE_COLORS[colorIdx];
-      }
+      if (x <= 0) { x = 0; vx = Math.abs(vx); }
+      else if (x >= maxX) { x = maxX; vx = -Math.abs(vx); }
+      if (y <= 0) { y = 0; vy = Math.abs(vy); }
+      else if (y >= maxY) { y = maxY; vy = -Math.abs(vy); }
       el.style.transform = `translate(${x}px, ${y}px)`;
       _idleBounceRaf = requestAnimationFrame(frame);
     }

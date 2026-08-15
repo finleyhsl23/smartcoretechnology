@@ -68,7 +68,7 @@ export async function onRequestPost(context) {
 // invoice.payment_succeeded
 // ---------------------------------------------------------------------------
 async function handleInvoicePaid(env, invoice) {
-  const subscriptionId = invoice.subscription;
+  const subscriptionId = invoice.subscription ?? invoice.parent?.subscription_details?.subscription;
   if (!subscriptionId) return;
 
   // Find the order by stripe_subscription_id
@@ -78,6 +78,21 @@ async function handleInvoicePaid(env, invoice) {
     return;
   }
   let order = orders[0];
+
+  // Restore suspended access when a previously failed payment finally goes through
+  if (order.status === 'suspended') {
+    try {
+      const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=id&limit=1`);
+      const company   = companies?.[0];
+      if (company?.id) {
+        await dbPatch(env, `/company_modules?company_id=eq.${enc(company.id)}`, { enabled: true });
+      }
+      await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, { status: 'active' });
+      console.log(`stripe-webhook: restored access for ${order.company_name} after successful payment`);
+    } catch (e) {
+      console.error('stripe-webhook: restoration error:', e);
+    }
+  }
 
   // For the very first invoice (billing_reason = subscription_create), provisioning is
   // handled by the payment-complete Cloudflare Function called from the browser.
@@ -114,24 +129,193 @@ async function handleInvoicePaid(env, invoice) {
 // invoice.payment_failed
 // ---------------------------------------------------------------------------
 async function handleInvoiceFailed(env, invoice) {
-  const subscriptionId = invoice.subscription;
+  const subscriptionId = invoice.subscription ?? invoice.parent?.subscription_details?.subscription;
   if (!subscriptionId) return;
 
-  const orders = await dbGet(env, `/marketplace_orders?stripe_subscription_id=eq.${enc(subscriptionId)}&select=id,company_name,email,order_reference&limit=1`);
+  const orders = await dbGet(env, `/marketplace_orders?stripe_subscription_id=eq.${enc(subscriptionId)}&select=id,company_name,email,accounts_email,order_reference,total,billing_type,stripe_customer_id&limit=1`);
   if (!orders?.[0]) return;
   const order = orders[0];
+  const attemptCount = invoice.attempt_count || 1;
 
-  console.warn(`stripe-webhook: payment failed for ${order.order_reference} (${order.company_name})`);
+  console.warn(`stripe-webhook: payment failed (attempt ${attemptCount}) for ${order.order_reference} (${order.company_name})`);
 
-  // Send failure email to admin
+  const hostedInvoiceUrl = invoice.hosted_invoice_url;
+  const amountGbp = order.total || 0;
+  const period    = order.billing_type === 'yearly' ? '/yr' : '/mo';
+
+  // Try to create a Stripe Billing Portal session so customer can update card + pay invoice
+  let stripePayUrl = hostedInvoiceUrl || '';
+  try {
+    if (order.stripe_customer_id) {
+      const session = await stripeRequest(env, 'POST', '/billing_portal/sessions', {
+        customer:   order.stripe_customer_id,
+        return_url: `https://smartcoretechnology.co.uk/update-payment/?paid=1`,
+      });
+      if (session?.url) stripePayUrl = session.url;
+    }
+  } catch (_) {}
+
+  // Build branded update-payment page URL with amount + ref pre-filled
+  const updatePageUrl = `https://smartcoretechnology.co.uk/update-payment/?pay=${encodeURIComponent(stripePayUrl)}&amount=${encodeURIComponent(amountGbp)}&ref=${encodeURIComponent(order.order_reference || '')}`;
+
+  // Send customer email
+  try {
+    const recipients = [...new Set([order.email, order.accounts_email].filter(Boolean))];
+    const html = paymentFailedHtml(order, amountGbp, period, updatePageUrl, attemptCount);
+    await Promise.all(recipients.map(addr => sendEmail(env, {
+      from:    FROM_BILLING,
+      to:      addr,
+      subject: `Action Required: Payment Failed — ${order.company_name} | SmartCore`,
+      html,
+    })));
+  } catch (_) {}
+
+  // Send admin notification
   try {
     await sendEmail(env, {
       from:    FROM_BILLING,
       to:      ADMIN_EMAIL,
-      subject: `Payment Failed — ${order.order_reference} | ${order.company_name}`,
-      html:    `<p>Stripe payment failed for <strong>${order.company_name}</strong> (${order.order_reference}).<br>Invoice: ${invoice.id}</p>`,
+      subject: `Payment Failed (attempt ${attemptCount}) — ${order.order_reference} | ${order.company_name}`,
+      html:    `<p>Stripe payment failed for <strong>${order.company_name}</strong> (${order.order_reference}).<br>Attempt: ${attemptCount}<br>Invoice: ${invoice.id}</p>`,
     });
   } catch (_) {}
+
+  // After 3 failed attempts suspend module access
+  if (attemptCount >= 3) {
+    try {
+      const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=id&limit=1`);
+      const company   = companies?.[0];
+      if (company?.id) {
+        await dbPatch(env, `/company_modules?company_id=eq.${enc(company.id)}`, { enabled: false });
+      }
+      await dbPatch(env, `/marketplace_orders?id=eq.${enc(order.id)}`, { status: 'suspended' });
+      console.warn(`stripe-webhook: suspended access for ${order.company_name} after ${attemptCount} failed attempts`);
+    } catch (e) {
+      console.error('stripe-webhook: suspension error:', e);
+    }
+  }
+}
+
+function paymentFailedHtml(order, amountGbp, period, payUrl, attemptCount) {
+  const fmt       = n => '£' + Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const suspended = attemptCount >= 3;
+  const logoUrl   = 'https://smartcoretechnology.co.uk/SmartCore%20Official%20Logos/SC%20Icon%20-%20Black%20Background.png';
+
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${suspended ? 'Module Suspended' : 'Payment Failed'} — SmartCore</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f9;padding:40px 16px">
+<tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.08)">
+
+  <!-- Header -->
+  <tr>
+    <td style="background:#020617;padding:24px 32px">
+      <table cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="padding-right:12px;vertical-align:middle">
+            <img src="${logoUrl}" width="36" height="36" alt="SC" style="display:block;border-radius:8px;border:0" />
+          </td>
+          <td style="vertical-align:middle">
+            <span style="color:#ffffff;font-size:15px;font-weight:700;letter-spacing:-.01em">SmartCore Technology</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Status strip -->
+  <tr>
+    <td style="background:${suspended ? '#431407' : '#431407'};border-bottom:2px solid ${suspended ? '#7c2d12' : '#92400e'};padding:13px 32px">
+      <table cellpadding="0" cellspacing="0" border="0" width="100%">
+        <tr>
+          <td>
+            <span style="display:inline-block;width:8px;height:8px;background:${suspended ? '#ef4444' : '#f59e0b'};border-radius:50%;margin-right:8px;vertical-align:middle"></span>
+            <span style="color:${suspended ? '#fca5a5' : '#fcd34d'};font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;vertical-align:middle">${suspended ? 'Module Access Suspended' : 'Payment Failed — Action Required'}</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Body -->
+  <tr>
+    <td style="padding:36px 32px 28px">
+
+      <!-- Greeting -->
+      <p style="margin:0 0 6px;font-size:13px;color:#94a3b8;letter-spacing:.04em;text-transform:uppercase;font-weight:600">For ${esc(order.company_name)}</p>
+      <h1 style="margin:0 0 20px;font-size:22px;font-weight:800;color:#0f172a;line-height:1.25;letter-spacing:-.02em">${suspended ? 'Your modules have been suspended' : 'We couldn\'t collect your payment'}</h1>
+
+      <p style="margin:0 0 28px;font-size:14px;color:#475569;line-height:1.7">
+        ${suspended
+          ? `After ${attemptCount} unsuccessful payment attempts, access to your SmartCore modules has been <strong style="color:#0f172a">temporarily suspended</strong>. Pay the outstanding amount below to restore access immediately.`
+          : `We were unable to collect your SmartCore subscription payment. Please pay the outstanding amount as soon as possible to avoid any interruption to your service.`
+        }
+      </p>
+
+      <!-- Amount card -->
+      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:28px">
+        <tr>
+          <td style="padding:20px 24px">
+            <table cellpadding="0" cellspacing="0" border="0" width="100%">
+              <tr>
+                <td>
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.08em;text-transform:uppercase">Amount Due</p>
+                  <p style="margin:0;font-size:30px;font-weight:800;color:#0f172a;letter-spacing:-.02em">${fmt(amountGbp)}<span style="font-size:15px;font-weight:400;color:#94a3b8">${period}</span></p>
+                </td>
+                <td align="right" style="padding-left:16px">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.08em;text-transform:uppercase">Reference</p>
+                  <p style="margin:0;font-size:13px;font-weight:600;color:#475569;font-family:'Courier New',monospace">${esc(order.order_reference || '')}</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+
+      <!-- CTA -->
+      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:28px">
+        <tr>
+          <td align="center">
+            <a href="${payUrl}" style="display:inline-block;background:#1e5cff;color:#ffffff;font-size:15px;font-weight:700;padding:15px 40px;border-radius:10px;text-decoration:none;letter-spacing:-.01em">Pay Outstanding Invoice →</a>
+          </td>
+        </tr>
+      </table>
+
+      <!-- Divider -->
+      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:20px">
+        <tr><td style="border-top:1px solid #f1f5f9;font-size:0">&nbsp;</td></tr>
+      </table>
+
+      <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.65;text-align:center">
+        Questions? Contact us at <a href="mailto:support@smartcoretechnology.co.uk" style="color:#1e5cff;text-decoration:none">support@smartcoretechnology.co.uk</a>
+      </p>
+
+    </td>
+  </tr>
+
+  <!-- Footer -->
+  <tr>
+    <td style="background:#000000;padding:18px 32px">
+      <table cellpadding="0" cellspacing="0" border="0" width="100%">
+        <tr>
+          <td>
+            <span style="color:rgba(255,255,255,.35);font-size:12px">Powered by SmartCore Technology</span>
+          </td>
+          <td align="right">
+            <a href="https://smartcoretechnology.co.uk" style="color:rgba(255,255,255,.35);font-size:12px;text-decoration:none">smartcoretechnology.co.uk</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>`;
 }
 
 // ---------------------------------------------------------------------------
