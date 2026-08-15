@@ -481,10 +481,10 @@
     try {
       const result = await lookupRegistration(reg);
       const year = result.manufactureYear || (result.manufactureDate || result.registrationDate || "").split(/[.-]/)[0];
-      if (result.make) document.getElementById("f_make").value = result.make;
-      if (result.model) document.getElementById("f_model").value = result.model;
-      if (year) document.getElementById("f_year_of_manufacture").value = year;
-      if (result.fuelType) document.getElementById("f_fuel_type").value = result.fuelType;
+      if (result.make) { _vehicle.make = result.make; setFieldValueIfPresent("f_make", result.make); }
+      if (result.model) { _vehicle.model = result.model; setFieldValueIfPresent("f_model", result.model); }
+      if (year) { _vehicle.year_of_manufacture = year; setFieldValueIfPresent("f_year_of_manufacture", year); }
+      if (result.fuelType) { _vehicle.fuel_type = result.fuelType; setFieldValueIfPresent("f_fuel_type", result.fuelType); }
       _vehicle.lookup_raw = result;
       _vehicle.lookup_looked_up_at = new Date().toISOString();
       statusEl.textContent = "Filled in from MOT history — check the details before saving.";
@@ -500,6 +500,17 @@
         toast("error", "Lookup failed", e.message);
       }
     }
+  }
+
+  // The wizard's steps only exist in the DOM one at a time, so a lookup
+  // fired from the Registration step (before Vehicle Details has ever been
+  // rendered) has nowhere to write make/model/year/fuel type directly —
+  // _vehicle above is what actually carries the value forward; this just
+  // keeps whatever's currently on screen in sync too, when there's a field
+  // to sync into.
+  function setFieldValueIfPresent(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
   }
 
   /* ══════════════════════════════════════════════════════════════════════
