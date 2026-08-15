@@ -88,102 +88,7 @@
       }
     }
     document.getElementById("pageTitle").textContent = isEdit ? "Edit Vehicle" : (_canDirectCreate ? "Add Vehicle" : "Suggest a New Vehicle");
-    draw();
-  }
-
-  function draw() {
-    const v = _vehicle;
-    if (!isEdit) {
-      if (prefillMake && !v.make) v.make = prefillMake;
-      if (prefillModel && !v.model) v.model = prefillModel;
-      if (prefillYear && !v.year_of_manufacture) v.year_of_manufacture = Number(prefillYear);
-      if (prefillFitment && !v.fitment_type) v.fitment_type = prefillFitment;
-    }
-    const pageTitle = isEdit ? "Edit Vehicle" : (_canDirectCreate ? "Add Vehicle" : "Suggest a New Vehicle");
-    const pageIntro = isEdit
-      ? "Registration identifies the vehicle; everything else is install reference data for engineers."
-      : (_canDirectCreate
-        ? "Registration identifies the vehicle; everything else is install reference data for engineers."
-        : "Fill in what you know — a Senior Regional Engineering Manager will review before it's added to the database.");
-
-    const html = `
-      <a class="back-link" href="${isEdit ? `${BASE}/vehicle-detail.html?id=${esc(vehicleId)}` : `${BASE}/index.html`}"><i data-lucide="arrow-left"></i> ${isEdit ? "Back to vehicle" : "Back to search"}</a>
-      <div class="page-head"><div><h2>${esc(pageTitle)}</h2><p>${esc(pageIntro)}</p></div></div>
-
-      <form id="vehForm">
-        <div class="section-header"><div class="section-header-icon"><i data-lucide="id-card"></i></div><h3>Vehicle Identity</h3></div>
-        <div class="card" style="margin-bottom:24px">
-          <div class="vform-row" style="margin-bottom:20px">
-            <label class="form-label" for="f_registration">Registration *</label>
-            <div style="display:flex;gap:8px;align-items:stretch">
-              <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase;flex:1" value="${esc(v.registration || prefillReg)}" placeholder="e.g. AB12 CDE" autocomplete="off" required/>
-              <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> Reg Lookup</button>
-            </div>
-            <p class="text-muted" style="font-size:12px;margin-top:8px">Finish typing (or click away from) the registration and it'll check MOT history automatically — the button forces a re-check.</p>
-            <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:2px"></p>
-            <div id="dupStatus"></div>
-          </div>
-
-          <div class="vform-grid">
-            ${fieldInput({ key: "make", label: "Make" }, v)}
-            ${fieldInput({ key: "model", label: "Model" }, v)}
-            ${fieldInput({ key: "year_of_manufacture", label: "Year", type: "number" }, v)}
-            ${fieldInput({ key: "fuel_type", label: "Fuel Type" }, v)}
-          </div>
-
-          <div class="vform-row" style="margin-top:20px">
-            <label class="form-label">Body Variant *</label>
-            <p class="text-muted" style="font-size:12px;margin:0 0 10px">Standard or facelift, plus a front and back photo — a facelift usually changes how the front/rear look, so this makes the photos meaningful on their own.</p>
-            <div id="bodyVariantSummary"></div>
-          </div>
-
-          <div class="vform-row" style="margin-top:20px">
-            <label class="form-label">Fitment *</label>
-            <p class="text-muted" style="font-size:12px;margin:0 0 10px">What's being fitted — wiring and component locations differ by this, so an engineer searching later can find the right install guide.</p>
-            <div class="pill-row" id="fitmentTypeRow">
-              ${FITMENT_TYPES.map(ft => `<button type="button" class="pill ${v.fitment_type === ft.key ? "active" : ""}" data-fitment="${esc(ft.key)}">${esc(ft.label)}</button>`).join("")}
-            </div>
-          </div>
-        </div>
-
-        ${FIELD_GROUPS.slice(1).map((group, i) => `
-          <div class="section-header"><div class="section-header-icon"><i data-lucide="${groupIcon(group.title)}"></i></div><h3>${esc(group.title)}</h3></div>
-          <div class="card" style="margin-bottom:24px" id="fieldGroupCard_${i}">
-            ${renderFieldGroupInner(group, v)}
-          </div>
-        `).join("")}
-
-        <button type="submit" class="btn btn-primary" id="saveBtn"><i data-lucide="${isEdit || _canDirectCreate ? "save" : "send"}"></i> ${isEdit ? "Save Changes" : (_canDirectCreate ? "Add Vehicle" : "Submit for Review")}</button>
-      </form>
-    `;
-    setInner("body", html);
-
-    document.getElementById("lookupBtn").addEventListener("click", () => doLookup());
-    document.getElementById("vehForm").addEventListener("submit", onSubmit);
-    wireRegistrationAutoLookup();
-
-    document.querySelectorAll("#fitmentTypeRow [data-fitment]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        _vehicle.fitment_type = btn.dataset.fitment;
-        document.querySelectorAll("#fitmentTypeRow [data-fitment]").forEach(b => b.classList.toggle("active", b === btn));
-        reRenderFitmentGatedGroups();
-      });
-    });
-
-    FIELD_GROUPS.flatMap(g => g.fields).filter(f => f.photoCategory).forEach(f => renderPhotoStrip(f.photoCategory));
-    renderBodyVariantSummary();
-
-    // Arrived here from the "Create Vehicle" link in the search modal, which
-    // only ever appears after that reg was already confirmed not to exist —
-    // run the MOT history lookup immediately rather than waiting on a
-    // keystroke that isn't coming.
-    if (prefillReg && !isEdit) handleRegistrationTyped(prefillReg);
-
-    // Arrived here from an "Add Facelift/Standard Version" prompt — the
-    // other body variant is already on file, so jump straight into the
-    // Configure wizard with this one pre-selected instead of making them
-    // click through to find it.
-    if (prefillVariant && !isEdit) openConfigureWizard();
+    if (isEdit) drawEditForm(); else drawAddWizard();
   }
 
   function groupIcon(title) {
@@ -195,25 +100,6 @@
   function renderFieldGroupInner(group, v) {
     const fields = group.fields.filter(f => fieldRelevantForFitment(f, v.fitment_type));
     return `<div class="vform-grid">${fields.map(f => fieldInput(f, v)).join("")}</div>`;
-  }
-
-  // Only Component Placement currently has any fitment-gated fields
-  // (Lightfoot's Driver ID / B&P Button locations), but this re-renders
-  // whichever group cards actually contain one, so it stays correct if that
-  // ever changes. Reads back whatever's already typed in that group first —
-  // rebuilding its HTML would otherwise silently discard it.
-  function reRenderFitmentGatedGroups() {
-    FIELD_GROUPS.slice(1).forEach((group, i) => {
-      if (!group.fields.some(f => f.relevantFitment)) return;
-      const container = document.getElementById(`fieldGroupCard_${i}`);
-      if (!container) return;
-      container.querySelectorAll("[data-field]").forEach(el => { _vehicle[el.dataset.field] = el.value; });
-      container.innerHTML = renderFieldGroupInner(group, _vehicle);
-      group.fields
-        .filter(f => f.photoCategory && fieldRelevantForFitment(f, _vehicle.fitment_type))
-        .forEach(f => renderPhotoStrip(f.photoCategory));
-      window.lucide?.createIcons?.();
-    });
   }
 
   function fieldInput(f, v) {
@@ -234,8 +120,8 @@
   // Editing an existing vehicle uploads/deletes photos immediately (the
   // vehicle_id already exists). Adding a new one stages File objects locally
   // (with an instant local preview) and uploads them right after the vehicle
-  // row is created in onSubmit — storage paths are keyed by vehicle_id, which
-  // doesn't exist yet.
+  // row is created on final submit — storage paths are keyed by vehicle_id,
+  // which doesn't exist yet.
   async function renderPhotoStrip(category) {
     const container = document.getElementById(`photoStrip_${category}`);
     if (!container) return;
@@ -312,8 +198,9 @@
   // Standard vs facelift, then a front photo, then a back photo — captured
   // together since a facelift usually changes the front/rear styling, so the
   // photos only make sense once you know which variant they're showing.
-  // Renders in isolation (its own container) rather than via the full-form
-  // draw(), so it never wipes out anything the manager has typed elsewhere.
+  // Renders in isolation (its own container) rather than via a full-page
+  // draw, so it never wipes out anything typed elsewhere. Shared by the edit
+  // form and the add wizard's Body Variant step.
   async function renderBodyVariantSummary() {
     const container = document.getElementById("bodyVariantSummary");
     if (!container) return;
@@ -550,6 +437,105 @@
     }
   }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     EDIT MODE — one long page, unchanged from before. A manager editing an
+     existing, already-fully-formed vehicle benefits from seeing everything
+     at once far more than from being marched through steps for data that's
+     usually just one or two fields being corrected.
+     ══════════════════════════════════════════════════════════════════════ */
+  function drawEditForm() {
+    const v = _vehicle;
+
+    const html = `
+      <a class="back-link" href="${BASE}/vehicle-detail.html?id=${esc(vehicleId)}"><i data-lucide="arrow-left"></i> Back to vehicle</a>
+      <div class="page-head"><div><h2>Edit Vehicle</h2><p>Registration identifies the vehicle; everything else is install reference data for engineers.</p></div></div>
+
+      <form id="vehForm">
+        <div class="section-header"><div class="section-header-icon"><i data-lucide="id-card"></i></div><h3>Vehicle Identity</h3></div>
+        <div class="card" style="margin-bottom:24px">
+          <div class="vform-row" style="margin-bottom:20px">
+            <label class="form-label" for="f_registration">Registration *</label>
+            <div style="display:flex;gap:8px;align-items:stretch">
+              <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase;flex:1" value="${esc(v.registration || "")}" placeholder="e.g. AB12 CDE" autocomplete="off" required/>
+              <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> Reg Lookup</button>
+            </div>
+            <p class="text-muted" style="font-size:12px;margin-top:8px">Finish typing (or click away from) the registration and it'll check MOT history automatically — the button forces a re-check.</p>
+            <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:2px"></p>
+            <div id="dupStatus"></div>
+          </div>
+
+          <div class="vform-grid">
+            ${fieldInput({ key: "make", label: "Make" }, v)}
+            ${fieldInput({ key: "model", label: "Model" }, v)}
+            ${fieldInput({ key: "year_of_manufacture", label: "Year", type: "number" }, v)}
+            ${fieldInput({ key: "fuel_type", label: "Fuel Type" }, v)}
+          </div>
+
+          <div class="vform-row" style="margin-top:20px">
+            <label class="form-label">Body Variant *</label>
+            <p class="text-muted" style="font-size:12px;margin:0 0 10px">Standard or facelift, plus a front and back photo — a facelift usually changes how the front/rear look, so this makes the photos meaningful on their own.</p>
+            <div id="bodyVariantSummary"></div>
+          </div>
+
+          <div class="vform-row" style="margin-top:20px">
+            <label class="form-label">Fitment *</label>
+            <p class="text-muted" style="font-size:12px;margin:0 0 10px">What's being fitted — wiring and component locations differ by this, so an engineer searching later can find the right install guide.</p>
+            <div class="pill-row" id="fitmentTypeRow">
+              ${FITMENT_TYPES.map(ft => `<button type="button" class="pill ${v.fitment_type === ft.key ? "active" : ""}" data-fitment="${esc(ft.key)}">${esc(ft.label)}</button>`).join("")}
+            </div>
+          </div>
+        </div>
+
+        ${FIELD_GROUPS.slice(1).map((group, i) => `
+          <div class="section-header"><div class="section-header-icon"><i data-lucide="${groupIcon(group.title)}"></i></div><h3>${esc(group.title)}</h3></div>
+          <div class="card" style="margin-bottom:24px" id="fieldGroupCard_${i}">
+            ${renderFieldGroupInner(group, v)}
+          </div>
+        `).join("")}
+
+        <button type="submit" class="btn btn-primary" id="saveBtn"><i data-lucide="save"></i> Save Changes</button>
+      </form>
+    `;
+    setInner("body", html);
+
+    document.getElementById("lookupBtn").addEventListener("click", () => doLookup());
+    document.getElementById("vehForm").addEventListener("submit", onSubmit);
+    wireRegistrationAutoLookup();
+
+    document.querySelectorAll("#fitmentTypeRow [data-fitment]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _vehicle.fitment_type = btn.dataset.fitment;
+        document.querySelectorAll("#fitmentTypeRow [data-fitment]").forEach(b => b.classList.toggle("active", b === btn));
+        reRenderFitmentGatedGroups();
+      });
+    });
+
+    FIELD_GROUPS.flatMap(g => g.fields).filter(f => f.photoCategory).forEach(f => renderPhotoStrip(f.photoCategory));
+    renderBodyVariantSummary();
+  }
+
+  // Only Component Placement currently has any fitment-gated fields
+  // (Lightfoot's Driver ID / B&P Button locations), but this re-renders
+  // whichever group cards actually contain one, so it stays correct if that
+  // ever changes. Reads back whatever's already typed in that group first —
+  // rebuilding its HTML would otherwise silently discard it. Edit-mode only:
+  // the add wizard doesn't need this since Fitment is its own earlier step,
+  // so Component Placement is always rendered fresh with the right fitment
+  // already known.
+  function reRenderFitmentGatedGroups() {
+    FIELD_GROUPS.slice(1).forEach((group, i) => {
+      if (!group.fields.some(f => f.relevantFitment)) return;
+      const container = document.getElementById(`fieldGroupCard_${i}`);
+      if (!container) return;
+      container.querySelectorAll("[data-field]").forEach(el => { _vehicle[el.dataset.field] = el.value; });
+      container.innerHTML = renderFieldGroupInner(group, _vehicle);
+      group.fields
+        .filter(f => f.photoCategory && fieldRelevantForFitment(f, _vehicle.fitment_type))
+        .forEach(f => renderPhotoStrip(f.photoCategory));
+      window.lucide?.createIcons?.();
+    });
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
     const registration = document.getElementById("f_registration").value.trim();
@@ -581,11 +567,306 @@
     const btn = document.getElementById("saveBtn");
     btn.disabled = true;
     try {
-      if (isEdit) {
-        await updateVehicle(vehicleId, patch, _profile.id);
-        toast("success", "Vehicle updated");
-        window.location.href = `${BASE}/vehicle-detail.html?id=${vehicleId}`;
-      } else if (_canDirectCreate) {
+      await updateVehicle(vehicleId, patch, _profile.id);
+      toast("success", "Vehicle updated");
+      window.location.href = `${BASE}/vehicle-detail.html?id=${vehicleId}`;
+    } catch (e2) {
+      btn.disabled = false;
+      const message = /duplicate key.*registration/i.test(e2.message) ? "A vehicle with this registration already exists." : e2.message;
+      toast("error", "Couldn't save", message);
+    }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     ADD MODE — a real step-by-step wizard. One thing at a time, a clear
+     progress indicator, and nothing to scroll past to find what's next.
+     Each step persists whatever's on screen into _vehicle before moving on,
+     so nothing typed is ever lost switching steps back and forth.
+     ══════════════════════════════════════════════════════════════════════ */
+  let _stepIndex = 0;
+  let _autoOpenedConfigure = false;
+
+  const ADD_STEPS = [
+    {
+      title: "Registration", icon: "id-card",
+      blurb: "Start with the plate — we'll pull make, model, year and fuel type from MOT history automatically.",
+      render: renderStepReg, wire: wireStepReg,
+      validate: () => !!(_vehicle.registration || "").trim(),
+      validateError: "Enter a registration first",
+    },
+    {
+      title: "Vehicle Details", icon: "car",
+      blurb: "Filled in automatically where possible — check them over and adjust anything that's missing or wrong.",
+      render: renderStepDetails,
+    },
+    {
+      title: "Body Variant", icon: "settings-2",
+      blurb: "Standard or facelift, plus a front and back photo — wiring can differ between them, so this makes the photos meaningful on their own.",
+      render: renderStepVariant, wire: wireStepVariant,
+      validate: () => !!_vehicle.body_variant,
+      validateError: "Select Standard or Facelift with front/back photos first",
+    },
+    {
+      title: "Fitment", icon: "wrench",
+      blurb: "What's being fitted — wiring and component locations differ by this, so an engineer searching later finds the right install guide.",
+      render: renderStepFitment, wire: wireStepFitment,
+      validate: () => !!_vehicle.fitment_type,
+      validateError: "Select OBD Tracker, Lightfoot, or 3 Wire Tracker/Camera first",
+    },
+    {
+      title: "Wiring & Electrical", icon: "zap",
+      blurb: "Leave anything blank you don't know yet — it can always be filled in later.",
+      render: () => renderFieldGroupInner(FIELD_GROUPS[1], _vehicle),
+      wire: () => wireFieldGroupPhotos(FIELD_GROUPS[1]),
+    },
+    {
+      title: "Component Placement", icon: "map-pin",
+      blurb: "Best-known locations for cameras, dashcams and trackers.",
+      render: () => renderFieldGroupInner(FIELD_GROUPS[2], _vehicle),
+      wire: () => wireFieldGroupPhotos(FIELD_GROUPS[2]),
+    },
+    {
+      title: "Install Notes", icon: "clipboard-list",
+      blurb: "Anything else worth knowing for next time.",
+      render: () => renderFieldGroupInner(FIELD_GROUPS[3], _vehicle),
+      wire: () => wireFieldGroupPhotos(FIELD_GROUPS[3]),
+    },
+    {
+      title: "Review & Submit", icon: "check-circle",
+      blurb: null,
+      render: renderStepReview,
+    },
+  ];
+
+  function drawAddWizard() {
+    if (prefillMake && !_vehicle.make) _vehicle.make = prefillMake;
+    if (prefillModel && !_vehicle.model) _vehicle.model = prefillModel;
+    if (prefillYear && !_vehicle.year_of_manufacture) _vehicle.year_of_manufacture = Number(prefillYear);
+    if (prefillFitment && !_vehicle.fitment_type) _vehicle.fitment_type = prefillFitment;
+    // Arrived from an "Add Facelift/Standard Version" prompt — make/model/
+    // year/reg are already known, so jump straight to the one thing left.
+    if (prefillVariant) _stepIndex = ADD_STEPS.findIndex(s => s.title === "Body Variant");
+
+    const html = `
+      <a class="back-link" href="${BASE}/index.html"><i data-lucide="arrow-left"></i> Back to search</a>
+      <div class="page-head"><div>
+        <h2>${_canDirectCreate ? "Add Vehicle" : "Suggest a New Vehicle"}</h2>
+        <p>${_canDirectCreate ? "A few quick steps to get it into the database." : "A few quick steps — a Senior Regional Engineering Manager will review before it's added."}</p>
+      </div></div>
+
+      <div id="wizProgress" style="margin-bottom:24px"></div>
+
+      <div id="vehForm">
+        <div class="section-header" id="wizSectionHeader"></div>
+        <div class="card" id="wizStepCard" style="margin-bottom:22px"></div>
+        <div style="display:flex;justify-content:space-between;gap:10px">
+          <button type="button" class="btn" id="wizBackBtn"><i data-lucide="arrow-left"></i> Back</button>
+          <button type="button" class="btn btn-primary" id="wizNextBtn">Continue <i data-lucide="arrow-right"></i></button>
+        </div>
+      </div>
+    `;
+    setInner("body", html);
+
+    document.getElementById("wizBackBtn").addEventListener("click", () => goToStep(_stepIndex - 1));
+    document.getElementById("wizNextBtn").addEventListener("click", () => {
+      if (_stepIndex === ADD_STEPS.length - 1) submitWizard();
+      else goToStep(_stepIndex + 1);
+    });
+
+    renderCurrentStep();
+  }
+
+  function renderProgress() {
+    const el = document.getElementById("wizProgress");
+    if (!el) return;
+    const pct = Math.round(((_stepIndex + 1) / ADD_STEPS.length) * 100);
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px">
+        <span style="font-size:12.5px;font-weight:700;color:var(--text2)">Step ${_stepIndex + 1} of ${ADD_STEPS.length}</span>
+        <span style="font-size:12px;color:var(--text3)">${pct}%</span>
+      </div>
+      <div style="height:6px;border-radius:999px;background:var(--card2);overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:999px;transition:width .3s ease"></div>
+      </div>`;
+  }
+
+  function renderCurrentStep() {
+    renderProgress();
+    const step = ADD_STEPS[_stepIndex];
+
+    document.getElementById("wizSectionHeader").innerHTML = `
+      <div class="section-header-icon"><i data-lucide="${step.icon}"></i></div>
+      <h3>${esc(step.title)}</h3>`;
+
+    const card = document.getElementById("wizStepCard");
+    card.innerHTML = (step.blurb ? `<p class="text-muted" style="font-size:13px;margin:0 0 16px">${esc(step.blurb)}</p>` : "") + step.render();
+    step.wire?.();
+
+    document.getElementById("wizBackBtn").style.visibility = _stepIndex === 0 ? "hidden" : "visible";
+    const isLast = _stepIndex === ADD_STEPS.length - 1;
+    document.getElementById("wizNextBtn").innerHTML = isLast
+      ? `<i data-lucide="${_canDirectCreate ? "save" : "send"}"></i> ${_canDirectCreate ? "Add Vehicle" : "Submit for Review"}`
+      : `Continue <i data-lucide="arrow-right"></i>`;
+
+    window.lucide?.createIcons?.();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  // Reads back whatever's currently on screen into _vehicle before the step
+  // card gets replaced — each step only exists in the DOM while it's the
+  // one showing, so this is the only place values are persisted.
+  function syncCurrentStepFields() {
+    const card = document.getElementById("wizStepCard");
+    if (!card) return;
+    const regInput = card.querySelector("#f_registration");
+    if (regInput) _vehicle.registration = regInput.value.trim();
+    card.querySelectorAll("[data-field]").forEach(el => { _vehicle[el.dataset.field] = el.value; });
+  }
+
+  function goToStep(newIndex) {
+    if (newIndex < 0 || newIndex >= ADD_STEPS.length) return;
+    syncCurrentStepFields();
+    if (newIndex > _stepIndex) {
+      const step = ADD_STEPS[_stepIndex];
+      if (step.validate && !step.validate()) {
+        toast("error", step.validateError || "Please complete this step first");
+        return;
+      }
+    }
+    _stepIndex = newIndex;
+    renderCurrentStep();
+  }
+
+  function wireFieldGroupPhotos(group) {
+    group.fields
+      .filter(f => f.photoCategory && fieldRelevantForFitment(f, _vehicle.fitment_type))
+      .forEach(f => renderPhotoStrip(f.photoCategory));
+  }
+
+  function renderStepReg() {
+    const v = _vehicle;
+    return `
+      <div class="vform-row">
+        <label class="form-label" for="f_registration">Registration *</label>
+        <div style="display:flex;gap:8px;align-items:stretch">
+          <input type="text" id="f_registration" class="form-input" style="text-transform:uppercase;flex:1" value="${esc(v.registration || prefillReg)}" placeholder="e.g. AB12 CDE" autocomplete="off" required/>
+          <button type="button" class="btn" id="lookupBtn" style="white-space:nowrap"><i data-lucide="search"></i> Reg Lookup</button>
+        </div>
+        <p class="text-muted" style="font-size:12px;margin-top:8px">Finish typing (or click away from) the registration and it'll check MOT history automatically — the button forces a re-check.</p>
+        <p class="text-muted" id="lookupStatus" style="font-size:12px;margin-top:2px"></p>
+        <div id="dupStatus"></div>
+      </div>`;
+  }
+  function wireStepReg() {
+    document.getElementById("lookupBtn").addEventListener("click", () => doLookup());
+    wireRegistrationAutoLookup();
+    document.getElementById("f_registration").addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); document.getElementById("wizNextBtn").click(); }
+    });
+    if ((_vehicle.registration || prefillReg) && !isEdit) handleRegistrationTyped(_vehicle.registration || prefillReg);
+  }
+
+  function renderStepDetails() {
+    const v = _vehicle;
+    return `<div class="vform-grid">
+      ${fieldInput({ key: "make", label: "Make" }, v)}
+      ${fieldInput({ key: "model", label: "Model" }, v)}
+      ${fieldInput({ key: "year_of_manufacture", label: "Year", type: "number" }, v)}
+      ${fieldInput({ key: "fuel_type", label: "Fuel Type" }, v)}
+    </div>`;
+  }
+
+  function renderStepVariant() {
+    return `<div id="bodyVariantSummary"></div>`;
+  }
+  function wireStepVariant() {
+    renderBodyVariantSummary();
+    if (prefillVariant && !_vehicle.body_variant && !_autoOpenedConfigure) {
+      _autoOpenedConfigure = true;
+      openConfigureWizard();
+    }
+  }
+
+  function renderStepFitment() {
+    const v = _vehicle;
+    return `<div class="pill-row" id="fitmentTypeRow" style="display:flex">
+      ${FITMENT_TYPES.map(ft => `<button type="button" class="pill ${v.fitment_type === ft.key ? "active" : ""}" data-fitment="${esc(ft.key)}">${esc(ft.label)}</button>`).join("")}
+    </div>`;
+  }
+  function wireStepFitment() {
+    document.querySelectorAll("#fitmentTypeRow [data-fitment]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _vehicle.fitment_type = btn.dataset.fitment;
+        document.querySelectorAll("#fitmentTypeRow [data-fitment]").forEach(b => b.classList.toggle("active", b === btn));
+      });
+    });
+  }
+
+  function renderStepReview() {
+    const v = _vehicle;
+    const variantLabel = BODY_VARIANTS.find(b => b.key === v.body_variant)?.label || "—";
+    const fitmentLabel = FITMENT_TYPES.find(f => f.key === v.fitment_type)?.label || "—";
+    const rows = [
+      ["Registration", (v.registration || "").toUpperCase() || "—"],
+      ["Make / Model", [v.make, v.model].filter(Boolean).join(" ") || "—"],
+      ["Year", v.year_of_manufacture || "—"],
+      ["Fuel Type", v.fuel_type || "—"],
+      ["Body Variant", variantLabel],
+      ["Fitment", fitmentLabel],
+    ];
+    return `
+      <p class="text-muted" style="font-size:13px;margin:0 0 16px">Check the essentials below, then ${_canDirectCreate ? "add the vehicle" : "submit it for review"}. Everything else you filled in is included too.</p>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        ${rows.map(([label, value]) => `
+          <div style="display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--line2);font-size:13.5px">
+            <span style="color:var(--text3);font-weight:600">${esc(label)}</span>
+            <span style="font-weight:700;text-align:right">${esc(String(value))}</span>
+          </div>`).join("")}
+      </div>`;
+  }
+
+  function buildPatchFromVehicle() {
+    const patch = {
+      registration: (_vehicle.registration || "").trim(),
+      body_variant: _vehicle.body_variant,
+      fitment_type: _vehicle.fitment_type,
+    };
+    FIELD_GROUPS.flatMap(g => g.fields).forEach(f => {
+      if (f.key === "registration") return;
+      const raw = _vehicle[f.key];
+      if (raw == null || raw === "") { patch[f.key] = null; return; }
+      const val = typeof raw === "string" ? raw.trim() : raw;
+      patch[f.key] = f.type === "number" ? (val === "" ? null : Number(val)) : (val || null);
+    });
+    if (_vehicle.lookup_raw) {
+      patch.lookup_raw = _vehicle.lookup_raw;
+      patch.lookup_looked_up_at = _vehicle.lookup_looked_up_at;
+    }
+    return patch;
+  }
+
+  async function submitWizard() {
+    if (!(_vehicle.registration || "").trim()) {
+      toast("error", "Registration is required");
+      goToStep(ADD_STEPS.findIndex(s => s.title === "Registration"));
+      return;
+    }
+    if (!_vehicle.body_variant) {
+      toast("error", "Body Variant is required");
+      goToStep(ADD_STEPS.findIndex(s => s.title === "Body Variant"));
+      return;
+    }
+    if (!_vehicle.fitment_type) {
+      toast("error", "Fitment is required");
+      goToStep(ADD_STEPS.findIndex(s => s.title === "Fitment"));
+      return;
+    }
+
+    const patch = buildPatchFromVehicle();
+    const btn = document.getElementById("wizNextBtn");
+    btn.disabled = true;
+    try {
+      if (_canDirectCreate) {
         const created = await createVehicle(patch, _profile.id);
         for (const p of _stagedPhotos) {
           try { await uploadVehiclePhoto(created.id, p.category, p.file, _profile.id); }
