@@ -22,16 +22,19 @@ async function uploadWithRetry(path, file) {
 // ── Field + category definitions (shared across every page so the form,
 // detail view, and diff view can never drift out of sync) ──────────────────
 export const PHOTO_CATEGORIES = [
-  { key: "front",              label: "Front of Vehicle" },
-  { key: "back",               label: "Back of Vehicle" },
-  { key: "ignition_wire",      label: "Ignition Wire Location" },
-  { key: "permanent_wire",     label: "Permanent Wire Location" },
-  { key: "earth_point",        label: "Earth Point" },
-  { key: "airbag",             label: "Airbag Location" },
-  { key: "adas_camera",        label: "ADAS Camera Position" },
-  { key: "dashcam_mounting",   label: "Dashcam Mounting Location" },
-  { key: "tracker_mounting",   label: "Tracker Mounting Location" },
-  { key: "general",            label: "General / Other" },
+  { key: "front",                label: "Front of Vehicle" },
+  { key: "back",                 label: "Back of Vehicle" },
+  { key: "ignition_wire",        label: "Ignition Wire Location" },
+  { key: "permanent_wire",       label: "Permanent Wire Location" },
+  { key: "fms_plug",             label: "FMS Plug Location" },
+  { key: "earth_point",          label: "Earth Point" },
+  { key: "airbag",               label: "Airbag Location" },
+  { key: "adas_camera",          label: "ADAS Camera Position" },
+  { key: "dashcam_mounting",     label: "Dashcam Mounting Location" },
+  { key: "tracker_mounting",     label: "Tracker Mounting Location" },
+  { key: "lightfoot_driver_id",  label: "Lightfoot Driver ID Location" },
+  { key: "lightfoot_bp_button",  label: "Lightfoot B&P Button Location" },
+  { key: "general",              label: "General / Other" },
 ];
 
 // A vehicle's body variant matters because a facelift usually changes the
@@ -40,6 +43,15 @@ export const PHOTO_CATEGORIES = [
 export const BODY_VARIANTS = [
   { key: "standard", label: "Standard" },
   { key: "facelift", label: "Facelift" },
+];
+
+// What's being fitted — wiring and component locations genuinely differ by
+// this, the same way they differ by Body Variant, so it's required at
+// creation and searchable alongside make/model/year.
+export const FITMENT_TYPES = [
+  { key: "obd_tracker",                label: "OBD Tracker" },
+  { key: "lightfoot",                  label: "Lightfoot" },
+  { key: "three_wire_tracker_camera",  label: "3 Wire Tracker/Camera" },
 ];
 
 export const FIELD_GROUPS = [
@@ -61,6 +73,7 @@ export const FIELD_GROUPS = [
       { key: "ignition_wire_colour",   label: "Ignition Wire Colour" },
       { key: "ignition_wire_location", label: "Ignition Wire — Exact Location", type: "textarea", photoCategory: "ignition_wire" },
       { key: "fuse_tap_options",       label: "Permanent Wire — Exact Location", type: "textarea", photoCategory: "permanent_wire" },
+      { key: "fms_plug_location",      label: "FMS Plug Location", type: "textarea", photoCategory: "fms_plug" },
       { key: "can_high_colour",        label: "CAN High Colour" },
       { key: "can_low_colour",         label: "CAN Low Colour" },
       { key: "earth_point_location",   label: "Earth Point Location", type: "textarea", photoCategory: "earth_point" },
@@ -70,10 +83,12 @@ export const FIELD_GROUPS = [
     title: "Component Placement",
     color: "purple",
     fields: [
-      { key: "airbag_location",           label: "Airbag Location(s)", type: "textarea", photoCategory: "airbag" },
-      { key: "adas_camera_position",      label: "ADAS Camera Position", type: "textarea", photoCategory: "adas_camera" },
-      { key: "dashcam_mounting_location", label: "Best Dashcam Mounting Location", type: "textarea", photoCategory: "dashcam_mounting" },
-      { key: "tracker_mounting_location", label: "Best Tracker Mounting Location", type: "textarea", photoCategory: "tracker_mounting" },
+      { key: "airbag_location",              label: "Airbag Location(s)", type: "textarea", photoCategory: "airbag" },
+      { key: "adas_camera_position",         label: "ADAS Camera Position", type: "textarea", photoCategory: "adas_camera" },
+      { key: "dashcam_mounting_location",    label: "Best Dashcam Mounting Location", type: "textarea", photoCategory: "dashcam_mounting" },
+      { key: "tracker_mounting_location",    label: "Best Tracker Mounting Location", type: "textarea", photoCategory: "tracker_mounting" },
+      { key: "lightfoot_driver_id_location", label: "Lightfoot — Driver ID Location", type: "textarea", photoCategory: "lightfoot_driver_id" },
+      { key: "lightfoot_bp_button_location", label: "Lightfoot — B&P Button Exact Location", type: "textarea", photoCategory: "lightfoot_bp_button" },
     ],
   },
   {
@@ -90,6 +105,7 @@ export const ALL_FIELD_KEYS = FIELD_GROUPS.flatMap(g => g.fields.map(f => f.key)
 
 export function fieldLabel(key) {
   if (key === "body_variant") return "Body Variant";
+  if (key === "fitment_type") return "Fitment";
   for (const g of FIELD_GROUPS) {
     const f = g.fields.find(x => x.key === key);
     if (f) return f.label;
@@ -241,11 +257,73 @@ export async function removeVehicleRegistration(id) {
   if (error) throw error;
 }
 
-export async function searchVehiclesByMakeModelYear({ make, model, year } = {}) {
+// ── Install points (some vehicles have more than one pickup/mounting point —
+// a free-form repeatable list alongside the fixed location fields) ─────────
+export async function listInstallPoints(vehicleId) {
+  const { data, error } = await vdb()
+    .from("vdb_install_points")
+    .select("*")
+    .eq("vehicle_id", vehicleId)
+    .order("created_at");
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createInstallPoint(vehicleId, { label, description }, createdByEmployeeId) {
+  const { data, error } = await vdb()
+    .from("vdb_install_points")
+    .insert({ vehicle_id: vehicleId, label: label.trim(), description: description?.trim() || null, created_by: createdByEmployeeId })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteInstallPoint(id) {
+  const { error } = await vdb().from("vdb_install_points").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function listInstallPointPhotos(installPointId) {
+  const { data, error } = await vdb()
+    .from("vdb_install_point_photos")
+    .select("*")
+    .eq("install_point_id", installPointId)
+    .order("uploaded_at");
+  if (error) throw error;
+  return data || [];
+}
+
+// Stored under the same '<vehicle_id>/...' prefix as every other approved
+// vehicle photo (just nested under points/<install_point_id>/) so it's
+// covered by the existing storage policies with no changes needed there.
+export async function uploadInstallPointPhoto(vehicleId, installPointId, file, uploadedByEmployeeId) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const path = `${vehicleId}/points/${installPointId}/${crypto.randomUUID()}.${ext}`;
+
+  await uploadWithRetry(path, file);
+
+  const { data, error } = await vdb()
+    .from("vdb_install_point_photos")
+    .insert({ install_point_id: installPointId, storage_path: path, uploaded_by: uploadedByEmployeeId })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteInstallPointPhoto(photoId, storagePath) {
+  await sb().storage.from(PHOTO_BUCKET).remove([storagePath]);
+  const { error } = await vdb().from("vdb_install_point_photos").delete().eq("id", photoId);
+  if (error) throw error;
+}
+
+export async function searchVehiclesByMakeModelYear({ make, model, year, fitmentType } = {}) {
   let builder = vdb().from("vdb_vehicles").select("*").order("updated_at", { ascending: false });
   if (make) builder = builder.ilike("make", `%${make.trim()}%`);
   if (model) builder = builder.ilike("model", `%${model.trim()}%`);
   if (year) builder = builder.eq("year_of_manufacture", Number(year));
+  if (fitmentType) builder = builder.eq("fitment_type", fitmentType);
   const { data, error } = await builder.limit(50);
   if (error) throw error;
   return data || [];
@@ -527,6 +605,15 @@ export async function lookupRegistration(registration) {
 // to power a leaderboard everyone can see. Returns [{ employee_id, request_count }].
 export async function listChangeRequestLeaderboard() {
   const { data, error } = await vdb().rpc("vdb_change_request_leaderboard");
+  if (error) throw error;
+  return data || [];
+}
+
+// ── Approval leaderboard — ranks managers/admins by how many requests
+// they've approved, so review workload doesn't quietly pile onto one person.
+// Same SECURITY DEFINER pattern as above. Returns [{ employee_id, approval_count }].
+export async function listApprovalLeaderboard() {
+  const { data, error } = await vdb().rpc("vdb_approval_leaderboard");
   if (error) throw error;
   return data || [];
 }

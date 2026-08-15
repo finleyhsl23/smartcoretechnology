@@ -33,7 +33,7 @@
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
   import {
     getVehicle, createVehicle, updateVehicle, lookupRegistration, getVehicleByRegistration, FIELD_GROUPS,
-    listVehiclePhotos, uploadVehiclePhoto, deleteVehiclePhoto, getPhotoUrl, BODY_VARIANTS,
+    listVehiclePhotos, uploadVehiclePhoto, deleteVehiclePhoto, getPhotoUrl, BODY_VARIANTS, FITMENT_TYPES,
     createNewVehicleRequest, uploadRequestPhoto,
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
@@ -50,6 +50,7 @@
   const prefillModel = params.get("model") || "";
   const prefillYear = params.get("year") || "";
   const prefillVariant = params.get("variant") || "";
+  const prefillFitment = params.get("fitment") || "";
   let _profile, _tier, _vehicle = {};
   let _existingPhotos = [];
   let _stagedPhotos = []; // add mode only: [{ id, category, file, previewUrl }] uploaded after createVehicle/request succeeds
@@ -96,6 +97,7 @@
       if (prefillMake && !v.make) v.make = prefillMake;
       if (prefillModel && !v.model) v.model = prefillModel;
       if (prefillYear && !v.year_of_manufacture) v.year_of_manufacture = Number(prefillYear);
+      if (prefillFitment && !v.fitment_type) v.fitment_type = prefillFitment;
     }
     const pageTitle = isEdit ? "Edit Vehicle" : (_canDirectCreate ? "Add Vehicle" : "Suggest a New Vehicle");
     const pageIntro = isEdit
@@ -134,6 +136,14 @@
             <p class="text-muted" style="font-size:12px;margin:0 0 10px">Standard or facelift, plus a front and back photo — a facelift usually changes how the front/rear look, so this makes the photos meaningful on their own.</p>
             <div id="bodyVariantSummary"></div>
           </div>
+
+          <div class="vform-row" style="margin-top:20px">
+            <label class="form-label">Fitment *</label>
+            <p class="text-muted" style="font-size:12px;margin:0 0 10px">What's being fitted — wiring and component locations differ by this, so an engineer searching later can find the right install guide.</p>
+            <div class="pill-row" id="fitmentTypeRow">
+              ${FITMENT_TYPES.map(ft => `<button type="button" class="pill ${v.fitment_type === ft.key ? "active" : ""}" data-fitment="${esc(ft.key)}">${esc(ft.label)}</button>`).join("")}
+            </div>
+          </div>
         </div>
 
         ${FIELD_GROUPS.slice(1).map(group => `
@@ -153,6 +163,13 @@
     document.getElementById("lookupBtn").addEventListener("click", () => doLookup());
     document.getElementById("vehForm").addEventListener("submit", onSubmit);
     wireRegistrationAutoLookup();
+
+    document.querySelectorAll("#fitmentTypeRow [data-fitment]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _vehicle.fitment_type = btn.dataset.fitment;
+        document.querySelectorAll("#fitmentTypeRow [data-fitment]").forEach(b => b.classList.toggle("active", b === btn));
+      });
+    });
 
     FIELD_GROUPS.flatMap(g => g.fields).filter(f => f.photoCategory).forEach(f => renderPhotoStrip(f.photoCategory));
     renderBodyVariantSummary();
@@ -518,8 +535,12 @@
       toast("error", "Body Variant is required", "Press Configure and select Standard or Facelift with front/back photos first.");
       return;
     }
+    if (!_vehicle.fitment_type) {
+      toast("error", "Fitment is required", "Select OBD Tracker, Lightfoot, or 3 Wire Tracker/Camera first.");
+      return;
+    }
 
-    const patch = { registration, body_variant: _vehicle.body_variant };
+    const patch = { registration, body_variant: _vehicle.body_variant, fitment_type: _vehicle.fitment_type };
     document.querySelectorAll("[data-field]").forEach(el => {
       const key = el.dataset.field;
       let val = el.value.trim();

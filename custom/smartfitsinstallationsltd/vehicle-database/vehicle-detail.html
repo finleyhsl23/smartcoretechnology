@@ -33,8 +33,10 @@
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
   import {
     getVehicle, deleteVehicle, listVehiclePhotos, getPhotoUrl, uploadVehiclePhoto, deleteVehiclePhoto,
-    listEditRequestsForVehicle, FIELD_GROUPS, categoryLabel, BODY_VARIANTS,
+    listEditRequestsForVehicle, FIELD_GROUPS, categoryLabel, BODY_VARIANTS, FITMENT_TYPES,
     listVehicleRegistrations, addVehicleRegistration, removeVehicleRegistration, getEmployeesByIds,
+    listInstallPoints, createInstallPoint, deleteInstallPoint,
+    listInstallPointPhotos, uploadInstallPointPhoto, deleteInstallPointPhoto,
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
@@ -44,7 +46,7 @@
   const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
   const params = new URLSearchParams(location.search);
   const vehicleId = params.get("id");
-  let _profile, _tier, _vehicle, _photos = [], _registrations = [], _regEmployees = [];
+  let _profile, _tier, _vehicle, _photos = [], _registrations = [], _regEmployees = [], _installPoints = [];
 
   try {
     const { profile, tier } = await requireModuleAccess();
@@ -67,11 +69,12 @@
   async function render() {
     setInner("body", loadingState("Loading vehicle…"));
     try {
-      const [vehicle, photos, openRequests, registrations] = await Promise.all([
+      const [vehicle, photos, openRequests, registrations, installPoints] = await Promise.all([
         getVehicle(vehicleId),
         listVehiclePhotos(vehicleId),
         (_tier === "owner_admin" || _tier === "manager") ? listEditRequestsForVehicle(vehicleId) : [],
         listVehicleRegistrations(vehicleId),
+        listInstallPoints(vehicleId),
       ]);
       if (!vehicle) {
         setInner("body", errorState({ title: "Vehicle not found", message: "It may have been deleted." }));
@@ -80,6 +83,7 @@
       _vehicle = vehicle;
       _photos = photos;
       _registrations = registrations;
+      _installPoints = installPoints;
       _regEmployees = await getEmployeesByIds(registrations.map(r => r.added_by).filter(Boolean));
       document.getElementById("pageTitle").textContent = [vehicle.make, vehicle.model].filter(Boolean).join(" ") || vehicle.registration;
       draw(openRequests.filter(r => r.status === "pending").length);
@@ -98,7 +102,8 @@
       <div class="page-head">
         <div>
           ${v.body_variant ? `<span class="badge badge-blue">${esc(BODY_VARIANTS.find(b => b.key === v.body_variant)?.label || v.body_variant)}</span>` : ""}
-          <h2 style="margin-top:${v.body_variant ? "10px" : "0"}">${esc(title)}</h2>
+          ${v.fitment_type ? `<span class="badge badge-blue" style="margin-left:6px">${esc(FITMENT_TYPES.find(f => f.key === v.fitment_type)?.label || v.fitment_type)}</span>` : ""}
+          <h2 style="margin-top:${v.body_variant || v.fitment_type ? "10px" : "0"}">${esc(title)}</h2>
           <p>${[v.year_of_manufacture, v.fuel_type].filter(Boolean).map(esc).join(" · ") || "No further identity details recorded."}</p>
         </div>
         <div class="page-head-actions">
@@ -157,6 +162,13 @@
       </div>
 
       <div class="section-header">
+        <div class="section-header-icon"><i data-lucide="map-pin"></i></div>
+        <h3>Additional Install Points</h3>
+      </div>
+      <p class="text-muted" style="margin:-10px 0 14px;font-size:13px">Some vehicles have more than one pickup or mounting point — log any extras here alongside the fixed locations above.</p>
+      <div id="installPointsSection" style="margin-bottom:24px"></div>
+
+      <div class="section-header">
         <div class="section-header-icon"><i data-lucide="hash"></i></div>
         <h3>Registration History</h3>
       </div>
@@ -168,6 +180,7 @@
     setInner("body", html);
     renderAllPhotoBlocks(isManagerOrAbove);
     renderRegistrationsSection(isManagerOrAbove);
+    renderInstallPointsSection(isManagerOrAbove);
 
     document.getElementById("deleteBtn")?.addEventListener("click", () => {
       confirmDialog(
@@ -334,6 +347,139 @@
       } catch (e) {
         const message = /duplicate key/i.test(e.message) ? "That registration is already logged — it may already be used on another vehicle." : e.message;
         toast("error", "Couldn't add", message);
+      }
+    });
+  }
+
+  async function renderInstallPointsSection(isManagerOrAbove) {
+    const container = document.getElementById("installPointsSection");
+    if (!container) return;
+    container.innerHTML = loadingState("Loading install points…");
+
+    const pointsWithPhotos = await Promise.all(_installPoints.map(async p => ({
+      ...p,
+      photos: await listInstallPointPhotos(p.id).catch(() => []),
+    })));
+
+    container.innerHTML = `
+      <div class="card">
+        ${pointsWithPhotos.length ? pointsWithPhotos.map(p => `
+          <div style="padding:12px 0;border-bottom:1px solid var(--line2)">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+              <div>
+                <div style="font-weight:700;font-size:14px">${esc(p.label)}</div>
+                ${p.description ? `<div class="text-muted" style="font-size:13px;margin-top:2px;white-space:pre-line">${esc(p.description)}</div>` : ""}
+              </div>
+              ${isManagerOrAbove ? `<button type="button" class="btn" data-remove-point="${esc(p.id)}" style="padding:5px 10px;flex-shrink:0" title="Remove"><i data-lucide="x"></i></button>` : ""}
+            </div>
+            <div class="photo-grid" style="margin-top:10px">
+              ${p.photos.map(ph => `<div class="photo-thumb" data-photo-id="${esc(ph.id)}" data-path="${esc(ph.storage_path)}"><img data-src loading="lazy" alt="${esc(p.label)}"/>${isManagerOrAbove ? `<span class="photo-remove" data-remove-point-photo="${esc(ph.id)}" data-path="${esc(ph.storage_path)}"><i data-lucide="x"></i></span>` : ""}</div>`).join("")}
+              ${isManagerOrAbove ? `<label class="photo-add-btn"><i data-lucide="upload"></i>Add<input type="file" accept="image/*" data-upload-point="${esc(p.id)}" hidden/></label>` : ""}
+            </div>
+          </div>`).join("") : `<p class="text-muted" style="font-size:13px;margin:0">None recorded.</p>`}
+        ${isManagerOrAbove ? `<button type="button" class="btn" id="addInstallPointBtn" style="margin-top:14px"><i data-lucide="plus"></i> Add Install Point</button>` : ""}
+      </div>`;
+    window.lucide?.createIcons?.();
+
+    for (const p of pointsWithPhotos) {
+      for (const ph of p.photos) {
+        try {
+          const url = await getPhotoUrl(ph.storage_path);
+          const img = container.querySelector(`[data-photo-id="${ph.id}"] img`);
+          if (img) img.src = url;
+        } catch { /* non-fatal */ }
+      }
+    }
+
+    document.getElementById("addInstallPointBtn")?.addEventListener("click", () => openAddInstallPointModal(isManagerOrAbove));
+
+    container.querySelectorAll("[data-remove-point]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        confirmDialog("Remove this install point?", "This also deletes its photos. This cannot be undone.", async () => {
+          try {
+            await deleteInstallPoint(btn.dataset.removePoint);
+            _installPoints = _installPoints.filter(p => p.id !== btn.dataset.removePoint);
+            renderInstallPointsSection(isManagerOrAbove);
+          } catch (err) {
+            toast("error", "Couldn't remove", err.message);
+          }
+        }, { confirmLabel: "Remove" });
+      });
+    });
+
+    container.querySelectorAll("[data-upload-point]").forEach(input => {
+      input.addEventListener("change", async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        try {
+          await uploadInstallPointPhoto(_vehicle.id, input.dataset.uploadPoint, file, _profile.id);
+          toast("success", "Photo uploaded");
+          renderInstallPointsSection(isManagerOrAbove);
+        } catch (err) {
+          toast("error", "Upload failed", err.message);
+        }
+      });
+    });
+
+    container.querySelectorAll("[data-remove-point-photo]").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        confirmDialog("Remove photo?", "This photo will be permanently deleted.", async () => {
+          try {
+            await deleteInstallPointPhoto(btn.dataset.removePointPhoto, btn.dataset.path);
+            renderInstallPointsSection(isManagerOrAbove);
+          } catch (err) {
+            toast("error", "Couldn't remove photo", err.message);
+          }
+        }, { confirmLabel: "Remove" });
+      });
+    });
+
+    container.querySelectorAll(".photo-thumb[data-path]").forEach(thumb => {
+      thumb.addEventListener("click", async () => {
+        try {
+          const url = await getPhotoUrl(thumb.dataset.path);
+          const overlay = modal(`<img src="${esc(url)}" style="max-width:100%;border-radius:10px;display:block"/>`, {});
+          overlay.className += " photo-lightbox-overlay";
+        } catch (err) {
+          toast("error", "Couldn't load photo", err.message);
+        }
+      });
+    });
+  }
+
+  function openAddInstallPointModal(isManagerOrAbove) {
+    const overlay = modal(`
+      <div class="modal-header"><h3>Add Install Point</h3><button class="btn modal-close" aria-label="Close"><i data-lucide="x"></i></button></div>
+      <div class="modal-body">
+        <p class="text-muted" style="margin-bottom:12px">For a second pickup point or extra wiring location not covered above.</p>
+        <div class="form-row">
+          <label class="form-label" for="pointLabelInput">Label</label>
+          <input type="text" id="pointLabelInput" class="form-input" placeholder="e.g. Second earth point" autocomplete="off"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="pointDescInput">Description (optional)</label>
+          <textarea id="pointDescInput" class="form-input" placeholder="Exact location, wire colours, etc."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-primary" id="savePointBtn">Add</button></div>
+    `, {});
+    window.lucide?.createIcons?.();
+    const labelInput = overlay.querySelector("#pointLabelInput");
+    labelInput.focus();
+
+    overlay.querySelector("#savePointBtn").addEventListener("click", async () => {
+      const label = labelInput.value.trim();
+      const description = overlay.querySelector("#pointDescInput").value.trim();
+      if (!label) { toast("error", "Enter a label"); return; }
+      try {
+        const created = await createInstallPoint(_vehicle.id, { label, description }, _profile.id);
+        _installPoints.push(created);
+        overlay.remove();
+        renderInstallPointsSection(isManagerOrAbove);
+        toast("success", "Install point added");
+      } catch (e) {
+        toast("error", "Couldn't add", e.message);
       }
     });
   }
