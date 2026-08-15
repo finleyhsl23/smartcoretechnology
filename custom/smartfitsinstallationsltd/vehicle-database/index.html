@@ -47,6 +47,7 @@
     initMobileNav();
     initTopbar();
     await render();
+    maybeShowWelcome();
   } catch (e) {
     if (!document.body.innerHTML.includes("vdb-state")) {
       setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
@@ -139,6 +140,46 @@
         <div class="veh-card-title" style="${badges ? "" : "margin-top:0"}">${esc(title)}</div>
         ${meta ? `<div class="veh-card-meta">${esc(meta)}</div>` : ""}
         ${v.vin ? `<div class="veh-card-meta">VIN: ${esc(v.vin)}</div>` : ""}
+      </div>`;
+  }
+
+  // ── First-login welcome ───────────────────────────────────────────────────
+  // Shown once per person (tracked in localStorage, keyed by profile id so a
+  // shared device doesn't skip it for the next person to sign in).
+  function maybeShowWelcome() {
+    const key = `vdb_welcomed_${_profile.id}`;
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, "1");
+
+    const overlay = modal(`
+      <div class="modal-header">
+        <h3>Welcome to the Vehicle Installations Database</h3>
+        <button class="btn modal-close" aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p style="margin:0 0 18px;font-size:14px;line-height:1.55;color:var(--text2)">This is where install reference data lives — wiring, component placement, and fitment details for every vehicle we've fitted. Here's the quick version:</p>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          ${welcomeRow("search", "Find a vehicle", "Search by registration, or by make, model, year and fitment, to see its full install profile.")}
+          ${welcomeRow("plus-circle", "Add what's missing", "Can't find a vehicle? Add it. New vehicles and suggested changes go to a Senior Regional Engineering Manager for review first.")}
+          ${welcomeRow("alert-triangle", "Wait for approval", "Anything still pending review is not yet confirmed — always get sign-off from a manager before installing from it.")}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" id="welcomeGotIt">Got it</button>
+      </div>
+    `, {});
+    window.lucide?.createIcons?.();
+    overlay.querySelector("#welcomeGotIt").addEventListener("click", () => overlay.remove());
+  }
+
+  function welcomeRow(icon, title, body) {
+    return `
+      <div style="display:flex;gap:14px;align-items:flex-start">
+        <div class="section-header-icon" style="flex-shrink:0"><i data-lucide="${icon}"></i></div>
+        <div>
+          <div style="font-weight:700;font-size:13.5px;margin-bottom:3px">${esc(title)}</div>
+          <div class="text-muted" style="font-size:12.5px;line-height:1.5">${esc(body)}</div>
+        </div>
       </div>`;
   }
 
