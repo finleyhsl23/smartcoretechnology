@@ -52,7 +52,7 @@ export async function onRequestPost(context) {
     const [engineers, submissionRows, settingsRows] = await Promise.all([
       pgGet(env, null, `/core_employees?id=eq.${engineerEmployeeId}&select=id,full_name,job_title&limit=1`),
       pgGet(env, SCHEMA, `/audit_submissions?id=eq.${submissionId}&select=id,created_at,low_score_alert_sent_at&limit=1`),
-      pgGet(env, SCHEMA, `/audit_settings?id=eq.${SETTINGS_ID}&select=fail_threshold_percent&limit=1`),
+      pgGet(env, SCHEMA, `/audit_settings?id=eq.${SETTINGS_ID}&select=fail_threshold_percent,manager_employee_ids&limit=1`),
     ]);
 
     const engineer = engineers?.[0];
@@ -75,14 +75,18 @@ export async function onRequestPost(context) {
     const managerAssignments = await pgGet(env, SCHEMA,
       `/audit_manager_assignments?engineer_employee_id=eq.${engineerEmployeeId}&is_active=eq.true&select=manager_employee_id`
     );
-    const managerIds = [...new Set((managerAssignments || []).map(a => a.manager_employee_id))];
-    if (!managerIds.length) return json({ success: true, sent: false, reason: 'no assigned manager' }, 200, corsHeaders);
+    let managerIds = [...new Set((managerAssignments || []).map(a => a.manager_employee_id))];
+    // No manager assigned to this engineer specifically — fall back to the
+    // whole Senior Regional Engineering Manager roster from Settings so a
+    // below-threshold audit never goes unnoticed.
+    if (!managerIds.length) managerIds = [...new Set(settingsRows?.[0]?.manager_employee_ids || [])];
+    if (!managerIds.length) return json({ success: true, sent: false, reason: 'no managers to notify' }, 200, corsHeaders);
 
     const managers = await pgGet(env, null,
-      `/core_employees?id=in.(${managerIds.join(',')})&select=work_email,personal_email`
+      `/core_employees?id=in.(${managerIds.join(',')})&select=work_email`
     );
-    const recipients = [...new Set((managers || []).map(m => m.work_email || m.personal_email).filter(Boolean))];
-    if (!recipients.length) return json({ success: true, sent: false, reason: 'no manager email on file' }, 200, corsHeaders);
+    const recipients = [...new Set((managers || []).map(m => m.work_email).filter(Boolean))];
+    if (!recipients.length) return json({ success: true, sent: false, reason: 'no manager work email on file' }, 200, corsHeaders);
 
     const needsAction = scored.filter(s => s.score === 3);
     let criteriaById = {};
