@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png"/>
   <title>Audit — SmartCore</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -188,7 +189,7 @@
     const s = _scores[criterion.id];
     const photos = _photos.filter(p => p.criterion_id === criterion.id);
     return `
-      <div class="criterion-card ${s?.score ? `scored-${s.score}` : ""}" data-criterion="${esc(criterion.id)}">
+      <div class="criterion-card ${s?.score != null ? `scored-${s.score}` : ""}" data-criterion="${esc(criterion.id)}">
         <div class="criterion-head">
           <div>
             <div class="criterion-index">Criterion ${index} of ${_criteria.length}</div>
@@ -196,9 +197,9 @@
           </div>
         </div>
         <div class="score-picker" data-role="score-picker">
-          ${[1, 2, 3].map(n => `
+          ${[1, 2, 3, 0].map(n => `
             <button type="button" class="score-btn ${s?.score === n ? "active" : ""}" data-score="${n}" ${editable ? "" : "disabled"}>
-              ${n === 1 ? "1 · Good" : n === 2 ? "2 · Adequate" : "3 · Needs action"}
+              ${n === 1 ? "1 · Good" : n === 2 ? "2 · Adequate" : n === 3 ? "3 · Needs action" : "N/A"}
             </button>`).join("")}
         </div>
         <div class="form-row" style="margin-top:10px;margin-bottom:0">
@@ -282,6 +283,24 @@
     }
   }
 
+  // Fire-and-forget-ish: if this submission's overall score falls below the
+  // fail threshold configured in Settings, emails the engineer's assigned
+  // manager(s) on Manage Assignments. Failures here shouldn't block the
+  // manager's workflow, just get logged.
+  async function checkLowScoreAlert(submissionId) {
+    try {
+      const { data: { session } } = await sb().auth.getSession();
+      if (!session) return;
+      await fetch("/api/smartfits-engineer-audit/low-score-alert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ engineer_employee_id: _engineer.id, submission_id: submissionId }),
+      });
+    } catch (e) {
+      console.error("low-score-alert check failed", e);
+    }
+  }
+
   function wireForm(editable) {
     refreshPhotoThumbs();
     if (!editable) return;
@@ -291,7 +310,7 @@
         const card = btn.closest(".criterion-card");
         card.querySelectorAll(".score-btn").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
-        card.classList.remove("scored-1", "scored-2", "scored-3");
+        card.classList.remove("scored-0", "scored-1", "scored-2", "scored-3");
         card.classList.add(`scored-${btn.dataset.score}`);
         updateProgressUI();
       });
@@ -353,6 +372,7 @@
             _submission = await submitSubmission(_submission.id);
             toast("success", "Audit submitted");
             await checkPatternAlert(_submission.id);
+            await checkLowScoreAlert(_submission.id);
             goToProfile();
           } catch (e) {
             toast("error", "Couldn't submit audit", e.message);
