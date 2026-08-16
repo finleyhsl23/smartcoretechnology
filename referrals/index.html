@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Referrals — SmartCore</title>
   <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png">
+  <script>(function(){var t=localStorage.getItem('sc_theme');if(t)document.documentElement.setAttribute('data-theme',t)})()</script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -302,6 +303,39 @@
     .spinner-wrap{display:flex;justify-content:center;padding:48px}
     .spinner{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* theme toggle */
+    .theme-btn{
+      background:transparent;border:1px solid var(--line);color:var(--text2);
+      border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;
+      transition:border-color .15s,color .15s;font-family:inherit;
+    }
+    .theme-btn:hover{border-color:rgba(99,130,255,.35);color:var(--text)}
+
+    /* light mode */
+    [data-theme="light"]{
+      --bg:#f0f4ff;--bg1:#ffffff;--bg2:#e8eeff;
+      --card:#ffffff;--line:rgba(0,0,0,.09);--line2:rgba(0,0,0,.06);
+      --text:#0c1333;--text2:#475569;--text3:#94a3b8;
+      --blue:#2563eb;--blue2:#1d4ed8;--blue-dim:rgba(37,99,235,.1);
+      --good:#16a34a;--good-dim:rgba(22,163,74,.1);
+      --warn:#d97706;--warn-dim:rgba(217,119,6,.1);
+      --bad:#dc2626;--bad-dim:rgba(220,38,38,.1);
+      --purple:#7c3aed;--purple-dim:rgba(124,58,237,.1);
+    }
+    [data-theme="light"] body{background:var(--bg)}
+    [data-theme="light"] body::before{display:none}
+    [data-theme="light"] #loginWrap{background:var(--bg)}
+    [data-theme="light"] .login-box{background:#fff;border-color:rgba(0,0,0,.1)}
+    [data-theme="light"] .lfield input{background:#f8faff;border-color:rgba(0,0,0,.12);color:var(--text)}
+    [data-theme="light"] .nav{background:rgba(240,244,255,.92);border-color:rgba(0,0,0,.08)}
+    [data-theme="light"] .card{background:#fff;border-color:rgba(0,0,0,.09)}
+    [data-theme="light"] .form-control{background:#f8faff;border-color:rgba(0,0,0,.12);color:var(--text)}
+    [data-theme="light"] .goal-bar{background:#fff;border-color:rgba(0,0,0,.09)}
+    [data-theme="light"] .goal-input{background:#f8faff;border-color:rgba(0,0,0,.12);color:var(--text)}
+    [data-theme="light"] .filter-bar input,[data-theme="light"] .filter-bar select{background:#f8faff;border-color:rgba(0,0,0,.12);color:var(--text)}
+    [data-theme="light"] .gp-track{background:rgba(0,0,0,.08)}
+    [data-theme="light"] .toast{background:#fff;border-color:rgba(0,0,0,.1)}
   </style>
 </head>
 <body>
@@ -338,6 +372,7 @@
     </div>
     <div class="nav-right">
       <span class="nav-user">Signed in as <b id="navName">—</b></span>
+      <button class="theme-btn" id="themeBtn" onclick="toggleTheme()">🌙 Dark</button>
       <a class="nav-back" href="/modules/">← Modules</a>
       <button class="nav-signout" id="signOutBtn">Sign out</button>
     </div>
@@ -641,6 +676,22 @@ async function submitReferral() {
 
   if (error) { toast('bad', 'Error', error.message); return; }
 
+  // Fire-and-forget notification email to support
+  fetch('/api/referral-notify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      referee_name:          name,
+      referee_email:         email || null,
+      referee_phone:         phone || null,
+      referee_company:       company || null,
+      referee_notes:         notes || null,
+      submitted_by_name:     currentEmp?.full_name || currentUser.email,
+      submitted_by_email:    currentEmp?.work_email || currentUser.email,
+      submitted_by_company:  companyRow?.company_name || null,
+    }),
+  }).catch(() => {});
+
   toast('ok', 'Referral submitted', `Thanks for referring ${name}!`);
   document.getElementById('fName').value    = '';
   document.getElementById('fEmail').value   = '';
@@ -723,6 +774,23 @@ function toast(type, title, msg) {
   wrap.appendChild(el);
   setTimeout(() => el.remove(), 4000);
 }
+
+function toggleTheme() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const next = isLight ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('sc_theme', next);
+  updateThemeBtn();
+}
+
+function updateThemeBtn() {
+  const btn = document.getElementById('themeBtn');
+  if (!btn) return;
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  btn.textContent = isLight ? '🌙 Dark' : '☀️ Light';
+}
+
+updateThemeBtn();
 
 init();
 </script>
