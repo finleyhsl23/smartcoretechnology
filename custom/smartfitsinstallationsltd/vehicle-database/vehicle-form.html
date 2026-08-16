@@ -35,7 +35,7 @@
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
   import {
-    getVehicle, createVehicle, updateVehicle, lookupRegistration, getVehicleByRegistration, FIELD_GROUPS,
+    getVehicle, createVehicle, updateVehicle, lookupRegistration, listVehicleProfilesByRegistration, FIELD_GROUPS,
     listVehiclePhotos, uploadVehiclePhoto, deleteVehiclePhoto, getPhotoUrl, BODY_VARIANTS, FITMENT_TYPES,
     createNewVehicleRequest, uploadRequestPhoto, fieldRelevantForFitment,
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
@@ -69,6 +69,7 @@
   let _lookupTimer = null;
   let _lastAutoCheckedReg = null;
   let _stepIndex = 0;
+  let _fitmentHasDuplicate = false; // true when this exact registration+fitment already has a profile
 
   // Referenced by the functions further down (which are hoisted function
   // declarations, so the references below are safe) — declared here for the
@@ -93,8 +94,10 @@
       title: "Fitment", icon: "wrench",
       blurb: "What's being fitted — wiring and component locations differ by this, so an engineer searching later finds the right install guide.",
       render: () => renderStepFitment(), wire: () => wireStepFitment(),
-      validate: () => !!_vehicle.fitment_type,
-      validateError: "Select OBD Tracker, Lightfoot, or 3 Wire Tracker/Camera first",
+      validate: () => !!_vehicle.fitment_type && !_fitmentHasDuplicate,
+      validateError: () => _fitmentHasDuplicate
+        ? "This registration already has a profile for that fitment — view it above, or pick a different one"
+        : "Select OBD Tracker, Lightfoot, or 3 Wire Tracker/Camera first",
     },
     {
       title: "Wiring & Electrical", icon: "zap",
@@ -443,6 +446,12 @@
     });
   }
 
+  // Purely informational now — a second profile for the same registration
+  // is legitimate as long as it's a different fitment (wiring/component
+  // locations differ enough by fitment to need their own profile), so this
+  // no longer skips the DVSA autofill or blocks anything. The one case that
+  // actually matters — this exact registration+fitment already exists — is
+  // caught later, once fitment is actually known (see checkFitmentDuplicate).
   async function handleRegistrationTyped(reg) {
     const normalized = reg.toUpperCase().replace(/\s+/g, "");
     if (normalized === _lastAutoCheckedReg) return;
@@ -451,19 +460,17 @@
     if (!isEdit) {
       const dupEl = document.getElementById("dupStatus");
       try {
-        const existing = await getVehicleByRegistration(reg);
-        if (existing) {
-          const title = [existing.make, existing.model].filter(Boolean).join(" ");
+        const profiles = await listVehicleProfilesByRegistration(reg);
+        if (dupEl && profiles.length) {
+          const labels = profiles.map(p => FITMENT_TYPES.find(f => f.key === p.fitment_type)?.label).filter(Boolean);
           dupEl.innerHTML = `
-            <div class="card" style="border-color:var(--warn);margin-top:10px;padding:12px 14px">
-              <strong style="color:var(--warn)">Already in the database</strong>
-              <p style="margin:4px 0 10px;font-size:12.5px">${esc(existing.registration)}${title ? " — " + esc(title) : ""}</p>
-              <a class="btn" href="${BASE}/vehicle-detail.html?id=${esc(existing.id)}">View existing record →</a>
+            <div class="card" style="border-color:var(--line);margin-top:10px;padding:12px 14px">
+              <strong>Already on file</strong>${labels.length ? ` for ${esc(labels.join(" and "))}` : ""}
+              <p style="margin:4px 0 0;font-size:12.5px" class="text-muted">Choose a different fitment below and this'll be a new profile for the same vehicle.</p>
             </div>`;
-          window.lucide?.createIcons?.();
-          return; // skip the DVSA autofill — this is a known duplicate
+        } else if (dupEl) {
+          dupEl.innerHTML = "";
         }
-        dupEl.innerHTML = "";
       } catch { /* duplicate check failing shouldn't block the lookup */ }
     }
 
@@ -651,7 +658,7 @@
       window.location.href = `${BASE}/vehicle-detail.html?id=${vehicleId}`;
     } catch (e2) {
       btn.disabled = false;
-      const message = /duplicate key.*registration/i.test(e2.message) ? "A vehicle with this registration already exists." : e2.message;
+      const message = /duplicate key.*registration/i.test(e2.message) ? "This registration already has a profile for that fitment." : e2.message;
       toast("error", "Couldn't save", message);
     }
   }
@@ -753,7 +760,8 @@
     if (newIndex > _stepIndex) {
       const step = ADD_STEPS[_stepIndex];
       if (step.validate && !step.validate()) {
-        toast("error", step.validateError || "Please complete this step first");
+        const errorMsg = typeof step.validateError === "function" ? step.validateError() : step.validateError;
+        toast("error", errorMsg || "Please complete this step first");
         return;
       }
     }
@@ -903,10 +911,39 @@
     const v = _vehicle;
     return `<div class="choice-grid choice-grid-3">
       ${FITMENT_TYPES.map(ft => choiceCard({ key: ft.key, label: ft.label, icon: FITMENT_ICONS[ft.key] || "wrench", group: "fitment", active: v.fitment_type === ft.key })).join("")}
-    </div>`;
+    </div>
+    <div id="fitmentDupWarning" style="margin-top:16px"></div>`;
   }
   function wireStepFitment() {
-    wireChoiceGroup("fitment", key => { _vehicle.fitment_type = key; });
+    wireChoiceGroup("fitment", key => { _vehicle.fitment_type = key; checkFitmentDuplicate(); });
+    checkFitmentDuplicate();
+  }
+
+  // The exact same registration+fitment pair is the one thing that
+  // genuinely can't have two profiles (different fitments on the same
+  // plate are fine — that's the whole point) — checked here, once fitment
+  // is actually known, rather than back on the Registration step.
+  async function checkFitmentDuplicate() {
+    const warnEl = document.getElementById("fitmentDupWarning");
+    if (!warnEl) return;
+    warnEl.innerHTML = "";
+    _fitmentHasDuplicate = false;
+    const reg = (_vehicle.registration || "").trim();
+    if (!reg || !_vehicle.fitment_type) return;
+    try {
+      const profiles = await listVehicleProfilesByRegistration(reg);
+      const existing = profiles.find(p => p.fitment_type === _vehicle.fitment_type);
+      if (!existing) return;
+      _fitmentHasDuplicate = true;
+      const fitmentLabel = FITMENT_TYPES.find(f => f.key === _vehicle.fitment_type)?.label;
+      warnEl.innerHTML = `
+        <div class="card" style="border-color:var(--bad)">
+          <p style="margin:0;font-weight:800;color:var(--bad);display:flex;align-items:center;gap:8px"><i data-lucide="alert-triangle"></i> Already has a ${esc(fitmentLabel)} profile</p>
+          <p style="margin:6px 0 12px;font-size:13px">This registration already has a profile for this fitment — pick a different one, or view the existing profile.</p>
+          <a class="btn" href="${BASE}/vehicle-detail.html?id=${esc(existing.id)}">View existing profile →</a>
+        </div>`;
+      window.lucide?.createIcons?.();
+    } catch { /* duplicate check failing shouldn't block continuing */ }
   }
 
   function renderStepReview() {
@@ -995,7 +1032,7 @@
       }
     } catch (e2) {
       btn.disabled = false;
-      const message = /duplicate key.*registration/i.test(e2.message) ? "A vehicle with this registration already exists." : e2.message;
+      const message = /duplicate key.*registration/i.test(e2.message) ? "This registration already has a profile for that fitment." : e2.message;
       toast("error", "Couldn't save", message);
     }
   }
