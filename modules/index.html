@@ -471,6 +471,19 @@
     <div class="page-title">Your Modules</div>
     <div class="page-sub" id="pageSubtext">Loading…</div>
     <div class="page-company-mobile" id="pageCompanyMobile"></div>
+    <div id="searchWrap" style="display:none;margin-bottom:24px">
+      <div style="position:relative">
+        <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none;opacity:.45">🔍</span>
+        <input id="modSearch" type="text" placeholder="Search modules…" style="
+          width:100%;background:rgba(255,255,255,.04);
+          border:1px solid rgba(255,255,255,.09);border-radius:12px;
+          padding:11px 14px 11px 40px;color:var(--text);font-size:14px;
+          outline:none;transition:border-color .2s,box-shadow .2s;font-family:inherit;
+        " oninput="filterModules(this.value)"
+           onfocus="this.style.borderColor='rgba(99,130,246,.5)';this.style.boxShadow='0 0 0 3px rgba(59,130,246,.1)'"
+           onblur="this.style.borderColor='rgba(255,255,255,.09)';this.style.boxShadow='none'"/>
+      </div>
+    </div>
     <div id="modContent"><div class="spin">Loading modules…</div></div>
   </div>
 </div>
@@ -778,6 +791,10 @@ function render() {
 
   document.getElementById('modContent').innerHTML = html;
 
+  // Show search if more than 2 active modules
+  document.getElementById('searchWrap').style.display = visible.length > 2 ? 'block' : 'none';
+  if (visible.length > 2) document.getElementById('modSearch').value = '';
+
   // Bind gear clicks
   document.querySelectorAll('.mod-gear').forEach(el => {
     el.addEventListener('click', e => {
@@ -1025,6 +1042,15 @@ function showToast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function filterModules(term) {
+  const q = term.toLowerCase().trim();
+  document.querySelectorAll('.mod-card').forEach(card => {
+    const name = card.querySelector('.mod-name')?.textContent.toLowerCase() || '';
+    const desc = card.querySelector('.mod-desc')?.textContent.toLowerCase() || '';
+    card.style.display = (!q || name.includes(q) || desc.includes(q)) ? '' : 'none';
+  });
 }
 
 init();
