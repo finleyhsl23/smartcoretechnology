@@ -125,6 +125,15 @@
     .btn-accent{background:var(--accent);border:none;border-radius:var(--r2);padding:10px 18px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;transition:opacity .15s;}
     .btn-accent:hover{opacity:.88;}
     .btn-accent:disabled{opacity:.35;cursor:not-allowed;}
+    .emp-btn-wrap{position:relative;display:inline-block;}
+    .emp-limit-tip{display:none;position:absolute;top:calc(100% + 10px);left:50%;transform:translateX(-50%);width:240px;background:#0f1c35;border:1px solid rgba(99,160,255,.2);border-radius:12px;padding:14px 16px;z-index:999;box-shadow:0 8px 32px rgba(0,0,0,.5);pointer-events:none;}
+    .emp-limit-tip::before{content:'';position:absolute;top:-6px;left:50%;transform:translateX(-50%);width:10px;height:10px;background:#0f1c35;border-left:1px solid rgba(99,160,255,.2);border-top:1px solid rgba(99,160,255,.2);rotate:45deg;}
+    .emp-btn-wrap:hover .emp-limit-tip{display:block;pointer-events:auto;}
+    .emp-limit-tip-title{font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:6px;}
+    .emp-limit-tip-body{font-size:12px;color:#64748b;line-height:1.5;margin-bottom:10px;}
+    .emp-limit-tip-link{font-size:12px;font-weight:600;color:#3b82f6;text-decoration:none;}
+    .emp-limit-tip-link:hover{text-decoration:underline;}
+    .emp-btn-wrap:not(.at-limit) .emp-limit-tip{display:none!important;}
     .btn-ghost{background:rgba(255,255,255,.07);border:1px solid var(--border2);border-radius:var(--r2);padding:10px 18px;color:var(--text);font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;white-space:nowrap;transition:background .15s,border-color .15s;}
     .btn-ghost:hover{background:rgba(255,255,255,.12);border-color:var(--border);}
     .btn-danger{background:var(--red-soft);border:1px solid var(--red-border);border-radius:var(--r2);padding:8px 14px;color:var(--red);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;transition:background .15s;}
@@ -511,7 +520,14 @@
           <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input class="search-inp" id="searchInput" placeholder="Search employees…" autocomplete="off"/>
         </div>
-        <button class="btn-accent" id="addEmpBtn">+ Add Employee</button>
+        <div class="emp-btn-wrap" id="addEmpWrap">
+          <button class="btn-accent" id="addEmpBtn">+ Add Employee</button>
+          <div class="emp-limit-tip" id="addEmpTip">
+            <div class="emp-limit-tip-title">Plan limit reached</div>
+            <div class="emp-limit-tip-body">You can't add more employees on your current plan. Manage your subscription to increase the limit.</div>
+            <a class="emp-limit-tip-link" href="/manage-plans/">Manage plans →</a>
+          </div>
+        </div>
         <button class="btn-ghost" id="deptsBtn">Departments</button>
         <button class="btn-ghost" id="onboardingBtn">Onboarding Questions</button>
       </div>
@@ -1532,15 +1548,18 @@ function renderEmployees() {
     ));
   };
   const addBtn = document.getElementById('addEmpBtn');
+  const addWrap = document.getElementById('addEmpWrap');
   const limit = window._employeeLimit;
   if (limit && total >= limit) {
     addBtn.disabled = true;
-    addBtn.title = `Sorry, you can't add any more employees on your current plan (${total}/${limit} used). You can manage this at smartcoretechnology.co.uk/manage-plans/`;
+    addBtn.removeAttribute('title');
     addBtn.onclick = null;
+    addWrap.classList.add('at-limit');
   } else {
     addBtn.disabled = false;
-    addBtn.title = limit ? `${total}/${limit} employees used` : '';
+    addBtn.removeAttribute('title');
     addBtn.onclick = openAdd;
+    addWrap.classList.remove('at-limit');
   }
   document.getElementById('deptsBtn').onclick = openDepts;
   document.getElementById('onboardingBtn').onclick = openOnboarding;
