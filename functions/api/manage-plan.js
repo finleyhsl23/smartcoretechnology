@@ -103,11 +103,19 @@ async function resolveOrder(env, request, url) {
   const empRows = await dbGet(env, `/core_employees?auth_user_id=eq.${enc(user.id)}&select=company_id&limit=1`);
   if (empRows?.[0]?.company_id) companyId = empRows[0].company_id;
   if (!companyId) return { error: 'No company found for this user', status: 404 };
-  const coRows = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(companyId)}&select=order_id&limit=1`);
-  const orderId = coRows?.[0]?.order_id;
-  if (!orderId) return { error: 'No active subscription found', status: 404 };
-  const orders = await dbGet(env, `/marketplace_orders?id=eq.${enc(orderId)}&select=*&limit=1`);
-  if (!orders?.[0]) return { error: 'Order not found', status: 404 };
+  const coRows = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(companyId)}&select=*&limit=1`);
+  const company = coRows?.[0];
+  if (!company) return { error: 'No company found for this user', status: 404 };
+
+  // Try order_id column first, then fall back to email match
+  let orders = null;
+  if (company.order_id) {
+    orders = await dbGet(env, `/marketplace_orders?id=eq.${enc(company.order_id)}&select=*&limit=1`);
+  }
+  if (!orders?.[0] && company.company_email) {
+    orders = await dbGet(env, `/marketplace_orders?email=eq.${enc(company.company_email)}&status=eq.active&order=created_at.desc&limit=1`);
+  }
+  if (!orders?.[0]) return { error: 'No active subscription found', status: 404 };
   return { order: orders[0] };
 }
 
