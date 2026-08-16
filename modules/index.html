@@ -619,6 +619,7 @@ let state = {
   employees: [],
   accessMap: {},
   isOwner: false,
+  hasCrmSeat: false,
 };
 
 let drawer = {
@@ -757,6 +758,21 @@ async function fetchData() {
   state.accessMap = {};
   (ac || []).forEach(r => { state.accessMap[r.module_slug] = r; });
 
+  // CRM seat check — owners/admins always have access; others must have a seat
+  if (state.isOwner) {
+    state.hasCrmSeat = true;
+  } else if (state.employee?.id) {
+    const { data: seat } = await sb
+      .from('crm_user_seats')
+      .select('id')
+      .eq('company_id', state.companyId)
+      .eq('employee_id', state.employee.id)
+      .limit(1);
+    state.hasCrmSeat = !!(seat?.length);
+  } else {
+    state.hasCrmSeat = false;
+  }
+
   // Employees for access drawer (owners/admins only)
   if (state.isOwner) {
     const { data: emps } = await sb
@@ -782,7 +798,10 @@ function render() {
     ...state.purchased.map(p => p.module_slug).filter(s => s !== 'smartcore-core'),
   ];
 
-  const visible = activeOrdered.filter(slug => canAccess(slug));
+  const visible = activeOrdered.filter(slug => {
+    if (slug.startsWith('smartcore-crm') && !state.hasCrmSeat) return false;
+    return canAccess(slug);
+  });
 
   // Not-purchased — from real shop modules only
   const hasCrm = [...purchasedSlugs].some(s => s.startsWith('smartcore-crm'));
