@@ -63,7 +63,7 @@ const CORS = {
 
 const SIZE_TIERS = [
   { id: 'micro',      label: 'Micro',      range: '1–10',        multiplier: 1.00,  maxEmployees: 10   },
-  { id: 'small',      label: 'Small',      range: '11–15',       multiplier: 0.71,  maxEmployees: 15   },
+  { id: 'small',      label: 'Small',      range: '11–15',       multiplier: 1.15,  maxEmployees: 15   },
   { id: 'growing',    label: 'Growing',    range: '16–50',       multiplier: 1.43,  maxEmployees: 50   },
   { id: 'medium',     label: 'Medium',     range: '51–100',      multiplier: 2.86,  maxEmployees: 100  },
   { id: 'large',      label: 'Large',      range: '101–250',     multiplier: 6.72,  maxEmployees: 250  },
@@ -103,12 +103,20 @@ async function resolveOrder(env, request, url) {
   const empRows = await dbGet(env, `/core_employees?auth_user_id=eq.${enc(user.id)}&select=company_id&limit=1`);
   if (empRows?.[0]?.company_id) companyId = empRows[0].company_id;
   if (!companyId) return { error: 'No company found for this user', status: 404 };
-  const coRows = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(companyId)}&select=order_id&limit=1`);
-  const orderId = coRows?.[0]?.order_id;
-  if (!orderId) return { error: 'No active subscription found', status: 404 };
-  const orders = await dbGet(env, `/marketplace_orders?id=eq.${enc(orderId)}&select=*&limit=1`);
-  if (!orders?.[0]) return { error: 'Order not found', status: 404 };
-  return { order: orders[0] };
+  const coRows = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(companyId)}&select=*&limit=1`);
+  const company = coRows?.[0];
+  if (!company) return { error: 'No company found for this user', status: 404 };
+
+  // Try order_id column first, then fall back to email match
+  let orders = null;
+  if (company.order_id) {
+    orders = await dbGet(env, `/marketplace_orders?id=eq.${enc(company.order_id)}&select=*&limit=1`);
+  }
+  if (!orders?.[0] && company.company_email) {
+    orders = await dbGet(env, `/marketplace_orders?email=eq.${enc(company.company_email)}&status=not.in.(pending_payment,pending)&order=created_at.desc&limit=1`);
+  }
+  if (!orders?.[0]) return { error: 'No active subscription found', status: 404 };
+  return { order: orders[0], companyId };
 }
 
 // ---------------------------------------------------------------------------
@@ -123,9 +131,16 @@ export async function onRequestGet(context) {
     if (resolved.error) return json({ error: resolved.error }, resolved.status, CORS);
     const order = resolved.order;
 
-    // Get company
-    const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=*&limit=1`);
-    const company   = companies?.[0] || null;
+    // Get company — prefer the companyId we already resolved, fall back to order_id column
+    let company = null;
+    if (resolved.companyId) {
+      const rows = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(resolved.companyId)}&select=*&limit=1`);
+      company = rows?.[0] || null;
+    }
+    if (!company) {
+      const rows = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=*&limit=1`);
+      company = rows?.[0] || null;
+    }
 
     // Get all available modules
     const modules = await dbGet(env, `/marketplace_modules?select=*&order=monthly_price.asc`);
@@ -232,8 +247,7 @@ async function handleCancelModule(env, order, body) {
   }
 
   // Get company
-  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=id&limit=1`);
-  const company   = companies?.[0];
+  const company = await resolveCompany(env, order);
   if (!company?.id) return json({ error: 'Company not found' }, 404, CORS);
 
   // Mark the module as cancelling in purchased_modules
@@ -284,8 +298,7 @@ async function handleChangeSize(env, order, body) {
   if (!tier) return json({ error: `Invalid tier: ${new_tier_id}` }, 400, CORS);
 
   // Get company + employee count
-  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=*&limit=1`);
-  const company   = companies?.[0];
+  const company = await resolveCompany(env, order);
   let employee_count = 0;
   if (company?.id) {
     const empRows = await dbGet(env, `/core_employees?company_id=eq.${enc(company.id)}&select=id`);
@@ -423,8 +436,7 @@ async function handleChangeCrmTier(env, order, body) {
   });
 
   // Update purchased_modules: delete old CRM row(s), insert new
-  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=id&limit=1`);
-  const company   = companies?.[0];
+  const company = await resolveCompany(env, order);
   if (company?.id) {
     for (const slug of CRM_SLUGS) {
       try {
@@ -502,8 +514,7 @@ async function handleGenerateToken(env, request, body) {
   const order = orders[0];
 
   // Check user is owner/admin of this company
-  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=id&limit=1`);
-  const company   = companies?.[0];
+  const company = await resolveCompany(env, order);
   if (company?.id) {
     const empRows = await dbGet(env, `/core_employees?company_id=eq.${enc(company.id)}&auth_user_id=eq.${enc(userId)}&select=role&limit=1`);
     const emp = empRows?.[0];
@@ -523,6 +534,21 @@ async function handleGenerateToken(env, request, body) {
 
   const url = `https://smartcoretechnology.co.uk/shop/manage-plan.html?token=${token}`;
   return json({ token, url }, 200, CORS);
+}
+
+// ---------------------------------------------------------------------------
+// Resolve company — tries order_id column first, falls back to email match
+// ---------------------------------------------------------------------------
+async function resolveCompany(env, order) {
+  if (order.id) {
+    const rows = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=*&limit=1`);
+    if (rows?.[0]) return rows[0];
+  }
+  if (order.email) {
+    const rows = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(order.email)}&select=*&limit=1`);
+    if (rows?.[0]) return rows[0];
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

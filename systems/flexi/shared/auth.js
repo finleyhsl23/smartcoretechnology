@@ -160,7 +160,7 @@ export async function requireFlexiAccess({ feature } = {}) {
     .eq("module_key", MODULE_KEY)
     .maybeSingle();
 
-  if (error || !mod?.enabled) {
+  if (error || !mod) {
     renderBlockScreen({
       icon: "🔒",
       title: "Flexi Not Enabled",
@@ -169,6 +169,14 @@ export async function requireFlexiAccess({ feature } = {}) {
       actionLabel: "View Plans →",
     });
     throw new Error("Flexi not enabled");
+  }
+  if (!mod.enabled) {
+    renderBlockScreen({
+      icon: "⚠️",
+      title: "Module Suspended",
+      message: "Sorry, this module has been suspended due to an outstanding payment. Please contact your administrator or email support@smartcoretechnology.co.uk to resolve this.",
+    });
+    throw new Error("Module suspended");
   }
   _tier = mod.tier || "starter";
 

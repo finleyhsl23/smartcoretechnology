@@ -35,7 +35,7 @@ export function renderNav(currentPage, profile, tier) {
 
   nav.innerHTML = `
     <div class="sidebar-logo">
-      <div class="logo-dot">SC</div>
+      <div class="logo-dot"><span class="logo-mark"></span></div>
       <div class="logo-text">
         <strong>SmartCore</strong>
         <span>Vehicle Installations DB</span>

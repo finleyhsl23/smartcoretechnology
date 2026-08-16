@@ -2,12 +2,15 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
   <title>Suggest a Change — SmartCore</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/vehicledb.css"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/favicon-32.png"/>
+  <link rel="icon" type="image/png" sizes="16x16" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/favicon-16.png"/>
+  <link rel="apple-touch-icon" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/apple-touch-icon.png"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
 <body>
@@ -31,7 +34,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { getVehicle, createEditRequest, uploadRequestPhoto, FIELD_GROUPS, PHOTO_CATEGORIES } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { getVehicle, createEditRequest, uploadRequestPhoto, FIELD_GROUPS, PHOTO_CATEGORIES, fieldRelevantForFitment } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
   import { esc, setInner, loadingState, errorState, toast, freezeFile } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
@@ -55,7 +58,7 @@
       await render();
     }
   } catch (e) {
-    if (!document.body.innerHTML.includes("vdb-state")) {
+    if (document.getElementById("body")) {
       setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
     }
   }
@@ -85,14 +88,14 @@
           <div class="section-header"><h3>${esc(group.title)}</h3></div>
           <div class="card" style="margin-bottom:18px">
             <div class="form-grid">
-              ${group.fields.map(f => fieldInput(f, v)).join("")}
+              ${group.fields.filter(f => fieldRelevantForFitment(f, v.fitment_type)).map(f => fieldInput(f, v)).join("")}
             </div>
           </div>
         `).join("")}
 
         <div class="section-header"><h3>Add Photos (optional)</h3></div>
         <div class="card" style="margin-bottom:18px">
-          ${PHOTO_CATEGORIES.map(cat => `
+          ${PHOTO_CATEGORIES.filter(cat => categoryRelevant(cat.key, v.fitment_type)).map(cat => `
             <div class="photo-cat-block">
               <div class="photo-cat-title">${esc(cat.label)}</div>
               <div class="photo-grid" data-cat="${esc(cat.key)}">
@@ -112,6 +115,14 @@
     setInner("body", html);
     wirePhotoStaging();
     document.getElementById("suggestForm").addEventListener("submit", onSubmit);
+  }
+
+  // A photo category with no owning FIELD_GROUPS field (front/back/general)
+  // always shows; one owned by a fitment-gated field (e.g. Lightfoot's)
+  // follows that field's relevance.
+  function categoryRelevant(catKey, fitmentType) {
+    const owningField = FIELD_GROUPS.flatMap(g => g.fields).find(f => f.photoCategory === catKey);
+    return owningField ? fieldRelevantForFitment(owningField, fitmentType) : true;
   }
 
   function fieldInput(f, v) {

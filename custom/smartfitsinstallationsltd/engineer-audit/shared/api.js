@@ -205,6 +205,7 @@ export async function listSubmittedScoreTotals(engineerEmployeeIds) {
     const bucket = byEngineer[sub.engineer_employee_id] || (byEngineer[sub.engineer_employee_id] = { total: 0, count: 0, auditCount: 0 });
     bucket.auditCount += 1;
     for (const s of sub.audit_submission_scores || []) {
+      if (s.score === 0) continue; // N/A doesn't count toward the average
       bucket.total += s.score;
       bucket.count += 1;
     }

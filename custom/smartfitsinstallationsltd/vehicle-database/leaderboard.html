@@ -2,12 +2,15 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
   <title>Top Contributors — SmartCore Vehicle Installations Database</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/vehicledb.css"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/favicon-32.png"/>
+  <link rel="icon" type="image/png" sizes="16x16" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/favicon-16.png"/>
+  <link rel="apple-touch-icon" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/apple-touch-icon.png"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
 <body>
@@ -31,43 +34,52 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { listChangeRequestLeaderboard, getEmployeesByIds } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { listChangeRequestLeaderboard, listApprovalLeaderboard, getEmployeesByIds } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
   import { esc, initials, setInner, loadingState, emptyState, errorState } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
 
   initTheme();
+  let _isManagerOrAbove = false;
 
   try {
     const { profile, tier } = await requireModuleAccess();
+    _isManagerOrAbove = tier === "owner_admin" || tier === "manager";
     renderNav("leaderboard", profile, tier);
     initMobileNav();
     initTopbar();
     await render();
   } catch (e) {
-    if (!document.body.innerHTML.includes("vdb-state")) {
+    if (document.getElementById("body")) {
       setInner("body", errorState({ title: "Couldn't load Top Contributors", message: e.message }));
     }
+  }
+
+  async function rankedFrom(counts, countKey) {
+    const employees = await getEmployeesByIds(counts.map(c => c.employee_id));
+    const employeeById = Object.fromEntries(employees.map(e => [e.id, e]));
+    return counts
+      .map(c => ({ employee: employeeById[c.employee_id], count: Number(c[countKey]) }))
+      .filter(r => r.employee);
   }
 
   async function render() {
     setInner("body", loadingState("Tallying submissions…"));
     try {
-      const counts = await listChangeRequestLeaderboard();
-      const employees = await getEmployeesByIds(counts.map(c => c.employee_id));
-      const employeeById = Object.fromEntries(employees.map(e => [e.id, e]));
-
-      const ranked = counts
-        .map(c => ({ employee: employeeById[c.employee_id], count: Number(c.request_count) }))
-        .filter(r => r.employee);
-
-      draw(ranked);
+      const ranked = await rankedFrom(await listChangeRequestLeaderboard(), "request_count");
+      // Approval leaderboard is manager/admin-only — it's about balancing
+      // review workload across managers (so it doesn't quietly all fall on
+      // one person), not something a regular employee needs to see.
+      const approvalRanked = _isManagerOrAbove
+        ? await rankedFrom(await listApprovalLeaderboard(), "approval_count")
+        : null;
+      draw(ranked, approvalRanked);
     } catch (e) {
       setInner("body", errorState({ title: "Couldn't load Top Contributors", message: e.message }));
     }
   }
 
-  function draw(ranked) {
+  function draw(ranked, approvalRanked) {
     const html = `
       <div class="page-head">
         <div>
@@ -76,16 +88,38 @@
         </div>
       </div>
       <div id="leaderboardList"></div>
+
+      ${approvalRanked ? `
+        <div class="page-head" style="margin-top:32px">
+          <div>
+            <h2>Top Approvers</h2>
+            <p>Review workload across managers, ranked by change requests approved — a check that it isn't all landing on one person.</p>
+          </div>
+        </div>
+        <div id="approvalLeaderboardList"></div>
+      ` : ""}
     `;
     setInner("body", html);
 
-    const list = document.getElementById("leaderboardList");
-    if (!ranked.length) {
-      list.innerHTML = emptyState({
-        icon: "trophy",
+    renderRankedList("leaderboardList", ranked, {
+      icon: "trophy",
+      title: "Nothing to rank yet",
+      message: "Once employees start suggesting changes to vehicles, the top contributors will show up here.",
+    });
+    if (approvalRanked) {
+      renderRankedList("approvalLeaderboardList", approvalRanked, {
+        icon: "check-circle",
         title: "Nothing to rank yet",
-        message: "Once employees start suggesting changes to vehicles, the top contributors will show up here.",
+        message: "Once managers start approving change requests, this will show who's reviewing them.",
       });
+    }
+    window.lucide?.createIcons?.();
+  }
+
+  function renderRankedList(containerId, ranked, emptyMessage) {
+    const list = document.getElementById(containerId);
+    if (!ranked.length) {
+      list.innerHTML = emptyState(emptyMessage);
       return;
     }
 
@@ -103,7 +137,6 @@
           <div class="leaderboard-score">${r.count}</div>
         </div>`;
     }).join("");
-    window.lucide?.createIcons?.();
   }
 </script>
 </body>

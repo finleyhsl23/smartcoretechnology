@@ -2,12 +2,15 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
   <title>Vehicle Installations Database — SmartCore</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/vehicledb.css"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/favicon-32.png"/>
+  <link rel="icon" type="image/png" sizes="16x16" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/favicon-16.png"/>
+  <link rel="apple-touch-icon" href="/custom/smartfitsinstallationsltd/vehicle-database/shared/apple-touch-icon.png"/>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
 <body>
@@ -31,7 +34,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { listRecentVehicles, getVehicleByRegistration, searchVehiclesByMakeModelYear, lookupRegistration, BODY_VARIANTS, listEditRequests, findPendingNewVehicleMatch } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { listRecentVehicles, listVehicleProfilesByRegistration, searchVehiclesByMakeModelYear, summarizeFitmentCoverage, lookupRegistration, BODY_VARIANTS, FITMENT_TYPES, listEditRequests, findPendingNewVehicleMatch } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
   import { esc, setInner, loadingState, emptyState, errorState, modal, toast } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
@@ -47,8 +50,9 @@
     initMobileNav();
     initTopbar();
     await render();
+    maybeShowWelcome();
   } catch (e) {
-    if (!document.body.innerHTML.includes("vdb-state")) {
+    if (document.getElementById("body")) {
       setInner("body", errorState({ title: "Couldn't load this page", message: e.message }));
     }
   }
@@ -106,16 +110,79 @@
     window.lucide?.createIcons?.();
   }
 
+  // Body Variant + Fitment badges together — install details (wiring,
+  // component locations) can differ by both, so an engineer scanning a list
+  // of otherwise-identical make/model/year cards needs to see both at a
+  // glance, not just click in to find out.
+  function vehicleBadges(v) {
+    const variantLabel = BODY_VARIANTS.find(b => b.key === v.body_variant)?.label;
+    const fitLabel = FITMENT_TYPES.find(f => f.key === v.fitment_type)?.label;
+    return `${variantLabel ? `<span class="veh-card-reg">${esc(variantLabel)}</span>` : ""}${fitLabel ? `<span class="badge badge-blue" style="margin-left:${variantLabel ? "6px" : "0"}">${esc(fitLabel)}</span>` : ""}`;
+  }
+
+  // Strong, hard-to-miss warning shown anywhere a not-yet-approved
+  // suggestion is surfaced — an engineer must not treat it as install
+  // reference data until a manager has actually signed off on it.
+  function pendingApprovalWarning() {
+    return `
+      <div class="card" style="margin:0 0 12px;border-color:var(--bad);background:rgba(239,68,68,.08)">
+        <p style="margin:0;font-weight:800;color:var(--bad);display:flex;align-items:center;gap:8px">
+          <i data-lucide="alert-triangle"></i> Do not install from this yet
+        </p>
+        <p style="margin:6px 0 0;font-size:13px">This has not been approved. You must get authorisation from a Senior Regional Engineering Manager before carrying out any installation based on it.</p>
+      </div>`;
+  }
+
   function vehicleCard(v) {
     const title = [v.make, v.model].filter(Boolean).join(" ") || "Make/model not set";
     const meta = [v.year_of_manufacture, v.colour].filter(Boolean).join(" · ");
-    const variantLabel = BODY_VARIANTS.find(b => b.key === v.body_variant)?.label;
+    const badges = vehicleBadges(v);
     return `
       <div class="veh-card" data-veh-id="${esc(v.id)}">
-        ${variantLabel ? `<span class="veh-card-reg">${esc(variantLabel)}</span>` : ""}
-        <div class="veh-card-title" style="${variantLabel ? "" : "margin-top:0"}">${esc(title)}</div>
+        ${badges}
+        <div class="veh-card-title" style="${badges ? "" : "margin-top:0"}">${esc(title)}</div>
         ${meta ? `<div class="veh-card-meta">${esc(meta)}</div>` : ""}
         ${v.vin ? `<div class="veh-card-meta">VIN: ${esc(v.vin)}</div>` : ""}
+      </div>`;
+  }
+
+  // ── First-login welcome ───────────────────────────────────────────────────
+  // Shown once per person (tracked in localStorage, keyed by profile id so a
+  // shared device doesn't skip it for the next person to sign in).
+  function maybeShowWelcome() {
+    const key = `vdb_welcomed_${_profile.id}`;
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, "1");
+
+    const overlay = modal(`
+      <div class="modal-header">
+        <h3>Welcome to the Vehicle Installations Database</h3>
+        <button class="btn modal-close" aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p style="margin:0 0 18px;font-size:14px;line-height:1.55;color:var(--text2)">This is where install reference data lives — wiring, component placement, and fitment details for every vehicle we've fitted. Here's the quick version:</p>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          ${welcomeRow("search", "Find a vehicle", "Search by registration, or by make, model, year and fitment, to see its full install profile.")}
+          ${welcomeRow("plus-circle", "Add what's missing", "Can't find a vehicle? Add it. New vehicles and suggested changes go to a Senior Regional Engineering Manager for review first.")}
+          ${welcomeRow("alert-triangle", "Wait for approval", "Anything still pending review is not yet confirmed — always get sign-off from a manager before installing from it.")}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" id="welcomeGotIt">Got it</button>
+      </div>
+    `, {});
+    window.lucide?.createIcons?.();
+    overlay.querySelector("#welcomeGotIt").addEventListener("click", () => overlay.remove());
+  }
+
+  function welcomeRow(icon, title, body) {
+    return `
+      <div style="display:flex;gap:14px;align-items:flex-start">
+        <div class="section-header-icon" style="flex-shrink:0"><i data-lucide="${icon}"></i></div>
+        <div>
+          <div style="font-weight:700;font-size:13.5px;margin-bottom:3px">${esc(title)}</div>
+          <div class="text-muted" style="font-size:12.5px;line-height:1.5">${esc(body)}</div>
+        </div>
       </div>`;
   }
 
@@ -139,11 +206,16 @@
         <div data-panel="reg">
           <div class="form-row">
             <label class="form-label" for="findReg">Registration</label>
-            <div style="display:flex;gap:8px">
-              <input type="text" id="findReg" class="form-input" style="text-transform:uppercase" placeholder="e.g. AB12 CDE" autocomplete="off"/>
-              <button class="btn btn-primary" id="findRegBtn" type="button" style="white-space:nowrap"><i data-lucide="search"></i> Search</button>
-            </div>
+            <input type="text" id="findReg" class="form-input" style="text-transform:uppercase" placeholder="e.g. AB12 CDE" autocomplete="off"/>
           </div>
+          <div class="form-row">
+            <label class="form-label" for="findRegFitment">What are you fitting?</label>
+            <select id="findRegFitment" class="form-input">
+              <option value="" disabled selected>Select fitment…</option>
+              ${FITMENT_TYPES.map(ft => `<option value="${esc(ft.key)}">${esc(ft.label)}</option>`).join("")}
+            </select>
+          </div>
+          <button class="btn btn-primary" id="findRegBtn" type="button" style="width:100%"><i data-lucide="search"></i> Search</button>
           <div id="findRegResult"></div>
         </div>
 
@@ -152,6 +224,13 @@
             <div class="form-row"><label class="form-label" for="findMake">Make</label><input type="text" id="findMake" class="form-input" autocomplete="off"/></div>
             <div class="form-row"><label class="form-label" for="findModel">Model</label><input type="text" id="findModel" class="form-input" autocomplete="off"/></div>
             <div class="form-row"><label class="form-label" for="findYear">Year</label><input type="number" id="findYear" class="form-input" autocomplete="off"/></div>
+            <div class="form-row">
+              <label class="form-label" for="findFitment">What are you fitting?</label>
+              <select id="findFitment" class="form-input">
+                <option value="" disabled selected>Select fitment…</option>
+                ${FITMENT_TYPES.map(ft => `<option value="${esc(ft.key)}">${esc(ft.label)}</option>`).join("")}
+              </select>
+            </div>
           </div>
           <button class="btn btn-primary" id="findMmyBtn" type="button"><i data-lucide="search"></i> Search</button>
           <div id="findMmyResult" style="margin-top:14px"></div>
@@ -168,7 +247,7 @@
     });
 
     const regInput = overlay.querySelector("#findReg");
-    const runRegSearch = () => searchByRegistration(overlay, regInput.value.trim(), isManagerOrAbove);
+    const runRegSearch = () => searchByRegistration(overlay, regInput.value.trim(), overlay.querySelector("#findRegFitment").value, isManagerOrAbove);
     overlay.querySelector("#findRegBtn").addEventListener("click", runRegSearch);
     regInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); runRegSearch(); } });
     regInput.focus();
@@ -181,31 +260,40 @@
   }
 
 
-  async function searchByRegistration(overlay, reg, isManagerOrAbove) {
+  async function searchByRegistration(overlay, reg, fitmentType, isManagerOrAbove) {
     const resultEl = overlay.querySelector("#findRegResult");
     if (!reg) { toast("error", "Enter a registration first"); return; }
+    if (!fitmentType) { toast("error", "Select what you're fitting first"); return; }
     resultEl.innerHTML = loadingState("Searching…");
     try {
-      const existing = await getVehicleByRegistration(reg);
+      // A plate can carry more than one profile now — a separate one per
+      // fitment, since wiring/component locations genuinely differ by what's
+      // being fitted even on the exact same physical vehicle.
+      const profiles = await listVehicleProfilesByRegistration(reg);
+      const existing = profiles.find(v => v.fitment_type === fitmentType);
       if (existing) {
-        // Don't show a plate here — this vehicle may well have been matched
-        // via a different logged registration than the one just searched,
-        // and showing "another plate" back is more confusing than helpful.
         const title = [existing.make, existing.model, existing.year_of_manufacture].filter(Boolean).join(" ");
-        const variantLabel = BODY_VARIANTS.find(b => b.key === existing.body_variant)?.label;
+        const badges = vehicleBadges(existing);
         resultEl.innerHTML = `
           <div class="card" style="margin-top:14px">
-            ${variantLabel ? `<span class="veh-card-reg">${esc(variantLabel)}</span>` : ""}
-            <div class="veh-card-title" style="${variantLabel ? "margin-top:10px" : "margin-top:0"}">${esc(title || "Make/model not set")}</div>
+            ${badges}
+            <div class="veh-card-title" style="${badges ? "margin-top:10px" : "margin-top:0"}">${esc(title || "Make/model not set")}</div>
             <a class="btn btn-primary" style="margin-top:12px" href="${BASE}/vehicle-detail.html?id=${esc(existing.id)}">View Vehicle →</a>
           </div>`;
         window.lucide?.createIcons?.();
         return;
       }
 
-      // No exact reg match, and no vehicle exists to add yet — but someone
-      // may have already suggested this exact one. Point them at that
-      // instead of inviting a duplicate suggestion.
+      // This plate has a profile, just not for the fitment being searched —
+      // no need for a DVSA lookup, we already know exactly what to prefill.
+      if (profiles.length) {
+        renderMissingFitmentOnPlate(resultEl, reg, fitmentType, profiles, isManagerOrAbove);
+        return;
+      }
+
+      // No profile at all for this plate — but someone may have already
+      // suggested this exact one. Point them at that instead of inviting a
+      // duplicate suggestion.
       const pendingMatch = await findPendingMatch({ registration: reg });
       if (pendingMatch) {
         renderPendingMatch(resultEl, pendingMatch, isManagerOrAbove);
@@ -214,9 +302,10 @@
 
       // No exact reg match — look this reg up via DVSA to find its
       // make/model/year, then check whether we already hold any vehicle
-      // matching that make/model/year. Fleets are often bought as identical
-      // batches, so an existing sibling vehicle's install details are
-      // usually a good match even though the reg itself is new.
+      // matching that make/model/year (any fitment). Fleets are often
+      // bought as identical batches, so an existing sibling vehicle's
+      // install details are usually a good match even though the reg
+      // itself is new.
       let similar = [];
       let looked = null;
       try {
@@ -228,7 +317,7 @@
         }
       } catch { /* DVSA lookup failing shouldn't block the "not found" state below */ }
 
-      renderRegNotFound(resultEl, reg, isManagerOrAbove, similar, looked);
+      renderRegNotFound(resultEl, reg, fitmentType, isManagerOrAbove, similar, looked);
     } catch (e) {
       resultEl.innerHTML = "";
       toast("error", "Search failed", e.message);
@@ -249,16 +338,17 @@
 
   function renderPendingMatch(resultEl, request, isManagerOrAbove) {
     const pc = request.proposed_changes || {};
-    const variantLabel = BODY_VARIANTS.find(b => b.key === pc.body_variant)?.label;
+    const badges = vehicleBadges(pc);
     const title = [pc.make, pc.model, pc.year_of_manufacture].filter(Boolean).join(" ");
     const reviewHref = isManagerOrAbove
       ? `${BASE}/edit-requests.html?request=${esc(request.id)}`
       : `${BASE}/my-requests.html`;
     resultEl.innerHTML = `
       <div class="card" style="margin-top:14px;border-color:var(--warn)">
-        ${variantLabel ? `<span class="veh-card-reg">${esc(variantLabel)}</span>` : ""}
-        <div class="veh-card-title" style="${variantLabel ? "margin-top:10px" : "margin-top:0"}">${esc(title || "Vehicle suggestion")}</div>
+        ${badges}
+        <div class="veh-card-title" style="${badges ? "margin-top:10px" : "margin-top:0"}">${esc(title || "Vehicle suggestion")}</div>
         <p style="margin:10px 0 12px;font-size:13px" class="text-muted">There's already a pending suggestion for this vehicle${isManagerOrAbove ? "" : " from you"} — it hasn't been approved yet.</p>
+        ${pendingApprovalWarning()}
         <a class="btn btn-primary" href="${reviewHref}">${isManagerOrAbove ? "Review It" : "View Status"} →</a>
       </div>`;
     window.lucide?.createIcons?.();
@@ -270,7 +360,7 @@
   // guide for one shouldn't silently stand in for the other. Returns "" when
   // both variants are already covered (or none is configured yet — nothing
   // useful to suggest).
-  function missingVariantPrompt({ make, model, year, registration, matches, isManagerOrAbove }) {
+  function missingVariantPrompt({ make, model, year, registration, fitmentType, matches, isManagerOrAbove }) {
     const present = new Set(matches.map(v => v.body_variant).filter(Boolean));
     if (present.size !== 1) return "";
     const missing = BODY_VARIANTS.find(b => !present.has(b.key));
@@ -281,6 +371,7 @@
     if (model) params.set("model", model);
     if (year) params.set("year", year);
     if (registration) params.set("registration", registration);
+    if (fitmentType) params.set("fitment", fitmentType);
     params.set("variant", missing.key);
     return `
       <div class="card" style="margin-top:10px">
@@ -289,8 +380,47 @@
       </div>`;
   }
 
-  function renderRegNotFound(resultEl, reg, isManagerOrAbove, similar, looked) {
-    const createBtn = `<a class="btn btn-primary" href="${BASE}/vehicle-form.html?registration=${esc(reg)}"><i data-lucide="plus"></i> ${isManagerOrAbove ? "Create Vehicle" : "Add This Vehicle"}</a>`;
+  // Given a set of vehicles at some make/model/year (any fitment) and the
+  // fitment actually being searched for, explains what IS on file and
+  // offers to create the missing profile. Returns "" when that fitment is
+  // already covered — nothing useful to add.
+  function missingFitmentPrompt({ make, model, year, registration, fitmentType, matches, isManagerOrAbove, marginTop = 10 }) {
+    if (!fitmentType) return "";
+    const coverage = summarizeFitmentCoverage(matches);
+    if (coverage.find(c => c.key === fitmentType)?.present) return "";
+    const have = coverage.filter(c => c.present).map(c => c.label);
+    const fitmentLabel = FITMENT_TYPES.find(f => f.key === fitmentType)?.label;
+    const params = new URLSearchParams();
+    if (make) params.set("make", make);
+    if (model) params.set("model", model);
+    if (year) params.set("year", year);
+    if (registration) params.set("registration", registration);
+    params.set("fitment", fitmentType);
+    return `
+      <div class="card" style="margin-top:${marginTop}px;border-color:var(--warn)">
+        <p style="margin:0 0 12px;font-size:13px">${have.length ? `Only ${have.map(esc).join(" and ")} ${have.length > 1 ? "are" : "is"} on file for this vehicle` : "Nothing is on file yet for this vehicle"} — not yet <strong>${esc(fitmentLabel)}</strong>. Wiring and component locations differ by what's being fitted, so this needs its own profile.</p>
+        <a class="btn btn-primary" href="${BASE}/vehicle-form.html?${params.toString()}"><i data-lucide="plus"></i> ${isManagerOrAbove ? "Create" : "Add"} ${esc(fitmentLabel)} Profile</a>
+      </div>`;
+  }
+
+  // This exact plate already has one or more profiles, just not for the
+  // fitment being searched — prefill everything we already know (make,
+  // model, year come from an existing sibling profile) rather than sending
+  // the searcher back through a DVSA lookup for a reg we've already seen.
+  function renderMissingFitmentOnPlate(resultEl, reg, fitmentType, profiles, isManagerOrAbove) {
+    const first = profiles[0];
+    resultEl.innerHTML = missingFitmentPrompt({
+      make: first.make, model: first.model, year: first.year_of_manufacture,
+      registration: reg, fitmentType, matches: profiles, isManagerOrAbove, marginTop: 14,
+    });
+    window.lucide?.createIcons?.();
+  }
+
+  function renderRegNotFound(resultEl, reg, fitmentType, isManagerOrAbove, similar, looked) {
+    const params = new URLSearchParams();
+    params.set("registration", reg);
+    params.set("fitment", fitmentType);
+    const createBtn = `<a class="btn btn-primary" href="${BASE}/vehicle-form.html?${params.toString()}"><i data-lucide="plus"></i> ${isManagerOrAbove ? "Create Vehicle" : "Add This Vehicle"}</a>`;
 
     // Finding no exact reg match doesn't actually matter when the same
     // make/model/year is already on file — the install details (wiring,
@@ -304,15 +434,16 @@
           <p class="text-muted" style="margin:0 0 14px;font-size:13px">It's the same make/model/year${mmyTitle ? ` (${esc(mmyTitle)})` : ""} as ${similar.length === 1 ? "a vehicle" : "vehicles"} already in the database, so the install details below apply just as well.</p>
           ${similar.map(v => {
             const title = [v.make, v.model, v.year_of_manufacture].filter(Boolean).join(" ");
-            const variantLabel = BODY_VARIANTS.find(b => b.key === v.body_variant)?.label;
+            const badges = vehicleBadges(v);
             return `
               <div class="veh-card" data-veh-id="${esc(v.id)}" style="margin-bottom:8px;cursor:pointer">
-                ${variantLabel ? `<span class="veh-card-reg">${esc(variantLabel)}</span>` : ""}
-                <div class="veh-card-title" style="${variantLabel ? "margin-top:8px" : "margin-top:0"}">${esc(title || "Make/model not set")}</div>
+                ${badges}
+                <div class="veh-card-title" style="${badges ? "margin-top:8px" : "margin-top:0"}">${esc(title || "Make/model not set")}</div>
               </div>`;
           }).join("")}
         </div>
-        ${missingVariantPrompt({ make: looked?.make, model: looked?.model, year: looked?.year, registration: reg, matches: similar, isManagerOrAbove })}`;
+        ${missingVariantPrompt({ make: looked?.make, model: looked?.model, year: looked?.year, registration: reg, fitmentType, matches: similar, isManagerOrAbove })}
+        ${missingFitmentPrompt({ make: looked?.make, model: looked?.model, year: looked?.year, registration: reg, fitmentType, matches: similar, isManagerOrAbove })}`;
     } else {
       resultEl.innerHTML = `
         <div class="card" style="margin-top:14px;border-color:var(--warn)">
@@ -332,38 +463,49 @@
     const make = overlay.querySelector("#findMake").value.trim();
     const model = overlay.querySelector("#findModel").value.trim();
     const year = overlay.querySelector("#findYear").value.trim();
+    const fitmentType = overlay.querySelector("#findFitment").value;
     if (!make && !model && !year) { toast("error", "Enter at least a make, model or year"); return; }
+    if (!fitmentType) { toast("error", "Select what you're fitting first"); return; }
 
     resultEl.innerHTML = loadingState("Searching…");
     try {
-      const matches = await searchVehiclesByMakeModelYear({ make, model, year });
+      const matches = await searchVehiclesByMakeModelYear({ make, model, year, fitmentType });
       if (!matches.length) {
         const pendingMatch = await findPendingMatch({ make, model, year });
         if (pendingMatch) {
           renderPendingMatch(resultEl, pendingMatch, isManagerOrAbove);
           return;
         }
-        const params = new URLSearchParams();
-        if (make) params.set("make", make);
-        if (model) params.set("model", model);
-        if (year) params.set("year", year);
-        resultEl.innerHTML = `
-          <div class="card" style="border-color:var(--warn)">
-            <p style="margin:0 0 12px">No vehicles found for that make, model and year.</p>
-            <a class="btn btn-primary" href="${BASE}/vehicle-form.html?${params.toString()}"><i data-lucide="plus"></i> ${isManagerOrAbove ? "Create Vehicle" : "Add This Vehicle"}</a>
-          </div>`;
+        // Nothing for this exact fitment — check whether other fitments
+        // are on file for the same make/model/year, worth surfacing
+        // instead of a flat "not found".
+        const allFitments = await searchVehiclesByMakeModelYear({ make, model, year });
+        if (allFitments.length) {
+          resultEl.innerHTML = missingFitmentPrompt({ make, model, year, fitmentType, matches: allFitments, isManagerOrAbove });
+        } else {
+          const params = new URLSearchParams();
+          if (make) params.set("make", make);
+          if (model) params.set("model", model);
+          if (year) params.set("year", year);
+          params.set("fitment", fitmentType);
+          resultEl.innerHTML = `
+            <div class="card" style="border-color:var(--warn)">
+              <p style="margin:0 0 12px">No vehicles found for that make, model and year.</p>
+              <a class="btn btn-primary" href="${BASE}/vehicle-form.html?${params.toString()}"><i data-lucide="plus"></i> ${isManagerOrAbove ? "Create Vehicle" : "Add This Vehicle"}</a>
+            </div>`;
+        }
         window.lucide?.createIcons?.();
         return;
       }
       resultEl.innerHTML = matches.map(v => {
         const title = [v.make, v.model, v.year_of_manufacture].filter(Boolean).join(" ");
-        const variantLabel = BODY_VARIANTS.find(b => b.key === v.body_variant)?.label;
+        const badges = vehicleBadges(v);
         return `
           <div class="veh-card" data-veh-id="${esc(v.id)}" style="margin-bottom:10px;cursor:pointer">
-            ${variantLabel ? `<span class="veh-card-reg">${esc(variantLabel)}</span>` : ""}
-            <div class="veh-card-title" style="${variantLabel ? "margin-top:8px" : "margin-top:0"}">${esc(title || "Make/model not set")}</div>
+            ${badges}
+            <div class="veh-card-title" style="${badges ? "margin-top:8px" : "margin-top:0"}">${esc(title || "Make/model not set")}</div>
           </div>`;
-      }).join("") + missingVariantPrompt({ make, model, year, matches, isManagerOrAbove });
+      }).join("") + missingVariantPrompt({ make, model, year, fitmentType, matches, isManagerOrAbove });
       resultEl.querySelectorAll("[data-veh-id]").forEach(card => {
         card.addEventListener("click", () => { window.location.href = `${BASE}/vehicle-detail.html?id=${card.dataset.vehId}`; });
       });

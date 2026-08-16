@@ -100,11 +100,19 @@ export async function requireModuleAccess() {
     .eq("module_key", MODULE_KEY)
     .maybeSingle();
 
-  if (error || !mod?.enabled) {
+  if (error || !mod) {
     renderBlockScreen({
       icon: "🔒",
       title: "Module Not Enabled",
       message: "This module has not been enabled for your company.",
+    });
+    throw new Error("Module not enabled");
+  }
+  if (!mod.enabled) {
+    renderBlockScreen({
+      icon: "⚠️",
+      title: "Module Suspended",
+      message: "Sorry, this module has been suspended due to an outstanding payment. Please contact your administrator or email support@smartcoretechnology.co.uk to resolve this.",
     });
     throw new Error("Module not enabled");
   }
