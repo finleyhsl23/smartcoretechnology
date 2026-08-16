@@ -63,7 +63,7 @@ const CORS = {
 
 const SIZE_TIERS = [
   { id: 'micro',      label: 'Micro',      range: '1–10',        multiplier: 1.00,  maxEmployees: 10   },
-  { id: 'small',      label: 'Small',      range: '11–15',       multiplier: 0.71,  maxEmployees: 15   },
+  { id: 'small',      label: 'Small',      range: '11–15',       multiplier: 1.15,  maxEmployees: 15   },
   { id: 'growing',    label: 'Growing',    range: '16–50',       multiplier: 1.43,  maxEmployees: 50   },
   { id: 'medium',     label: 'Medium',     range: '51–100',      multiplier: 2.86,  maxEmployees: 100  },
   { id: 'large',      label: 'Large',      range: '101–250',     multiplier: 6.72,  maxEmployees: 250  },
@@ -247,8 +247,7 @@ async function handleCancelModule(env, order, body) {
   }
 
   // Get company
-  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=id&limit=1`);
-  const company   = companies?.[0];
+  const company = await resolveCompany(env, order);
   if (!company?.id) return json({ error: 'Company not found' }, 404, CORS);
 
   // Mark the module as cancelling in purchased_modules
@@ -299,8 +298,7 @@ async function handleChangeSize(env, order, body) {
   if (!tier) return json({ error: `Invalid tier: ${new_tier_id}` }, 400, CORS);
 
   // Get company + employee count
-  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=*&limit=1`);
-  const company   = companies?.[0];
+  const company = await resolveCompany(env, order);
   let employee_count = 0;
   if (company?.id) {
     const empRows = await dbGet(env, `/core_employees?company_id=eq.${enc(company.id)}&select=id`);
@@ -438,8 +436,7 @@ async function handleChangeCrmTier(env, order, body) {
   });
 
   // Update purchased_modules: delete old CRM row(s), insert new
-  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=id&limit=1`);
-  const company   = companies?.[0];
+  const company = await resolveCompany(env, order);
   if (company?.id) {
     for (const slug of CRM_SLUGS) {
       try {
@@ -517,8 +514,7 @@ async function handleGenerateToken(env, request, body) {
   const order = orders[0];
 
   // Check user is owner/admin of this company
-  const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=id&limit=1`);
-  const company   = companies?.[0];
+  const company = await resolveCompany(env, order);
   if (company?.id) {
     const empRows = await dbGet(env, `/core_employees?company_id=eq.${enc(company.id)}&auth_user_id=eq.${enc(userId)}&select=role&limit=1`);
     const emp = empRows?.[0];
@@ -538,6 +534,21 @@ async function handleGenerateToken(env, request, body) {
 
   const url = `https://smartcoretechnology.co.uk/shop/manage-plan.html?token=${token}`;
   return json({ token, url }, 200, CORS);
+}
+
+// ---------------------------------------------------------------------------
+// Resolve company — tries order_id column first, falls back to email match
+// ---------------------------------------------------------------------------
+async function resolveCompany(env, order) {
+  if (order.id) {
+    const rows = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=*&limit=1`);
+    if (rows?.[0]) return rows[0];
+  }
+  if (order.email) {
+    const rows = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(order.email)}&select=*&limit=1`);
+    if (rows?.[0]) return rows[0];
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
