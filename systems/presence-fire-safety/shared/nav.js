@@ -166,6 +166,17 @@ function initTopbarMoreControls(topbar) {
   topbar.appendChild(panel);
   const anchor = topbar.querySelector(".topbar-back-btn") || topbar.querySelector(".hamburger");
   (anchor || topbar.firstElementChild)?.after(moreBtn);
+
+  // Hiding the title on mobile (see stylesheet) removed the flex:1 spacer
+  // that used to push trailing controls to the right edge, so without
+  // this, more-controls + logout end up stranded on the left next to the
+  // back button instead. Pull them to the far right explicitly, and make
+  // sure logout sits directly after more-controls regardless of where it
+  // originally was in the markup.
+  moreBtn.classList.add("topbar-push-right");
+  const logoutBtn = document.getElementById("logoutBtn");
+  if (logoutBtn) moreBtn.after(logoutBtn);
+
   window.lucide?.createIcons?.();
 
   const closePanel = () => { panel.classList.remove("open"); moreBtn.setAttribute("aria-expanded", "false"); };
