@@ -116,7 +116,7 @@ async function resolveOrder(env, request, url) {
     orders = await dbGet(env, `/marketplace_orders?email=eq.${enc(company.company_email)}&status=not.in.(pending_payment,pending)&order=created_at.desc&limit=1`);
   }
   if (!orders?.[0]) return { error: 'No active subscription found', status: 404 };
-  return { order: orders[0] };
+  return { order: orders[0], companyId };
 }
 
 // ---------------------------------------------------------------------------
@@ -131,9 +131,16 @@ export async function onRequestGet(context) {
     if (resolved.error) return json({ error: resolved.error }, resolved.status, CORS);
     const order = resolved.order;
 
-    // Get company
-    const companies = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=*&limit=1`);
-    const company   = companies?.[0] || null;
+    // Get company — prefer the companyId we already resolved, fall back to order_id column
+    let company = null;
+    if (resolved.companyId) {
+      const rows = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(resolved.companyId)}&select=*&limit=1`);
+      company = rows?.[0] || null;
+    }
+    if (!company) {
+      const rows = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(order.id)}&select=*&limit=1`);
+      company = rows?.[0] || null;
+    }
 
     // Get all available modules
     const modules = await dbGet(env, `/marketplace_modules?select=*&order=monthly_price.asc`);
