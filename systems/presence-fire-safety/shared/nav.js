@@ -103,6 +103,81 @@ export function initTopbar() {
     if (hamburger) hamburger.after(backBtn);
     else topbar.prepend(backBtn);
   }
+
+  initTopbarMoreControls(topbar);
+}
+
+/**
+ * Mobile/tablet only (checked once, at load — this app isn't used with a
+ * dynamically resized window, so a one-time check is enough). Relocates
+ * whichever of refresh/site-switcher/theme-toggle exist on this page out
+ * of the cramped topbar row and into a single collapsed "more controls"
+ * button + dropdown panel — moving the real elements, not cloning them,
+ * so every existing click handler and the site-switcher's own wiring
+ * keep working with zero changes. Desktop never runs this at all, so the
+ * existing desktop topbar is completely untouched.
+ */
+function initTopbarMoreControls(topbar) {
+  if (!topbar || !window.matchMedia("(max-width: 900px)").matches) return;
+
+  const refreshBtn = document.getElementById("refreshBtn");
+  const siteWrap = topbar.querySelector(".pfs-site-search-wrap");
+  const themeBtn = document.getElementById("themeToggle");
+  const movable = [
+    refreshBtn && { el: refreshBtn, label: "Refresh" },
+    siteWrap && { el: siteWrap, label: "Site" },
+    themeBtn && { el: themeBtn, label: "Theme" },
+  ].filter(Boolean);
+  if (!movable.length) return;
+
+  const moreBtn = document.createElement("button");
+  moreBtn.type = "button";
+  moreBtn.className = "icon-btn topbar-more-btn";
+  moreBtn.setAttribute("aria-label", "More controls");
+  moreBtn.setAttribute("aria-expanded", "false");
+  moreBtn.innerHTML = `<i data-lucide="sliders-horizontal"></i>`;
+
+  const panel = document.createElement("div");
+  panel.className = "topbar-more-panel";
+
+  movable.forEach(({ el, label }) => {
+    // Icon-only buttons (refresh/theme) get a text label appended so the
+    // panel reads as a menu, not a row of unlabelled icons — hidden by
+    // default, shown only inside .topbar-more-panel (see stylesheet).
+    if (el.tagName === "BUTTON") {
+      if (!el.querySelector(".topbar-more-row-text")) {
+        const span = document.createElement("span");
+        span.className = "topbar-more-row-text";
+        span.textContent = label;
+        el.appendChild(span);
+      }
+      el.classList.add("topbar-more-row");
+    } else {
+      // Not a button (the site-switcher wrap) — precede it with a plain
+      // label instead of appending text inside it.
+      const labelEl = document.createElement("span");
+      labelEl.className = "topbar-more-label";
+      labelEl.textContent = label;
+      panel.appendChild(labelEl);
+    }
+    panel.appendChild(el);
+  });
+
+  topbar.appendChild(panel);
+  const anchor = topbar.querySelector(".topbar-back-btn") || topbar.querySelector(".hamburger");
+  (anchor || topbar.firstElementChild)?.after(moreBtn);
+  window.lucide?.createIcons?.();
+
+  const closePanel = () => { panel.classList.remove("open"); moreBtn.setAttribute("aria-expanded", "false"); };
+  moreBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = panel.classList.toggle("open");
+    moreBtn.setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (e) => {
+    if (panel.classList.contains("open") && !panel.contains(e.target) && e.target !== moreBtn) closePanel();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
 }
 
 /**
