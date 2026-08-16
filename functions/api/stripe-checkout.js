@@ -47,11 +47,17 @@ export async function onRequestPost(context) {
           const companyId = companies[0].id;
           const owned = await dbGet(env, `/smartcore_core_purchased_modules?company_id=eq.${enc(companyId)}&status=eq.active&select=module_slug`);
           const ownedSlugs = new Set((owned || []).map(r => r.module_slug));
-          const alreadyOwned = orderModules.filter(s => s !== 'smartcore-core' && ownedSlugs.has(s));
+          const isCrm = s => s.startsWith('smartcore-crm');
+          const hasCrmTier = [...ownedSlugs].some(isCrm);
+
+          const alreadyOwned = orderModules.filter(s => s !== 'smartcore-core' && (ownedSlugs.has(s) || (isCrm(s) && hasCrmTier)));
           if (alreadyOwned.length > 0 && alreadyOwned.length === orderModules.filter(s => s !== 'smartcore-core').length) {
+            const crmConflict = orderModules.some(isCrm) && hasCrmTier && !orderModules.some(s => ownedSlugs.has(s));
             return json({
               error: 'already_owned',
-              message: `Your company already has an active subscription to ${alreadyOwned.length === 1 ? 'this module' : 'all of these modules'}. Please contact support@smartcoretechnology.co.uk if you need help.`,
+              message: crmConflict
+                ? 'Your company already has an active CRM subscription. To change tier, please contact support@smartcoretechnology.co.uk.'
+                : `Your company already has an active subscription to ${alreadyOwned.length === 1 ? 'this module' : 'all of these modules'}. Please contact support@smartcoretechnology.co.uk if you need help.`,
               modules: alreadyOwned,
             }, 409, CORS);
           }
