@@ -113,7 +113,7 @@ async function resolveOrder(env, request, url) {
     orders = await dbGet(env, `/marketplace_orders?id=eq.${enc(company.order_id)}&select=*&limit=1`);
   }
   if (!orders?.[0] && company.company_email) {
-    orders = await dbGet(env, `/marketplace_orders?email=eq.${enc(company.company_email)}&status=eq.active&order=created_at.desc&limit=1`);
+    orders = await dbGet(env, `/marketplace_orders?email=eq.${enc(company.company_email)}&status=not.in.(pending_payment,pending)&order=created_at.desc&limit=1`);
   }
   if (!orders?.[0]) return { error: 'No active subscription found', status: 404 };
   return { order: orders[0] };
