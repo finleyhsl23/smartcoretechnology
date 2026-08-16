@@ -35,6 +35,30 @@ export async function onRequestPost(context) {
       return json({ error: 'Order is not awaiting payment', status: order.status }, 400, CORS);
     }
 
+    // Check if a company with this email already owns all the modules in this order
+    try {
+      const orderModules = Array.isArray(order.modules)
+        ? order.modules.map(m => m.slug).filter(Boolean)
+        : [];
+
+      if (orderModules.length > 0 && order.email) {
+        const companies = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(order.email)}&select=id&limit=1`);
+        if (companies?.[0]?.id) {
+          const companyId = companies[0].id;
+          const owned = await dbGet(env, `/smartcore_core_purchased_modules?company_id=eq.${enc(companyId)}&status=eq.active&select=module_slug`);
+          const ownedSlugs = new Set((owned || []).map(r => r.module_slug));
+          const alreadyOwned = orderModules.filter(s => s !== 'smartcore-core' && ownedSlugs.has(s));
+          if (alreadyOwned.length > 0 && alreadyOwned.length === orderModules.filter(s => s !== 'smartcore-core').length) {
+            return json({
+              error: 'already_owned',
+              message: `Your company already has an active subscription to ${alreadyOwned.length === 1 ? 'this module' : 'all of these modules'}. Please contact support@smartcoretechnology.co.uk if you need help.`,
+              modules: alreadyOwned,
+            }, 409, CORS);
+          }
+        }
+      }
+    } catch (_) { /* non-fatal — let payment proceed if check fails */ }
+
     // If we already created a subscription, try to return the existing client_secret
     if (order.stripe_subscription_id) {
       try {
