@@ -1286,10 +1286,11 @@ async function afterLogin(session) {
   badge.className = `nav-badge badge-${role}`;
   document.getElementById('navUser').classList.add('visible');
 
-  // Show company name
+  // Show company name + store employee limit
   if (profile.company_id) {
-    const { data: co } = await sb.from('smartcore_core_companies').select('company_name').eq('id', profile.company_id).maybeSingle();
+    const { data: co } = await sb.from('smartcore_core_companies').select('company_name,employee_limit').eq('id', profile.company_id).maybeSingle();
     document.getElementById('appSubtitle').textContent = co?.company_name || '';
+    window._employeeLimit = co?.employee_limit ?? null;
   }
 
   if (role === 'owner') {
@@ -1529,7 +1530,17 @@ function renderEmployees() {
       (emp.work_email||'').toLowerCase().includes(q)
     ));
   };
-  document.getElementById('addEmpBtn').onclick = openAdd;
+  const addBtn = document.getElementById('addEmpBtn');
+  const limit = window._employeeLimit;
+  if (limit && total >= limit) {
+    addBtn.disabled = true;
+    addBtn.title = `Plan limit reached (${total}/${limit} employees). Upgrade at /manage-plans/ to add more.`;
+    addBtn.onclick = null;
+  } else {
+    addBtn.disabled = false;
+    addBtn.title = limit ? `${total}/${limit} employees used` : '';
+    addBtn.onclick = openAdd;
+  }
   document.getElementById('deptsBtn').onclick = openDepts;
   document.getElementById('onboardingBtn').onclick = openOnboarding;
 }
