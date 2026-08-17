@@ -12,7 +12,7 @@ import { sendApnsPush } from './_apns.js';
 
 const SUPABASE_URL = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
 
-function sb(env, path, method = 'GET') {
+function sb(env, path, method = 'GET', body) {
   const baseUrl = env.SUPABASE_URL || SUPABASE_URL;
   return fetch(`${baseUrl}/rest/v1${path}`, {
     method,
@@ -21,6 +21,7 @@ function sb(env, path, method = 'GET') {
       Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
       'Content-Type': 'application/json',
     },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 }
 
@@ -72,7 +73,24 @@ async function sendApnsToUsers(env, ids, message) {
 
   await Promise.all(tokens.map(async (tokenRow) => {
     try {
-      const result = await sendApnsPush(env, tokenRow, message);
+      let result = await sendApnsPush(env, tokenRow, message);
+      // A device built via Xcode (Debug) only ever gets a sandbox token,
+      // while the App Store build only ever gets a production one — but the
+      // client can't always tell us which for certain, and a token minted
+      // under one can flip which build it's tied to between test sessions.
+      // Apple returns the same "BadDeviceToken" for a dead token AND for a
+      // token sent to the wrong environment, so retry the other host once
+      // before concluding it's actually dead; if that's what fixes it,
+      // correct the stored environment so the next send doesn't repeat this.
+      if (!result.ok && result.reason === 'BadDeviceToken') {
+        const altEnvironment = tokenRow.environment === 'production' ? 'sandbox' : 'production';
+        const altResult = await sendApnsPush(env, { ...tokenRow, environment: altEnvironment }, message);
+        if (altResult.ok) {
+          await sb(env, `/core_apns_device_tokens?id=eq.${tokenRow.id}`, 'PATCH', { environment: altEnvironment }).catch(() => {});
+        }
+        result = altResult;
+      }
+
       if (result.ok) {
         sent++;
       } else if (result.reason === 'BadDeviceToken' || result.reason === 'Unregistered') {
