@@ -663,13 +663,27 @@ async function init() {
 // ── Dashboard ──────────────────────────────────────────────────────────────
 async function loadDashboard(user) {
   try {
-    // Verify session is valid server-side before showing anything
+    // Verify session is valid server-side before showing anything — but
+    // only sign out for a genuine "this session is invalid/expired"
+    // response. A network hiccup verifying the session (no HTTP status,
+    // a 5xx, a timeout) isn't proof you're logged out — it's exactly what
+    // happens to a kiosk device right after reconnecting from a brief
+    // drop, and treating it as a real auth failure used to wipe an
+    // otherwise-perfectly-good local session on every such blip.
     const { error: userErr } = await sb.auth.getUser();
     if (userErr) {
-      dashboardLoaded = false;
-      await sb.auth.signOut();
-      hide('shell'); show('loginWrap');
-      return;
+      const authInvalid = userErr.status === 401 || userErr.status === 403 ||
+        /jwt|invalid.*token|invalid.*session|invalid.*refresh/i.test(userErr.message || '');
+      if (authInvalid) {
+        dashboardLoaded = false;
+        await sb.auth.signOut();
+        hide('shell'); show('loginWrap');
+        return;
+      }
+      // Otherwise: proceed with the cached session below. If it really is
+      // bad, the core_employees query further down will fail with a real
+      // auth error, which the outer catch block already handles the same
+      // way (see e.status === 401 check there).
     }
 
     state.user = user;

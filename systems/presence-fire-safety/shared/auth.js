@@ -7,13 +7,26 @@ let _profile = null;
 let _permissions = null;
 let _sites = null;
 
+/**
+ * A cleanly returned "no session, no error" means genuinely logged out —
+ * redirect immediately, no point retrying. An actual error from
+ * getSession() (it can trigger a network round-trip to refresh an
+ * expiring token) is a different thing entirely: exactly what a kiosk
+ * device sees for a moment right after reconnecting from a network drop,
+ * not proof the session is gone. Retrying briefly here is what stops that
+ * transient blip from reading as "logged out" and bouncing to /modules/.
+ */
 export async function requireAuth() {
-  const { data, error } = await sb().auth.getSession();
-  if (error || !data?.session) {
-    window.location.href = "/modules/";
-    throw new Error("No session");
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { data, error } = await sb().auth.getSession();
+    if (data?.session) return data.session;
+    if (!error) break;
+    lastError = error;
+    if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
   }
-  return data.session;
+  window.location.href = "/modules/";
+  throw new Error(lastError ? `Could not verify session: ${lastError.message}` : "No session");
 }
 
 /**
