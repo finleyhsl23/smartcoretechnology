@@ -14,6 +14,8 @@ const SITE          = 'https://smartcoretechnology.co.uk';
 
 // --- Helpers ----------------------------------------------------------------
 
+function charmPrice(v) { return v > 0 ? Math.ceil(v / 5) * 5 + 0.99 : v; }
+
 function fmt(n) {
   return '£' + Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -104,7 +106,7 @@ function invoiceHtml(inv, o, modules) {
     </tr>`,
     ...regular.map((m) => {
       const base  = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
-      const price = (base || 0) * multiplier;
+      const price = charmPrice((base || 0) * multiplier);
       return `<tr>
         <td style="padding:12px 16px;font-size:14px;color:#1e293b;border-bottom:1px solid #e2e8f0">${esc(m.name)}</td>
         <td style="padding:12px 16px;font-size:14px;color:#1e293b;border-bottom:1px solid #e2e8f0;text-align:center">1</td>
