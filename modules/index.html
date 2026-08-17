@@ -475,6 +475,7 @@
     #pushPrompt .pp-icon{font-size:22px;flex-shrink:0;line-height:1}
     #pushPrompt .pp-title{font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:4px}
     #pushPrompt .pp-desc{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px}
+    #pushPrompt .pp-msg{font-size:11.5px;color:#f59e0b;line-height:1.5;margin:-4px 0 12px}
     #pushPrompt .pp-actions{display:flex;gap:8px}
     #pushPrompt .pp-enable{
       background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;border:none;
@@ -621,7 +622,8 @@
   <div class="pp-icon">🔔</div>
   <div>
     <div class="pp-title">Turn on alerts?</div>
-    <div class="pp-desc">Get notified on this device for module alerts and fire drills — like a panic alert if an evacuation is started at your site.</div>
+    <div class="pp-desc" id="pushPromptDesc">Get notified on this device for module alerts and fire drills — like a panic alert if an evacuation is started at your site.</div>
+    <div class="pp-msg" id="pushPromptMsg" style="display:none"></div>
     <div class="pp-actions">
       <button class="pp-enable" id="pushEnableBtn">Enable</button>
       <button class="pp-dismiss" id="pushDismissBtn">Not now</button>
@@ -1197,6 +1199,19 @@ function isPushSupported() {
   return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
 
+// iOS only allows a Push subscription from a PWA that's been added to the
+// Home Screen and opened from there — a plain Safari tab exposes the same
+// APIs but subscribe() fails. There's no feature-detect for this; UA
+// sniffing + the standalone display-mode check is the only reliable way.
+function isIos() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function isStandaloneDisplay() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -1219,9 +1234,12 @@ async function savePushSubscription(subscription) {
 
 /** Registers the root-scoped service worker and subscribes to Push — this
  *  itself triggers the browser's permission prompt if not already granted
- *  or denied. Returns true only once the subscription is saved server-side. */
+ *  or denied. Returns { ok, reason } — callers should surface `reason` to
+ *  the user rather than failing silently, since "nothing happened" on iOS
+ *  almost always means a specific, fixable cause (not installed, blocked). */
 async function enablePushNotifications() {
-  if (!isPushSupported()) return false;
+  if (!isPushSupported()) return { ok: false, reason: "unsupported" };
+  if (isIos() && !isStandaloneDisplay()) return { ok: false, reason: "ios-not-installed" };
   try {
     const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
     await navigator.serviceWorker.ready;
@@ -1232,9 +1250,12 @@ async function enablePushNotifications() {
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
       });
     }
-    return await savePushSubscription(subscription);
-  } catch {
-    return false;
+    const saved = await savePushSubscription(subscription);
+    return saved ? { ok: true } : { ok: false, reason: "save-failed" };
+  } catch (e) {
+    if (Notification.permission === "denied") return { ok: false, reason: "denied" };
+    console.error("Push subscribe failed:", e);
+    return { ok: false, reason: "error", message: e?.message };
   }
 }
 
@@ -1246,9 +1267,19 @@ async function ensurePushSubscribedIfGranted() {
   await enablePushNotifications();
 }
 
+const PUSH_REASON_MESSAGES = {
+  "ios-not-installed": "On iPhone/iPad this only works once SmartCore is added to your Home Screen — tap Share, then \"Add to Home Screen\", then open it from that icon and try again.",
+  "denied": "Notifications are blocked for this site. Check Settings → Notifications (or your browser's site settings) and allow them, then try again.",
+  "unsupported": "This browser doesn't support push notifications.",
+  "save-failed": "Permission was granted but we couldn't save it — check your connection and try again.",
+  "error": "Couldn't turn on notifications — please try again.",
+};
+
 /** Shows the "turn on alerts" banner once per dashboard load, but only when
  *  permission genuinely hasn't been decided yet — and snoozes for a week
- *  after a "Not now" so it doesn't nag on every visit. */
+ *  after a "Not now" so it doesn't nag on every visit. On iOS outside an
+ *  installed PWA, shows the install instructions up front instead of a
+ *  button that's guaranteed to fail. */
 function maybeShowPushPrompt() {
   if (!isPushSupported()) return;
   if (Notification.permission !== "default") {
@@ -1260,12 +1291,32 @@ function maybeShowPushPrompt() {
 
   const el = document.getElementById("pushPrompt");
   if (!el) return;
+
+  if (isIos() && !isStandaloneDisplay()) {
+    const msgEl = document.getElementById("pushPromptMsg");
+    if (msgEl) { msgEl.textContent = PUSH_REASON_MESSAGES["ios-not-installed"]; msgEl.style.display = "block"; }
+    document.getElementById("pushEnableBtn")?.style.setProperty("display", "none");
+  }
+
   requestAnimationFrame(() => el.classList.add("show"));
 }
 
-document.getElementById("pushEnableBtn")?.addEventListener("click", async () => {
-  document.getElementById("pushPrompt")?.classList.remove("show");
-  await enablePushNotifications();
+document.getElementById("pushEnableBtn")?.addEventListener("click", async (evt) => {
+  const btn = evt.currentTarget;
+  btn.disabled = true;
+  btn.textContent = "Enabling…";
+  const result = await enablePushNotifications();
+  const msgEl = document.getElementById("pushPromptMsg");
+  if (result.ok) {
+    document.getElementById("pushPrompt")?.classList.remove("show");
+  } else {
+    btn.disabled = false;
+    btn.textContent = "Enable";
+    if (msgEl) {
+      msgEl.textContent = PUSH_REASON_MESSAGES[result.reason] || PUSH_REASON_MESSAGES.error;
+      msgEl.style.display = "block";
+    }
+  }
 });
 
 document.getElementById("pushDismissBtn")?.addEventListener("click", () => {
