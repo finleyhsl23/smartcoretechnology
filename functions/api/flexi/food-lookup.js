@@ -16,9 +16,12 @@
 //    licence requires attribution for its data, which the client-side UI
 //    shows against each branded result.
 //
-// Generic results are returned first, branded/shop ones after, so plain
-// ingredients still win a search like "chicken breast" while something
-// like "Warburtons toastie" still turns up a real product.
+// Results are ranked, not just concatenated: name-relevance to the search
+// dominates the score, calorie density is a secondary "healthier first"
+// tiebreaker, and a long branded name gets a "composite dish" penalty —
+// see rankScore() below for why "flame grilled chicken" outranks
+// "McDonald's Bacon Ranch Salad with Grilled Chicken" for a "grilled
+// chicken" search even though both technically match.
 
 import { json, handleOptions } from './_utils.js';
 
@@ -110,6 +113,61 @@ async function searchOpenFoodFacts(query) {
     .filter(f => f.per100g.calories != null);
 }
 
+function words(str) {
+  return (str || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+// How much of the food's name matches the search, 0–1.15: full coverage of
+// the query's words, plus a small bonus for actually starting with it (so
+// "Chicken breast" beats "Breaded chicken breast" for a "chicken breast"
+// search, not just tie with it).
+function relevanceScore(name, query) {
+  const queryWords = words(query);
+  if (!queryWords.length) return 0;
+  const nameWords = new Set(words(name));
+  const matched = queryWords.filter(w => nameWords.has(w)).length;
+  const coverage = matched / queryWords.length;
+  const startsWithBonus = name.toLowerCase().startsWith(query.toLowerCase()) ? 0.15 : 0;
+  return coverage + startsWithBonus;
+}
+
+// Calories/100g as a simple, explainable "healthier first" proxy — not a
+// clinical score, just a reasonable inverse weighting so a leaner option
+// edges out a fattier one among otherwise similar matches.
+function healthScore(per100g) {
+  const cal = per100g.calories ?? 250;
+  return 1 - Math.min(1, cal / 600);
+}
+
+// How many words in the name aren't part of the query match — i.e. how
+// much *else* is going on in this result besides what was searched for.
+// Only weighted heavily for branded/restaurant items: a long name there
+// usually means several foods bundled into one product or menu item (a
+// salad with bacon, ranch dressing *and* chicken). USDA's own generic
+// entries are always written in a verbose, qualifier-heavy style even for
+// a single plain food (e.g. "Chicken, broilers or fryers, breast, meat
+// only, cooked, grilled"), so the same penalty barely touches those.
+function compositeDishPenalty(name, query, source) {
+  const nameWords = words(name);
+  const queryWords = new Set(words(query));
+  const matched = nameWords.filter(w => queryWords.has(w)).length;
+  const extraWords = Math.max(0, nameWords.length - matched);
+  return extraWords * (source === 'branded' ? 0.06 : 0.01);
+}
+
+function rankScore(food, query) {
+  const relevance = relevanceScore(food.name, query);
+  const health = healthScore(food.per100g);
+  const penalty = compositeDishPenalty(food.name, query, food.source);
+  // USDA's generic entries are, by construction, always a single plain
+  // food — never a multi-item product or menu combo — so a small flat
+  // edge for them is a more reliable "prefer the simple option" signal
+  // than word-counting alone (a short branded name like "Grilled Chicken
+  // Caesar Wrap" can otherwise still out-rank the correct plain result).
+  const genericBonus = food.source === 'generic' ? 0.1 : 0;
+  return relevance * 0.65 + health * 0.2 - penalty + genericBonus;
+}
+
 export async function onRequestOptions() {
   return handleOptions();
 }
@@ -125,5 +183,9 @@ export async function onRequestPost({ request, env }) {
     searchOpenFoodFacts(query).catch(() => []),
   ]);
 
-  return json({ foods: [...generic, ...branded].slice(0, 16) });
+  const foods = [...generic, ...branded]
+    .sort((a, b) => rankScore(b, query) - rankScore(a, query))
+    .slice(0, 16);
+
+  return json({ foods });
 }
