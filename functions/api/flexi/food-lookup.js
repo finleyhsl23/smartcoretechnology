@@ -65,7 +65,7 @@ async function searchUsda(env, query) {
   const params = new URLSearchParams();
   params.set('api_key', apiKey);
   params.set('query', query);
-  params.set('pageSize', '8');
+  params.set('pageSize', '20');
   params.append('dataType', 'Foundation');
   params.append('dataType', 'SR Legacy');
 
@@ -85,7 +85,7 @@ async function searchUsda(env, query) {
 
 async function searchOpenFoodFacts(query) {
   const params = new URLSearchParams({
-    search_terms: query, search_simple: '1', action: 'process', json: '1', page_size: '8',
+    search_terms: query, search_simple: '1', action: 'process', json: '1', page_size: '20',
   });
   const res = await fetch(`${OFF_SEARCH_URL}?${params.toString()}`, {
     headers: { 'User-Agent': 'SmartCoreFlexi/1.0 (support@smartcoretechnology.co.uk)' },
@@ -113,22 +113,30 @@ async function searchOpenFoodFacts(query) {
     .filter(f => f.per100g.calories != null);
 }
 
+// Naive singular/plural normalization — USDA's generic entries are almost
+// always named in the plural ("Bananas, raw", "Eggs, whole, raw") while
+// people search in the singular ("banana"), which otherwise misses an
+// exact match entirely on simple word-set comparison.
+function stem(word) {
+  return word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word;
+}
 function words(str) {
-  return (str || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return (str || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(stem);
 }
 
-// How much of the food's name matches the search, 0–1.15: full coverage of
-// the query's words, plus a small bonus for actually starting with it (so
-// "Chicken breast" beats "Breaded chicken breast" for a "chicken breast"
-// search, not just tie with it).
+// How much of the food's name matches the search, 0–1: what fraction of the
+// query's words appear in the name. Deliberately does NOT reward a name for
+// merely *starting with* the query — that rewarded things like "Grilled
+// Chicken Bacon Ranch Salad" (a composite dish whose name just happens to
+// lead with the search terms) over "Flame Grilled Chicken Fillets" (fewer
+// words overall, but not literally prefixed with the query). How much
+// *extra* stuff is in the name is handled separately, by extraWordPenalty.
 function relevanceScore(name, query) {
   const queryWords = words(query);
   if (!queryWords.length) return 0;
   const nameWords = new Set(words(name));
   const matched = queryWords.filter(w => nameWords.has(w)).length;
-  const coverage = matched / queryWords.length;
-  const startsWithBonus = name.toLowerCase().startsWith(query.toLowerCase()) ? 0.15 : 0;
-  return coverage + startsWithBonus;
+  return matched / queryWords.length;
 }
 
 // Calories/100g as a simple, explainable "healthier first" proxy — not a
@@ -141,31 +149,45 @@ function healthScore(per100g) {
 
 // How many words in the name aren't part of the query match — i.e. how
 // much *else* is going on in this result besides what was searched for.
-// Only weighted heavily for branded/restaurant items: a long name there
-// usually means several foods bundled into one product or menu item (a
-// salad with bacon, ranch dressing *and* chicken). USDA's own generic
-// entries are always written in a verbose, qualifier-heavy style even for
-// a single plain food (e.g. "Chicken, broilers or fryers, breast, meat
-// only, cooked, grilled"), so the same penalty barely touches those.
-function compositeDishPenalty(name, query, source) {
+// Weighted much more heavily for branded/restaurant items: a long name
+// there usually means several foods bundled into one product or menu item
+// ("Bacon Ranch Salad with Grilled Chicken" — a salad, bacon, ranch
+// dressing *and* chicken, not just chicken). USDA's own generic entries
+// are always written in a verbose, qualifier-heavy style even for a single
+// plain food (e.g. "Chicken, broilers or fryers, breast, meat only,
+// cooked, grilled"), so the same penalty barely touches those.
+function extraWordPenalty(name, query, source) {
   const nameWords = words(name);
   const queryWords = new Set(words(query));
   const matched = nameWords.filter(w => queryWords.has(w)).length;
   const extraWords = Math.max(0, nameWords.length - matched);
-  return extraWords * (source === 'branded' ? 0.06 : 0.01);
+  return extraWords * (source === 'branded' ? 0.14 : 0.015);
+}
+
+// A more direct, explainable signal than word-counting alone: the name
+// itself says this is a whole assembled meal, not a single food — a
+// "salad", "wrap", "meal deal" etc. is by definition several things put
+// together, no matter how short its name happens to be.
+const COMPOSITE_DISH_WORDS = new Set([
+  'salad', 'wrap', 'sandwich', 'sandwhich', 'meal', 'combo', 'box', 'bowl',
+  'kit', 'platter', 'burger', 'pizza', 'pasta', 'curry', 'stew', 'soup',
+  'pie', 'bake', 'casserole', 'roll', 'baguette', 'panini', 'burrito', 'taco',
+]);
+function isCompositeDish(name) {
+  return words(name).some(w => COMPOSITE_DISH_WORDS.has(w));
 }
 
 function rankScore(food, query) {
   const relevance = relevanceScore(food.name, query);
   const health = healthScore(food.per100g);
-  const penalty = compositeDishPenalty(food.name, query, food.source);
+  const penalty = extraWordPenalty(food.name, query, food.source);
   // USDA's generic entries are, by construction, always a single plain
   // food — never a multi-item product or menu combo — so a small flat
-  // edge for them is a more reliable "prefer the simple option" signal
-  // than word-counting alone (a short branded name like "Grilled Chicken
-  // Caesar Wrap" can otherwise still out-rank the correct plain result).
-  const genericBonus = food.source === 'generic' ? 0.1 : 0;
-  return relevance * 0.65 + health * 0.2 - penalty + genericBonus;
+  // edge for them reinforces "prefer the simple option" beyond what
+  // word-counting alone captures.
+  const genericBonus = food.source === 'generic' ? 0.12 : 0;
+  const compositeDishPenalty = isCompositeDish(food.name) ? 0.5 : 0;
+  return relevance + health * 0.15 - penalty + genericBonus - compositeDishPenalty;
 }
 
 export async function onRequestOptions() {
