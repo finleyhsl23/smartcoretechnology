@@ -85,8 +85,18 @@ export async function onRequestPost(context) {
       } catch (_) { /* fall through to create new */ }
     }
 
-    // Create Stripe Customer if not yet stored
+    // Create Stripe Customer if not yet stored — dedup by email first
     let customerId = order.stripe_customer_id;
+    if (!customerId && order.email) {
+      // Search for an existing Stripe customer with this email
+      const existing = await stripeRequest(
+        env, 'GET',
+        `/customers/search?query=${enc(`email:"${order.email}"`)}&limit=1`,
+      );
+      if (existing?.data?.[0]?.id) {
+        customerId = existing.data[0].id;
+      }
+    }
     if (!customerId) {
       const customer = await stripeRequest(env, 'POST', '/customers', {
         email:    order.email,

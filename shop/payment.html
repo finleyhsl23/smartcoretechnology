@@ -133,6 +133,12 @@
     .total-row.discount{color:var(--green)}
     .total-row.grand{font-size:18px;font-weight:800;color:var(--text);padding-top:8px;border-top:1px solid var(--border2);margin-top:4px;letter-spacing:-.01em;}
 
+    /* EXPRESS CHECKOUT (Apple Pay / Google Pay) */
+    #express-checkout-wrap{margin-bottom:16px}
+    #express-checkout-element{min-height:44px}
+    .or-divider{display:flex;align-items:center;gap:10px;margin:16px 0;color:var(--muted);font-size:12px;font-weight:500}
+    .or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:var(--border2)}
+
     /* STRIPE ELEMENT AREA */
     #stripe-element-wrap{
       background:rgba(0,0,0,.30);
@@ -253,6 +259,11 @@
 
           <div id="stripeLoading" class="stripe-loading">
             <div class="spinner"></div> Loading payment form…
+          </div>
+
+          <div id="express-checkout-wrap" style="display:none">
+            <div id="express-checkout-element"></div>
+            <div class="or-divider" id="orDivider">or pay with card</div>
           </div>
 
           <form id="paymentForm" style="display:none" onsubmit="submitPayment(event)">
@@ -419,7 +430,36 @@
         },
       });
 
-      const paymentEl = elements.create('payment', { layout: 'tabs' });
+      // Express Checkout Element (Apple Pay / Google Pay)
+      const expressEl = elements.create('expressCheckout', {
+        buttonHeight: 48,
+        buttonTheme: { applePay: 'black', googlePay: 'black' },
+      });
+      expressEl.mount('#express-checkout-element');
+      expressEl.on('ready', ({ availablePaymentMethods }) => {
+        const hasWallets = availablePaymentMethods &&
+          Object.values(availablePaymentMethods).some(Boolean);
+        if (hasWallets) {
+          document.getElementById('express-checkout-wrap').style.display = 'block';
+        }
+      });
+      expressEl.on('confirm', async () => {
+        const returnUrl = `${location.origin}/shop/payment.html?order_id=${encodeURIComponent(orderId)}`;
+        const { error } = await stripe.confirmPayment({
+          elements,
+          confirmParams: { return_url: returnUrl },
+          redirect: 'if_required',
+        });
+        if (error) {
+          const errBox = document.getElementById('errBox');
+          errBox.textContent   = error.message || 'Payment failed. Please try again.';
+          errBox.style.display = 'block';
+        } else {
+          await finaliseOrder();
+        }
+      });
+
+      const paymentEl = elements.create('payment', { layout: 'auto' });
       paymentEl.mount('#payment-element');
 
       // Show pay button once element is ready
@@ -524,7 +564,7 @@
         const basePrice  = o.billing_type === 'yearly'
           ? (m.yearly_price != null ? +m.yearly_price : +(m.monthly_price * 12).toFixed(2))
           : m.monthly_price;
-        const actualPrice = basePrice * multiplier;
+        const actualPrice = charmPrice(basePrice * multiplier);
         const tierLabel  = (!isFlat && o.size_tier) ? o.size_tier.charAt(0).toUpperCase() + o.size_tier.slice(1) : '';
         return `<div class="mod-row">
           <span class="mod-name">${esc(m.name)}${tierLabel ? `<span style="font-size:11px;font-weight:600;color:rgba(255,255,255,.4);margin-left:8px">${tierLabel}</span>` : ''}</span>
@@ -555,6 +595,7 @@
     document.getElementById('errorState').style.display   = 'block';
   }
 
+  function charmPrice(v) { return v > 0 ? Math.ceil(v / 5) * 5 + 0.99 : v; }
   function fmt(n) { return '£' + Number(n || 0).toLocaleString('en-GB', {minimumFractionDigits:2,maximumFractionDigits:2}); }
   function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function enc(s) { return encodeURIComponent(s||''); }

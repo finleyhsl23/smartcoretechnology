@@ -1016,8 +1016,7 @@
           try { await uploadVehiclePhoto(created.id, p.category, p.file, _profile.id); }
           catch (err) { toast("error", `Couldn't upload a photo (${p.category.replace(/_/g, " ")})`, err.message); }
         }
-        toast("success", "Vehicle added");
-        window.location.href = `${BASE}/vehicle-detail.html?id=${created.id}`;
+        showVehicleAddedConfirmation(created);
       } else {
         // Employees can't insert into vdb_vehicles directly — this goes into
         // the same review queue as a field-edit suggestion, just with the
@@ -1035,6 +1034,27 @@
       const message = /duplicate key.*registration/i.test(e2.message) ? "This registration already has a profile for that fitment." : e2.message;
       toast("error", "Couldn't save", message);
     }
+  }
+
+  // Managers/admins/owners skip the review queue entirely — this is the
+  // only confirmation they get that it actually went in, so it needs to be
+  // more deliberate than a toast that's about to be raced by the redirect.
+  function showVehicleAddedConfirmation(created) {
+    const title = [created.make, created.model].filter(Boolean).join(" ") || (created.registration || "").toUpperCase();
+    const overlay = modal(`
+      <div class="modal-body" style="text-align:center;padding:34px 26px">
+        <div style="width:56px;height:56px;border-radius:50%;background:rgba(50,215,75,.15);display:flex;align-items:center;justify-content:center;margin:0 auto 16px">
+          <i data-lucide="check-circle" style="width:28px;height:28px;color:var(--good)"></i>
+        </div>
+        <h3 style="margin:0 0 8px;font-size:18px">Vehicle Added</h3>
+        <p class="text-muted" style="margin:0 0 22px;font-size:13.5px">${esc(title)} has been added to the database — no approval needed for your tier.</p>
+        <button type="button" class="btn btn-primary" id="vehAddedOk" style="width:100%">View Vehicle</button>
+      </div>
+    `, {});
+    window.lucide?.createIcons?.();
+    overlay.querySelector("#vehAddedOk").addEventListener("click", () => {
+      window.location.href = `${BASE}/vehicle-detail.html?id=${created.id}`;
+    });
   }
 </script>
 </body>

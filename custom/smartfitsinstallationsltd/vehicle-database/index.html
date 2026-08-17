@@ -37,10 +37,11 @@
   import { listRecentVehicles, listVehicleProfilesByRegistration, searchVehiclesByMakeModelYear, summarizeFitmentCoverage, lookupRegistration, BODY_VARIANTS, FITMENT_TYPES, listEditRequests, findPendingNewVehicleMatch } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
-  import { esc, setInner, loadingState, emptyState, errorState, modal, toast } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+  import { esc, setInner, loadingState, emptyState, errorState, modal, toast, initCustomSelect } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
 
   initTheme();
   const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
+  const FITMENT_ICONS = { obd_tracker: "cpu", lightfoot: "footprints", three_wire_tracker_camera: "camera" };
   let _profile, _tier;
 
   try {
@@ -209,11 +210,8 @@
             <input type="text" id="findReg" class="form-input" style="text-transform:uppercase" placeholder="e.g. AB12 CDE" autocomplete="off"/>
           </div>
           <div class="form-row">
-            <label class="form-label" for="findRegFitment">What are you fitting?</label>
-            <select id="findRegFitment" class="form-input">
-              <option value="" disabled selected>Select fitment…</option>
-              ${FITMENT_TYPES.map(ft => `<option value="${esc(ft.key)}">${esc(ft.label)}</option>`).join("")}
-            </select>
+            <label class="form-label">What are you fitting?</label>
+            <div id="findRegFitment"></div>
           </div>
           <button class="btn btn-primary" id="findRegBtn" type="button" style="width:100%"><i data-lucide="search"></i> Search</button>
           <div id="findRegResult"></div>
@@ -225,11 +223,8 @@
             <div class="form-row"><label class="form-label" for="findModel">Model</label><input type="text" id="findModel" class="form-input" autocomplete="off"/></div>
             <div class="form-row"><label class="form-label" for="findYear">Year</label><input type="number" id="findYear" class="form-input" autocomplete="off"/></div>
             <div class="form-row">
-              <label class="form-label" for="findFitment">What are you fitting?</label>
-              <select id="findFitment" class="form-input">
-                <option value="" disabled selected>Select fitment…</option>
-                ${FITMENT_TYPES.map(ft => `<option value="${esc(ft.key)}">${esc(ft.label)}</option>`).join("")}
-              </select>
+              <label class="form-label">What are you fitting?</label>
+              <div id="findFitment"></div>
             </div>
           </div>
           <button class="btn btn-primary" id="findMmyBtn" type="button"><i data-lucide="search"></i> Search</button>
@@ -246,13 +241,17 @@
       });
     });
 
+    const fitmentOptions = FITMENT_TYPES.map(ft => ({ key: ft.key, label: ft.label, icon: FITMENT_ICONS[ft.key] }));
+    const regFitmentSelect = initCustomSelect(overlay.querySelector("#findRegFitment"), { options: fitmentOptions, placeholder: "Select fitment…" });
+    const mmyFitmentSelect = initCustomSelect(overlay.querySelector("#findFitment"), { options: fitmentOptions, placeholder: "Select fitment…" });
+
     const regInput = overlay.querySelector("#findReg");
-    const runRegSearch = () => searchByRegistration(overlay, regInput.value.trim(), overlay.querySelector("#findRegFitment").value, isManagerOrAbove);
+    const runRegSearch = () => searchByRegistration(overlay, regInput.value.trim(), regFitmentSelect.getValue(), isManagerOrAbove);
     overlay.querySelector("#findRegBtn").addEventListener("click", runRegSearch);
     regInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); runRegSearch(); } });
     regInput.focus();
 
-    const runMmySearch = () => searchByMakeModelYear(overlay, isManagerOrAbove);
+    const runMmySearch = () => searchByMakeModelYear(overlay, mmyFitmentSelect.getValue(), isManagerOrAbove);
     overlay.querySelector("#findMmyBtn").addEventListener("click", runMmySearch);
     ["#findMake", "#findModel", "#findYear"].forEach(sel => {
       overlay.querySelector(sel).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); runMmySearch(); } });
@@ -458,12 +457,11 @@
     window.lucide?.createIcons?.();
   }
 
-  async function searchByMakeModelYear(overlay, isManagerOrAbove) {
+  async function searchByMakeModelYear(overlay, fitmentType, isManagerOrAbove) {
     const resultEl = overlay.querySelector("#findMmyResult");
     const make = overlay.querySelector("#findMake").value.trim();
     const model = overlay.querySelector("#findModel").value.trim();
     const year = overlay.querySelector("#findYear").value.trim();
-    const fitmentType = overlay.querySelector("#findFitment").value;
     if (!make && !model && !year) { toast("error", "Enter at least a make, model or year"); return; }
     if (!fitmentType) { toast("error", "Select what you're fitting first"); return; }
 
