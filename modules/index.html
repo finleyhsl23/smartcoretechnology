@@ -2,12 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
   <title>SmartCore — Modules</title>
   <link rel="icon" type="image/png" href="/SmartCore Official Logos/SC Icon - Black Background.png">
   <link rel="manifest" href="/modules/manifest.json">
   <meta name="theme-color" content="#000000">
   <link rel="apple-touch-icon" href="/modules/icons/icon-192.png">
+  <script>(function(){var t=localStorage.getItem('sc_theme');if(t)document.documentElement.setAttribute('data-theme',t)})()</script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -407,6 +408,44 @@
       .lbtn{padding:15px;font-size:15px}
     }
 
+    /* theme toggle */
+    .theme-btn{
+      width:36px;height:36px;border-radius:10px;
+      background:rgba(255,255,255,.06);border:none;
+      color:var(--text);cursor:pointer;
+      display:flex;align-items:center;justify-content:center;
+      transition:background .15s;flex-shrink:0;
+    }
+    .theme-btn:hover{background:rgba(255,255,255,.10)}
+    [data-theme="light"] .theme-btn{background:rgba(0,0,0,.04)}
+    [data-theme="light"] .theme-btn:hover{background:rgba(0,0,0,.07)}
+
+    /* light mode */
+    [data-theme="light"]{
+      --bg:#f0f4ff;--bg1:#ffffff;--bg2:#e8eeff;
+      --border:rgba(0,0,0,.1);--border-hi:rgba(37,99,235,.35);
+      --text:#0c1333;--muted:#475569;
+      --accent:#2563eb;--accent2:#4f46e5;
+      --success:#16a34a;--glow:rgba(37,99,235,.12);
+    }
+    [data-theme="light"] body{background:var(--bg)}
+    [data-theme="light"] body::before{display:none}
+    [data-theme="light"] #loginWrap{background:var(--bg)}
+    [data-theme="light"] .login-box{background:#fff;border-color:rgba(0,0,0,.1);box-shadow:0 0 40px rgba(37,99,235,.06)}
+    [data-theme="light"] .lfield input{background:#f8faff;border-color:rgba(0,0,0,.12);color:var(--text)}
+    [data-theme="light"] .lfield input:focus{border-color:rgba(37,99,235,.45)}
+    [data-theme="light"] .nav{background:rgba(240,244,255,.92);border-color:rgba(0,0,0,.08)}
+    [data-theme="light"] .mod-card{background:#fff;border-color:rgba(0,0,0,.08)}
+    [data-theme="light"] .mod-card.inactive{opacity:.5}
+    [data-theme="light"] .mod-name{color:#0c1333}
+    [data-theme="light"] .page-title{color:#0c1333}
+    [data-theme="light"] #drawer{background:#fff;border-color:rgba(0,0,0,.1)}
+    [data-theme="light"] #drawerOverlay{background:rgba(0,0,0,.35)}
+    [data-theme="light"] .info-popover{background:#1e293b}
+    [data-theme="light"] #modSearch{background:#fff;border-color:rgba(0,0,0,.12);color:var(--text)}
+    [data-theme="light"] .referral-title{color:#0c1333!important}
+    [data-theme="light"] .referral-desc{color:#475569!important}
+
     @media(max-width:580px){
       .nav{padding:0 16px}
       .nav-company{display:none}
@@ -463,6 +502,10 @@
     </div>
     <div class="nav-right">
       <div class="nav-company">Signed in as <b id="navCompany">—</b></div>
+      <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" aria-label="Toggle theme">
+        <svg id="themeIconDark" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg id="themeIconLight" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </button>
       <button class="nav-signout" id="signOutBtn">Sign out</button>
     </div>
   </nav>
@@ -471,6 +514,19 @@
     <div class="page-title">Your Modules</div>
     <div class="page-sub" id="pageSubtext">Loading…</div>
     <div class="page-company-mobile" id="pageCompanyMobile"></div>
+    <div id="searchWrap" style="display:none;margin-bottom:24px">
+      <div style="position:relative">
+        <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none;opacity:.45">🔍</span>
+        <input id="modSearch" type="text" placeholder="Search modules…" style="
+          width:100%;background:rgba(255,255,255,.04);
+          border:1px solid rgba(255,255,255,.09);border-radius:12px;
+          padding:11px 14px 11px 40px;color:var(--text);font-size:14px;
+          outline:none;transition:border-color .2s,box-shadow .2s;font-family:inherit;
+        " oninput="filterModules(this.value)"
+           onfocus="this.style.borderColor='rgba(99,130,246,.5)';this.style.boxShadow='0 0 0 3px rgba(59,130,246,.1)'"
+           onblur="this.style.borderColor='rgba(255,255,255,.09)';this.style.boxShadow='none'"/>
+      </div>
+    </div>
     <div id="modContent"><div class="spin">Loading modules…</div></div>
   </div>
 </div>
@@ -563,6 +619,7 @@ let state = {
   employees: [],
   accessMap: {},
   isOwner: false,
+  hasCrmSeat: false,
 };
 
 let drawer = {
@@ -701,6 +758,21 @@ async function fetchData() {
   state.accessMap = {};
   (ac || []).forEach(r => { state.accessMap[r.module_slug] = r; });
 
+  // CRM seat check — owners/admins always have access; others must have a seat
+  if (state.isOwner) {
+    state.hasCrmSeat = true;
+  } else if (state.employee?.id) {
+    const { data: seat } = await sb
+      .from('crm_user_seats')
+      .select('id')
+      .eq('company_id', state.companyId)
+      .eq('employee_id', state.employee.id)
+      .limit(1);
+    state.hasCrmSeat = !!(seat?.length);
+  } else {
+    state.hasCrmSeat = false;
+  }
+
   // Employees for access drawer (owners/admins only)
   if (state.isOwner) {
     const { data: emps } = await sb
@@ -726,7 +798,10 @@ function render() {
     ...state.purchased.map(p => p.module_slug).filter(s => s !== 'smartcore-core'),
   ];
 
-  const visible = activeOrdered.filter(slug => canAccess(slug));
+  const visible = activeOrdered.filter(slug => {
+    if (slug.startsWith('smartcore-crm') && !state.hasCrmSeat) return false;
+    return canAccess(slug);
+  });
 
   // Not-purchased — from real shop modules only
   const hasCrm = [...purchasedSlugs].some(s => s.startsWith('smartcore-crm'));
@@ -769,14 +844,18 @@ function render() {
       <div style="display:flex;align-items:center;gap:18px">
         <div style="width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,rgba(6,182,212,.2),rgba(59,130,246,.12));border:1px solid rgba(6,182,212,.2);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">🤝</div>
         <div>
-          <div style="font-size:16px;font-weight:800;color:#f1f5f9;margin-bottom:4px">Know someone who'd benefit from SmartCore?</div>
-          <div style="font-size:13px;color:#475569;line-height:1.5">Refer a business and help them transform the way they work. It only takes a minute.</div>
+          <div class="referral-title" style="font-size:16px;font-weight:800;color:#f1f5f9;margin-bottom:4px">Know someone who'd benefit from SmartCore?</div>
+          <div class="referral-desc" style="font-size:13px;color:#475569;line-height:1.5">Refer a business and help them transform the way they work. It only takes a minute.</div>
         </div>
       </div>
       <a href="/referrals/" style="background:linear-gradient(135deg,#0891b2,#2563eb);color:#fff;border:none;border-radius:10px;padding:11px 24px;font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0;transition:opacity .15s;box-shadow:0 2px 12px rgba(6,182,212,.25)" onmouseover="this.style.opacity='.88'" onmouseout="this.style.opacity='1'">Submit a referral →</a>
     </div>`;
 
   document.getElementById('modContent').innerHTML = html;
+
+  // Show search if more than 2 active modules
+  document.getElementById('searchWrap').style.display = visible.length > 2 ? 'block' : 'none';
+  if (visible.length > 2) document.getElementById('modSearch').value = '';
 
   // Bind gear clicks
   document.querySelectorAll('.mod-gear').forEach(el => {
@@ -1025,6 +1104,33 @@ function showToast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function toggleTheme() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const next = isLight ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('sc_theme', next);
+  updateThemeBtn();
+}
+
+function updateThemeBtn() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const dark = document.getElementById('themeIconDark');
+  const light = document.getElementById('themeIconLight');
+  if (dark) dark.style.display = isLight ? 'none' : 'block';
+  if (light) light.style.display = isLight ? 'block' : 'none';
+}
+
+updateThemeBtn();
+
+function filterModules(term) {
+  const q = term.toLowerCase().trim();
+  document.querySelectorAll('.mod-card').forEach(card => {
+    const name = card.querySelector('.mod-name')?.textContent.toLowerCase() || '';
+    const desc = card.querySelector('.mod-desc')?.textContent.toLowerCase() || '';
+    card.style.display = (!q || name.includes(q) || desc.includes(q)) ? '' : 'none';
+  });
 }
 
 init();

@@ -218,27 +218,59 @@ export async function getVehicle(id) {
   return data;
 }
 
-// Checks the registrations log first — this covers every plate ever logged
-// against a profile, not just each vehicle's own primary registration — and
-// falls back to a direct check on vdb_vehicles for the rare case a vehicle's
-// own reg hasn't made it into the log yet.
-export async function getVehicleByRegistration(reg) {
+// A registration can now carry a separate profile per fitment type (wiring
+// differs enough by fitment that OBD Tracker and Lightfoot on the very same
+// van are genuinely different install guides) — so a plate no longer
+// resolves to a single vehicle, it resolves to however many fitment
+// profiles have been logged against it. Checks the registrations log first
+// — this covers every plate ever logged against a profile, not just each
+// vehicle's own primary registration — and falls back to a direct check on
+// vdb_vehicles for the rare case a vehicle's own reg hasn't made it into
+// the log yet.
+export async function listVehicleProfilesByRegistration(reg) {
   const norm = normalizeReg(reg);
-  const { data: regRow, error: regErr } = await vdb()
+  if (!norm) return [];
+
+  const { data: regRows, error: regErr } = await vdb()
     .from("vdb_vehicle_registrations")
     .select("vehicle_id")
-    .eq("registration_norm", norm)
-    .maybeSingle();
+    .eq("registration_norm", norm);
   if (regErr) throw regErr;
-  if (regRow) return getVehicle(regRow.vehicle_id);
 
-  const { data, error } = await vdb()
+  const { data: directRows, error: directErr } = await vdb()
     .from("vdb_vehicles")
     .select("*")
-    .eq("registration_norm", norm)
-    .maybeSingle();
-  if (error) throw error;
-  return data;
+    .eq("registration_norm", norm);
+  if (directErr) throw directErr;
+
+  const found = [...(directRows || [])];
+  const seenIds = new Set(found.map(v => v.id));
+  const extraIds = [...new Set((regRows || []).map(r => r.vehicle_id))].filter(id => !seenIds.has(id));
+  if (extraIds.length) {
+    const { data: extra, error: extraErr } = await vdb().from("vdb_vehicles").select("*").in("id", extraIds);
+    if (extraErr) throw extraErr;
+    found.push(...(extra || []));
+  }
+  return found;
+}
+
+// Convenience wrapper for the common case of wanting one specific fitment's
+// profile for a plate. Without a fitmentType, returns whichever profile
+// happens to be first — only meaningful when the caller already knows (or
+// doesn't care) there's just one.
+export async function getVehicleByRegistration(reg, fitmentType) {
+  const profiles = await listVehicleProfilesByRegistration(reg);
+  if (fitmentType) return profiles.find(v => v.fitment_type === fitmentType) || null;
+  return profiles[0] || null;
+}
+
+// Which of the 3 fitment types already have a profile among the given
+// vehicles (typically every profile for one registration, or every profile
+// for one make/model/year) — powers the "there's a Lightfoot profile but no
+// OBD Tracker profile yet, create one" prompts.
+export function summarizeFitmentCoverage(vehicles) {
+  const present = new Set(vehicles.map(v => v.fitment_type).filter(Boolean));
+  return FITMENT_TYPES.map(ft => ({ ...ft, present: present.has(ft.key) }));
 }
 
 // ── Known registrations log (one vehicle profile can cover several plates

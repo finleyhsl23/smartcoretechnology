@@ -154,6 +154,9 @@ async function provisionModules(env, o) {
     ...modules.filter(m => m.slug !== 'smartcore-core'),
   ];
 
+  const CRM_SLUGS  = new Set(['smartcore-crm-lite','smartcore-crm-professional','smartcore-crm-business','smartcore-crm-enterprise']);
+  const SKIP_SLUGS = new Set(['smartcore-core', 'flexi', ...CRM_SLUGS]);
+
   for (const m of all) {
     if (existingSlugs.has(m.slug)) continue;
     await dbPost(env, '/smartcore_core_purchased_modules', {
@@ -166,6 +169,26 @@ async function provisionModules(env, o) {
       status:       'active',
       activated_at: new Date().toISOString(),
     });
+
+    // Enable the module's runtime gate for custom/system modules
+    // (CRM and Flexi have their own dedicated provisioning steps)
+    if (!SKIP_SLUGS.has(m.slug)) {
+      await fetch(`${env.SUPABASE_URL}/rest/v1/company_modules`, {
+        method:  'POST',
+        headers: {
+          apikey:         env.SUPABASE_SERVICE_KEY,
+          Authorization:  `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer:         'resolution=merge-duplicates,return=minimal',
+        },
+        body: JSON.stringify({
+          company_id:   company.id,
+          module_key:   m.slug,
+          enabled:      true,
+          activated_at: new Date().toISOString(),
+        }),
+      });
+    }
   }
 }
 

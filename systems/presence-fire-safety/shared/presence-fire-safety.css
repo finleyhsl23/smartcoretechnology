@@ -102,9 +102,24 @@ a { color: inherit; }
   white-space: nowrap; letter-spacing: .01em;
 }
 .topbar-back-btn:hover { color: var(--accent2); border-color: rgba(30,92,255,.5); background: rgba(30,92,255,.1); }
-.icon-btn { background: var(--card2); border: 1px solid var(--line); color: var(--text2); width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+.icon-btn { background: var(--card2); border: 1px solid var(--line); color: var(--text2); width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .icon-btn:hover { color: var(--text); }
 .hamburger { display: none; }
+
+/* ── "More controls" — on mobile/tablet only, refresh/theme/site-switcher
+   are relocated (once, at load — see nav.js initTopbar) out of the topbar
+   row, where they used to fight the title and back button for space and
+   left the site-search dropdown too narrow to read, into this one
+   collapsed button + panel instead. Desktop never creates these elements
+   at all, so the existing desktop topbar is untouched. The controls
+   themselves are moved in the DOM rather than duplicated, so every
+   existing click handler and the site-switcher's own wiring keep working
+   with no changes. */
+.topbar-more-btn { display: none; }
+.topbar-more-panel { display: none; }
+.topbar-more-row { display: flex; align-items: center; }
+.topbar-more-label { display: none; }
+.topbar-more-row-text { display: none; }
 
 /* Bottom padding is extra-generous so page content — save/action bars in
    particular — never ends up sitting underneath the fixed-position kiosk
@@ -118,7 +133,53 @@ a { color: inherit; }
   .hamburger { display: flex; }
   #sidebarOverlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 30; }
   #sidebarOverlay.open { display: block; }
+
+  .pfs-topbar { gap: 8px; padding: 12px 14px; }
+  .pfs-topbar h1 { display: none; }
+  /* Hiding the title removes the flex:1 spacer it used to provide — this
+     takes over pushing more-controls + logout to the far right edge. */
+  .topbar-push-right { margin-left: auto; }
+  .topbar-more-btn { display: flex; position: relative; }
+  .topbar-more-panel {
+    display: none; flex-direction: column; gap: 4px;
+    position: absolute; top: calc(100% + 8px); right: 14px;
+    width: min(300px, calc(100vw - 28px));
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 10px; box-shadow: 0 16px 40px rgba(0,0,0,.35); z-index: 950;
+  }
+  .topbar-more-panel.open { display: flex; }
+  .topbar-more-label { display: block; font-size: 11px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .04em; padding: 8px 8px 2px; }
+  .topbar-more-row { width: 100%; gap: 10px; padding: 8px; border-radius: 10px; background: none; border: none; justify-content: flex-start; }
+  .topbar-more-row:hover { background: var(--card2); }
+  .topbar-more-row span.topbar-more-row-text { display: inline; font-size: 13.5px; font-weight: 600; color: var(--text); }
+  .topbar-more-panel .pfs-site-search-wrap { width: 100%; padding: 4px 8px; }
+  .topbar-more-panel .pfs-site-search-dropdown { position: static; margin-top: 8px; box-shadow: none; }
 }
+
+/* ── Navigation loading overlay — every internal link is a full browser
+   navigation (this isn't an SPA), and on a slow connection the old page
+   stays fully clickable for however long that takes, with nothing to
+   show a tap registered. Shown instantly on tap; see nav.js. */
+.pfs-nav-loading-overlay {
+  position: fixed; inset: 0; z-index: 99999;
+  background: rgba(5,8,26,.55); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity .15s ease;
+}
+[data-theme="light"] .pfs-nav-loading-overlay { background: rgba(226,232,244,.7); }
+.pfs-nav-loading-overlay.visible { opacity: 1; pointer-events: all; }
+.pfs-nav-loading-box {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+  padding: 24px 34px; box-shadow: 0 20px 50px rgba(0,0,0,.35);
+}
+.pfs-nav-loading-spinner {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 3px solid var(--line); border-top-color: var(--accent);
+  animation: pfs-nav-spin .7s linear infinite;
+}
+@keyframes pfs-nav-spin { to { transform: rotate(360deg); } }
+.pfs-nav-loading-box span { font-size: 13.5px; font-weight: 600; color: var(--text2); }
 
 /* ── Cards / stats ─────────────────────────────────────────────────────── */
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }

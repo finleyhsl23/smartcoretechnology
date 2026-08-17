@@ -25,8 +25,23 @@ export async function onRequestPost(context) {
     }
 
     // Generate unique employee_id: first 3 letters of company name + 9 random digits
-    const companies = await sbGet(env, `/smartcore_core_companies?id=eq.${profile.company_id}&select=company_name&limit=1`);
+    const companies = await sbGet(env, `/smartcore_core_companies?id=eq.${profile.company_id}&select=company_name,employee_limit&limit=1`);
     const companyName = companies?.[0]?.company_name || 'EMP';
+
+    // Enforce employee limit
+    const employeeLimit = companies?.[0]?.employee_limit;
+    if (employeeLimit) {
+      const currentEmps = await sbGet(env, `/core_employees?company_id=eq.${profile.company_id}&select=id`);
+      const currentCount = currentEmps?.length || 0;
+      if (currentCount >= employeeLimit) {
+        return json({
+          error: 'employee_limit_reached',
+          message: `You've reached your plan limit of ${employeeLimit} employees. Upgrade your company size tier at smartcoretechnology.co.uk/manage-plans/ to add more.`,
+          current: currentCount,
+          limit: employeeLimit,
+        }, 422);
+      }
+    }
     const prefix = companyName.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase().padEnd(3, 'X');
 
     let employee_id;
