@@ -97,9 +97,11 @@ export async function onRequestPost({ request, env }) {
       const onSite = await onSiteRes.json();
       const authUserIds = (onSite || []).map((r) => r.core_employees?.auth_user_id).filter(Boolean);
       pushResult = await sendPushToUsers(env, authUserIds, {
-        title: `Evacuation started — ${siteName}`,
-        body: `Proceed to the assembly point now${session.assembly_point ? `: ${session.assembly_point}` : '.'}`,
+        title: `Evacuation started at ${siteName}`,
+        body: session.assembly_point ? `Make your way to ${session.assembly_point}` : 'Make your way to your assembly point.',
         url: '/systems/presence-fire-safety/evacuation.html',
+        urgency: 'high',
+        requireInteraction: true,
       });
     } catch (e) {
       console.error('notify-evacuation-started: push failed', e.message);

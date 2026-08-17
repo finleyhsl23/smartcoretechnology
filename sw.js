@@ -24,6 +24,13 @@ self.addEventListener("push", (event) => {
     icon: "/SmartCore Official Logos/SC Icon - Black Background.png",
     badge: "/SmartCore Official Logos/SC Icon - Black Background.png",
     data: { url: data.url || "/modules/" },
+    // requireInteraction (Chrome/Android/desktop — iOS Safari ignores it)
+    // keeps the notification on screen until dismissed instead of
+    // auto-clearing after a few seconds; vibrate is Android-only. Neither
+    // of these bypasses silent mode/Do Not Disturb — that's iOS's native
+    // "Critical Alert" entitlement, which isn't reachable from Web Push.
+    requireInteraction: !!data.requireInteraction,
+    vibrate: data.requireInteraction ? [200, 100, 200, 100, 200] : undefined,
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });

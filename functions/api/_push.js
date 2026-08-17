@@ -28,7 +28,7 @@ function sb(env, path, method = 'GET') {
  * callers should treat this as fire-and-forget alongside whatever action
  * triggered it (an evacuation starting, etc).
  */
-export async function sendPushToUsers(env, authUserIds, { title, body, url }) {
+export async function sendPushToUsers(env, authUserIds, { title, body, url, urgency, requireInteraction }) {
   const ids = [...new Set((authUserIds || []).filter(Boolean))];
   if (!ids.length || !env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
     return { sent: 0, removed: 0, failed: 0, total: 0 };
@@ -42,12 +42,12 @@ export async function sendPushToUsers(env, authUserIds, { title, body, url }) {
     return { sent: 0, removed: 0, failed: 0, total: 0 };
   }
 
-  const payload = { title, body: body || '', url: url || '/modules/' };
+  const payload = { title, body: body || '', url: url || '/modules/', requireInteraction: !!requireInteraction };
   let sent = 0, removed = 0, failed = 0;
 
   await Promise.all(subscriptions.map(async (subRow) => {
     try {
-      const result = await sendWebPush(env, subRow, payload);
+      const result = await sendWebPush(env, subRow, payload, { urgency });
       if (result.ok) {
         sent++;
       } else if (result.status === 404 || result.status === 410) {

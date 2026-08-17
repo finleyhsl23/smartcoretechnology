@@ -110,8 +110,14 @@ async function encryptPayload({ p256dh, auth }, plaintextBytes) {
  * Sends one Web Push message to one subscription. Returns { ok, status }.
  * A 404/410 status means the subscription is gone and should be deleted by
  * the caller — every other outcome is worth logging but not fatal to retry.
+ *
+ * `urgency` (RFC 8030 "Urgency" header — very-low/low/normal/high) is a
+ * push-protocol-level hint the browser vendor's push service uses to decide
+ * whether to wake a battery-saving device immediately; it is NOT the same
+ * thing as iOS's native "Critical Alert" (which bypasses silent mode/DND
+ * and requires a special Apple entitlement unavailable to Web Push).
  */
-export async function sendWebPush(env, subscription, payloadObj) {
+export async function sendWebPush(env, subscription, payloadObj, { urgency = "normal" } = {}) {
   const body = await encryptPayload(subscription, new TextEncoder().encode(JSON.stringify(payloadObj)));
   const authHeader = await buildVapidAuthHeader(env, subscription.endpoint);
 
@@ -121,6 +127,7 @@ export async function sendWebPush(env, subscription, payloadObj) {
       "Content-Type": "application/octet-stream",
       "Content-Encoding": "aes128gcm",
       TTL: "86400",
+      Urgency: urgency,
       Authorization: authHeader,
     },
     body,
