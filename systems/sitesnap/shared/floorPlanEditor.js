@@ -1,9 +1,9 @@
 // Self-contained SVG floor plan canvas for one level: walls, doors, windows
 // (line segments) and rooms (rectangles), with live dimensions computed
-// from a configurable pixels-per-meter scale. Draw-new and select+delete
-// only — dragging/resizing an already-placed element isn't supported here
-// (redraw to replace it instead), which keeps the interaction model simple
-// and reliable rather than building full CAD-style manipulation.
+// from a configurable pixels-per-meter scale. Select an element to drag it
+// (rigid move), drag a room's corner handles to resize it, or drag either
+// end of a wall/door/window to move that endpoint — all persisted via
+// opts.onUpdate as the drag ends.
 //
 // A reference image can be shown as a low-opacity backdrop to trace over —
 // this is NOT automatic sketch-to-floorplan conversion (no vision model is
@@ -60,6 +60,7 @@ function fitLabel(text, maxWidth, { baseSize = 13, minSize = 7, weight = 700 } =
  *   opts.roomStats(roomId) -> {done, total, color} | null - for room fill color
  *   opts.onCreate({element_type, geometry, label}) -> Promise<created element w/ id>
  *   opts.onDelete(id) -> Promise
+ *   opts.onUpdate(id, geometry) -> Promise - called after a move/resize/endpoint drag
  *   opts.onRoomClick(roomElement)
  */
 export const CANVAS_W = 900, CANVAS_H = 600;
@@ -142,12 +143,12 @@ export function renderSnapshotPNG(elements, { pixelsPerMeter = 50, hideMeasureme
 }
 
 export function mountFloorPlanEditor(containerEl, opts) {
-  const { pixelsPerMeter, referenceImageUrl, referenceImageRect, readOnly, hideMeasurements, roomStats, onCreate, onDelete, onRoomClick } = opts;
+  const { pixelsPerMeter, referenceImageUrl, referenceImageRect, readOnly, hideMeasurements, roomStats, onCreate, onDelete, onUpdate, onRoomClick } = opts;
   const W = CANVAS_W, H = CANVAS_H;
   let _tool = "select";
   let _selectedId = null;
   let _drawing = null; // {type, startX, startY, previewEl}
-  const _elements = new Map(); // id -> {data, node}
+  const _elements = new Map(); // id -> {data, node, refs}
 
   containerEl.innerHTML = "";
   if (!readOnly) {
@@ -182,8 +183,8 @@ export function mountFloorPlanEditor(containerEl, opts) {
       opacity: 0.35, preserveAspectRatio: "none",
     }));
   }
-  const roomsLayer = svgEl("g"); const wallsLayer = svgEl("g"); const doorsLayer = svgEl("g"); const windowsLayer = svgEl("g"); const previewLayer = svgEl("g");
-  svg.appendChild(roomsLayer); svg.appendChild(wallsLayer); svg.appendChild(doorsLayer); svg.appendChild(windowsLayer); svg.appendChild(previewLayer);
+  const roomsLayer = svgEl("g"); const wallsLayer = svgEl("g"); const doorsLayer = svgEl("g"); const windowsLayer = svgEl("g"); const previewLayer = svgEl("g"); const handlesLayer = svgEl("g");
+  svg.appendChild(roomsLayer); svg.appendChild(wallsLayer); svg.appendChild(doorsLayer); svg.appendChild(windowsLayer); svg.appendChild(previewLayer); svg.appendChild(handlesLayer);
   containerEl.appendChild(svg);
 
   for (const el of opts.elements) renderElement(el);
@@ -192,6 +193,7 @@ export function mountFloorPlanEditor(containerEl, opts) {
     _tool = tool;
     _selectedId = null;
     updateSelectionUI();
+    renderHandles();
     containerEl.querySelectorAll(".sl-fp-tool").forEach(b => b.classList.toggle("active", b.dataset.tool === tool));
   }
 
@@ -203,82 +205,156 @@ export function mountFloorPlanEditor(containerEl, opts) {
     return (Math.hypot(x2 - x1, y2 - y1) / pixelsPerMeter).toFixed(1);
   }
 
+  // Builds the DOM for one element ONCE (persistent node refs stored on the
+  // entry), then hands off to layout() to position everything from
+  // entry.data.geometry. layout() is re-run — cheaply, no DOM churn — on
+  // every drag/resize frame and again on drag end, so live dragging and the
+  // final persisted position share exactly one code path.
   function renderElement(el) {
     const g = svgEl("g", { class: "sl-fp-element", "data-id": el.id, "data-type": el.element_type });
+    const refs = {};
     if (el.element_type === "room") {
-      const { x, y, width, height, label_angle } = el.geometry;
-      const stats = roomStats?.(el.id);
-      const color = ROOM_COLORS[stats?.color || "none"];
-      g.appendChild(svgEl("rect", { x, y, width, height, fill: color.fill, stroke: color.stroke, "stroke-width": 2, rx: 4 }));
+      const rectNode = svgEl("rect", { rx: 4 });
+      g.appendChild(rectNode);
 
       // Clip text to the room's own rectangle — a hard guarantee it can
       // never visually spill into a neighbouring room, on top of (not
       // instead of) shrinking the font to fit below.
-      const clipId = `fp-clip-${el.id}`;
-      const clip = svgEl("clipPath", { id: clipId });
-      clip.appendChild(svgEl("rect", { x, y, width, height }));
+      const clipRectNode = svgEl("rect");
+      const clip = svgEl("clipPath", { id: `fp-clip-${el.id}` });
+      clip.appendChild(clipRectNode);
       defs.appendChild(clip);
-      const textGroup = svgEl("g", { "clip-path": `url(#${clipId})` });
-
-      // A rotated label (typically 90°, for a narrow/long room) reads along
-      // its own long axis, so the text-fit budget swaps to the room's
-      // height instead of its width.
-      const cx = x + width / 2, cy = y + height / 2;
-      const angle = Number(label_angle) || 0;
-      const vertical = Math.abs(((angle % 180) + 180) % 180 - 90) < 45;
-      const pad = 8;
-      const maxTextWidth = Math.max(0, (vertical ? height : width) - pad * 2);
-      if (maxTextWidth > 4) {
-        const label = fitLabel(el.label || "Room", maxTextWidth, { baseSize: 13, minSize: 7 });
-        const subParts = [];
-        if (!hideMeasurements) subParts.push(`${(width / pixelsPerMeter).toFixed(1)}m × ${(height / pixelsPerMeter).toFixed(1)}m`);
-        if (stats) subParts.push(`${stats.done}/${stats.total} done`);
-        const showSub = subParts.length && (vertical ? width : height) >= 34;
-
-        const text = svgEl("text", { x: cx, y: cy + (showSub ? -6 : 4), "text-anchor": "middle", class: "sl-fp-room-label", "font-size": label.size });
-        text.textContent = label.text;
-        if (angle) text.setAttribute("transform", `rotate(${angle} ${cx} ${cy})`);
-        textGroup.appendChild(text);
-        if (showSub) {
-          const sub = fitLabel(subParts.join(" · "), maxTextWidth, { baseSize: 10, minSize: 6, weight: 500 });
-          const subEl = svgEl("text", { x: cx, y: cy + 12, "text-anchor": "middle", class: "sl-fp-room-sub", "font-size": sub.size });
-          subEl.textContent = sub.text;
-          if (angle) subEl.setAttribute("transform", `rotate(${angle} ${cx} ${cy})`);
-          textGroup.appendChild(subEl);
-        }
-      }
+      const textGroup = svgEl("g", { "clip-path": `url(#fp-clip-${el.id})` });
+      const labelNode = svgEl("text", { "text-anchor": "middle", class: "sl-fp-room-label" });
+      const subNode = svgEl("text", { "text-anchor": "middle", class: "sl-fp-room-sub" });
+      textGroup.appendChild(labelNode);
+      textGroup.appendChild(subNode);
       g.appendChild(textGroup);
+
+      Object.assign(refs, { rectNode, clipRectNode, labelNode, subNode });
       g.style.cursor = "pointer";
       g.addEventListener("click", (e) => { e.stopPropagation(); if (_tool === "select") { onRoomClick?.(el); if (!readOnly) select(el.id); } });
     } else {
       const style = TOOL_STYLES[el.element_type];
-      const { x1, y1, x2, y2 } = el.geometry;
-      const hit = svgEl("line", { x1, y1, x2, y2, stroke: "transparent", "stroke-width": 16, class: "sl-fp-hit" });
-      const line = svgEl("line", { x1, y1, x2, y2, stroke: style.stroke, "stroke-width": style.width, "stroke-linecap": "round" });
-      if (style.dash) line.setAttribute("stroke-dasharray", style.dash);
-      g.appendChild(hit); g.appendChild(line);
-      if (!hideMeasurements) {
-        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-        const dimText = svgEl("text", { x: mx, y: my - 8, "text-anchor": "middle", class: "sl-fp-dim-label" });
-        dimText.textContent = `${distanceMeters(x1, y1, x2, y2)}m`;
-        g.appendChild(dimText);
-      }
+      const hitNode = svgEl("line", { stroke: "transparent", "stroke-width": 16, class: "sl-fp-hit" });
+      const lineNode = svgEl("line", { stroke: style.stroke, "stroke-width": style.width, "stroke-linecap": "round" });
+      if (style.dash) lineNode.setAttribute("stroke-dasharray", style.dash);
+      const dimNode = svgEl("text", { "text-anchor": "middle", class: "sl-fp-dim-label" });
+      g.appendChild(hitNode); g.appendChild(lineNode); g.appendChild(dimNode);
+      Object.assign(refs, { hitNode, lineNode, dimNode });
       g.style.cursor = "pointer";
       g.addEventListener("click", (e) => { e.stopPropagation(); if (_tool === "select" && !readOnly) select(el.id); });
     }
     layerFor(el.element_type).appendChild(g);
-    _elements.set(el.id, { data: el, node: g });
+    const entry = { data: el, node: g, refs };
+    _elements.set(el.id, entry);
+    layout(entry);
+    return entry;
+  }
+
+  function layout(entry) {
+    if (entry.data.element_type === "room") layoutRoom(entry); else layoutLine(entry);
+  }
+
+  function layoutRoom(entry) {
+    const { id, label, geometry } = entry.data;
+    const { x, y, width, height, label_angle } = geometry;
+    const { rectNode, clipRectNode, labelNode, subNode } = entry.refs;
+    const stats = roomStats?.(id);
+    const color = ROOM_COLORS[stats?.color || "none"];
+
+    rectNode.setAttribute("x", x); rectNode.setAttribute("y", y);
+    rectNode.setAttribute("width", width); rectNode.setAttribute("height", height);
+    rectNode.setAttribute("fill", color.fill); rectNode.setAttribute("stroke", color.stroke); rectNode.setAttribute("stroke-width", 2);
+    clipRectNode.setAttribute("x", x); clipRectNode.setAttribute("y", y);
+    clipRectNode.setAttribute("width", width); clipRectNode.setAttribute("height", height);
+
+    // A rotated label (typically 90°, for a narrow/long room) reads along
+    // its own long axis, so the text-fit budget swaps to the room's height
+    // instead of its width.
+    const cx = x + width / 2, cy = y + height / 2;
+    const angle = Number(label_angle) || 0;
+    const vertical = Math.abs(((angle % 180) + 180) % 180 - 90) < 45;
+    const pad = 8;
+    const maxTextWidth = Math.max(0, (vertical ? height : width) - pad * 2);
+    if (maxTextWidth <= 4) {
+      labelNode.textContent = ""; subNode.textContent = ""; subNode.style.display = "none";
+      return;
+    }
+
+    const fitted = fitLabel(label || "Room", maxTextWidth, { baseSize: 13, minSize: 7 });
+    const subParts = [];
+    if (!hideMeasurements) subParts.push(`${(width / pixelsPerMeter).toFixed(1)}m × ${(height / pixelsPerMeter).toFixed(1)}m`);
+    if (stats) subParts.push(`${stats.done}/${stats.total} done`);
+    const showSub = subParts.length && (vertical ? width : height) >= 34;
+
+    labelNode.setAttribute("x", cx); labelNode.setAttribute("y", cy + (showSub ? -6 : 4));
+    labelNode.setAttribute("font-size", fitted.size);
+    if (angle) labelNode.setAttribute("transform", `rotate(${angle} ${cx} ${cy})`); else labelNode.removeAttribute("transform");
+    labelNode.textContent = fitted.text;
+
+    if (showSub) {
+      const sub = fitLabel(subParts.join(" · "), maxTextWidth, { baseSize: 10, minSize: 6, weight: 500 });
+      subNode.setAttribute("x", cx); subNode.setAttribute("y", cy + 12);
+      subNode.setAttribute("font-size", sub.size);
+      if (angle) subNode.setAttribute("transform", `rotate(${angle} ${cx} ${cy})`); else subNode.removeAttribute("transform");
+      subNode.textContent = sub.text;
+      subNode.style.display = "";
+    } else {
+      subNode.style.display = "none";
+      subNode.textContent = "";
+    }
+  }
+
+  function layoutLine(entry) {
+    const { x1, y1, x2, y2 } = entry.data.geometry;
+    const { hitNode, lineNode, dimNode } = entry.refs;
+    hitNode.setAttribute("x1", x1); hitNode.setAttribute("y1", y1); hitNode.setAttribute("x2", x2); hitNode.setAttribute("y2", y2);
+    lineNode.setAttribute("x1", x1); lineNode.setAttribute("y1", y1); lineNode.setAttribute("x2", x2); lineNode.setAttribute("y2", y2);
+    if (!hideMeasurements) {
+      dimNode.setAttribute("x", (x1 + x2) / 2); dimNode.setAttribute("y", (y1 + y2) / 2 - 8);
+      dimNode.textContent = `${distanceMeters(x1, y1, x2, y2)}m`;
+      dimNode.style.display = "";
+    } else {
+      dimNode.style.display = "none";
+    }
   }
 
   function select(id) {
     _selectedId = id;
     updateSelectionUI();
+    renderHandles();
   }
 
   function updateSelectionUI() {
     _elements.forEach(({ node }, id) => node.classList.toggle("selected", id === _selectedId));
     const delBtn = containerEl.querySelector("#fpDeleteBtn");
     if (delBtn) delBtn.style.display = _selectedId ? "" : "none";
+  }
+
+  // Corner handles (drag to resize) for a selected room, or endpoint
+  // handles (drag to move that end) for a selected wall/door/window.
+  function renderHandles() {
+    handlesLayer.innerHTML = "";
+    if (!_selectedId || readOnly) return;
+    const entry = _elements.get(_selectedId);
+    if (!entry) return;
+    if (entry.data.element_type === "room") {
+      const { x, y, width, height } = entry.data.geometry;
+      const corners = { nw: [x, y], ne: [x + width, y], sw: [x, y + height], se: [x + width, y + height] };
+      for (const [key, [hx, hy]] of Object.entries(corners)) {
+        const h = svgEl("rect", { x: hx - 5, y: hy - 5, width: 10, height: 10, class: "sl-fp-handle", "data-handle": key });
+        h.style.cursor = `${key}-resize`;
+        handlesLayer.appendChild(h);
+      }
+    } else {
+      const { x1, y1, x2, y2 } = entry.data.geometry;
+      for (const [key, hx, hy] of [["p1", x1, y1], ["p2", x2, y2]]) {
+        const h = svgEl("circle", { cx: hx, cy: hy, r: 6, class: "sl-fp-handle", "data-handle": key });
+        h.style.cursor = "move";
+        handlesLayer.appendChild(h);
+      }
+    }
   }
 
   async function deleteSelected() {
@@ -288,9 +364,11 @@ export function mountFloorPlanEditor(containerEl, opts) {
     try {
       await onDelete?.(_selectedId);
       entry.node.remove();
+      if (entry.data.element_type === "room") defs.querySelector(`#fp-clip-${_selectedId}`)?.remove();
       _elements.delete(_selectedId);
       _selectedId = null;
       updateSelectionUI();
+      renderHandles();
     } catch (e) {
       alert(e.message || "Could not delete element.");
     }
@@ -301,9 +379,127 @@ export function mountFloorPlanEditor(containerEl, opts) {
     return { x: ((clientX - rect.left) / rect.width) * W, y: ((clientY - rect.top) / rect.height) * H };
   }
 
+  function translateGeometry(type, geometry, dx, dy) {
+    return type === "room"
+      ? { ...geometry, x: geometry.x + dx, y: geometry.y + dy }
+      : { ...geometry, x1: geometry.x1 + dx, y1: geometry.y1 + dy, x2: geometry.x2 + dx, y2: geometry.y2 + dy };
+  }
+
+  // Rigid move: dragged live via a transform on the whole element group (no
+  // per-frame reflow needed since nothing but position changes — this also
+  // keeps a room's text clip moving in lockstep, since clip-path resolves in
+  // the transformed element's coordinate system), then baked into the real
+  // geometry and persisted once the drag ends.
+  function startMove(entry, e) {
+    const start = toSvgPoint(e.clientX, e.clientY);
+    let dx = 0, dy = 0, moved = false;
+    svg.setPointerCapture(e.pointerId);
+    const onMove = (ev) => {
+      const p = toSvgPoint(ev.clientX, ev.clientY);
+      dx = p.x - start.x; dy = p.y - start.y;
+      if (Math.hypot(dx, dy) > 2) moved = true;
+      entry.node.setAttribute("transform", `translate(${dx} ${dy})`);
+    };
+    const onUp = async () => {
+      svg.removeEventListener("pointermove", onMove);
+      svg.removeEventListener("pointerup", onUp);
+      svg.releasePointerCapture(e.pointerId);
+      entry.node.removeAttribute("transform");
+      if (!moved) return;
+      const prevGeometry = entry.data.geometry;
+      entry.data.geometry = translateGeometry(entry.data.element_type, prevGeometry, dx, dy);
+      layout(entry); renderHandles();
+      try {
+        await onUpdate?.(entry.data.id, entry.data.geometry);
+      } catch (err) {
+        entry.data.geometry = prevGeometry;
+        layout(entry); renderHandles();
+        alert(err.message || "Could not move element.");
+      }
+    };
+    svg.addEventListener("pointermove", onMove);
+    svg.addEventListener("pointerup", onUp);
+  }
+
+  function startResize(entry, handle, e) {
+    const orig = { ...entry.data.geometry };
+    const MIN = 15;
+    svg.setPointerCapture(e.pointerId);
+    const onMove = (ev) => {
+      const p = toSvgPoint(ev.clientX, ev.clientY);
+      let { x, y, width, height } = orig;
+      if (handle.includes("w")) { const nx = Math.min(p.x, orig.x + orig.width - MIN); width = orig.x + orig.width - nx; x = nx; }
+      if (handle.includes("e")) { width = Math.max(MIN, p.x - orig.x); }
+      if (handle.includes("n")) { const ny = Math.min(p.y, orig.y + orig.height - MIN); height = orig.y + orig.height - ny; y = ny; }
+      if (handle.includes("s")) { height = Math.max(MIN, p.y - orig.y); }
+      entry.data.geometry = { ...entry.data.geometry, x, y, width, height };
+      layout(entry); renderHandles();
+    };
+    const onUp = async () => {
+      svg.removeEventListener("pointermove", onMove);
+      svg.removeEventListener("pointerup", onUp);
+      svg.releasePointerCapture(e.pointerId);
+      try {
+        await onUpdate?.(entry.data.id, entry.data.geometry);
+      } catch (err) {
+        entry.data.geometry = orig;
+        layout(entry); renderHandles();
+        alert(err.message || "Could not resize room.");
+      }
+    };
+    svg.addEventListener("pointermove", onMove);
+    svg.addEventListener("pointerup", onUp);
+  }
+
+  function startEndpointDrag(entry, point, e) {
+    const orig = { ...entry.data.geometry };
+    svg.setPointerCapture(e.pointerId);
+    const onMove = (ev) => {
+      const p = toSvgPoint(ev.clientX, ev.clientY);
+      const geom = { ...entry.data.geometry };
+      if (point === "p1") { geom.x1 = p.x; geom.y1 = p.y; } else { geom.x2 = p.x; geom.y2 = p.y; }
+      entry.data.geometry = geom;
+      layout(entry); renderHandles();
+    };
+    const onUp = async () => {
+      svg.removeEventListener("pointermove", onMove);
+      svg.removeEventListener("pointerup", onUp);
+      svg.releasePointerCapture(e.pointerId);
+      try {
+        await onUpdate?.(entry.data.id, entry.data.geometry);
+      } catch (err) {
+        entry.data.geometry = orig;
+        layout(entry); renderHandles();
+        alert(err.message || "Could not move endpoint.");
+      }
+    };
+    svg.addEventListener("pointermove", onMove);
+    svg.addEventListener("pointerup", onUp);
+  }
+
   if (!readOnly) {
     svg.addEventListener("pointerdown", (e) => {
-      if (_tool === "select") { select(null); return; }
+      const handleTarget = e.target.closest("[data-handle]");
+      if (handleTarget && _selectedId) {
+        const entry = _elements.get(_selectedId);
+        if (entry) {
+          if (entry.data.element_type === "room") startResize(entry, handleTarget.dataset.handle, e);
+          else startEndpointDrag(entry, handleTarget.dataset.handle, e);
+        }
+        return;
+      }
+      if (_tool === "select") {
+        const elNode = e.target.closest(".sl-fp-element");
+        if (elNode) {
+          const id = elNode.dataset.id;
+          const entry = _elements.get(id);
+          select(id);
+          if (entry) startMove(entry, e);
+        } else {
+          select(null);
+        }
+        return;
+      }
       const p = toSvgPoint(e.clientX, e.clientY);
       _drawing = { type: _tool, startX: p.x, startY: p.y };
       svg.setPointerCapture(e.pointerId);

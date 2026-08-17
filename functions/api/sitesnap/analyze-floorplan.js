@@ -20,11 +20,17 @@ Return ONLY a JSON array — no markdown fences, no prose, nothing before or aft
 
 All coordinates are normalized to the image itself: (0,0) is the top-left corner of the image, (1,1) is the bottom-right corner, regardless of the image's actual pixel size.
 
-Identify every wall segment you can see (both exterior and interior walls) as line elements. Identify door openings (gaps in a wall, often with a swing arc) and window openings (breaks in a wall, often with parallel lines) as short line elements at their location on the wall. Identify every enclosed room as a rectangle — use the closest bounding rectangle if the room isn't a perfect rectangle — and use whatever label/name is written on the sketch for that room (e.g. "Kitchen", "Bedroom 1"); if no label is visible, invent a short sensible one based on typical room layout (e.g. "Room 1", "Hallway").
+Identify every wall segment you can see (both exterior and interior walls) as line elements — trace their exact position and length as precisely as you can, since every room boundary is derived from where walls meet.
+
+Identify every enclosed room as a rectangle whose edges sit exactly on the wall lines that bound it — a room's rectangle must align with the actual wall segments around it, not be a rough guess independent of where the walls are. Use the closest bounding rectangle if a room isn't a perfect rectangle. Use whatever label/name is written on the sketch for that room (e.g. "Kitchen", "Bedroom 1"); if no label is visible, invent a short sensible one based on typical room layout (e.g. "Room 1", "Hallway").
+
+Identify door openings (a gap in a wall, often marked with a small quarter-circle swing-arc symbol) and window openings (a short break in a wall, often marked with parallel lines or hatch marks) as short line elements. A door or window's line MUST lie exactly along the same wall it interrupts — same orientation as that wall (horizontal if the wall is horizontal, vertical if the wall is vertical), positioned at the gap in the wall, touching or overlapping the wall's own line. Never draw a door or window as a diagonal line, and never place one floating in the middle of a room disconnected from any wall — if you can't tell which wall a door/window symbol belongs to, snap it onto the nearest wall segment instead of guessing a diagonal position. Its length should roughly match the width of the opening.
 
 The sketch may have handwritten measurements/dimensions on it (e.g. "4m", "3.2 x 2.5m", "12ft", numbers next to a wall or written inside a room). Where a measurement is clearly legible and clearly applies to a specific wall/door/window or room, include it as "real_length_m" (for walls/doors/windows) or "real_width_m"/"real_height_m" (for rooms), converting feet/inches to meters if needed. Omit these fields entirely (do not include the key) for any element where no measurement is legible on the sketch — never guess or invent a measurement.
 
-Only include elements you can actually see evidence for in the sketch — do not invent walls or rooms that aren't there. If the image isn't a floor plan at all, or you can't make out any structure, return an empty array [].`;
+Only include elements you can actually see evidence for in the sketch — do not invent walls or rooms that aren't there. If the image isn't a floor plan at all, or you can't make out any structure, return an empty array [].
+
+Before returning your answer, check every door and window line: is it collinear with (lying on top of) the wall it's supposed to interrupt? If not, correct its coordinates so it is.`;
 
 export async function onRequestOptions() { return options(); }
 
