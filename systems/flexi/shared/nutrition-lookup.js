@@ -14,16 +14,22 @@ export async function searchFood(query) {
   return data.foods || [];
 }
 
-// Converts a quantity to grams for scaling. Only weight units convert
-// reliably without knowing the specific food (1oz is always 28.3495g,
-// no matter what it's an ounce of) — volume units like ml/cup/tsp and
-// count units like "piece"/"slice" don't, since a cup of rice and a cup
-// of oil weigh completely different amounts, and food databases don't
-// reliably expose that per-item. Returns null for units we can't convert.
+// Converts a quantity to grams for scaling. Weight units convert reliably
+// without knowing the specific food (1oz is always 28.3495g, no matter
+// what it's an ounce of). Volume units like ml/cup/tsp don't — a cup of
+// rice and a cup of oil weigh completely different amounts, and food
+// databases don't reliably expose that per-item, so those stay unsupported.
+// "piece"/"slice" sit in between: there's no universal weight for "1
+// piece", but a specific shop product (passed as `food`) often lists its
+// own per-item weight (e.g. a tortilla wrap listing "1 wrap = 64g"), so
+// use that when it's available. Returns null when the unit can't be
+// converted for this food.
 const WEIGHT_UNIT_TO_GRAMS = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
-export function toGrams(qty, unit) {
+export function toGrams(qty, unit, food) {
   const factor = WEIGHT_UNIT_TO_GRAMS[unit];
-  return factor ? qty * factor : null;
+  if (factor) return qty * factor;
+  if ((unit === "piece" || unit === "slice") && food?.servingGrams) return qty * food.servingGrams;
+  return null;
 }
 
 // Scales a food's per-100g nutrition to a gram quantity.

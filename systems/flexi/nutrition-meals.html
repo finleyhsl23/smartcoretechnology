@@ -265,8 +265,15 @@ function wireIngredientRow(row) {
     const name = row.querySelector(".ing-name").value.trim();
     if (!name) { toast("Enter an ingredient name first.", "error"); return; }
     if (!qty) { toast("Enter a quantity first.", "error"); return; }
-    const grams = toGrams(qty, unit);
-    if (grams == null) { toast(`Auto-calc needs a weight unit (g, kg, oz or lb) — "${unit}" can't be converted since it depends on the food. Switch the unit or enter the values manually.`, "error"); return; }
+    // Weight units (g/kg/oz/lb) convert to grams outright. "piece"/"slice"
+    // depend on the specific product picked below — some shop products list
+    // a known per-item weight, most generic foods don't. Everything else
+    // (ml/cup/tbsp/etc) can't be converted at all without knowing density.
+    const fixedGrams = toGrams(qty, unit);
+    if (fixedGrams == null && unit !== "piece" && unit !== "slice") {
+      toast(`Auto-calc needs a weight unit (g, kg, oz or lb) — "${unit}" can't be converted since it depends on the food. Switch the unit or enter the values manually.`, "error");
+      return;
+    }
 
     ingredientsEl.querySelectorAll(".ing-match-list").forEach(el => el.remove());
     const calcBtn = row.querySelector(".ing-calc");
@@ -287,14 +294,20 @@ function wireIngredientRow(row) {
     list.innerHTML = foods.map((f, i) => `
       <div class="meal-pick-row" data-pick-food="${i}">
         <span>${f.source === "branded" ? "🏪 " : ""}${escapeHtml(f.name)}${f.brand ? ` <span class="mp-meta" style="margin-left:0">(${escapeHtml(f.brand)})</span>` : ""}</span>
-        <span class="mp-meta">${f.per100g.calories ?? "—"} kcal/100g</span>
+        <span class="mp-meta">${f.per100g.calories ?? "—"} kcal/100g${f.servingGrams ? ` · 1 serving ≈ ${f.servingGrams}g` : ""}</span>
       </div>
     `).join("") + (foods.some(f => f.source === "branded")
       ? `<div style="padding:6px 8px;font-size:10.5px;color:var(--fx-text3)">🏪 Shop products via <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener" style="color:inherit">Open Food Facts</a></div>`
       : "");
     row.insertAdjacentElement("afterend", list);
     list.querySelectorAll("[data-pick-food]").forEach(el => el.addEventListener("click", () => {
-      addIngredientToTotals(foods[parseInt(el.dataset.pickFood, 10)], grams);
+      const food = foods[parseInt(el.dataset.pickFood, 10)];
+      const grams = fixedGrams ?? toGrams(qty, unit, food);
+      if (grams == null) {
+        toast(`"${food.name}" doesn't list a known weight per ${unit} — switch to g/kg/oz/lb, or pick a different match.`, "error");
+        return;
+      }
+      addIngredientToTotals(food, grams);
       list.remove();
     }));
   });

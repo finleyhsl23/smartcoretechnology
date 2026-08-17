@@ -57,7 +57,7 @@
         <div class="fx-field"><label>Description</label><input class="fx-input" id="description" placeholder="e.g. Grilled chicken breast"/></div>
         <div class="fx-form-row">
           <div class="fx-field"><label>Quantity</label><input class="fx-input" id="foodQty" type="number" value="100"/></div>
-          <div class="fx-field"><label>Unit</label><select class="fx-select" id="foodQtyUnit"><option value="g">g</option><option value="kg">kg</option><option value="oz">oz</option><option value="lb">lb</option></select></div>
+          <div class="fx-field"><label>Unit</label><select class="fx-select" id="foodQtyUnit"><option value="g">g</option><option value="kg">kg</option><option value="oz">oz</option><option value="lb">lb</option><option value="piece">piece</option><option value="slice">slice</option></select></div>
         </div>
         <button type="button" class="fx-btn fx-btn-sm fx-btn-block" id="autoCalcBtn" style="margin-bottom:14px">🔍 Search Food</button>
         <div class="fx-form-msg" id="autoCalcMsg" style="margin-bottom:8px"></div>
@@ -240,7 +240,7 @@ function renderFoodMatches(foods) {
   el.innerHTML = foods.map((f, i) => `
     <div class="lib-meal-row" style="cursor:pointer" data-pick-food="${i}">
       <span>${f.source === "branded" ? "🏪 " : ""}${escapeHtml(f.name)}${f.brand ? ` <span style="color:var(--fx-text3);font-size:11px">(${escapeHtml(f.brand)})</span>` : ""}</span>
-      <span class="lm-meta">${f.per100g.calories ?? "—"} kcal/100g</span>
+      <span class="lm-meta">${f.per100g.calories ?? "—"} kcal/100g${f.servingGrams ? ` · 1 serving ≈ ${f.servingGrams}g` : ""}</span>
     </div>
   `).join("") + (foods.some(f => f.source === "branded")
     ? `<div style="padding:6px 8px;font-size:10.5px;color:var(--fx-text3)">🏪 Shop products via <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener" style="color:inherit">Open Food Facts</a></div>`
@@ -248,8 +248,12 @@ function renderFoodMatches(foods) {
   el.querySelectorAll("[data-pick-food]").forEach(row => row.addEventListener("click", () => {
     const qty = parseFloat(document.getElementById("foodQty").value) || 100;
     const unit = document.getElementById("foodQtyUnit").value;
-    const grams = toGrams(qty, unit);
     const food = foods[parseInt(row.dataset.pickFood, 10)];
+    const grams = toGrams(qty, unit, food);
+    if (grams == null) {
+      showMessage("autoCalcMsg", `"${food.name}" doesn't list a known weight per ${unit} — switch to g/kg/oz/lb, or pick a different match.`, "error");
+      return;
+    }
     const scaled = scaleNutrition(food.per100g, grams);
     document.getElementById("calories").value = scaled.calories ?? "";
     document.getElementById("customProtein").value = scaled.protein_g ?? "";

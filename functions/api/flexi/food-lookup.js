@@ -99,6 +99,11 @@ async function searchOpenFoodFacts(query) {
       name: p.product_name,
       brand: p.brands ? p.brands.split(',')[0].trim() : null,
       source: 'branded',
+      // Shop products often list their own per-item weight (e.g. "1 wrap
+      // (64g)") — when present, this lets "piece"/"slice" auto-calc work
+      // for that specific product, unlike a generic per-100g food where
+      // there's no universal "1 piece" to convert from.
+      servingGrams: round2(p.serving_quantity) || null,
       per100g: {
         calories: round2(p.nutriments['energy-kcal_100g']),
         protein_g: round2(p.nutriments['proteins_100g']),
