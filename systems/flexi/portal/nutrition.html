@@ -51,18 +51,23 @@
       </div>
 
       <div id="customPane" style="display:none">
+        <div class="fx-field"><label>Meal</label>
+          <select class="fx-select" id="meal"><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select>
+        </div>
+        <div class="fx-field"><label>Description</label><input class="fx-input" id="description" placeholder="e.g. Grilled chicken breast"/></div>
         <div class="fx-form-row">
-          <div class="fx-field"><label>Meal</label>
-            <select class="fx-select" id="meal"><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select>
-          </div>
+          <div class="fx-field"><label>Quantity (g)</label><input class="fx-input" id="foodQty" type="number" value="100"/></div>
+          <div class="fx-field" style="display:flex;align-items:flex-end"><button type="button" class="fx-btn fx-btn-sm fx-btn-block" id="autoCalcBtn">🧮 Auto-Calculate</button></div>
+        </div>
+        <div class="fx-form-msg" id="autoCalcMsg" style="margin-bottom:8px"></div>
+        <div class="fx-form-row">
           <div class="fx-field"><label>Calories</label><input class="fx-input" id="calories" type="number"/></div>
-        </div>
-        <div class="fx-field"><label>Description</label><input class="fx-input" id="description" placeholder="e.g. Chicken, rice & broccoli"/></div>
-        <div class="fx-form-row">
           <div class="fx-field"><label>Protein (g)</label><input class="fx-input" id="customProtein" type="number"/></div>
-          <div class="fx-field"><label>Carbs (g)</label><input class="fx-input" id="customCarbs" type="number"/></div>
         </div>
-        <div class="fx-field" style="max-width:calc(50% - 7px)"><label>Fat (g)</label><input class="fx-input" id="customFat" type="number"/></div>
+        <div class="fx-form-row">
+          <div class="fx-field"><label>Carbs (g)</label><input class="fx-input" id="customCarbs" type="number"/></div>
+          <div class="fx-field"><label>Fat (g)</label><input class="fx-input" id="customFat" type="number"/></div>
+        </div>
         <button class="fx-btn fx-btn-primary fx-btn-block" id="logBtn">Add to Diary</button>
       </div>
     </div>
@@ -90,6 +95,7 @@
 <script type="module">
 import { requireClientAccess, api, applyPortalFeatureGating } from "../shared/client-auth.js";
 import { revealApp, setupThemeToggle, setupBackgroundMedia, escapeHtml, toast, showMessage, setLoading, openModal, closeModal, emptyState, enhanceSelect } from "../shared/ui.js";
+import { searchFood, scaleNutrition } from "../shared/nutrition-lookup.js";
 
 const client = await requireClientAccess();
 applyPortalFeatureGating(client.disabled_features);
@@ -224,6 +230,27 @@ async function loadFood() {
   `).join("");
 }
 
+document.getElementById("autoCalcBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("description").value.trim();
+  if (!name) { showMessage("autoCalcMsg", "Type what you ate first.", "error"); return; }
+  const grams = parseFloat(document.getElementById("foodQty").value) || 100;
+  setLoading(e.target, true, "Looking up…");
+  try {
+    const foods = await searchFood(name);
+    if (!foods.length) { showMessage("autoCalcMsg", `No match found for "${name}" — enter the values manually.`, "error"); return; }
+    const match = foods[0];
+    const scaled = scaleNutrition(match.per100g, grams);
+    document.getElementById("calories").value = scaled.calories ?? "";
+    document.getElementById("customProtein").value = scaled.protein_g ?? "";
+    document.getElementById("customCarbs").value = scaled.carbs_g ?? "";
+    document.getElementById("customFat").value = scaled.fat_g ?? "";
+    showMessage("autoCalcMsg", `Matched "${match.name}" (${grams}g) — values filled in below, feel free to adjust.`, "success");
+  } catch (err) {
+    showMessage("autoCalcMsg", err.message || "Lookup failed.", "error");
+  }
+  setLoading(e.target, false);
+});
+
 document.getElementById("logBtn").addEventListener("click", async (e) => {
   const description = document.getElementById("description").value.trim();
   if (!description) { toast("Add a description", "error"); return; }
@@ -240,6 +267,8 @@ document.getElementById("logBtn").addEventListener("click", async (e) => {
   } catch (e) { setLoading(document.getElementById("logBtn"), false); toast(e.message, "error"); return; }
   setLoading(document.getElementById("logBtn"), false);
   ["description","calories","customProtein","customCarbs","customFat"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("foodQty").value = 100;
+  document.getElementById("autoCalcMsg").textContent = "";
   toast("Logged", "success");
   loadFood();
 });

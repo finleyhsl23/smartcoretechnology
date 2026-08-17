@@ -33,6 +33,7 @@
 .ing-unit{width:84px;flex-shrink:0}
 .ing-name{flex:1}
 .ing-remove{width:28px;height:28px;flex-shrink:0}
+.ing-calc{width:28px;height:28px;flex-shrink:0}
 
 /* compact / expanded plan rows */
 .plan-row-compact{display:flex;align-items:center;gap:14px;padding:14px 16px}
@@ -184,6 +185,7 @@ import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
 import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient, enhanceSelect } from "./shared/ui.js";
+import { searchFood, scaleNutrition } from "./shared/nutrition-lookup.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "nutrition" });
 renderNav({ activeKey: "nutrition", profile, tier });
@@ -242,11 +244,39 @@ function ingredientRowHTML(ing) {
     <input class="fx-input ing-qty" type="number" step="0.1" placeholder="Qty" value="${qty ?? ""}"/>
     <select class="fx-select ing-unit">${UNITS.map(u => `<option value="${u}" ${u === unit ? "selected" : ""}>${u}</option>`).join("")}</select>
     <input class="fx-input ing-name" placeholder="Ingredient name" value="${escapeHtml(name)}"/>
+    <button type="button" class="fx-icon-btn ing-calc" title="Auto-calculate nutrition &amp; add to totals above">🧮</button>
     <button type="button" class="fx-icon-btn ing-remove">✕</button>
   </div>`;
 }
 function wireIngredientRow(row) {
   enhanceSelect(row.querySelector(".ing-unit"), { placeholder: "Unit…" });
+  row.querySelector(".ing-calc").addEventListener("click", async () => {
+    const qty = parseFloat(row.querySelector(".ing-qty").value);
+    const unit = row.querySelector(".ing-unit").value;
+    const name = row.querySelector(".ing-name").value.trim();
+    if (!name) { toast("Enter an ingredient name first.", "error"); return; }
+    if (!qty) { toast("Enter a quantity first.", "error"); return; }
+    let grams = qty;
+    if (unit === "kg") grams = qty * 1000;
+    else if (unit !== "g") { toast("Auto-calc works with g or kg for now — switch the unit or enter grams.", "error"); return; }
+
+    const calcBtn = row.querySelector(".ing-calc");
+    setLoading(calcBtn, true, "…");
+    try {
+      const foods = await searchFood(name);
+      if (!foods.length) { toast(`No match found for "${name}".`, "error"); return; }
+      const scaled = scaleNutrition(foods[0].per100g, grams);
+      const addTo = (id, val) => { const el = document.getElementById(id); el.value = (parseFloat(el.value) || 0) + (val || 0); };
+      addTo("mealCals", scaled.calories);
+      addTo("mealProtein", scaled.protein_g);
+      addTo("mealCarbs", scaled.carbs_g);
+      addTo("mealFat", scaled.fat_g);
+      toast(`Matched "${foods[0].name}" — added ${scaled.calories ?? 0} kcal to totals above`, "success");
+    } catch (err) {
+      toast(err.message || "Lookup failed.", "error");
+    }
+    setLoading(calcBtn, false);
+  });
   row.querySelector(".ing-remove").addEventListener("click", () => {
     if (ingredientsEl.querySelectorAll(".ing-row").length <= 1) {
       row.querySelector(".ing-qty").value = ""; row.querySelector(".ing-name").value = "";
