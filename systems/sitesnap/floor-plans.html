@@ -31,7 +31,7 @@
   import { settings, projects, tasks, floorPlans, floorPlanLevels, floorPlanElements } from "/systems/sitesnap/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/systems/sitesnap/shared/nav.js";
   import { initTheme } from "/systems/sitesnap/shared/theme.js";
-  import { mountFloorPlanEditor, fitImageRect } from "/systems/sitesnap/shared/floorPlanEditor.js";
+  import { mountFloorPlanEditor, fitImageRect, renderSnapshotPNG } from "/systems/sitesnap/shared/floorPlanEditor.js";
   import { sb } from "/systems/sitesnap/shared/supabase.js";
   import { esc, loadingState, emptyState, errorState, setInner, toast, modal, confirmDialog } from "/systems/sitesnap/shared/ui.js";
 
@@ -41,6 +41,7 @@
   let _editor = null;
   let _pickerProjects = [], _pickerSearch = "";
   let _analyzeAbort = null;
+  let _verifyAbort = null;
 
   const projectId = new URLSearchParams(location.search).get("project");
 
@@ -156,6 +157,7 @@
 
   async function renderPlan() {
     const level = _levels.find(l => l.id === _activeLevelId);
+    _elements = level ? await floorPlanElements.listForLevel(level.id) : [];
     setInner("body", `
       <div class="sl-page-head">
         <div><h2>${esc(_floorPlan.name)}</h2><p>${esc(_project.name)}</p></div>
@@ -182,7 +184,8 @@
         </label>
         ${level?.reference_image_path ? `<button class="btn" id="fpRefRemove"><i data-lucide="x"></i> Remove Reference</button>` : ""}
         ${level?.reference_image_path ? `<button class="btn btn-primary" id="fpAutoConvert"><i data-lucide="sparkles"></i> Auto-Convert with AI</button>` : ""}
-        <span class="text-muted" style="font-size:12px">Traces as a backdrop to draw over manually, or click Auto-Convert to have AI read the sketch and place walls/doors/windows/rooms for you — review and tidy up the result, it won't be perfect.</span>
+        ${level?.reference_image_path && _elements.length ? `<button class="btn" id="fpVerifyRefine"><i data-lucide="scan-search"></i> Verify &amp; Refine with AI</button>` : ""}
+        <span class="text-muted" style="font-size:12px">Traces as a backdrop to draw over manually, or click Auto-Convert to have AI read the sketch and place walls/doors/windows/rooms for you — review and tidy up the result, it won't be perfect. Verify & Refine sends the current layout back to AI to double-check it against the sketch and fix anything misplaced.</span>
         ${_levels.length > 1 ? `<button class="btn btn-danger" id="fpDeleteLevel" style="margin-left:auto"><i data-lucide="trash-2"></i> Delete This Level</button>` : ""}
       </div>` : ""}
       <div class="card" id="fpCanvasHost"></div>
@@ -198,6 +201,7 @@
     document.getElementById("fpRefUpload")?.addEventListener("change", handleReferenceUpload);
     document.getElementById("fpRefRemove")?.addEventListener("click", removeReference);
     document.getElementById("fpAutoConvert")?.addEventListener("click", handleAutoConvert);
+    document.getElementById("fpVerifyRefine")?.addEventListener("click", handleVerifyRefine);
     document.getElementById("fpToggleMeasurements")?.addEventListener("click", async () => {
       const updated = await floorPlans.update(_floorPlan.id, { hide_measurements: !_floorPlan.hide_measurements });
       _floorPlan.hide_measurements = updated.hide_measurements;
@@ -205,7 +209,6 @@
       await renderPlan();
     });
 
-    _elements = level ? await floorPlanElements.listForLevel(level.id) : [];
     let referenceImageUrl = null, referenceImageRect = null;
     if (level?.reference_image_path) {
       referenceImageUrl = await floorPlanLevels.signedUrl(level.reference_image_path).catch(() => null);
@@ -417,6 +420,105 @@
     } finally {
       overlay.remove();
       _analyzeAbort = null;
+    }
+  }
+
+  // Second pass: sends the original sketch alongside a plain rendering of
+  // what's currently placed (see renderSnapshotPNG — drawn purely from
+  // vector shapes, no images loaded, so no canvas CORS taint) plus the
+  // element list back to Claude, which visually checks the two against each
+  // other and returns a corrected full replacement — including rotating any
+  // room label that doesn't read well horizontally. The level's elements are
+  // then fully replaced with whatever comes back.
+  function resetVerifyBtn() {
+    const btn = document.getElementById("fpVerifyRefine");
+    if (!btn) return;
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="scan-search"></i> Verify &amp; Refine with AI`;
+    window.lucide?.createIcons?.();
+  }
+
+  async function handleVerifyRefine() {
+    const level = _levels.find(l => l.id === _activeLevelId);
+    if (!level?.reference_image_path || !_elements.length) return;
+    const btn = document.getElementById("fpVerifyRefine");
+    btn.disabled = true;
+    btn.textContent = "Verifying…";
+
+    _verifyAbort = new AbortController();
+    const overlay = document.createElement("div");
+    overlay.className = "sl-fp-analyzing-overlay";
+    overlay.innerHTML = `
+      <div class="sl-spinner"></div>
+      <p>Comparing the floor plan against your sketch and fixing anything off…</p>
+      <button type="button" class="btn btn-danger" id="fpVerifyCancel">Cancel</button>
+    `;
+    document.body.appendChild(overlay);
+    document.getElementById("fpVerifyCancel").addEventListener("click", () => _verifyAbort?.abort());
+
+    try {
+      const url = await floorPlanLevels.signedUrl(level.reference_image_path);
+      const imgRes = await fetch(url, { signal: _verifyAbort.signal });
+      const blob = await imgRes.blob();
+      const [imageBase64, { width, height }, { data: sessionData }] = await Promise.all([
+        blobToBase64(blob), loadImageNaturalSize(url), sb().auth.getSession(),
+      ]);
+      const rect = fitImageRect(width, height);
+
+      const renderedDataUrl = renderSnapshotPNG(_elements, {
+        pixelsPerMeter: level.pixels_per_meter || 50,
+        hideMeasurements: !!_floorPlan.hide_measurements,
+        referenceImageRect: rect,
+      });
+      const renderedBase64 = renderedDataUrl.split(",")[1];
+
+      const currentElements = _elements.map(el => el.element_type === "room"
+        ? {
+            type: "room",
+            x: (el.geometry.x - rect.x) / rect.width, y: (el.geometry.y - rect.y) / rect.height,
+            width: el.geometry.width / rect.width, height: el.geometry.height / rect.height,
+            label: el.label, label_angle: el.geometry.label_angle || 0,
+          }
+        : {
+            type: el.element_type,
+            x1: (el.geometry.x1 - rect.x) / rect.width, y1: (el.geometry.y1 - rect.y) / rect.height,
+            x2: (el.geometry.x2 - rect.x) / rect.width, y2: (el.geometry.y2 - rect.y) / rect.height,
+          });
+
+      const res = await fetch("/api/sitesnap/verify-floorplan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session.access_token}` },
+        body: JSON.stringify({
+          companyId: _companyId, originalImageBase64: imageBase64, originalMimeType: blob.type || "image/jpeg",
+          renderedImageBase64: renderedBase64, currentElements,
+        }),
+        signal: _verifyAbort.signal,
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error || "Could not verify the layout.");
+      if (!Array.isArray(out.elements)) throw new Error("Unexpected response.");
+
+      const rows = out.elements.map(el => ({
+        level_id: level.id, company_id: _companyId, project_id: projectId,
+        element_type: el.type, label: el.label || null,
+        geometry: el.type === "room"
+          ? { x: rect.x + el.x * rect.width, y: rect.y + el.y * rect.height, width: el.width * rect.width, height: el.height * rect.height, label_angle: el.label_angle || 0 }
+          : { x1: rect.x + el.x1 * rect.width, y1: rect.y + el.y1 * rect.height, x2: rect.x + el.x2 * rect.width, y2: rect.y + el.y2 * rect.height },
+      }));
+
+      await Promise.all(_elements.map(el => floorPlanElements.remove(el.id)));
+      if (rows.length) await floorPlanElements.createMany(rows);
+
+      toast("success", "Floor plan refined", "AI checked the layout against your sketch and corrected anything off.");
+      await renderPlan();
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        toast("error", "Couldn't verify layout", err.message || "");
+      }
+      resetVerifyBtn();
+    } finally {
+      overlay.remove();
+      _verifyAbort = null;
     }
   }
 </script>

@@ -5,6 +5,7 @@
 // image is displayed at. This is a best-effort AI read of a sketch, not
 // precise CAD extraction, and the client-side copy says so.
 import { json, options, getCallerProfile } from './_auth.js';
+import { callClaudeVisionWithRetry } from './_ai.js';
 
 const ADMIN_ROLES = ['owner', 'admin', 'administrator'];
 
@@ -25,54 +26,6 @@ The sketch may have handwritten measurements/dimensions on it (e.g. "4m", "3.2 x
 
 Only include elements you can actually see evidence for in the sketch — do not invent walls or rooms that aren't there. If the image isn't a floor plan at all, or you can't make out any structure, return an empty array [].`;
 
-function extractJsonArray(text) {
-  if (!text) throw new Error('empty response');
-  let cleaned = text.trim();
-  const fenced = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced) cleaned = fenced[1].trim();
-  try {
-    const direct = JSON.parse(cleaned);
-    if (Array.isArray(direct)) return direct;
-  } catch {}
-  const match = cleaned.match(/\[[\s\S]*\]/);
-  if (!match) throw new Error('no JSON array found in response');
-  const parsed = JSON.parse(match[0]);
-  if (!Array.isArray(parsed)) throw new Error('parsed value is not an array');
-  return parsed;
-}
-
-async function callClaude(apiKey, imageBase64, mimeType) {
-  const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-5',
-      max_tokens: 8192,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mimeType, data: imageBase64 } },
-          { type: 'text', text: PROMPT },
-        ],
-      }],
-    }),
-  });
-
-  if (!aiRes.ok) {
-    const errText = await aiRes.text().catch(() => '');
-    console.error('Anthropic error:', errText);
-    throw new Error('ai-http-' + aiRes.status);
-  }
-
-  const data = await aiRes.json();
-  const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
-  return extractJsonArray(text);
-}
-
 export async function onRequestOptions() { return options(); }
 
 export async function onRequestPost({ request, env }) {
@@ -90,20 +43,14 @@ export async function onRequestPost({ request, env }) {
   const apiKey = env.ANTHROPIC_API_KEY;
   if (!apiKey) return json({ error: 'AI is not configured for this environment.' }, 500);
 
-  const ATTEMPTS = 3;
-  let elements = null;
-  let lastError = null;
-  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
-    try {
-      elements = await callClaude(apiKey, imageBase64, mimeType);
-      break;
-    } catch (e) {
-      lastError = e;
-      console.error(`analyze-floorplan attempt ${attempt} failed:`, e.message || e);
-    }
-  }
-  if (!elements) {
-    const msg = String(lastError?.message || '');
+  let elements;
+  try {
+    elements = await callClaudeVisionWithRetry(apiKey, [
+      { type: 'image', source: { type: 'base64', media_type: mimeType, data: imageBase64 } },
+      { type: 'text', text: PROMPT },
+    ]);
+  } catch (e) {
+    const msg = String(e?.message || '');
     if (msg.startsWith('ai-http-')) return json({ error: 'Could not analyze the image.' }, 502);
     return json({ error: 'Could not understand the AI response. Try a clearer image.' }, 502);
   }

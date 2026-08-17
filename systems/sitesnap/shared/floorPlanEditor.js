@@ -74,6 +74,73 @@ export function fitImageRect(naturalW, naturalH) {
   return { x: (CANVAS_W - width) / 2, y: (CANVAS_H - height) / 2, width, height };
 }
 
+// Renders the given elements as a plain PNG (data URL) using an offscreen
+// <canvas>, purely from vector drawing — no images loaded, so no CORS
+// tainting risk when sending it off to the AI verify-floorplan endpoint for
+// visual comparison against the original sketch. Mirrors renderElement()'s
+// text-fit/rotation logic closely enough that what the AI sees matches what
+// mountFloorPlanEditor actually renders on screen.
+export function renderSnapshotPNG(elements, { pixelsPerMeter = 50, hideMeasurements = false, referenceImageRect } = {}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = CANVAS_W; canvas.height = CANVAS_H;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#12151c";
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  if (referenceImageRect) {
+    ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(referenceImageRect.x, referenceImageRect.y, referenceImageRect.width, referenceImageRect.height);
+  }
+
+  for (const el of elements) {
+    if (el.element_type !== "room") continue;
+    const { x, y, width, height, label_angle } = el.geometry;
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.strokeStyle = "rgba(255,255,255,0.45)";
+    ctx.lineWidth = 2;
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeRect(x, y, width, height);
+
+    const cx = x + width / 2, cy = y + height / 2;
+    const angle = Number(label_angle) || 0;
+    const vertical = Math.abs(((angle % 180) + 180) % 180 - 90) < 45;
+    const pad = 8;
+    const maxTextWidth = Math.max(0, (vertical ? height : width) - pad * 2);
+    if (maxTextWidth <= 4) continue;
+    const label = fitLabel(el.label || "Room", maxTextWidth, { baseSize: 13, minSize: 7 });
+    ctx.save();
+    ctx.translate(cx, cy);
+    if (angle) ctx.rotate((angle * Math.PI) / 180);
+    ctx.fillStyle = "#fff";
+    ctx.font = `700 ${label.size}px Inter, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label.text, 0, 0);
+    if (!hideMeasurements) {
+      ctx.font = `500 10px Inter, sans-serif`;
+      ctx.fillStyle = "rgba(255,255,255,0.6)";
+      ctx.fillText(`${(width / pixelsPerMeter).toFixed(1)}m x ${(height / pixelsPerMeter).toFixed(1)}m`, 0, label.size);
+    }
+    ctx.restore();
+  }
+
+  for (const el of elements) {
+    if (el.element_type === "room") continue;
+    const style = TOOL_STYLES[el.element_type];
+    const { x1, y1, x2, y2 } = el.geometry;
+    ctx.strokeStyle = style.stroke;
+    ctx.lineWidth = style.width;
+    ctx.setLineDash(style.dash ? style.dash.split(",").map(Number) : []);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  return canvas.toDataURL("image/png");
+}
+
 export function mountFloorPlanEditor(containerEl, opts) {
   const { pixelsPerMeter, referenceImageUrl, referenceImageRect, readOnly, hideMeasurements, roomStats, onCreate, onDelete, onRoomClick } = opts;
   const W = CANVAS_W, H = CANVAS_H;
@@ -139,7 +206,7 @@ export function mountFloorPlanEditor(containerEl, opts) {
   function renderElement(el) {
     const g = svgEl("g", { class: "sl-fp-element", "data-id": el.id, "data-type": el.element_type });
     if (el.element_type === "room") {
-      const { x, y, width, height } = el.geometry;
+      const { x, y, width, height, label_angle } = el.geometry;
       const stats = roomStats?.(el.id);
       const color = ROOM_COLORS[stats?.color || "none"];
       g.appendChild(svgEl("rect", { x, y, width, height, fill: color.fill, stroke: color.stroke, "stroke-width": 2, rx: 4 }));
@@ -153,22 +220,30 @@ export function mountFloorPlanEditor(containerEl, opts) {
       defs.appendChild(clip);
       const textGroup = svgEl("g", { "clip-path": `url(#${clipId})` });
 
+      // A rotated label (typically 90°, for a narrow/long room) reads along
+      // its own long axis, so the text-fit budget swaps to the room's
+      // height instead of its width.
+      const cx = x + width / 2, cy = y + height / 2;
+      const angle = Number(label_angle) || 0;
+      const vertical = Math.abs(((angle % 180) + 180) % 180 - 90) < 45;
       const pad = 8;
-      const maxTextWidth = Math.max(0, width - pad * 2);
+      const maxTextWidth = Math.max(0, (vertical ? height : width) - pad * 2);
       if (maxTextWidth > 4) {
         const label = fitLabel(el.label || "Room", maxTextWidth, { baseSize: 13, minSize: 7 });
         const subParts = [];
         if (!hideMeasurements) subParts.push(`${(width / pixelsPerMeter).toFixed(1)}m × ${(height / pixelsPerMeter).toFixed(1)}m`);
         if (stats) subParts.push(`${stats.done}/${stats.total} done`);
-        const showSub = subParts.length && height >= 34;
+        const showSub = subParts.length && (vertical ? width : height) >= 34;
 
-        const text = svgEl("text", { x: x + width / 2, y: y + height / 2 + (showSub ? -6 : 4), "text-anchor": "middle", class: "sl-fp-room-label", "font-size": label.size });
+        const text = svgEl("text", { x: cx, y: cy + (showSub ? -6 : 4), "text-anchor": "middle", class: "sl-fp-room-label", "font-size": label.size });
         text.textContent = label.text;
+        if (angle) text.setAttribute("transform", `rotate(${angle} ${cx} ${cy})`);
         textGroup.appendChild(text);
         if (showSub) {
           const sub = fitLabel(subParts.join(" · "), maxTextWidth, { baseSize: 10, minSize: 6, weight: 500 });
-          const subEl = svgEl("text", { x: x + width / 2, y: y + height / 2 + 12, "text-anchor": "middle", class: "sl-fp-room-sub", "font-size": sub.size });
+          const subEl = svgEl("text", { x: cx, y: cy + 12, "text-anchor": "middle", class: "sl-fp-room-sub", "font-size": sub.size });
           subEl.textContent = sub.text;
+          if (angle) subEl.setAttribute("transform", `rotate(${angle} ${cx} ${cy})`);
           textGroup.appendChild(subEl);
         }
       }
