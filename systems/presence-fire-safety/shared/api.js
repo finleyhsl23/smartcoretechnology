@@ -649,6 +649,21 @@ export const evacuation = {
     return data;
   },
 
+  /** Best-effort — fans out the "evacuation started" email + push panic
+   *  alert to everyone currently on-site. Call right after start() succeeds;
+   *  a failure here should never look like the evacuation itself failed to
+   *  start, so callers should swallow rejections. */
+  async notifyStarted(sessionId) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) return { success: false };
+    const res = await fetch("/api/presence-fire-safety/notify-evacuation-started", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ evacuation_session_id: sessionId }),
+    });
+    return res.json().catch(() => ({ success: false }));
+  },
+
   async updateRollCall(evacuationPersonId, rollCallStatus, notes) {
     const { data, error } = await sb().rpc("presence_fire_safety_update_roll_call", {
       p_evacuation_person_id: evacuationPersonId, p_roll_call_status: rollCallStatus, p_notes: notes || null,

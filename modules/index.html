@@ -456,6 +456,42 @@
       .page-sub{margin-bottom:2px}
       .page-company-mobile{display:block;font-size:11px;color:var(--muted);margin-bottom:28px}
     }
+
+    /* ── Push notification opt-in ── */
+    #pushPrompt{
+      position:fixed;left:20px;bottom:20px;
+      width:340px;max-width:calc(100vw - 40px);
+      background:var(--bg1);
+      border:1px solid var(--border-hi);
+      border-radius:14px;
+      padding:18px;
+      box-shadow:0 12px 40px rgba(0,0,0,.35);
+      z-index:300;
+      display:flex;gap:12px;
+      transform:translateY(12px);opacity:0;pointer-events:none;
+      transition:transform .25s cubic-bezier(.4,0,.2,1),opacity .25s;
+    }
+    #pushPrompt.show{transform:translateY(0);opacity:1;pointer-events:all}
+    #pushPrompt .pp-icon{font-size:22px;flex-shrink:0;line-height:1}
+    #pushPrompt .pp-title{font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:4px}
+    #pushPrompt .pp-desc{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px}
+    #pushPrompt .pp-actions{display:flex;gap:8px}
+    #pushPrompt .pp-enable{
+      background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;border:none;
+      border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:700;cursor:pointer;
+      transition:opacity .15s;
+    }
+    #pushPrompt .pp-enable:hover{opacity:.88}
+    #pushPrompt .pp-dismiss{
+      background:transparent;color:var(--muted);border:1px solid var(--border);
+      border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:600;cursor:pointer;
+      transition:background .15s;
+    }
+    #pushPrompt .pp-dismiss:hover{background:rgba(255,255,255,.06)}
+    [data-theme="light"] #pushPrompt .pp-dismiss:hover{background:rgba(0,0,0,.05)}
+    @media(max-width:580px){
+      #pushPrompt{left:12px;right:12px;bottom:12px;width:auto}
+    }
   </style>
 </head>
 <body>
@@ -580,6 +616,18 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div id="pushPrompt">
+  <div class="pp-icon">🔔</div>
+  <div>
+    <div class="pp-title">Turn on alerts?</div>
+    <div class="pp-desc">Get notified on this device for module alerts and fire drills — like a panic alert if an evacuation is started at your site.</div>
+    <div class="pp-actions">
+      <button class="pp-enable" id="pushEnableBtn">Enable</button>
+      <button class="pp-dismiss" id="pushDismissBtn">Not now</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const SUPABASE_URL  = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
@@ -724,6 +772,7 @@ async function loadDashboard(user) {
 
     await fetchData();
     render();
+    maybeShowPushPrompt();
   } catch (e) {
     // Auth errors → sign out and show login
     if (e.status === 401 || e.message?.toLowerCase().includes('jwt') || e.message?.toLowerCase().includes('auth')) {
@@ -1137,6 +1186,92 @@ function updateThemeBtn() {
 }
 
 updateThemeBtn();
+
+// ── Push notifications (platform-wide — module alerts & drills, not tied
+// to any single module) ─────────────────────────────────────────────────
+const VAPID_PUBLIC_KEY = "BEUb_akLgDV9L-Wrwo6Vxt19JtzsRjBd96uULyDEQ6CtFXh0UrR_OiH1QEOV-G0V5vXJqpUSloho50KdQKopU84";
+const PUSH_DISMISS_KEY = "sc_push_dismissed_at";
+const PUSH_DISMISS_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function isPushSupported() {
+  return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function savePushSubscription(subscription) {
+  const { data: sessionData } = await sb.auth.getSession();
+  if (!sessionData?.session) return false;
+  const res = await fetch("/api/push-subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session.access_token}` },
+    body: JSON.stringify({ subscription: subscription.toJSON() }),
+  });
+  return res.ok;
+}
+
+/** Registers the root-scoped service worker and subscribes to Push — this
+ *  itself triggers the browser's permission prompt if not already granted
+ *  or denied. Returns true only once the subscription is saved server-side. */
+async function enablePushNotifications() {
+  if (!isPushSupported()) return false;
+  try {
+    const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+    await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+    return await savePushSubscription(subscription);
+  } catch {
+    return false;
+  }
+}
+
+/** Silently re-confirms an already-granted subscription is saved server-side
+ *  — never prompts, since permission was already decided one way or the
+ *  other on an earlier visit. Safe to call unconditionally on every load. */
+async function ensurePushSubscribedIfGranted() {
+  if (!isPushSupported() || Notification.permission !== "granted") return;
+  await enablePushNotifications();
+}
+
+/** Shows the "turn on alerts" banner once per dashboard load, but only when
+ *  permission genuinely hasn't been decided yet — and snoozes for a week
+ *  after a "Not now" so it doesn't nag on every visit. */
+function maybeShowPushPrompt() {
+  if (!isPushSupported()) return;
+  if (Notification.permission !== "default") {
+    ensurePushSubscribedIfGranted();
+    return;
+  }
+  const dismissedAt = Number(localStorage.getItem(PUSH_DISMISS_KEY) || 0);
+  if (dismissedAt && Date.now() - dismissedAt < PUSH_DISMISS_SNOOZE_MS) return;
+
+  const el = document.getElementById("pushPrompt");
+  if (!el) return;
+  requestAnimationFrame(() => el.classList.add("show"));
+}
+
+document.getElementById("pushEnableBtn")?.addEventListener("click", async () => {
+  document.getElementById("pushPrompt")?.classList.remove("show");
+  await enablePushNotifications();
+});
+
+document.getElementById("pushDismissBtn")?.addEventListener("click", () => {
+  localStorage.setItem(PUSH_DISMISS_KEY, String(Date.now()));
+  document.getElementById("pushPrompt")?.classList.remove("show");
+});
 
 function filterModules(term) {
   const q = term.toLowerCase().trim();
