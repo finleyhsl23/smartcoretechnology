@@ -1191,18 +1191,34 @@ updateThemeBtn();
 
 // ── Push notifications (platform-wide — module alerts & drills, not tied
 // to any single module) ─────────────────────────────────────────────────
+// Two delivery paths depending on where this page is running:
+//  - Inside the Capacitor-wrapped iOS app: Capacitor injects its native
+//    bridge into whatever page it loads (even a remote URL, which is how
+//    this app is configured — see capacitor.config.json's server.url), so
+//    window.Capacitor.Plugins.PushNotifications is available right here and
+//    talks to native APNs — no separate app-side code needed.
+//  - Everywhere else (browser tab / installed PWA): standard Web Push.
 const VAPID_PUBLIC_KEY = "BEUb_akLgDV9L-Wrwo6Vxt19JtzsRjBd96uULyDEQ6CtFXh0UrR_OiH1QEOV-G0V5vXJqpUSloho50KdQKopU84";
 const PUSH_DISMISS_KEY = "sc_push_dismissed_at";
 const PUSH_DISMISS_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 
+function isNativeApp() {
+  return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+}
+
+function nativePushPlugin() {
+  return window.Capacitor?.Plugins?.PushNotifications || null;
+}
+
 function isPushSupported() {
+  if (isNativeApp()) return !!nativePushPlugin();
   return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
 
-// iOS only allows a Push subscription from a PWA that's been added to the
-// Home Screen and opened from there — a plain Safari tab exposes the same
-// APIs but subscribe() fails. There's no feature-detect for this; UA
-// sniffing + the standalone display-mode check is the only reliable way.
+// iOS only allows a Web Push subscription from a PWA that's been added to
+// the Home Screen and opened from there — a plain Safari tab exposes the
+// same APIs but subscribe() fails. Irrelevant inside the native app, which
+// is always "installed" by definition.
 function isIos() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -1221,14 +1237,26 @@ function urlBase64ToUint8Array(base64String) {
   return outputArray;
 }
 
-async function savePushSubscription(subscription) {
+async function authHeader() {
   const { data: sessionData } = await sb.auth.getSession();
-  if (!sessionData?.session) return false;
-  const res = await fetch("/api/push-subscribe", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session.access_token}` },
-    body: JSON.stringify({ subscription: subscription.toJSON() }),
-  });
+  if (!sessionData?.session) return null;
+  return { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session.access_token}` };
+}
+
+async function savePushSubscription(subscription) {
+  const headers = await authHeader();
+  if (!headers) return false;
+  const res = await fetch("/api/push-subscribe", { method: "POST", headers, body: JSON.stringify({ subscription: subscription.toJSON() }) });
+  return res.ok;
+}
+
+async function saveApnsToken(tokenValue) {
+  const headers = await authHeader();
+  if (!headers) return false;
+  // App.entitlements currently says aps-environment "development" — flip
+  // this to "production" once the app ships via TestFlight/App Store,
+  // which Apple serves through its production APNs host instead of sandbox.
+  const res = await fetch("/api/push-subscribe", { method: "POST", headers, body: JSON.stringify({ apnsToken: tokenValue, environment: "sandbox" }) });
   return res.ok;
 }
 
@@ -1239,9 +1267,10 @@ async function savePushSubscription(subscription) {
 // several awaited microtasks (service worker install/activate is a real
 // round trip), which makes subscribe() fail with no permission prompt ever
 // shown and no error surfaced — exactly what "nothing happens" looks like.
+// Not relevant inside the native app, which has no use for a service worker.
 let _swRegistrationPromise = null;
 function ensureServiceWorkerRegistered() {
-  if (!isPushSupported()) return Promise.resolve(null);
+  if (isNativeApp() || !("serviceWorker" in navigator)) return Promise.resolve(null);
   if (!_swRegistrationPromise) {
     _swRegistrationPromise = navigator.serviceWorker.register("/sw.js", { scope: "/" })
       .then(async (reg) => { await navigator.serviceWorker.ready; return reg; })
@@ -1251,12 +1280,47 @@ function ensureServiceWorkerRegistered() {
 }
 ensureServiceWorkerRegistered();
 
-/** Subscribes to Push on the already-registered service worker — this
- *  itself triggers the browser's permission prompt if not already granted
- *  or denied. Returns { ok, reason } — callers should surface `reason` to
- *  the user rather than failing silently, since "nothing happened" on iOS
- *  almost always means a specific, fixable cause (not installed, blocked). */
-async function enablePushNotifications() {
+// Tapping a native push notification brings the app to the foreground but
+// doesn't navigate anywhere on its own — send it wherever the payload says
+// (the evacuation page, same as the web service worker's notificationclick).
+if (isNativeApp()) {
+  nativePushPlugin()?.addListener("pushNotificationActionPerformed", (action) => {
+    const url = action?.notification?.data?.url;
+    if (url) window.location.href = url;
+  });
+}
+
+/** Native path: requests permission (prompts the OS dialog) and registers
+ *  for APNs via Capacitor's bridge, then saves the resulting device token. */
+async function enableNativePush() {
+  const plugin = nativePushPlugin();
+  if (!plugin) return { ok: false, reason: "unsupported" };
+  try {
+    let perm = await plugin.checkPermissions();
+    if (perm.receive === "prompt" || perm.receive === "prompt-with-rationale") {
+      perm = await plugin.requestPermissions();
+    }
+    if (perm.receive !== "granted") return { ok: false, reason: "denied" };
+
+    const saved = await new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+      plugin.addListener("registration", async (token) => finish(await saveApnsToken(token.value)));
+      plugin.addListener("registrationError", (err) => { console.error("APNs registration failed:", err); finish(false); });
+      plugin.register();
+      setTimeout(() => finish(false), 15000); // in case neither event ever fires
+    });
+    return saved ? { ok: true } : { ok: false, reason: "save-failed" };
+  } catch (e) {
+    console.error("Native push enable failed:", e);
+    return { ok: false, reason: "error", message: e?.message };
+  }
+}
+
+/** Web path: subscribes to Push on the already-registered service worker —
+ *  this itself triggers the browser's permission prompt if not already
+ *  granted or denied. */
+async function enableWebPush() {
   if (!isPushSupported()) return { ok: false, reason: "unsupported" };
   if (isIos() && !isStandaloneDisplay()) return { ok: false, reason: "ios-not-installed" };
   try {
@@ -1278,30 +1342,58 @@ async function enablePushNotifications() {
   }
 }
 
+/** Returns { ok, reason } — callers should surface `reason` to the user
+ *  rather than failing silently, since "nothing happened" almost always
+ *  means a specific, fixable cause (not installed, blocked, unsupported). */
+async function enablePushNotifications() {
+  return isNativeApp() ? enableNativePush() : enableWebPush();
+}
+
+/** Current permission state without prompting — "granted" / "denied" /
+ *  "default" (undecided) / "unsupported". Branches by platform since the
+ *  native app has no window.Notification API to read. */
+async function currentPushPermission() {
+  if (isNativeApp()) {
+    const plugin = nativePushPlugin();
+    if (!plugin) return "unsupported";
+    try {
+      const perm = await plugin.checkPermissions();
+      if (perm.receive === "granted") return "granted";
+      if (perm.receive === "denied") return "denied";
+      return "default";
+    } catch {
+      return "default";
+    }
+  }
+  return isPushSupported() ? Notification.permission : "unsupported";
+}
+
 /** Silently re-confirms an already-granted subscription is saved server-side
  *  — never prompts, since permission was already decided one way or the
  *  other on an earlier visit. Safe to call unconditionally on every load. */
 async function ensurePushSubscribedIfGranted() {
-  if (!isPushSupported() || Notification.permission !== "granted") return;
+  if ((await currentPushPermission()) !== "granted") return;
   await enablePushNotifications();
 }
 
 const PUSH_REASON_MESSAGES = {
   "ios-not-installed": "On iPhone/iPad this only works once SmartCore is added to your Home Screen — tap Share, then \"Add to Home Screen\", then open it from that icon and try again.",
-  "denied": "Notifications are blocked for this site. Check Settings → Notifications (or your browser's site settings) and allow them, then try again.",
-  "unsupported": "This browser doesn't support push notifications.",
+  "denied": "Notifications are blocked. Check your device's notification settings for SmartCore and allow them, then try again.",
+  "unsupported": "Push notifications aren't supported here.",
   "save-failed": "Permission was granted but we couldn't save it — check your connection and try again.",
   "error": "Couldn't turn on notifications — please try again.",
 };
 
 /** Shows the "turn on alerts" banner once per dashboard load, but only when
  *  permission genuinely hasn't been decided yet — and snoozes for a week
- *  after a "Not now" so it doesn't nag on every visit. On iOS outside an
- *  installed PWA, shows the install instructions up front instead of a
- *  button that's guaranteed to fail. */
-function maybeShowPushPrompt() {
+ *  after a "Not now" so it doesn't nag on every visit. On iOS Safari outside
+ *  an installed PWA, shows the install instructions up front instead of a
+ *  button that's guaranteed to fail (not relevant inside the native app,
+ *  which is always "installed" by definition). */
+async function maybeShowPushPrompt() {
   if (!isPushSupported()) return;
-  if (Notification.permission !== "default") {
+  const state = await currentPushPermission();
+  if (state !== "default") {
     ensurePushSubscribedIfGranted();
     return;
   }
@@ -1311,7 +1403,7 @@ function maybeShowPushPrompt() {
   const el = document.getElementById("pushPrompt");
   if (!el) return;
 
-  if (isIos() && !isStandaloneDisplay()) {
+  if (!isNativeApp() && isIos() && !isStandaloneDisplay()) {
     const msgEl = document.getElementById("pushPromptMsg");
     if (msgEl) { msgEl.textContent = PUSH_REASON_MESSAGES["ios-not-installed"]; msgEl.style.display = "block"; }
     document.getElementById("pushEnableBtn")?.style.setProperty("display", "none");

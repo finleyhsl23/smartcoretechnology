@@ -1,5 +1,6 @@
-// POST /api/push-subscribe { subscription: PushSubscriptionJSON }
-// DELETE /api/push-subscribe { endpoint }
+// POST /api/push-subscribe { subscription: PushSubscriptionJSON } — Web Push
+// POST /api/push-subscribe { apnsToken, environment } — native iOS (Capacitor)
+// DELETE /api/push-subscribe { endpoint } or { apnsToken }
 // Platform-wide push subscription storage — not tied to any one module.
 // Prompted from /modules/ ("alerts for modules and drills"); consumed by
 // _push.js on behalf of whichever module wants to notify a signed-in user.
@@ -53,14 +54,28 @@ export async function onRequestPost({ request, env }) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
 
+  const authUserId = await getCallerUserId(request, env);
+  if (!authUserId) return json({ error: 'Unauthorized' }, 401);
+
+  // Native iOS (Capacitor wrapper) — raw APNs device token.
+  if (body?.apnsToken) {
+    const environment = body.environment === 'production' ? 'production' : 'sandbox';
+    const res = await sb(env, '/core_apns_device_tokens?on_conflict=device_token', 'POST', {
+      auth_user_id: authUserId,
+      device_token: body.apnsToken,
+      environment,
+      last_used_at: new Date().toISOString(),
+    });
+    if (!res.ok) return json({ error: 'Could not save device token' }, 500);
+    return json({ saved: true });
+  }
+
+  // Browser/PWA — standard Web Push subscription.
   const subscription = body?.subscription;
   const endpoint = subscription?.endpoint;
   const p256dh = subscription?.keys?.p256dh;
   const auth = subscription?.keys?.auth;
   if (!endpoint || !p256dh || !auth) return json({ error: 'subscription.endpoint and subscription.keys.{p256dh,auth} are required' }, 400);
-
-  const authUserId = await getCallerUserId(request, env);
-  if (!authUserId) return json({ error: 'Unauthorized' }, 401);
 
   const res = await sb(env, '/core_push_subscriptions?on_conflict=endpoint', 'POST', {
     auth_user_id: authUserId,
@@ -76,11 +91,18 @@ export async function onRequestPost({ request, env }) {
 export async function onRequestDelete({ request, env }) {
   let body;
   try { body = await request.json(); } catch { body = {}; }
-  const endpoint = body?.endpoint;
-  if (!endpoint) return json({ error: 'endpoint is required' }, 400);
 
   const authUserId = await getCallerUserId(request, env);
   if (!authUserId) return json({ error: 'Unauthorized' }, 401);
+
+  if (body?.apnsToken) {
+    const res = await sb(env, `/core_apns_device_tokens?device_token=eq.${encodeURIComponent(body.apnsToken)}&auth_user_id=eq.${authUserId}`, 'DELETE');
+    if (!res.ok) return json({ error: 'Could not remove device token' }, 500);
+    return json({ removed: true });
+  }
+
+  const endpoint = body?.endpoint;
+  if (!endpoint) return json({ error: 'endpoint or apnsToken is required' }, 400);
 
   const res = await sb(env, `/core_push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}&auth_user_id=eq.${authUserId}`, 'DELETE');
   if (!res.ok) return json({ error: 'Could not remove subscription' }, 500);
