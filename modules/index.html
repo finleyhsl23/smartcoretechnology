@@ -1206,8 +1206,29 @@ function isNativeApp() {
   return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 }
 
+// This app loads smartcoretechnology.co.uk remotely (capacitor.config.json's
+// server.url) instead of bundling its own JS, so the normal
+// @capacitor/push-notifications web package — which is what usually calls
+// Capacitor.registerPlugin('PushNotifications', ...) to create the JS proxy
+// — never runs, even though the native Swift plugin itself is compiled into
+// the app (confirmed: it's what asks for permission at launch in
+// AppDelegate.swift). Capacitor.registerPlugin() is the low-level API the
+// web package itself is built on; calling it directly here creates the same
+// proxy without needing that package's JS to have ever loaded.
+let _nativePushPluginCache = null;
 function nativePushPlugin() {
-  return window.Capacitor?.Plugins?.PushNotifications || null;
+  if (!isNativeApp()) return null;
+  const existing = window.Capacitor?.Plugins?.PushNotifications;
+  if (existing) return existing;
+  if (!_nativePushPluginCache) {
+    try {
+      _nativePushPluginCache = window.Capacitor.registerPlugin("PushNotifications");
+    } catch (e) {
+      console.error("Could not register native PushNotifications plugin:", e);
+      return null;
+    }
+  }
+  return _nativePushPluginCache;
 }
 
 function isPushSupported() {
