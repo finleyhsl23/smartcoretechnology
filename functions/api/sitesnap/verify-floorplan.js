@@ -70,6 +70,7 @@ export async function onRequestPost({ request, env }) {
     ]);
   } catch (e) {
     const msg = String(e?.message || '');
+    if (msg === 'ai-timeout') return json({ error: 'The AI took too long to verify the layout. Try again.' }, 504);
     if (msg.startsWith('ai-http-')) return json({ error: 'Could not verify the layout.' }, 502);
     return json({ error: 'Could not understand the AI response. Try again.' }, 502);
   }

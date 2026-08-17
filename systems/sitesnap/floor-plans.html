@@ -324,6 +324,51 @@
     });
   }
 
+  // A phone photo of a sketch can easily be several MB / thousands of
+  // pixels on a side — sent to Claude as-is that's slower to upload AND
+  // slower for the model to process, and was pushing analyze-floorplan
+  // past Cloudflare's ~100s edge timeout (a 524). Downscaling to a sane max
+  // dimension before sending fixes both, and 1600px is still far more
+  // detail than a hand sketch needs to read clearly.
+  function resizeImageForAI(blob, maxDim = 1600, quality = 0.85) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(blob);
+      img.onload = () => {
+        const { naturalWidth: w, naturalHeight: h } = img;
+        const scale = Math.min(1, maxDim / Math.max(w, h));
+        const outW = Math.max(1, Math.round(w * scale)), outH = Math.max(1, Math.round(h * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = outW; canvas.height = outH;
+        canvas.getContext("2d").drawImage(img, 0, 0, outW, outH);
+        URL.revokeObjectURL(objectUrl);
+        canvas.toBlob((resized) => {
+          if (!resized) { reject(new Error("Could not process the image.")); return; }
+          resolve({ blob: resized, width: outW, height: outH });
+        }, "image/jpeg", quality);
+      };
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("Could not load the image.")); };
+      img.src = objectUrl;
+    });
+  }
+
+  // A 524/522/504/408 from Cloudflare means the request timed out before
+  // our function could even respond, so the body isn't JSON — surface a
+  // clear "try again" message instead of a raw parse error.
+  const TIMEOUT_STATUSES = [408, 504, 522, 523, 524];
+  async function parseAiResponse(res) {
+    const text = await res.text();
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    if (!res.ok) {
+      if (parsed?.error) throw new Error(parsed.error);
+      if (TIMEOUT_STATUSES.includes(res.status)) throw new Error("The AI took too long to respond. Try again — this usually goes through on a retry.");
+      throw new Error(`Request failed (${res.status}).`);
+    }
+    if (!parsed) throw new Error("Unexpected response from the server.");
+    return parsed;
+  }
+
   // Sends the level's reference sketch to Claude, which reads the drawing
   // and returns walls/doors/windows/rooms as coordinates normalized 0-1
   // against the image itself. Mapped here into the exact canvas rect the
@@ -360,20 +405,20 @@
     try {
       const url = await floorPlanLevels.signedUrl(level.reference_image_path);
       const imgRes = await fetch(url, { signal: _analyzeAbort.signal });
-      const blob = await imgRes.blob();
-      const [imageBase64, { width, height }, { data: sessionData }] = await Promise.all([
-        blobToBase64(blob), loadImageNaturalSize(url), sb().auth.getSession(),
+      const originalBlob = await imgRes.blob();
+      const [{ blob: resizedBlob, width, height }, { data: sessionData }] = await Promise.all([
+        resizeImageForAI(originalBlob), sb().auth.getSession(),
       ]);
+      const imageBase64 = await blobToBase64(resizedBlob);
       const rect = fitImageRect(width, height);
 
       const res = await fetch("/api/sitesnap/analyze-floorplan", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session.access_token}` },
-        body: JSON.stringify({ companyId: _companyId, imageBase64, mimeType: blob.type || "image/jpeg" }),
+        body: JSON.stringify({ companyId: _companyId, imageBase64, mimeType: resizedBlob.type || "image/jpeg" }),
         signal: _analyzeAbort.signal,
       });
-      const out = await res.json();
-      if (!res.ok) throw new Error(out.error || "Could not analyze the sketch.");
+      const out = await parseAiResponse(res);
       if (!out.elements?.length) {
         toast("error", "Nothing detected", "Try a clearer or higher-contrast sketch.");
         resetAutoConvertBtn();
@@ -464,10 +509,11 @@
     try {
       const url = await floorPlanLevels.signedUrl(level.reference_image_path);
       const imgRes = await fetch(url, { signal: _verifyAbort.signal });
-      const blob = await imgRes.blob();
-      const [imageBase64, { width, height }, { data: sessionData }] = await Promise.all([
-        blobToBase64(blob), loadImageNaturalSize(url), sb().auth.getSession(),
+      const originalBlob = await imgRes.blob();
+      const [{ blob: resizedBlob, width, height }, { data: sessionData }] = await Promise.all([
+        resizeImageForAI(originalBlob), sb().auth.getSession(),
       ]);
+      const imageBase64 = await blobToBase64(resizedBlob);
       const rect = fitImageRect(width, height);
 
       const renderedDataUrl = renderSnapshotPNG(_elements, {
@@ -494,13 +540,12 @@
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session.access_token}` },
         body: JSON.stringify({
-          companyId: _companyId, originalImageBase64: imageBase64, originalMimeType: blob.type || "image/jpeg",
+          companyId: _companyId, originalImageBase64: imageBase64, originalMimeType: resizedBlob.type || "image/jpeg",
           renderedImageBase64: renderedBase64, currentElements,
         }),
         signal: _verifyAbort.signal,
       });
-      const out = await res.json();
-      if (!res.ok) throw new Error(out.error || "Could not verify the layout.");
+      const out = await parseAiResponse(res);
       if (!Array.isArray(out.elements)) throw new Error("Unexpected response.");
 
       const rows = out.elements.map(el => ({

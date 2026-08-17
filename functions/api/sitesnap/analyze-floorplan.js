@@ -57,6 +57,7 @@ export async function onRequestPost({ request, env }) {
     ]);
   } catch (e) {
     const msg = String(e?.message || '');
+    if (msg === 'ai-timeout') return json({ error: 'The AI took too long to read the sketch. Try again.' }, 504);
     if (msg.startsWith('ai-http-')) return json({ error: 'Could not analyze the image.' }, 502);
     return json({ error: 'Could not understand the AI response. Try a clearer image.' }, 502);
   }

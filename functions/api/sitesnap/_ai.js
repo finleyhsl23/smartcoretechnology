@@ -19,20 +19,38 @@ export function extractJsonArray(text) {
   return parsed;
 }
 
-export async function callClaudeVision(apiKey, contentBlocks, { maxTokens = 8192 } = {}) {
-  const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-5',
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: contentBlocks }],
-    }),
-  });
+// Cloudflare's edge gives a request ~100s before it gives up and returns a
+// 524 to the client — with no response of our own, just Cloudflare's error
+// page (which broke JSON parsing client-side too). maxTokens was trimmed
+// down from 8192 (still comfortably above the 4096 that caused truncation
+// issues) and each attempt is capped at timeoutMs so a slow/hung call fails
+// fast into a retry instead of quietly eating the whole budget — two
+// attempts at 35s each keeps the worst case well under the edge timeout.
+export async function callClaudeVision(apiKey, contentBlocks, { maxTokens = 6000, timeoutMs = 35000 } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let aiRes;
+  try {
+    aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-5',
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: contentBlocks }],
+      }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('ai-timeout');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!aiRes.ok) {
     console.error('Anthropic error:', await aiRes.text().catch(() => ''));
@@ -44,7 +62,7 @@ export async function callClaudeVision(apiKey, contentBlocks, { maxTokens = 8192
   return extractJsonArray(text);
 }
 
-export async function callClaudeVisionWithRetry(apiKey, contentBlocks, opts = {}, attempts = 3) {
+export async function callClaudeVisionWithRetry(apiKey, contentBlocks, opts = {}, attempts = 2) {
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
