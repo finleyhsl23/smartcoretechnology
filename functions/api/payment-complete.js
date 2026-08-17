@@ -103,12 +103,21 @@ export async function onRequestOptions() {
 // Provisioning — finds existing company by email to avoid duplicates
 // ---------------------------------------------------------------------------
 async function provisionModules(env, o) {
-  // Look for an existing company by email first (handles re-orders from existing customers)
+  // Prefer the company the buyer is already a member of (auth_user_id → core_employees → company_id)
   let company;
-  const byEmail = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(o.email)}&select=id&limit=1`);
-  if (byEmail?.length) {
-    company = byEmail[0];
-  } else {
+  if (o.auth_user_id) {
+    const empRows = await dbGet(env, `/core_employees?auth_user_id=eq.${enc(o.auth_user_id)}&select=company_id&limit=1`);
+    if (empRows?.[0]?.company_id) {
+      const coRows = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(empRows[0].company_id)}&select=id&limit=1`);
+      if (coRows?.[0]) company = coRows[0];
+    }
+  }
+  // Fall back to email match
+  if (!company) {
+    const byEmail = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(o.email)}&select=id&limit=1`);
+    if (byEmail?.length) company = byEmail[0];
+  }
+  if (!company) {
     // Check by order_id in case of retry
     const byOrder = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
     if (byOrder?.length) {
