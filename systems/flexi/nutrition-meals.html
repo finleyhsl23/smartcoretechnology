@@ -185,7 +185,7 @@ import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
 import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient, enhanceSelect } from "./shared/ui.js";
-import { searchFood, scaleNutrition } from "./shared/nutrition-lookup.js";
+import { searchFood, scaleNutrition, toGrams } from "./shared/nutrition-lookup.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "nutrition" });
 renderNav({ activeKey: "nutrition", profile, tier });
@@ -236,7 +236,7 @@ const stepsEl = document.getElementById("stepsList");
 document.getElementById("addStepBtn").addEventListener("click", () => addDynRow(stepsEl, true));
 
 // ---- Structured ingredient rows (qty + unit + name) ----
-const UNITS = ["g","kg","ml","l","tsp","tbsp","cup","oz","piece","slice"];
+const UNITS = ["g","kg","oz","lb","ml","l","tsp","tbsp","cup","piece","slice"];
 const ingredientsEl = document.getElementById("ingredientsList");
 function ingredientRowHTML(ing) {
   const { qty = "", unit = "g", name = "" } = ing || {};
@@ -265,9 +265,8 @@ function wireIngredientRow(row) {
     const name = row.querySelector(".ing-name").value.trim();
     if (!name) { toast("Enter an ingredient name first.", "error"); return; }
     if (!qty) { toast("Enter a quantity first.", "error"); return; }
-    let grams = qty;
-    if (unit === "kg") grams = qty * 1000;
-    else if (unit !== "g") { toast("Auto-calc works with g or kg for now — switch the unit or enter grams.", "error"); return; }
+    const grams = toGrams(qty, unit);
+    if (grams == null) { toast(`Auto-calc needs a weight unit (g, kg, oz or lb) — "${unit}" can't be converted since it depends on the food. Switch the unit or enter the values manually.`, "error"); return; }
 
     ingredientsEl.querySelectorAll(".ing-match-list").forEach(el => el.remove());
     const calcBtn = row.querySelector(".ing-calc");

@@ -56,9 +56,10 @@
         </div>
         <div class="fx-field"><label>Description</label><input class="fx-input" id="description" placeholder="e.g. Grilled chicken breast"/></div>
         <div class="fx-form-row">
-          <div class="fx-field"><label>Quantity (g)</label><input class="fx-input" id="foodQty" type="number" value="100"/></div>
-          <div class="fx-field" style="display:flex;align-items:flex-end"><button type="button" class="fx-btn fx-btn-sm fx-btn-block" id="autoCalcBtn">🔍 Search Food</button></div>
+          <div class="fx-field"><label>Quantity</label><input class="fx-input" id="foodQty" type="number" value="100"/></div>
+          <div class="fx-field"><label>Unit</label><select class="fx-select" id="foodQtyUnit"><option value="g">g</option><option value="kg">kg</option><option value="oz">oz</option><option value="lb">lb</option></select></div>
         </div>
+        <button type="button" class="fx-btn fx-btn-sm fx-btn-block" id="autoCalcBtn" style="margin-bottom:14px">🔍 Search Food</button>
         <div class="fx-form-msg" id="autoCalcMsg" style="margin-bottom:8px"></div>
         <div class="lib-search-row" id="foodMatchList" style="display:none;margin-bottom:14px"></div>
         <div class="fx-form-row">
@@ -96,7 +97,7 @@
 <script type="module">
 import { requireClientAccess, api, applyPortalFeatureGating } from "../shared/client-auth.js";
 import { revealApp, setupThemeToggle, setupBackgroundMedia, escapeHtml, toast, showMessage, setLoading, openModal, closeModal, emptyState, enhanceSelect } from "../shared/ui.js";
-import { searchFood, scaleNutrition } from "../shared/nutrition-lookup.js";
+import { searchFood, scaleNutrition, toGrams } from "../shared/nutrition-lookup.js";
 
 const client = await requireClientAccess();
 applyPortalFeatureGating(client.disabled_features);
@@ -104,6 +105,7 @@ setupBackgroundMedia(client.background_tracks);
 setupThemeToggle();
 revealApp();
 enhanceSelect(document.getElementById("meal"));
+enhanceSelect(document.getElementById("foodQtyUnit"));
 
 let allLibraryMeals = [];
 
@@ -244,7 +246,9 @@ function renderFoodMatches(foods) {
     ? `<div style="padding:6px 8px;font-size:10.5px;color:var(--fx-text3)">🏪 Shop products via <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener" style="color:inherit">Open Food Facts</a></div>`
     : "");
   el.querySelectorAll("[data-pick-food]").forEach(row => row.addEventListener("click", () => {
-    const grams = parseFloat(document.getElementById("foodQty").value) || 100;
+    const qty = parseFloat(document.getElementById("foodQty").value) || 100;
+    const unit = document.getElementById("foodQtyUnit").value;
+    const grams = toGrams(qty, unit);
     const food = foods[parseInt(row.dataset.pickFood, 10)];
     const scaled = scaleNutrition(food.per100g, grams);
     document.getElementById("calories").value = scaled.calories ?? "";
@@ -254,7 +258,7 @@ function renderFoodMatches(foods) {
     document.getElementById("description").value = food.name;
     el.style.display = "none";
     el.innerHTML = "";
-    showMessage("autoCalcMsg", `Using "${food.name}" (${grams}g) — values filled in below, feel free to adjust.`, "success");
+    showMessage("autoCalcMsg", `Using "${food.name}" (${qty}${unit}) — values filled in below, feel free to adjust.`, "success");
   }));
 }
 
@@ -294,6 +298,7 @@ document.getElementById("logBtn").addEventListener("click", async (e) => {
   setLoading(document.getElementById("logBtn"), false);
   ["description","calories","customProtein","customCarbs","customFat"].forEach(id => document.getElementById(id).value = "");
   document.getElementById("foodQty").value = 100;
+  document.getElementById("foodQtyUnit").value = "g";
   document.getElementById("autoCalcMsg").textContent = "";
   document.getElementById("foodMatchList").style.display = "none";
   document.getElementById("foodMatchList").innerHTML = "";
