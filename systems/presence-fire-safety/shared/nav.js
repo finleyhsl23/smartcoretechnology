@@ -103,6 +103,92 @@ export function initTopbar() {
     if (hamburger) hamburger.after(backBtn);
     else topbar.prepend(backBtn);
   }
+
+  initTopbarMoreControls(topbar);
+}
+
+/**
+ * Mobile/tablet only (checked once, at load — this app isn't used with a
+ * dynamically resized window, so a one-time check is enough). Relocates
+ * whichever of refresh/site-switcher/theme-toggle exist on this page out
+ * of the cramped topbar row and into a single collapsed "more controls"
+ * button + dropdown panel — moving the real elements, not cloning them,
+ * so every existing click handler and the site-switcher's own wiring
+ * keep working with zero changes. Desktop never runs this at all, so the
+ * existing desktop topbar is completely untouched.
+ */
+function initTopbarMoreControls(topbar) {
+  if (!topbar || !window.matchMedia("(max-width: 900px)").matches) return;
+
+  const refreshBtn = document.getElementById("refreshBtn");
+  const siteWrap = topbar.querySelector(".pfs-site-search-wrap");
+  const themeBtn = document.getElementById("themeToggle");
+  const movable = [
+    refreshBtn && { el: refreshBtn, label: "Refresh" },
+    siteWrap && { el: siteWrap, label: "Site" },
+    themeBtn && { el: themeBtn, label: "Theme" },
+  ].filter(Boolean);
+  if (!movable.length) return;
+
+  const moreBtn = document.createElement("button");
+  moreBtn.type = "button";
+  moreBtn.className = "icon-btn topbar-more-btn";
+  moreBtn.setAttribute("aria-label", "More controls");
+  moreBtn.setAttribute("aria-expanded", "false");
+  moreBtn.innerHTML = `<i data-lucide="sliders-horizontal"></i>`;
+
+  const panel = document.createElement("div");
+  panel.className = "topbar-more-panel";
+
+  movable.forEach(({ el, label }) => {
+    // Icon-only buttons (refresh/theme) get a text label appended so the
+    // panel reads as a menu, not a row of unlabelled icons — hidden by
+    // default, shown only inside .topbar-more-panel (see stylesheet).
+    if (el.tagName === "BUTTON") {
+      if (!el.querySelector(".topbar-more-row-text")) {
+        const span = document.createElement("span");
+        span.className = "topbar-more-row-text";
+        span.textContent = label;
+        el.appendChild(span);
+      }
+      el.classList.add("topbar-more-row");
+    } else {
+      // Not a button (the site-switcher wrap) — precede it with a plain
+      // label instead of appending text inside it.
+      const labelEl = document.createElement("span");
+      labelEl.className = "topbar-more-label";
+      labelEl.textContent = label;
+      panel.appendChild(labelEl);
+    }
+    panel.appendChild(el);
+  });
+
+  topbar.appendChild(panel);
+  const anchor = topbar.querySelector(".topbar-back-btn") || topbar.querySelector(".hamburger");
+  (anchor || topbar.firstElementChild)?.after(moreBtn);
+
+  // Hiding the title on mobile (see stylesheet) removed the flex:1 spacer
+  // that used to push trailing controls to the right edge, so without
+  // this, more-controls + logout end up stranded on the left next to the
+  // back button instead. Pull them to the far right explicitly, and make
+  // sure logout sits directly after more-controls regardless of where it
+  // originally was in the markup.
+  moreBtn.classList.add("topbar-push-right");
+  const logoutBtn = document.getElementById("logoutBtn");
+  if (logoutBtn) moreBtn.after(logoutBtn);
+
+  window.lucide?.createIcons?.();
+
+  const closePanel = () => { panel.classList.remove("open"); moreBtn.setAttribute("aria-expanded", "false"); };
+  moreBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = panel.classList.toggle("open");
+    moreBtn.setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (e) => {
+    if (panel.classList.contains("open") && !panel.contains(e.target) && e.target !== moreBtn) closePanel();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
 }
 
 /**
@@ -182,3 +268,63 @@ export function renderSiteSwitcher(inputEl, sitesList, selectedId, onChange) {
     opts[idx]?.scrollIntoView({ block: "nearest" });
   });
 }
+
+// ── Navigation loading feedback ──────────────────────────────────────────
+// This is a classic multi-page app, not an SPA — every internal link is a
+// full browser navigation. On a slow connection the OLD page stays fully
+// interactive for however long the new page takes to start loading, with
+// nothing on screen to show a tap actually registered — which is exactly
+// what leads to someone tapping the same link over and over. Shows a
+// full-screen overlay the instant a qualifying link is tapped, and blocks
+// any further taps until the browser actually navigates away (which tears
+// this whole page — overlay included — down naturally).
+//
+// Runs as soon as this module is first imported, which every page already
+// does for renderNav/initTopbar/etc., so every page gets this for free
+// with no per-page wiring.
+let _pfsNavigating = false;
+
+function showNavLoadingOverlay() {
+  let overlay = document.getElementById("pfsNavLoading");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "pfsNavLoading";
+    overlay.className = "pfs-nav-loading-overlay";
+    overlay.innerHTML = `<div class="pfs-nav-loading-box"><div class="pfs-nav-loading-spinner"></div><span>Loading…</span></div>`;
+    document.body.appendChild(overlay);
+  }
+  // Two rAFs so the browser actually paints the overlay before whatever
+  // else runs on this tick — a single requestAnimationFrame can still get
+  // batched into the current, about-to-be-superseded frame on some engines.
+  requestAnimationFrame(() => requestAnimationFrame(() => overlay.classList.add("visible")));
+}
+
+function qualifyingNavLink(target) {
+  const a = target.closest?.("a[href]");
+  if (!a) return null;
+  if (a.target === "_blank" || a.hasAttribute("download")) return null;
+  const href = a.getAttribute("href") || "";
+  if (!href || href.startsWith("#") || href.startsWith("javascript:") || href.startsWith("mailto:") || href.startsWith("tel:")) return null;
+  let url;
+  try { url = new URL(href, location.href); } catch { return null; }
+  if (url.origin !== location.origin) return null;
+  if (url.pathname === location.pathname && url.search === location.search) return null; // already here
+  return a;
+}
+
+document.addEventListener("click", (e) => {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  if (!qualifyingNavLink(e.target)) return;
+  if (_pfsNavigating) { e.preventDefault(); return; } // a tap is already in flight — ignore repeats
+  _pfsNavigating = true;
+  showNavLoadingOverlay();
+});
+
+// Restoring this exact page from the back/forward cache shouldn't leave a
+// stale "Loading…" overlay stuck on screen.
+window.addEventListener("pageshow", (e) => {
+  if (e.persisted) {
+    _pfsNavigating = false;
+    document.getElementById("pfsNavLoading")?.classList.remove("visible");
+  }
+});
