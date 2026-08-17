@@ -248,6 +248,15 @@ function ingredientRowHTML(ing) {
     <button type="button" class="fx-icon-btn ing-remove">✕</button>
   </div>`;
 }
+function addIngredientToTotals(food, grams) {
+  const scaled = scaleNutrition(food.per100g, grams);
+  const addTo = (id, val) => { const el = document.getElementById(id); el.value = (parseFloat(el.value) || 0) + (val || 0); };
+  addTo("mealCals", scaled.calories);
+  addTo("mealProtein", scaled.protein_g);
+  addTo("mealCarbs", scaled.carbs_g);
+  addTo("mealFat", scaled.fat_g);
+  toast(`Added "${food.name}" — ${scaled.calories ?? 0} kcal to totals above`, "success");
+}
 function wireIngredientRow(row) {
   enhanceSelect(row.querySelector(".ing-unit"), { placeholder: "Unit…" });
   row.querySelector(".ing-calc").addEventListener("click", async () => {
@@ -260,24 +269,36 @@ function wireIngredientRow(row) {
     if (unit === "kg") grams = qty * 1000;
     else if (unit !== "g") { toast("Auto-calc works with g or kg for now — switch the unit or enter grams.", "error"); return; }
 
+    ingredientsEl.querySelectorAll(".ing-match-list").forEach(el => el.remove());
     const calcBtn = row.querySelector(".ing-calc");
     setLoading(calcBtn, true, "…");
+    let foods;
     try {
-      const foods = await searchFood(name);
-      if (!foods.length) { toast(`No match found for "${name}".`, "error"); return; }
-      const scaled = scaleNutrition(foods[0].per100g, grams);
-      const addTo = (id, val) => { const el = document.getElementById(id); el.value = (parseFloat(el.value) || 0) + (val || 0); };
-      addTo("mealCals", scaled.calories);
-      addTo("mealProtein", scaled.protein_g);
-      addTo("mealCarbs", scaled.carbs_g);
-      addTo("mealFat", scaled.fat_g);
-      toast(`Matched "${foods[0].name}" — added ${scaled.calories ?? 0} kcal to totals above`, "success");
+      foods = await searchFood(name);
     } catch (err) {
+      setLoading(calcBtn, false);
       toast(err.message || "Lookup failed.", "error");
+      return;
     }
     setLoading(calcBtn, false);
+    if (!foods.length) { toast(`No match found for "${name}".`, "error"); return; }
+
+    const list = document.createElement("div");
+    list.className = "meal-pick-list ing-match-list";
+    list.innerHTML = foods.map((f, i) => `
+      <div class="meal-pick-row" data-pick-food="${i}">
+        <span>${escapeHtml(f.name)}${f.brand ? ` <span class="mp-meta" style="margin-left:0">(${escapeHtml(f.brand)})</span>` : ""}</span>
+        <span class="mp-meta">${f.per100g.calories ?? "—"} kcal/100g</span>
+      </div>
+    `).join("");
+    row.insertAdjacentElement("afterend", list);
+    list.querySelectorAll("[data-pick-food]").forEach(el => el.addEventListener("click", () => {
+      addIngredientToTotals(foods[parseInt(el.dataset.pickFood, 10)], grams);
+      list.remove();
+    }));
   });
   row.querySelector(".ing-remove").addEventListener("click", () => {
+    ingredientsEl.querySelectorAll(".ing-match-list").forEach(el => el.remove());
     if (ingredientsEl.querySelectorAll(".ing-row").length <= 1) {
       row.querySelector(".ing-qty").value = ""; row.querySelector(".ing-name").value = "";
       return;

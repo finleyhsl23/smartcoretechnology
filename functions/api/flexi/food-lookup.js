@@ -51,7 +51,19 @@ export async function onRequestPost({ request, env }) {
   if (!query) return json({ error: 'Search query required.' }, 400);
 
   const apiKey = env.USDA_FDC_API_KEY || 'DEMO_KEY';
-  const url = `${USDA_SEARCH_URL}?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(query)}&pageSize=8&dataType=${encodeURIComponent('Foundation,SR Legacy')}`;
+  // dataType is a repeated param, not a comma-joined one — USDA's API was
+  // silently ignoring a single "Foundation,SR Legacy" value and searching
+  // every data type (Branded/restaurant items included), which is how a
+  // plain "grilled chicken" search surfaced a fast-food sandwich instead of
+  // the generic ingredient. Foundation + SR Legacy are the two generic,
+  // unbranded USDA datasets (a plain chicken breast, not a menu item).
+  const params = new URLSearchParams();
+  params.set('api_key', apiKey);
+  params.set('query', query);
+  params.set('pageSize', '10');
+  params.append('dataType', 'Foundation');
+  params.append('dataType', 'SR Legacy');
+  const url = `${USDA_SEARCH_URL}?${params.toString()}`;
 
   let res;
   try {

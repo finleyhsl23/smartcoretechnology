@@ -57,9 +57,10 @@
         <div class="fx-field"><label>Description</label><input class="fx-input" id="description" placeholder="e.g. Grilled chicken breast"/></div>
         <div class="fx-form-row">
           <div class="fx-field"><label>Quantity (g)</label><input class="fx-input" id="foodQty" type="number" value="100"/></div>
-          <div class="fx-field" style="display:flex;align-items:flex-end"><button type="button" class="fx-btn fx-btn-sm fx-btn-block" id="autoCalcBtn">🧮 Auto-Calculate</button></div>
+          <div class="fx-field" style="display:flex;align-items:flex-end"><button type="button" class="fx-btn fx-btn-sm fx-btn-block" id="autoCalcBtn">🔍 Search Food</button></div>
         </div>
         <div class="fx-form-msg" id="autoCalcMsg" style="margin-bottom:8px"></div>
+        <div class="lib-search-row" id="foodMatchList" style="display:none;margin-bottom:14px"></div>
         <div class="fx-form-row">
           <div class="fx-field"><label>Calories</label><input class="fx-input" id="calories" type="number"/></div>
           <div class="fx-field"><label>Protein (g)</label><input class="fx-input" id="customProtein" type="number"/></div>
@@ -230,21 +231,44 @@ async function loadFood() {
   `).join("");
 }
 
-document.getElementById("autoCalcBtn").addEventListener("click", async (e) => {
-  const name = document.getElementById("description").value.trim();
-  if (!name) { showMessage("autoCalcMsg", "Type what you ate first.", "error"); return; }
-  const grams = parseFloat(document.getElementById("foodQty").value) || 100;
-  setLoading(e.target, true, "Looking up…");
-  try {
-    const foods = await searchFood(name);
-    if (!foods.length) { showMessage("autoCalcMsg", `No match found for "${name}" — enter the values manually.`, "error"); return; }
-    const match = foods[0];
-    const scaled = scaleNutrition(match.per100g, grams);
+function renderFoodMatches(foods) {
+  const el = document.getElementById("foodMatchList");
+  if (!foods.length) { el.style.display = "none"; el.innerHTML = ""; return; }
+  el.style.display = "";
+  el.innerHTML = foods.map((f, i) => `
+    <div class="lib-meal-row" style="cursor:pointer" data-pick-food="${i}">
+      <span>${escapeHtml(f.name)}${f.brand ? ` <span style="color:var(--fx-text3);font-size:11px">(${escapeHtml(f.brand)})</span>` : ""}</span>
+      <span class="lm-meta">${f.per100g.calories ?? "—"} kcal/100g</span>
+    </div>
+  `).join("");
+  el.querySelectorAll("[data-pick-food]").forEach(row => row.addEventListener("click", () => {
+    const grams = parseFloat(document.getElementById("foodQty").value) || 100;
+    const food = foods[parseInt(row.dataset.pickFood, 10)];
+    const scaled = scaleNutrition(food.per100g, grams);
     document.getElementById("calories").value = scaled.calories ?? "";
     document.getElementById("customProtein").value = scaled.protein_g ?? "";
     document.getElementById("customCarbs").value = scaled.carbs_g ?? "";
     document.getElementById("customFat").value = scaled.fat_g ?? "";
-    showMessage("autoCalcMsg", `Matched "${match.name}" (${grams}g) — values filled in below, feel free to adjust.`, "success");
+    document.getElementById("description").value = food.name;
+    el.style.display = "none";
+    el.innerHTML = "";
+    showMessage("autoCalcMsg", `Using "${food.name}" (${grams}g) — values filled in below, feel free to adjust.`, "success");
+  }));
+}
+
+document.getElementById("autoCalcBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("description").value.trim();
+  if (!name) { showMessage("autoCalcMsg", "Type what you ate first.", "error"); return; }
+  setLoading(e.target, true, "Searching…");
+  try {
+    const foods = await searchFood(name);
+    if (!foods.length) {
+      showMessage("autoCalcMsg", `No match found for "${name}" — enter the values manually.`, "error");
+      renderFoodMatches([]);
+    } else {
+      showMessage("autoCalcMsg", `${foods.length} match${foods.length > 1 ? "es" : ""} found — pick the right one below.`, "success");
+      renderFoodMatches(foods);
+    }
   } catch (err) {
     showMessage("autoCalcMsg", err.message || "Lookup failed.", "error");
   }
@@ -269,6 +293,8 @@ document.getElementById("logBtn").addEventListener("click", async (e) => {
   ["description","calories","customProtein","customCarbs","customFat"].forEach(id => document.getElementById(id).value = "");
   document.getElementById("foodQty").value = 100;
   document.getElementById("autoCalcMsg").textContent = "";
+  document.getElementById("foodMatchList").style.display = "none";
+  document.getElementById("foodMatchList").innerHTML = "";
   toast("Logged", "success");
   loadFood();
 });
