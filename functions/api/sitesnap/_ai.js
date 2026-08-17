@@ -19,14 +19,18 @@ export function extractJsonArray(text) {
   return parsed;
 }
 
-// Cloudflare's edge gives a request ~100s before it gives up and returns a
-// 524 to the client — with no response of our own, just Cloudflare's error
-// page (which broke JSON parsing client-side too). maxTokens was trimmed
-// down from 8192 (still comfortably above the 4096 that caused truncation
-// issues) and each attempt is capped at timeoutMs so a slow/hung call fails
-// fast into a retry instead of quietly eating the whole budget — two
-// attempts at 35s each keeps the worst case well under the edge timeout.
-export async function callClaudeVision(apiKey, contentBlocks, { maxTokens = 6000, timeoutMs = 35000 } = {}) {
+// Cloudflare's edge gives a request roughly 100s before it gives up and
+// returns a 524 to the client — with no response of our own, just
+// Cloudflare's error page (which broke JSON parsing client-side too).
+// maxTokens was trimmed down from 8192 (still comfortably above the 4096
+// that caused truncation issues), and each attempt is capped at timeoutMs
+// via AbortController so a genuinely hung call still fails cleanly with our
+// own JSON error response instead of Cloudflare's. A slow-but-legitimate
+// analysis just needs more time, not a retry with the same short budget —
+// callClaudeVisionWithRetry below skips retrying on a timeout specifically
+// so one call gets the full runway instead of two calls each getting cut
+// off too early to ever finish.
+export async function callClaudeVision(apiKey, contentBlocks, { maxTokens = 6000, timeoutMs = 80000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let aiRes;
@@ -70,6 +74,12 @@ export async function callClaudeVisionWithRetry(apiKey, contentBlocks, opts = {}
     } catch (e) {
       lastError = e;
       console.error(`callClaudeVision attempt ${attempt} failed:`, e.message || e);
+      // A timeout means the call was still going when we gave up on it —
+      // retrying with the same budget will almost certainly time out again
+      // too, just burning the time a single longer attempt could have used
+      // to actually finish. Only retry on fast failures (bad/garbled JSON,
+      // an HTTP error) where a second attempt has a real chance of working.
+      if (e.message === 'ai-timeout') break;
     }
   }
   throw lastError;
