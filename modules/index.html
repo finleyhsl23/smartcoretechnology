@@ -1232,7 +1232,26 @@ async function savePushSubscription(subscription) {
   return res.ok;
 }
 
-/** Registers the root-scoped service worker and subscribes to Push — this
+// Registering the service worker needs no permission and can happen any
+// time — done eagerly on page load (not inside the click handler) so that
+// by the time someone taps "Enable", pushManager.subscribe() is the *first*
+// await in the chain. iOS Safari can silently drop "user activation" across
+// several awaited microtasks (service worker install/activate is a real
+// round trip), which makes subscribe() fail with no permission prompt ever
+// shown and no error surfaced — exactly what "nothing happens" looks like.
+let _swRegistrationPromise = null;
+function ensureServiceWorkerRegistered() {
+  if (!isPushSupported()) return Promise.resolve(null);
+  if (!_swRegistrationPromise) {
+    _swRegistrationPromise = navigator.serviceWorker.register("/sw.js", { scope: "/" })
+      .then(async (reg) => { await navigator.serviceWorker.ready; return reg; })
+      .catch((e) => { console.error("Service worker registration failed:", e); return null; });
+  }
+  return _swRegistrationPromise;
+}
+ensureServiceWorkerRegistered();
+
+/** Subscribes to Push on the already-registered service worker — this
  *  itself triggers the browser's permission prompt if not already granted
  *  or denied. Returns { ok, reason } — callers should surface `reason` to
  *  the user rather than failing silently, since "nothing happened" on iOS
@@ -1241,8 +1260,8 @@ async function enablePushNotifications() {
   if (!isPushSupported()) return { ok: false, reason: "unsupported" };
   if (isIos() && !isStandaloneDisplay()) return { ok: false, reason: "ios-not-installed" };
   try {
-    const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-    await navigator.serviceWorker.ready;
+    const registration = await ensureServiceWorkerRegistered();
+    if (!registration) return { ok: false, reason: "error", message: "Service worker registration failed" };
     let subscription = await registration.pushManager.getSubscription();
     if (!subscription) {
       subscription = await registration.pushManager.subscribe({
@@ -1313,7 +1332,9 @@ document.getElementById("pushEnableBtn")?.addEventListener("click", async (evt) 
     btn.disabled = false;
     btn.textContent = "Enable";
     if (msgEl) {
-      msgEl.textContent = PUSH_REASON_MESSAGES[result.reason] || PUSH_REASON_MESSAGES.error;
+      let text = PUSH_REASON_MESSAGES[result.reason] || PUSH_REASON_MESSAGES.error;
+      if (result.reason === "error" && result.message) text += ` (${result.message})`;
+      msgEl.textContent = text;
       msgEl.style.display = "block";
     }
   }
