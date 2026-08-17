@@ -73,7 +73,8 @@ async function sendApnsToUsers(env, ids, message) {
 
   await Promise.all(tokens.map(async (tokenRow) => {
     try {
-      let result = await sendApnsPush(env, tokenRow, message);
+      const device = { deviceToken: tokenRow.device_token, environment: tokenRow.environment };
+      let result = await sendApnsPush(env, device, message);
       // A device built via Xcode (Debug) only ever gets a sandbox token,
       // while the App Store build only ever gets a production one — but the
       // client can't always tell us which for certain, and a token minted
@@ -84,7 +85,7 @@ async function sendApnsToUsers(env, ids, message) {
       // correct the stored environment so the next send doesn't repeat this.
       if (!result.ok && result.reason === 'BadDeviceToken') {
         const altEnvironment = tokenRow.environment === 'production' ? 'sandbox' : 'production';
-        const altResult = await sendApnsPush(env, { ...tokenRow, environment: altEnvironment }, message);
+        const altResult = await sendApnsPush(env, { ...device, environment: altEnvironment }, message);
         if (altResult.ok) {
           await sb(env, `/core_apns_device_tokens?id=eq.${tokenRow.id}`, 'PATCH', { environment: altEnvironment }).catch(() => {});
         }
