@@ -222,3 +222,80 @@ export function initTagInput(container, { options, selected = [], labelKey = "fu
 
   return { getSelected: () => selectedIds };
 }
+
+/**
+ * A single-select dropdown styled to match the app (glass trigger button +
+ * floating options panel) instead of a native <select>, which renders
+ * inconsistently across browsers and can't pick up the app's own colours/
+ * blur. `options` is [{ key, label, icon? }] — icon is an optional Lucide
+ * name shown in a small round badge next to the label.
+ */
+export function initCustomSelect(container, { options, value = "", placeholder = "Select…", onChange }) {
+  let selected = value;
+
+  container.classList.add("cbdd");
+  container.innerHTML = `
+    <button type="button" class="cbdd-trigger" data-role="trigger">
+      <span data-role="triggerLabel"></span>
+      <i data-lucide="chevron-down"></i>
+    </button>
+    <div class="cbdd-panel" data-role="panel" role="listbox"></div>
+  `;
+
+  const triggerLabel = container.querySelector('[data-role="triggerLabel"]');
+  const panel = container.querySelector('[data-role="panel"]');
+
+  function drawTrigger() {
+    const opt = options.find(o => o.key === selected);
+    triggerLabel.innerHTML = opt
+      ? `${opt.icon ? `<i data-lucide="${esc(opt.icon)}" style="width:14px;height:14px;margin-right:7px;vertical-align:-3px"></i>` : ""}${esc(opt.label)}`
+      : `<span class="cbdd-placeholder">${esc(placeholder)}</span>`;
+    window.lucide?.createIcons?.();
+  }
+
+  function drawPanel() {
+    panel.innerHTML = options.map(o => `
+      <div class="cbdd-option ${o.key === selected ? "selected" : ""}" data-key="${esc(o.key)}" role="option" aria-selected="${o.key === selected}">
+        ${o.icon ? `<span class="cbdd-option-icon"><i data-lucide="${esc(o.icon)}"></i></span>` : ""}
+        <span>${esc(o.label)}</span>
+      </div>`).join("");
+    panel.querySelectorAll("[data-key]").forEach(row => {
+      row.addEventListener("click", () => {
+        selected = row.dataset.key;
+        drawTrigger();
+        drawPanel();
+        close();
+        onChange?.(selected);
+      });
+    });
+    window.lucide?.createIcons?.();
+  }
+
+  function open() { container.classList.add("open"); }
+  function close() { container.classList.remove("open"); }
+
+  container.querySelector('[data-role="trigger"]').addEventListener("click", (e) => {
+    e.stopPropagation();
+    container.classList.contains("open") ? close() : open();
+  });
+  container.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+
+  // A document-level listener closes the panel on an outside click. It's
+  // added once per instance rather than torn down explicitly (this
+  // component has no close/destroy lifecycle hook) — self-removes the
+  // first time it fires after its container has left the DOM (e.g. the
+  // modal it lived in was closed), so it can't accumulate indefinitely
+  // across repeated opens.
+  document.addEventListener("click", function onDocClick(e) {
+    if (!document.body.contains(container)) { document.removeEventListener("click", onDocClick); return; }
+    if (!container.contains(e.target)) close();
+  });
+
+  drawTrigger();
+  drawPanel();
+
+  return {
+    getValue: () => selected,
+    setValue: (v) => { selected = v; drawTrigger(); drawPanel(); },
+  };
+}
