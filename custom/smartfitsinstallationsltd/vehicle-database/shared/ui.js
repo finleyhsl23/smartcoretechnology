@@ -232,6 +232,7 @@ export function initTagInput(container, { options, selected = [], labelKey = "fu
  */
 export function initCustomSelect(container, { options, value = "", placeholder = "Select…", onChange }) {
   let selected = value;
+  let panelEl = null; // only exists in the DOM while open
 
   container.classList.add("cbdd");
   container.innerHTML = `
@@ -239,11 +240,10 @@ export function initCustomSelect(container, { options, value = "", placeholder =
       <span data-role="triggerLabel"></span>
       <i data-lucide="chevron-down"></i>
     </button>
-    <div class="cbdd-panel" data-role="panel" role="listbox"></div>
   `;
 
+  const triggerBtn = container.querySelector('[data-role="trigger"]');
   const triggerLabel = container.querySelector('[data-role="triggerLabel"]');
-  const panel = container.querySelector('[data-role="panel"]');
 
   function drawTrigger() {
     const opt = options.find(o => o.key === selected);
@@ -253,30 +253,60 @@ export function initCustomSelect(container, { options, value = "", placeholder =
     window.lucide?.createIcons?.();
   }
 
-  function drawPanel() {
-    panel.innerHTML = options.map(o => `
+  // The panel is appended straight to <body> and positioned with `fixed`
+  // coordinates read off the trigger's own bounding box, rather than
+  // living inside `container` as an absolutely-positioned child. A field
+  // like this one often sits inside a modal, and modals clip their own
+  // content with overflow-y so *they* can scroll — any ordinary absolute-
+  // positioned dropdown gets silently cut off at that boundary no matter
+  // how high its z-index is. Escaping to <body> sidesteps that entirely.
+  function positionPanel() {
+    if (!panelEl) return;
+    const rect = triggerBtn.getBoundingClientRect();
+    panelEl.style.left = `${rect.left}px`;
+    panelEl.style.top = `${rect.bottom + 8}px`;
+    panelEl.style.width = `${rect.width}px`;
+  }
+
+  function open() {
+    if (panelEl) return;
+    container.classList.add("open");
+    panelEl = document.createElement("div");
+    panelEl.className = "cbdd-panel";
+    panelEl.setAttribute("role", "listbox");
+    panelEl.innerHTML = options.map(o => `
       <div class="cbdd-option ${o.key === selected ? "selected" : ""}" data-key="${esc(o.key)}" role="option" aria-selected="${o.key === selected}">
         ${o.icon ? `<span class="cbdd-option-icon"><i data-lucide="${esc(o.icon)}"></i></span>` : ""}
         <span>${esc(o.label)}</span>
       </div>`).join("");
-    panel.querySelectorAll("[data-key]").forEach(row => {
+    document.body.appendChild(panelEl);
+    positionPanel();
+    window.lucide?.createIcons?.();
+
+    panelEl.querySelectorAll("[data-key]").forEach(row => {
       row.addEventListener("click", () => {
         selected = row.dataset.key;
         drawTrigger();
-        drawPanel();
         close();
         onChange?.(selected);
       });
     });
-    window.lucide?.createIcons?.();
+
+    window.addEventListener("scroll", positionPanel, true);
+    window.addEventListener("resize", positionPanel);
   }
 
-  function open() { container.classList.add("open"); }
-  function close() { container.classList.remove("open"); }
+  function close() {
+    container.classList.remove("open");
+    panelEl?.remove();
+    panelEl = null;
+    window.removeEventListener("scroll", positionPanel, true);
+    window.removeEventListener("resize", positionPanel);
+  }
 
-  container.querySelector('[data-role="trigger"]').addEventListener("click", (e) => {
+  triggerBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    container.classList.contains("open") ? close() : open();
+    panelEl ? close() : open();
   });
   container.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
 
@@ -287,15 +317,14 @@ export function initCustomSelect(container, { options, value = "", placeholder =
   // modal it lived in was closed), so it can't accumulate indefinitely
   // across repeated opens.
   document.addEventListener("click", function onDocClick(e) {
-    if (!document.body.contains(container)) { document.removeEventListener("click", onDocClick); return; }
-    if (!container.contains(e.target)) close();
+    if (!document.body.contains(container)) { document.removeEventListener("click", onDocClick); close(); return; }
+    if (panelEl && !container.contains(e.target) && !panelEl.contains(e.target)) close();
   });
 
   drawTrigger();
-  drawPanel();
 
   return {
     getValue: () => selected,
-    setValue: (v) => { selected = v; drawTrigger(); drawPanel(); },
+    setValue: (v) => { selected = v; drawTrigger(); },
   };
 }
