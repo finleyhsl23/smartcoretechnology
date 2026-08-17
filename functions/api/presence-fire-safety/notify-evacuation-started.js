@@ -102,6 +102,7 @@ export async function onRequestPost({ request, env }) {
         url: '/systems/presence-fire-safety/evacuation.html',
         urgency: 'high',
         requireInteraction: true,
+        critical: true,
       });
     } catch (e) {
       console.error('notify-evacuation-started: push failed', e.message);

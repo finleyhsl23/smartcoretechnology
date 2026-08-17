@@ -65,7 +65,7 @@ async function buildApnsAuthToken(env) {
  * reason }. A 400 "BadDeviceToken" or 410 "Unregistered" means the token is
  * dead and should be deleted by the caller.
  */
-export async function sendApnsPush(env, { deviceToken, environment }, { title, body, url }) {
+export async function sendApnsPush(env, { deviceToken, environment }, { title, body, url, critical }) {
   const host = environment === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
   const jwt = await buildApnsAuthToken(env);
   const bundleId = env.APNS_BUNDLE_ID || DEFAULT_BUNDLE_ID;
@@ -80,7 +80,15 @@ export async function sendApnsPush(env, { deviceToken, environment }, { title, b
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      aps: { alert: { title, body: body || "" }, sound: "default" },
+      // Critical (sound.critical=1) only actually overrides the silent
+      // switch/Do Not Disturb if the app's provisioning includes Apple's
+      // usernotifications.critical-alerts entitlement — Apple silently
+      // downgrades this to a normal alert sound otherwise, so it's safe to
+      // always send this shape without needing to know approval status here.
+      aps: {
+        alert: { title, body: body || "" },
+        sound: critical ? { critical: 1, name: "default", volume: 1.0 } : "default",
+      },
       url: url || "/modules/",
     }),
   });
