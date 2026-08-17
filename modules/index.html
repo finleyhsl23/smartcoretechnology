@@ -1253,10 +1253,12 @@ async function savePushSubscription(subscription) {
 async function saveApnsToken(tokenValue) {
   const headers = await authHeader();
   if (!headers) return false;
-  // App.entitlements currently says aps-environment "development" — flip
-  // this to "production" once the app ships via TestFlight/App Store,
-  // which Apple serves through its production APNs host instead of sandbox.
-  const res = await fetch("/api/push-subscribe", { method: "POST", headers, body: JSON.stringify({ apnsToken: tokenValue, environment: "sandbox" }) });
+  // The app is distributed via the App Store, which always signs with a
+  // distribution provisioning profile — Apple routes those through
+  // production APNs regardless of what the checked-in App.entitlements file
+  // (which reflects the local Debug scheme) happens to say. "sandbox" only
+  // applies to a build run directly from Xcode on a plugged-in device.
+  const res = await fetch("/api/push-subscribe", { method: "POST", headers, body: JSON.stringify({ apnsToken: tokenValue, environment: "production" }) });
   return res.ok;
 }
 
