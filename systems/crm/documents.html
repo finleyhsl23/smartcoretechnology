@@ -392,8 +392,34 @@ function openUploadModal(preselectedCompanyId = null) {
     try {
       const { data: { session } } = await sb().auth.getSession();
       const path = `crm/${session.user.id}/${Date.now()}_${file.name}`;
-      const { error: upErr } = await sb().storage.from("crm-documents").upload(path, file, { cacheControl: "3600", upsert: false });
-      if (upErr) throw upErr;
+      // Use TUS resumable upload for large file support (videos etc.)
+      await new Promise((resolve, reject) => {
+        import("https://cdn.jsdelivr.net/npm/tus-js-client@3/+esm").then(({ Upload }) => {
+          const upload = new Upload(file, {
+            endpoint: `https://hjdpcfhozhoyeqevnupm.supabase.co/storage/v1/upload/resumable`,
+            retryDelays: [0, 3000, 5000, 10000, 20000],
+            headers: {
+              authorization: `Bearer ${session.access_token}`,
+              apikey: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts`,
+            },
+            uploadDataDuringCreation: true,
+            removeFingerprintOnSuccess: true,
+            metadata: {
+              bucketName: "crm-documents",
+              objectName: path,
+              contentType: file.type || "application/octet-stream",
+              cacheControl: "3600",
+            },
+            chunkSize: 6 * 1024 * 1024,
+            onError: reject,
+            onProgress: (loaded, total) => {
+              if (total) btn.textContent = `Uploading… ${Math.round((loaded / total) * 100)}%`;
+            },
+            onSuccess: resolve,
+          });
+          upload.start();
+        }).catch(reject);
+      });
       const { data: { publicUrl } } = sb().storage.from("crm-documents").getPublicUrl(path);
       const companyId = compCombo.getValue() || null;
       await documents.create({
