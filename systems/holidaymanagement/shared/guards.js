@@ -48,19 +48,19 @@ const MOON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0
 const SUN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="12" cy="12" r="5"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`;
 
 function setupThemeToggle() {
-  if (localStorage.getItem(THEME_KEY) === 'light') document.body.classList.add('light-mode');
+  if (localStorage.getItem(THEME_KEY) === 'dark') document.body.classList.add('dark-mode');
   const btn = document.getElementById('themeToggleBtn');
   function updateBtn() {
     if (!btn) return;
-    const isLight = document.body.classList.contains('light-mode');
-    btn.innerHTML = isLight ? MOON_SVG : SUN_SVG;
-    btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+    const isDark = document.body.classList.contains('dark-mode');
+    btn.innerHTML = isDark ? SUN_SVG : MOON_SVG;
+    btn.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
   }
   updateBtn();
   if (btn) {
     btn.addEventListener('click', () => {
-      const isLight = document.body.classList.toggle('light-mode');
-      localStorage.setItem(THEME_KEY, isLight ? 'light' : 'dark');
+      const isDark = document.body.classList.toggle('dark-mode');
+      localStorage.setItem(THEME_KEY, isDark ? 'dark' : 'light');
       updateBtn();
     });
   }
@@ -69,7 +69,7 @@ function setupThemeToggle() {
 export async function requireAuth(opts = {}) {
   const { adminOnly = false } = opts;
 
-  if (localStorage.getItem(THEME_KEY) === 'light') document.body.classList.add('light-mode');
+  if (localStorage.getItem(THEME_KEY) === 'dark') document.body.classList.add('dark-mode');
 
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
