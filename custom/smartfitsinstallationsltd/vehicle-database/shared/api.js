@@ -27,6 +27,7 @@ export const PHOTO_CATEGORIES = [
   { key: "ignition_wire",        label: "Ignition Wire Location" },
   { key: "permanent_wire",       label: "Permanent Wire Location" },
   { key: "fms_plug",             label: "FMS Plug Location" },
+  { key: "can_location",         label: "CAN Exact Location" },
   { key: "earth_point",          label: "Earth Point" },
   { key: "airbag",               label: "Airbag Location" },
   { key: "adas_camera",          label: "ADAS Camera Position" },
@@ -70,12 +71,14 @@ export const FIELD_GROUPS = [
     title: "Wiring & Electrical",
     color: "amber",
     fields: [
-      { key: "ignition_wire_colour",   label: "Ignition Wire Colour" },
-      { key: "ignition_wire_location", label: "Ignition Wire — Exact Location", type: "textarea", photoCategory: "ignition_wire" },
-      { key: "fuse_tap_options",       label: "Permanent Wire — Exact Location", type: "textarea", photoCategory: "permanent_wire" },
+      { key: "ignition_wire_colour",   label: "Ignition Wire Colour", pairGroup: "ignition_wire" },
+      { key: "ignition_wire_location", label: "Ignition Wire — Exact Location", type: "textarea", photoCategory: "ignition_wire", pairGroup: "ignition_wire" },
+      { key: "permanent_wire_colour",  label: "Permanent Wire Colour", pairGroup: "permanent_wire" },
+      { key: "fuse_tap_options",       label: "Permanent Wire — Exact Location", type: "textarea", photoCategory: "permanent_wire", pairGroup: "permanent_wire" },
       { key: "fms_plug_location",      label: "FMS Plug Location", type: "textarea", photoCategory: "fms_plug" },
       { key: "can_high_colour",        label: "CAN High Colour" },
       { key: "can_low_colour",         label: "CAN Low Colour" },
+      { key: "can_location",           label: "CAN — Exact Location", type: "textarea", photoCategory: "can_location" },
       { key: "earth_point_location",   label: "Earth Point Location", type: "textarea", photoCategory: "earth_point" },
     ],
   },
@@ -126,6 +129,26 @@ export function fieldRelevantForFitment(field, fitmentType) {
   if (!field.relevantFitment) return true;
   if (!fitmentType) return true;
   return field.relevantFitment.includes(fitmentType);
+}
+
+// A colour field and its matching "exact location" field (e.g. Ignition
+// Wire Colour + Ignition Wire — Exact Location) read better boxed together
+// than scattered among unrelated fields in the same flat grid. Fields
+// opt into this by sharing a `pairGroup` value on consecutive entries;
+// everything else stays solo. Returns an array of chunks — each chunk is
+// an array of 1 (a normal field) or 2+ (fields to box together) entries,
+// preserving field order either way.
+export function chunkFieldsForRender(fields) {
+  const chunks = [];
+  for (const f of fields) {
+    const last = chunks[chunks.length - 1];
+    if (f.pairGroup && last?.[0].pairGroup === f.pairGroup) {
+      last.push(f);
+    } else {
+      chunks.push([f]);
+    }
+  }
+  return chunks;
 }
 
 // Which photo category (if any) a field is paired with, so a field's photos
@@ -641,13 +664,18 @@ export async function lookupRegistration(registration) {
   return body;
 }
 
-// ── Leaderboard — most vehicle change requests submitted ────────────────
+// ── Leaderboard — everyone's contribution to the database ───────────────
 // Calls a SECURITY DEFINER aggregate function rather than querying
-// vdb_edit_requests directly: that table's own RLS only lets an employee see
-// their own requests (plus managers seeing everything), which isn't enough
-// to power a leaderboard everyone can see. Returns [{ employee_id, request_count }].
-export async function listChangeRequestLeaderboard() {
-  const { data, error } = await vdb().rpc("vdb_change_request_leaderboard");
+// vdb_edit_requests/vdb_vehicles directly: their own RLS only lets an
+// employee see their own requests (plus managers seeing everything), which
+// isn't enough to power a leaderboard everyone can see. Counts both
+// employee-submitted change requests AND managers'/admins'/owners' direct
+// vehicle adds (which skip the review queue entirely and otherwise
+// wouldn't show up anywhere). `from`/`to` are optional ISO date strings —
+// omit either for an open-ended range. Returns
+// [{ employee_id, request_count, direct_add_count, total_count }].
+export async function listContributorLeaderboard({ from, to } = {}) {
+  const { data, error } = await vdb().rpc("vdb_contributor_leaderboard", { from_date: from || null, to_date: to || null });
   if (error) throw error;
   return data || [];
 }
@@ -655,8 +683,40 @@ export async function listChangeRequestLeaderboard() {
 // ── Approval leaderboard — ranks managers/admins by how many requests
 // they've approved, so review workload doesn't quietly pile onto one person.
 // Same SECURITY DEFINER pattern as above. Returns [{ employee_id, approval_count }].
-export async function listApprovalLeaderboard() {
-  const { data, error } = await vdb().rpc("vdb_approval_leaderboard");
+export async function listApprovalLeaderboard({ from, to } = {}) {
+  const { data, error } = await vdb().rpc("vdb_approval_leaderboard", { from_date: from || null, to_date: to || null });
   if (error) throw error;
   return data || [];
+}
+
+// ── Leaderboard period picker — shared date-range logic so any page can
+// offer the same This Month / Past 3 Months / This Year / All Time /
+// Custom choices consistently. Returns { from, to } as ISO strings (either
+// can be null for an open end).
+export const LEADERBOARD_PERIODS = [
+  { key: "month", label: "This Month" },
+  { key: "3months", label: "Past 3 Months" },
+  { key: "year", label: "This Year" },
+  { key: "all", label: "All Time" },
+  { key: "custom", label: "Custom" },
+];
+
+export function getLeaderboardPeriodRange(key, customFrom, customTo) {
+  const now = new Date();
+  switch (key) {
+    case "month":
+      return { from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(), to: null };
+    case "3months":
+      return { from: new Date(now.getFullYear(), now.getMonth() - 3, now.getDate()).toISOString(), to: null };
+    case "year":
+      return { from: new Date(now.getFullYear(), 0, 1).toISOString(), to: null };
+    case "custom":
+      return {
+        from: customFrom ? new Date(`${customFrom}T00:00:00`).toISOString() : null,
+        to: customTo ? new Date(`${customTo}T23:59:59.999`).toISOString() : null,
+      };
+    case "all":
+    default:
+      return { from: null, to: null };
+  }
 }

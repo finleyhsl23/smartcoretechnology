@@ -43,7 +43,7 @@
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
-  import { esc, setInner, loadingState, errorState, toast, confirmDialog, modal, fmtDate } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+  import { esc, setInner, loadingState, errorState, toast, confirmDialog, modal, fmtDate, compressImage } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
 
   initTheme();
   const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
@@ -236,12 +236,18 @@
     container.querySelector("[data-upload-cat]")?.addEventListener("change", async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
+      const label = e.target.closest("label");
+      const originalHtml = label.innerHTML;
+      label.innerHTML = `<i data-lucide="loader-2" class="spin"></i>Uploading…`;
+      window.lucide?.createIcons?.();
       try {
-        await uploadVehiclePhoto(_vehicle.id, catKey, file, _profile.id);
+        await uploadVehiclePhoto(_vehicle.id, catKey, await compressImage(file), _profile.id);
         toast("success", "Photo uploaded");
         _photos = await listVehiclePhotos(_vehicle.id);
         renderAllPhotoBlocks(isManagerOrAbove);
       } catch (err) {
+        label.innerHTML = originalHtml;
+        window.lucide?.createIcons?.();
         toast("error", "Upload failed", err.message);
       }
     });
@@ -414,11 +420,17 @@
       input.addEventListener("change", async () => {
         const file = input.files?.[0];
         if (!file) return;
+        const label = input.closest("label");
+        const originalHtml = label.innerHTML;
+        label.innerHTML = `<i data-lucide="loader-2" class="spin"></i>Uploading…`;
+        window.lucide?.createIcons?.();
         try {
-          await uploadInstallPointPhoto(_vehicle.id, input.dataset.uploadPoint, file, _profile.id);
+          await uploadInstallPointPhoto(_vehicle.id, input.dataset.uploadPoint, await compressImage(file), _profile.id);
           toast("success", "Photo uploaded");
           renderInstallPointsSection(isManagerOrAbove);
         } catch (err) {
+          label.innerHTML = originalHtml;
+          window.lucide?.createIcons?.();
           toast("error", "Upload failed", err.message);
         }
       });

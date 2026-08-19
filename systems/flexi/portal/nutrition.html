@@ -51,18 +51,25 @@
       </div>
 
       <div id="customPane" style="display:none">
+        <div class="fx-field"><label>Meal</label>
+          <select class="fx-select" id="meal"><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select>
+        </div>
+        <div class="fx-field"><label>Description</label><input class="fx-input" id="description" placeholder="e.g. Grilled chicken breast"/></div>
         <div class="fx-form-row">
-          <div class="fx-field"><label>Meal</label>
-            <select class="fx-select" id="meal"><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select>
-          </div>
+          <div class="fx-field"><label>Quantity</label><input class="fx-input" id="foodQty" type="number" value="100"/></div>
+          <div class="fx-field"><label>Unit</label><select class="fx-select" id="foodQtyUnit"><option value="g">g</option><option value="kg">kg</option><option value="oz">oz</option><option value="lb">lb</option><option value="piece">piece</option><option value="slice">slice</option></select></div>
+        </div>
+        <button type="button" class="fx-btn fx-btn-sm fx-btn-block" id="autoCalcBtn" style="margin-bottom:14px">🔍 Search Food</button>
+        <div class="fx-form-msg" id="autoCalcMsg" style="margin-bottom:8px"></div>
+        <div class="lib-search-row" id="foodMatchList" style="display:none;margin-bottom:14px"></div>
+        <div class="fx-form-row">
           <div class="fx-field"><label>Calories</label><input class="fx-input" id="calories" type="number"/></div>
-        </div>
-        <div class="fx-field"><label>Description</label><input class="fx-input" id="description" placeholder="e.g. Chicken, rice & broccoli"/></div>
-        <div class="fx-form-row">
           <div class="fx-field"><label>Protein (g)</label><input class="fx-input" id="customProtein" type="number"/></div>
-          <div class="fx-field"><label>Carbs (g)</label><input class="fx-input" id="customCarbs" type="number"/></div>
         </div>
-        <div class="fx-field" style="max-width:calc(50% - 7px)"><label>Fat (g)</label><input class="fx-input" id="customFat" type="number"/></div>
+        <div class="fx-form-row">
+          <div class="fx-field"><label>Carbs (g)</label><input class="fx-input" id="customCarbs" type="number"/></div>
+          <div class="fx-field"><label>Fat (g)</label><input class="fx-input" id="customFat" type="number"/></div>
+        </div>
         <button class="fx-btn fx-btn-primary fx-btn-block" id="logBtn">Add to Diary</button>
       </div>
     </div>
@@ -90,6 +97,7 @@
 <script type="module">
 import { requireClientAccess, api, applyPortalFeatureGating } from "../shared/client-auth.js";
 import { revealApp, setupThemeToggle, setupBackgroundMedia, escapeHtml, toast, showMessage, setLoading, openModal, closeModal, emptyState, enhanceSelect } from "../shared/ui.js";
+import { searchFood, scaleNutrition, toGrams } from "../shared/nutrition-lookup.js";
 
 const client = await requireClientAccess();
 applyPortalFeatureGating(client.disabled_features);
@@ -97,6 +105,7 @@ setupBackgroundMedia(client.background_tracks);
 setupThemeToggle();
 revealApp();
 enhanceSelect(document.getElementById("meal"));
+enhanceSelect(document.getElementById("foodQtyUnit"));
 
 let allLibraryMeals = [];
 
@@ -224,6 +233,58 @@ async function loadFood() {
   `).join("");
 }
 
+function renderFoodMatches(foods) {
+  const el = document.getElementById("foodMatchList");
+  if (!foods.length) { el.style.display = "none"; el.innerHTML = ""; return; }
+  el.style.display = "";
+  el.innerHTML = foods.map((f, i) => `
+    <div class="lib-meal-row" style="cursor:pointer" data-pick-food="${i}">
+      <span>${f.source === "branded" ? "🏪 " : ""}${escapeHtml(f.name)}${f.brand ? ` <span style="color:var(--fx-text3);font-size:11px">(${escapeHtml(f.brand)})</span>` : ""}</span>
+      <span class="lm-meta">${f.per100g.calories ?? "—"} kcal/100g${f.servingGrams ? ` · 1 serving ≈ ${f.servingGrams}g` : ""}</span>
+    </div>
+  `).join("") + (foods.some(f => f.source === "branded")
+    ? `<div style="padding:6px 8px;font-size:10.5px;color:var(--fx-text3)">🏪 Shop products via <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener" style="color:inherit">Open Food Facts</a></div>`
+    : "");
+  el.querySelectorAll("[data-pick-food]").forEach(row => row.addEventListener("click", () => {
+    const qty = parseFloat(document.getElementById("foodQty").value) || 100;
+    const unit = document.getElementById("foodQtyUnit").value;
+    const food = foods[parseInt(row.dataset.pickFood, 10)];
+    const grams = toGrams(qty, unit, food);
+    if (grams == null) {
+      showMessage("autoCalcMsg", `"${food.name}" doesn't list a known weight per ${unit} — switch to g/kg/oz/lb, or pick a different match.`, "error");
+      return;
+    }
+    const scaled = scaleNutrition(food.per100g, grams);
+    document.getElementById("calories").value = scaled.calories ?? "";
+    document.getElementById("customProtein").value = scaled.protein_g ?? "";
+    document.getElementById("customCarbs").value = scaled.carbs_g ?? "";
+    document.getElementById("customFat").value = scaled.fat_g ?? "";
+    document.getElementById("description").value = food.name;
+    el.style.display = "none";
+    el.innerHTML = "";
+    showMessage("autoCalcMsg", `Using "${food.name}" (${qty}${unit}) — values filled in below, feel free to adjust.`, "success");
+  }));
+}
+
+document.getElementById("autoCalcBtn").addEventListener("click", async (e) => {
+  const name = document.getElementById("description").value.trim();
+  if (!name) { showMessage("autoCalcMsg", "Type what you ate first.", "error"); return; }
+  setLoading(e.target, true, "Searching…");
+  try {
+    const foods = await searchFood(name);
+    if (!foods.length) {
+      showMessage("autoCalcMsg", `No match found for "${name}" — enter the values manually.`, "error");
+      renderFoodMatches([]);
+    } else {
+      showMessage("autoCalcMsg", `${foods.length} match${foods.length > 1 ? "es" : ""} found — pick the right one below.`, "success");
+      renderFoodMatches(foods);
+    }
+  } catch (err) {
+    showMessage("autoCalcMsg", err.message || "Lookup failed.", "error");
+  }
+  setLoading(e.target, false);
+});
+
 document.getElementById("logBtn").addEventListener("click", async (e) => {
   const description = document.getElementById("description").value.trim();
   if (!description) { toast("Add a description", "error"); return; }
@@ -240,6 +301,11 @@ document.getElementById("logBtn").addEventListener("click", async (e) => {
   } catch (e) { setLoading(document.getElementById("logBtn"), false); toast(e.message, "error"); return; }
   setLoading(document.getElementById("logBtn"), false);
   ["description","calories","customProtein","customCarbs","customFat"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("foodQty").value = 100;
+  document.getElementById("foodQtyUnit").value = "g";
+  document.getElementById("autoCalcMsg").textContent = "";
+  document.getElementById("foodMatchList").style.display = "none";
+  document.getElementById("foodMatchList").innerHTML = "";
   toast("Logged", "success");
   loadFood();
 });

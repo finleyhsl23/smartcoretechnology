@@ -1,4 +1,4 @@
-const SCHEMA = 'holidaymanagement';
+const SCHEMA = 'public';
 
 function db(supabaseUrl, serviceKey) {
   const base = `${supabaseUrl}/rest/v1`;

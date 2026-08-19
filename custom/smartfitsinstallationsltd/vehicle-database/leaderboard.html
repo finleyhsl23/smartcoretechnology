@@ -34,13 +34,17 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { listChangeRequestLeaderboard, listApprovalLeaderboard, getEmployeesByIds } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { listContributorLeaderboard, listApprovalLeaderboard, getEmployeesByIds, LEADERBOARD_PERIODS, getLeaderboardPeriodRange } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
-  import { esc, initials, setInner, loadingState, emptyState, errorState } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+  import { esc, initials, setInner, loadingState, emptyState, errorState, initCustomSelect, toast } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
 
   initTheme();
   let _isManagerOrAbove = false;
+  let _periodKey = "all";
+  let _customFrom = "";
+  let _customTo = "";
+  let _periodSelect = null;
 
   try {
     const { profile, tier } = await requireModuleAccess();
@@ -48,6 +52,7 @@
     renderNav("leaderboard", profile, tier);
     initMobileNav();
     initTopbar();
+    drawShell();
     await render();
   } catch (e) {
     if (document.getElementById("body")) {
@@ -59,37 +64,39 @@
     const employees = await getEmployeesByIds(counts.map(c => c.employee_id));
     const employeeById = Object.fromEntries(employees.map(e => [e.id, e]));
     return counts
-      .map(c => ({ employee: employeeById[c.employee_id], count: Number(c[countKey]) }))
+      .map(c => ({ employee: employeeById[c.employee_id], count: Number(c[countKey]), raw: c }))
       .filter(r => r.employee);
   }
 
-  async function render() {
-    setInner("body", loadingState("Tallying submissions…"));
-    try {
-      const ranked = await rankedFrom(await listChangeRequestLeaderboard(), "request_count");
-      // Approval leaderboard is manager/admin-only — it's about balancing
-      // review workload across managers (so it doesn't quietly all fall on
-      // one person), not something a regular employee needs to see.
-      const approvalRanked = _isManagerOrAbove
-        ? await rankedFrom(await listApprovalLeaderboard(), "approval_count")
-        : null;
-      draw(ranked, approvalRanked);
-    } catch (e) {
-      setInner("body", errorState({ title: "Couldn't load Top Contributors", message: e.message }));
-    }
-  }
-
-  function draw(ranked, approvalRanked) {
+  // The page shell (period picker + section headers) renders once; only
+  // the two ranked lists get replaced on every period change, so picking a
+  // new period doesn't also blow away and re-wire the picker mid-use.
+  function drawShell() {
     const html = `
       <div class="page-head">
         <div>
           <h2>Top Contributors</h2>
-          <p>Everyone who's helped keep the database accurate, ranked by suggested changes submitted.</p>
+          <p>Everyone who's helped keep the database accurate — suggested changes submitted, plus vehicles managers added directly.</p>
         </div>
       </div>
+
+      <div class="card" style="margin-bottom:22px">
+        <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+          <div style="min-width:200px">
+            <label class="form-label">Time period</label>
+            <div id="periodSelect"></div>
+          </div>
+          <div id="customRangeRow" style="display:none;gap:14px;flex-wrap:wrap">
+            <div><label class="form-label" for="customFrom">From</label><input type="date" id="customFrom" class="form-input"/></div>
+            <div><label class="form-label" for="customTo">To</label><input type="date" id="customTo" class="form-input"/></div>
+            <button type="button" class="btn btn-primary" id="customApplyBtn" style="align-self:flex-end">Apply</button>
+          </div>
+        </div>
+      </div>
+
       <div id="leaderboardList"></div>
 
-      ${approvalRanked ? `
+      ${_isManagerOrAbove ? `
         <div class="page-head" style="margin-top:32px">
           <div>
             <h2>Top Approvers</h2>
@@ -100,11 +107,51 @@
       ` : ""}
     `;
     setInner("body", html);
+    window.lucide?.createIcons?.();
 
+    _periodSelect = initCustomSelect(document.getElementById("periodSelect"), {
+      options: LEADERBOARD_PERIODS.map(p => ({ key: p.key, label: p.label })),
+      value: _periodKey,
+      onChange: (key) => {
+        _periodKey = key;
+        document.getElementById("customRangeRow").style.display = key === "custom" ? "flex" : "none";
+        if (key !== "custom") render();
+      },
+    });
+
+    document.getElementById("customApplyBtn").addEventListener("click", () => {
+      _customFrom = document.getElementById("customFrom").value;
+      _customTo = document.getElementById("customTo").value;
+      if (!_customFrom || !_customTo) { toast("error", "Pick both a from and to date"); return; }
+      render();
+    });
+  }
+
+  async function render() {
+    const listEl = document.getElementById("leaderboardList");
+    const approvalListEl = document.getElementById("approvalLeaderboardList");
+    listEl.innerHTML = loadingState("Tallying contributions…");
+    if (approvalListEl) approvalListEl.innerHTML = loadingState("Tallying approvals…");
+    try {
+      const { from, to } = getLeaderboardPeriodRange(_periodKey, _customFrom, _customTo);
+      const ranked = await rankedFrom(await listContributorLeaderboard({ from, to }), "total_count");
+      // Approval leaderboard is manager/admin-only — it's about balancing
+      // review workload across managers (so it doesn't quietly all fall on
+      // one person), not something a regular employee needs to see.
+      const approvalRanked = _isManagerOrAbove
+        ? await rankedFrom(await listApprovalLeaderboard({ from, to }), "approval_count")
+        : null;
+      draw(ranked, approvalRanked);
+    } catch (e) {
+      listEl.innerHTML = errorState({ title: "Couldn't load Top Contributors", message: e.message });
+    }
+  }
+
+  function draw(ranked, approvalRanked) {
     renderRankedList("leaderboardList", ranked, {
       icon: "trophy",
       title: "Nothing to rank yet",
-      message: "Once employees start suggesting changes to vehicles, the top contributors will show up here.",
+      message: "Once employees start suggesting changes, or a manager adds a vehicle directly, the top contributors will show up here.",
     });
     if (approvalRanked) {
       renderRankedList("approvalLeaderboardList", approvalRanked, {
@@ -114,6 +161,14 @@
       });
     }
     window.lucide?.createIcons?.();
+  }
+
+  function contributorBreakdown(raw) {
+    if (raw.request_count === undefined) return ""; // approval rows have no split
+    const parts = [];
+    if (raw.request_count > 0) parts.push(`${raw.request_count} suggestion${raw.request_count === 1 ? "" : "s"}`);
+    if (raw.direct_add_count > 0) parts.push(`${raw.direct_add_count} direct add${raw.direct_add_count === 1 ? "" : "s"}`);
+    return parts.length ? `<div class="leaderboard-meta">${parts.join(" + ")}</div>` : "";
   }
 
   function renderRankedList(containerId, ranked, emptyMessage) {
@@ -126,6 +181,9 @@
     list.innerHTML = ranked.map((r, i) => {
       const rank = i + 1;
       const rankClass = rank === 1 ? "gold" : rank === 2 ? "silver" : rank === 3 ? "bronze" : "";
+      // Only the contributor list carries a request/direct-add breakdown —
+      // the approval list's raw row has no such split.
+      const breakdown = contributorBreakdown(r.raw);
       return `
         <div class="leaderboard-row">
           <div class="leaderboard-rank ${rankClass}">${rank}</div>
@@ -133,6 +191,7 @@
           <div class="leaderboard-info">
             <div class="leaderboard-name">${esc(r.employee.full_name)}</div>
             <div class="leaderboard-meta">${esc(r.employee.job_title || "—")}</div>
+            ${breakdown}
           </div>
           <div class="leaderboard-score">${r.count}</div>
         </div>`;
