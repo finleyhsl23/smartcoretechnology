@@ -9,7 +9,7 @@
 import { sb } from "./supabase.js";
 import { getProfile, clearProfileCache, getMyPermissions, hasPermission, getSelectedSiteId } from "./auth.js";
 import { settings, devices } from "./api.js";
-import { esc, toast, modal } from "./ui.js";
+import { esc, toast, modal, loadingState } from "./ui.js";
 import { hideVirtualKeyboard } from "./virtual-keyboard.js";
 import { getTheme } from "./theme.js";
 
@@ -140,15 +140,23 @@ async function requestEnterKioskMode({ companyId, currentPage }) {
   overlay.querySelector("#kioskChoiceDevice").addEventListener("click", async (evt) => {
     const btn = evt.currentTarget;
     const deviceId = kioskAccounts.length > 1 ? overlay.querySelector("#kioskDeviceSelect").value : kioskAccounts[0].id;
+    const deviceName = kioskAccounts.find((d) => d.id === deviceId)?.device_name || "kiosk";
     btn.disabled = true;
+    // Make the account switch visible — it's a real sign-in swap happening
+    // silently in the background otherwise, which looks indistinguishable
+    // from nothing happening at all.
+    overlay.querySelector(".modal-body").innerHTML = loadingState(`Signing in as "${deviceName}"…`);
+    overlay.querySelector(".modal-footer")?.remove();
     try {
       const session = await devices.switchToKioskAccount(deviceId);
       const { error } = await sb().auth.setSession({ access_token: session.access_token, refresh_token: session.refresh_token });
       if (error) throw error;
       clearProfileCache();
+      await new Promise((r) => setTimeout(r, 600));
       overlay.remove();
       proceed();
     } catch (e) {
+      overlay.remove();
       btn.disabled = false;
       toast("error", "Couldn't switch to kiosk account", e.message || "Please try again.");
     }
