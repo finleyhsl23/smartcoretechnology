@@ -37,7 +37,7 @@
   import {
     getVehicle, createVehicle, updateVehicle, lookupRegistration, listVehicleProfilesByRegistration, FIELD_GROUPS,
     listVehiclePhotos, uploadVehiclePhoto, deleteVehiclePhoto, getPhotoUrl, BODY_VARIANTS, FITMENT_TYPES,
-    createNewVehicleRequest, uploadRequestPhoto, fieldRelevantForFitment,
+    createNewVehicleRequest, uploadRequestPhoto, fieldRelevantForFitment, chunkFieldsForRender,
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
@@ -167,7 +167,12 @@
 
   function renderFieldGroupInner(group, v) {
     const fields = group.fields.filter(f => fieldRelevantForFitment(f, v.fitment_type));
-    return `<div class="vform-grid">${fields.map(f => fieldInput(f, v)).join("")}</div>`;
+    const chunks = chunkFieldsForRender(fields);
+    return `<div class="vform-grid">${chunks.map(chunk =>
+      chunk.length > 1
+        ? `<div class="vform-pair-box">${chunk.map(f => fieldInput(f, v)).join("")}</div>`
+        : fieldInput(chunk[0], v)
+    ).join("")}</div>`;
   }
 
   function fieldInput(f, v) {

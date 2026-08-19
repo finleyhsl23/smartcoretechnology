@@ -71,10 +71,10 @@ export const FIELD_GROUPS = [
     title: "Wiring & Electrical",
     color: "amber",
     fields: [
-      { key: "ignition_wire_colour",   label: "Ignition Wire Colour" },
-      { key: "ignition_wire_location", label: "Ignition Wire — Exact Location", type: "textarea", photoCategory: "ignition_wire" },
-      { key: "permanent_wire_colour",  label: "Permanent Wire Colour" },
-      { key: "fuse_tap_options",       label: "Permanent Wire — Exact Location", type: "textarea", photoCategory: "permanent_wire" },
+      { key: "ignition_wire_colour",   label: "Ignition Wire Colour", pairGroup: "ignition_wire" },
+      { key: "ignition_wire_location", label: "Ignition Wire — Exact Location", type: "textarea", photoCategory: "ignition_wire", pairGroup: "ignition_wire" },
+      { key: "permanent_wire_colour",  label: "Permanent Wire Colour", pairGroup: "permanent_wire" },
+      { key: "fuse_tap_options",       label: "Permanent Wire — Exact Location", type: "textarea", photoCategory: "permanent_wire", pairGroup: "permanent_wire" },
       { key: "fms_plug_location",      label: "FMS Plug Location", type: "textarea", photoCategory: "fms_plug" },
       { key: "can_high_colour",        label: "CAN High Colour" },
       { key: "can_low_colour",         label: "CAN Low Colour" },
@@ -129,6 +129,26 @@ export function fieldRelevantForFitment(field, fitmentType) {
   if (!field.relevantFitment) return true;
   if (!fitmentType) return true;
   return field.relevantFitment.includes(fitmentType);
+}
+
+// A colour field and its matching "exact location" field (e.g. Ignition
+// Wire Colour + Ignition Wire — Exact Location) read better boxed together
+// than scattered among unrelated fields in the same flat grid. Fields
+// opt into this by sharing a `pairGroup` value on consecutive entries;
+// everything else stays solo. Returns an array of chunks — each chunk is
+// an array of 1 (a normal field) or 2+ (fields to box together) entries,
+// preserving field order either way.
+export function chunkFieldsForRender(fields) {
+  const chunks = [];
+  for (const f of fields) {
+    const last = chunks[chunks.length - 1];
+    if (f.pairGroup && last?.[0].pairGroup === f.pairGroup) {
+      last.push(f);
+    } else {
+      chunks.push([f]);
+    }
+  }
+  return chunks;
 }
 
 // Which photo category (if any) a field is paired with, so a field's photos

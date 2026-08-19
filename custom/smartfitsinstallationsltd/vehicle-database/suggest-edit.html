@@ -34,7 +34,7 @@
 
 <script type="module">
   import { requireModuleAccess } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/auth.js";
-  import { getVehicle, createEditRequest, uploadRequestPhoto, FIELD_GROUPS, PHOTO_CATEGORIES, fieldRelevantForFitment } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
+  import { getVehicle, createEditRequest, uploadRequestPhoto, FIELD_GROUPS, PHOTO_CATEGORIES, fieldRelevantForFitment, chunkFieldsForRender } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
   import { esc, setInner, loadingState, errorState, toast, freezeFile } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
@@ -88,7 +88,11 @@
           <div class="section-header"><h3>${esc(group.title)}</h3></div>
           <div class="card" style="margin-bottom:18px">
             <div class="form-grid">
-              ${group.fields.filter(f => fieldRelevantForFitment(f, v.fitment_type)).map(f => fieldInput(f, v)).join("")}
+              ${chunkFieldsForRender(group.fields.filter(f => fieldRelevantForFitment(f, v.fitment_type))).map(chunk =>
+                chunk.length > 1
+                  ? `<div class="vform-pair-box">${chunk.map(f => fieldInput(f, v)).join("")}</div>`
+                  : fieldInput(chunk[0], v)
+              ).join("")}
             </div>
           </div>
         `).join("")}
