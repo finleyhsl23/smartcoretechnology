@@ -5,6 +5,13 @@
 // session), and only the SHA-256 hash of the secret is ever persisted.
 // The raw secret is returned exactly once, in this response, and is never
 // logged.
+//
+// If enable_basic_auth is set, ALSO provisions a dedicated Supabase login
+// used only for kiosk Basic Auth recovery (see functions/api/kiosk-start.js)
+// — deliberately never a real employee's own password, so a kiosk browser's
+// stored credentials are worthless for anything beyond signing into that
+// one low-privilege device identity, and can be revoked independently by
+// deactivating the device.
 import { json, options, getCallerProfile, hasPermission, sb } from './_auth.js';
 
 export const onRequestOptions = () => options();
@@ -39,6 +46,7 @@ export async function onRequestPost({ request, env }) {
     const siteId = body.site_id;
     const deviceName = String(body.device_name || '').trim();
     const deviceType = DEVICE_TYPES.includes(body.device_type) ? body.device_type : 'kiosk';
+    const enableBasicAuth = !!body.enable_basic_auth;
 
     if (!siteId) return json({ error: 'site_id is required' }, 400);
     if (!deviceName) return json({ error: 'device_name is required' }, 400);
@@ -52,6 +60,55 @@ export async function onRequestPost({ request, env }) {
     const rawSecret = generateDeviceSecret();
     const tokenHash = await sha256Hex(rawSecret);
 
+    let basicAuthAuthUserId = null;
+    let basicAuthCredentials = null;
+    if (enableBasicAuth) {
+      const slug = deviceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'kiosk';
+      const kioskEmail = `kiosk-${slug}-${crypto.randomUUID().slice(0, 8)}@devices.smartcoretechnology.internal`;
+      const kioskPassword = generateDeviceSecret().slice(0, 32);
+
+      const authRes = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: kioskEmail,
+          password: kioskPassword,
+          email_confirm: true,
+          user_metadata: { is_kiosk_device: true, device_name: deviceName },
+        }),
+      });
+      if (!authRes.ok) {
+        const err = await authRes.json().catch(() => ({}));
+        return json({ error: err.message || 'Could not create the kiosk sign-in account' }, 500);
+      }
+      const authUser = await authRes.json();
+      basicAuthAuthUserId = authUser.id;
+
+      const empRes = await sb(env, '/core_employees', 'POST', {
+        company_id: profile.company_id,
+        auth_user_id: authUser.id,
+        full_name: `Kiosk: ${deviceName}`,
+        role: 'employee',
+        work_email: kioskEmail,
+      });
+      if (!empRes.ok) {
+        // Best-effort cleanup — don't leave an orphaned auth user behind if
+        // the employee record failed to create.
+        await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${authUser.id}`, {
+          method: 'DELETE',
+          headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+        }).catch(() => {});
+        const errText = await empRes.text();
+        throw new Error(errText || 'Could not create the kiosk employee record');
+      }
+
+      basicAuthCredentials = { username: kioskEmail, password: kioskPassword };
+    }
+
     const insertRes = await sb(env, '/presence_fire_safety_devices', 'POST', {
       company_id: profile.company_id,
       site_id: siteId,
@@ -60,6 +117,8 @@ export async function onRequestPost({ request, env }) {
       device_token_hash: tokenHash,
       active: true,
       created_by: profile.id,
+      basic_auth_enabled: enableBasicAuth,
+      basic_auth_auth_user_id: basicAuthAuthUserId,
     });
     if (!insertRes.ok) {
       const errText = await insertRes.text();
@@ -67,7 +126,7 @@ export async function onRequestPost({ request, env }) {
     }
     const [device] = await insertRes.json();
 
-    // Never log rawSecret or tokenHash.
+    // Never log rawSecret, tokenHash, or basicAuthCredentials.
     return json({
       device: {
         id: device.id,
@@ -77,9 +136,11 @@ export async function onRequestPost({ request, env }) {
         device_type: device.device_type,
         active: device.active,
         created_at: device.created_at,
+        basic_auth_enabled: device.basic_auth_enabled,
       },
       device_token: rawSecret,
-      warning: 'Store this token now — it will not be shown again.',
+      basic_auth: basicAuthCredentials,
+      warning: 'Store these now — they will not be shown again.',
     });
   } catch (e) {
     return json({ error: e.message || 'Could not register device' }, 500);

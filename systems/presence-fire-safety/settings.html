@@ -62,6 +62,10 @@
   .combobox-result:hover, .combobox-result:focus-visible { background: var(--card2); }
   .set-card-header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
   .set-reveal-secret { font-family: ui-monospace, monospace; font-size: 14px; background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; word-break: break-all; margin: 12px 0; }
+  .pfs-info-btn { width:20px; height:20px; border-radius:50%; border:1px solid var(--line); background:var(--card2); color:var(--text3); display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; margin-left:auto; }
+  .pfs-info-btn:hover { border-color:var(--accent); color:var(--accent2); }
+  .pfs-info-btn i { width:12px; height:12px; }
+  .pfs-info-panel { font-size:12.5px; line-height:1.6; color:var(--text2); background:var(--card2); border:1px solid var(--line); border-radius:10px; padding:12px; margin:-2px 0 12px; }
 
   /* ── ID Card canvas editor ────────────────────────────────────────────── */
   .idc-toolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; margin-bottom:16px; }
@@ -1236,7 +1240,7 @@
       ${list.length === 0 ? emptyState({ icon: "tablet", title: "No devices registered" }) : `
       <div class="tbl-wrap">
         <table class="tbl">
-          <thead><tr><th>Name</th><th>Type</th><th>Site</th><th>Status</th><th>Last seen</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Site</th><th>Status</th><th>Basic Auth</th><th>Last seen</th><th></th></tr></thead>
           <tbody>
             ${list.map(d => `
               <tr>
@@ -1244,6 +1248,7 @@
                 <td>${esc(d.device_type)}</td>
                 <td>${esc(siteName(d.site_id))}</td>
                 <td><span class="badge ${d.active ? "badge-green" : "badge-grey"}">${d.active ? "Active" : "Deactivated"}</span></td>
+                <td><span class="badge ${d.basic_auth_enabled ? "badge-blue" : "badge-grey"}">${d.basic_auth_enabled ? "Enabled" : "Off"}</span></td>
                 <td>${esc(timeAgo(d.last_seen_at))}</td>
                 <td>${d.active ? `<button class="btn btn-danger" data-deactivate-device="${esc(d.id)}" type="button">Deactivate</button>` : "—"}</td>
               </tr>`).join("")}
@@ -1254,16 +1259,69 @@
     refreshIcons();
 
     document.getElementById("registerDeviceBtn").addEventListener("click", () => {
-      // No backend endpoint exists yet for one-time-reveal device secret
-      // issuance (checked /api/presence-fire-safety/devices-register — not
-      // present). We deliberately do not invent a client-side token scheme
-      // for an authorised-device credential; this is a clear placeholder
-      // until that endpoint ships.
+      if (!_siteList.length) {
+        toast("error", "No sites available", "Add a site before registering a device.");
+        return;
+      }
       modal(`
         <div class="modal-header"><h3>Register Device</h3></div>
-        <div class="modal-body">${emptyState({ icon: "server-off", title: "Coming soon", message: "Device registration requires the backend endpoint — coming soon." })}</div>
-        <div class="modal-footer"><button class="btn modal-close" type="button">Close</button></div>`);
+        <div class="modal-body">
+          <label class="form-label" for="rd_name">Device name</label>
+          <input class="form-input" id="rd_name" placeholder="e.g. Front Desk Kiosk"/>
+
+          <label class="form-label" for="rd_site" style="margin-top:14px">Site</label>
+          <select class="form-input" id="rd_site">
+            ${_siteList.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")}
+          </select>
+
+          <label class="form-label" for="rd_type" style="margin-top:14px">Device type</label>
+          <select class="form-input" id="rd_type">
+            <option value="kiosk" selected>Kiosk</option>
+            <option value="handheld">Handheld</option>
+            <option value="desktop">Desktop</option>
+            <option value="other">Other</option>
+          </select>
+
+          <label class="set-checkbox-field" style="margin-top:16px">
+            <input type="checkbox" id="rd_basic_auth"/> Enable Basic Auth recovery
+            <button type="button" class="pfs-info-btn" id="rd_basic_auth_info" aria-label="What is this?"><i data-lucide="info"></i></button>
+          </label>
+          <div class="pfs-info-panel" id="rd_basic_auth_panel" style="display:none">
+            If this kiosk ever loses its session (e.g. overnight, or after a network drop) and no one is on-site to sign it back in, this lets it recover on its own. We create a dedicated, low-privilege sign-in just for this device — never a real employee's password — and give you a username and password to enter once into your kiosk browser's "Basic HTTP Authentication" setting (e.g. Fully Kiosk Browser's Web Content Settings). From then on the device re-authenticates itself automatically whenever it needs to, with nobody needing to be there. You can revoke this at any time by deactivating the device below.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn modal-close" type="button">Cancel</button>
+          <button class="btn btn-primary" id="rd_submit" type="button">Register</button>
+        </div>`);
       refreshIcons();
+
+      document.getElementById("rd_basic_auth_info").addEventListener("click", () => {
+        const panel = document.getElementById("rd_basic_auth_panel");
+        panel.style.display = panel.style.display === "none" ? "block" : "none";
+      });
+
+      document.getElementById("rd_submit").addEventListener("click", async (evt) => {
+        const btn = evt.currentTarget;
+        const name = document.getElementById("rd_name").value.trim();
+        const siteId = document.getElementById("rd_site").value;
+        const type = document.getElementById("rd_type").value;
+        const enableBasicAuth = document.getElementById("rd_basic_auth").checked;
+        if (!name) { toast("error", "Device name is required"); return; }
+
+        btn.disabled = true;
+        btn.textContent = "Registering…";
+        try {
+          const result = await devices.register(siteId, name, type, enableBasicAuth);
+          document.querySelector(".modal-close")?.click();
+          showDeviceCredentials(result);
+          loadDevices();
+        } catch (e) {
+          toast("error", "Couldn't register device", e.message || "Please try again.");
+          btn.disabled = false;
+          btn.textContent = "Register";
+        }
+      });
     });
 
     document.querySelectorAll("[data-deactivate-device]").forEach(btn => {
@@ -1279,6 +1337,32 @@
         }, { confirmLabel: "Deactivate" });
       });
     });
+  }
+
+  /** Shows the one-time credential reveal after a successful registration —
+   *  the device token always; the Basic Auth username/password too if that
+   *  was enabled, with the exact setting to enter them into on the device. */
+  function showDeviceCredentials(result) {
+    const basicAuthBlock = result.basic_auth ? `
+      <h4 style="margin:18px 0 6px;font-size:13.5px">Basic Auth recovery credentials</h4>
+      <p class="set-section-desc" style="margin-bottom:8px">Enter these into the kiosk browser's "Basic HTTP Authentication" setting (e.g. Fully Kiosk Browser → Web Content Settings), and set its <strong>Start URL</strong> to:</p>
+      <div class="set-reveal-secret">https://smartcoretechnology.co.uk/api/kiosk-start</div>
+      <p class="form-label" style="margin-top:10px">Username</p>
+      <div class="set-reveal-secret">${esc(result.basic_auth.username)}</div>
+      <p class="form-label" style="margin-top:10px">Password</p>
+      <div class="set-reveal-secret">${esc(result.basic_auth.password)}</div>
+    ` : "";
+
+    modal(`
+      <div class="modal-header"><h3>Device registered</h3></div>
+      <div class="modal-body">
+        <p class="set-section-desc" style="color:var(--warn)">${esc(result.warning || "Store these now — they will not be shown again.")}</p>
+        <p class="form-label">Device token</p>
+        <div class="set-reveal-secret">${esc(result.device_token)}</div>
+        ${basicAuthBlock}
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary modal-close" type="button">Done</button></div>`);
+    refreshIcons();
   }
 
   // ── Access-blocked / offline ─────────────────────────────────────────────

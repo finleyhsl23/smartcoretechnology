@@ -131,6 +131,22 @@ export const devices = {
     const { error } = await sb().from("presence_fire_safety_devices").update({ active: false }).eq("id", deviceId);
     if (error) throw error;
   },
+  /** Mints a new device credential (and, if enableBasicAuth, a dedicated
+   *  kiosk sign-in account for Basic Auth recovery — see kiosk-start.js).
+   *  Returns { device, device_token, basic_auth } — device_token and
+   *  basic_auth.password are shown exactly once, never persisted client-side. */
+  async register(siteId, deviceName, deviceType, enableBasicAuth) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) throw new Error("Not signed in");
+    const res = await fetch("/api/presence-fire-safety/devices-register", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ site_id: siteId, device_name: deviceName, device_type: deviceType, enable_basic_auth: enableBasicAuth }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not register device");
+    return data;
+  },
 };
 
 // ── Presence: live register, history, transactional sign in/out ─────────
