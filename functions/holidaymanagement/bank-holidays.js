@@ -1,4 +1,4 @@
-const SCHEMA = 'holidaymanagement';
+const SCHEMA = 'public';
 const NAGER_API = 'https://date.nager.at/api/v3/PublicHolidays';
 
 function db(supabaseUrl, serviceKey) {

@@ -103,12 +103,21 @@ export async function onRequestOptions() {
 // Provisioning — finds existing company by email to avoid duplicates
 // ---------------------------------------------------------------------------
 async function provisionModules(env, o) {
-  // Look for an existing company by email first (handles re-orders from existing customers)
+  // Prefer the company the buyer is already a member of (auth_user_id → core_employees → company_id)
   let company;
-  const byEmail = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(o.email)}&select=id&limit=1`);
-  if (byEmail?.length) {
-    company = byEmail[0];
-  } else {
+  if (o.auth_user_id) {
+    const empRows = await dbGet(env, `/core_employees?auth_user_id=eq.${enc(o.auth_user_id)}&select=company_id&limit=1`);
+    if (empRows?.[0]?.company_id) {
+      const coRows = await dbGet(env, `/smartcore_core_companies?id=eq.${enc(empRows[0].company_id)}&select=id&limit=1`);
+      if (coRows?.[0]) company = coRows[0];
+    }
+  }
+  // Fall back to email match
+  if (!company) {
+    const byEmail = await dbGet(env, `/smartcore_core_companies?company_email=eq.${enc(o.email)}&select=id&limit=1`);
+    if (byEmail?.length) company = byEmail[0];
+  }
+  if (!company) {
     // Check by order_id in case of retry
     const byOrder = await dbGet(env, `/smartcore_core_companies?order_id=eq.${enc(o.id)}&select=id&limit=1`);
     if (byOrder?.length) {
@@ -338,10 +347,11 @@ async function sendWelcomeWithInvoice(env, o, modules, today) {
   const multiplier  = o.size_multiplier || 1;
   const regular     = modules.filter(m => m.slug !== 'smartcore-core');
 
+  const charmPrice = v => v > 0 ? Math.ceil(v / 5) * 5 + 0.99 : v;
   const subtotal = regular.reduce((s, m) => {
     const isFlat = m.is_flat_rate;
     const base   = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
-    return s + (base || 0) * (isFlat ? 1 : multiplier);
+    return s + charmPrice((base || 0) * (isFlat ? 1 : multiplier));
   }, 0);
   const discount    = o.discount_amount || 0;
   const annualDisc  = o.annual_discount_amount || 0;
@@ -426,7 +436,7 @@ function buildInvoicePdf(inv, o, modules) {
     ...regular.map(m => {
       const base    = inv.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
       const isFlat  = !!m.is_flat_rate;
-      const price   = (base || 0) * (isFlat ? 1 : multiplier);
+      const price   = charmPrice((base || 0) * (isFlat ? 1 : multiplier));
       return { desc: m.name, price: fmtGbp(price) + period };
     }),
   ];
@@ -648,7 +658,7 @@ function welcomeHtml(o, modules, inv) {
     `<div class="row"><span>SmartCore Core</span><span style="color:#22c55e;font-weight:600">Included free</span></div>`,
     ...regular.map(m => {
       const base  = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
-      const price = (base || 0) * (m.is_flat_rate ? 1 : multiplier);
+      const price = charmPrice((base || 0) * (m.is_flat_rate ? 1 : multiplier));
       return `<div class="row"><span>${esc(m.name)}</span><span style="font-weight:600">${fmt(price)}/${o.billing_type === 'yearly' ? 'yr' : 'mo'}</span></div>`;
     }),
   ].join('');

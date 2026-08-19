@@ -554,6 +554,8 @@ async function resolveCompany(env, order) {
 // ---------------------------------------------------------------------------
 // Pricing calculation
 // ---------------------------------------------------------------------------
+function charmPrice(v) { return v > 0 ? Math.ceil(v / 5) * 5 + 0.99 : v; }
+
 function calcTotal(modules, moduleMap, sizeMultiplier, billingType, discountPct) {
   let subtotal = 0;
   for (const m of modules) {
@@ -563,7 +565,7 @@ function calcTotal(modules, moduleMap, sizeMultiplier, billingType, discountPct)
     const base   = billingType === 'yearly'
       ? (dbMod.yearly_price || dbMod.monthly_price || m.yearly_price || m.monthly_price || 0)
       : (dbMod.monthly_price || m.monthly_price || 0);
-    subtotal += isCrm ? base : base * sizeMultiplier;
+    subtotal += charmPrice(isCrm ? base : base * sizeMultiplier);
   }
   const discount = subtotal * (discountPct || 0) / 100;
   return { subtotal, discount, total: Math.max(0, subtotal - discount) };

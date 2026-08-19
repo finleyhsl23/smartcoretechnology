@@ -49,6 +49,8 @@
   let _managerRosterIds = new Set();
   let _deptFilter = null;
   let _scope = "mine"; // 'mine' | 'all'
+  let _sortBy = "score"; // 'score' | 'audits'
+  let _ranked = [];
 
   try {
     const { profile, tier, settings } = await requireModuleAccess();
@@ -95,6 +97,11 @@
         <button class="pill ${_scope === "mine" ? "active" : ""}" data-scope="mine">My Engineers</button>
         <button class="pill ${_scope === "all" ? "active" : ""}" data-scope="all">All Engineers</button>
       </div>
+      <div class="pill-row" style="margin-top:8px">
+        <span class="text-muted" style="font-size:12px;font-weight:700;align-self:center;margin-right:2px">Sort by</span>
+        <button class="pill ${_sortBy === "score" ? "active" : ""}" data-sort="score">Best Score</button>
+        <button class="pill ${_sortBy === "audits" ? "active" : ""}" data-sort="audits">Most Audited</button>
+      </div>
       <div id="leaderboardList"></div>
     `;
     setInner("body", html);
@@ -104,6 +111,14 @@
         _scope = btn.dataset.scope;
         document.querySelectorAll(".pill[data-scope]").forEach(b => b.classList.toggle("active", b === btn));
         await drawLeaderboard();
+      });
+    });
+
+    document.querySelectorAll(".pill[data-sort]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _sortBy = btn.dataset.sort;
+        document.querySelectorAll(".pill[data-sort]").forEach(b => b.classList.toggle("active", b === btn));
+        renderRanked();
       });
     });
   }
@@ -125,17 +140,19 @@
 
     const totals = await listSubmittedScoreTotals(pool.map(e => e.id));
 
-    const ranked = [];
+    _ranked = [];
     for (const emp of pool) {
       const t = totals[emp.id];
       if (!t || !t.count) continue;
       const pct = scoreToPercentage(t.total / t.count);
-      ranked.push({ emp, pct, auditCount: t.auditCount });
+      _ranked.push({ emp, pct, auditCount: t.auditCount });
     }
 
-    ranked.sort((a, b) => b.pct - a.pct);
+    renderRanked();
+  }
 
-    if (!ranked.length) {
+  function renderRanked() {
+    if (!_ranked.length) {
       setInner("leaderboardList", emptyState({
         icon: "trophy",
         title: "Nothing to rank yet",
@@ -144,7 +161,13 @@
       return;
     }
 
-    const html = ranked.map((r, i) => {
+    const sorted = [..._ranked].sort((a, b) =>
+      _sortBy === "audits"
+        ? (b.auditCount - a.auditCount) || (b.pct - a.pct)
+        : (b.pct - a.pct) || (b.auditCount - a.auditCount)
+    );
+
+    const html = sorted.map((r, i) => {
       const rank = i + 1;
       const rankClass = rank === 1 ? "gold" : rank === 2 ? "silver" : rank === 3 ? "bronze" : "";
       const failing = r.pct < _failThresholdPercent;

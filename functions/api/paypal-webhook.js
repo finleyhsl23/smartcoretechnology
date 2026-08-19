@@ -201,7 +201,7 @@ async function handlePaymentCompleted(env, event) {
     const regular     = modules.filter(m => m.slug !== 'smartcore-core');
     const subtotal    = regular.reduce((s, m) => {
       const base = order.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
-      return s + (base || 0) * multiplier;
+      return s + charmPrice((base || 0) * multiplier);
     }, 0);
 
     const inv = {
@@ -547,6 +547,7 @@ async function nextInvoiceNumber(env) {
 // ---------------------------------------------------------------------------
 // Email templates
 // ---------------------------------------------------------------------------
+function charmPrice(v) { return v > 0 ? Math.ceil(v / 5) * 5 + 0.99 : v; }
 function fmt(n)    { return '£' + Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function esc(s)    { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function fmtDate(iso) { return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }); }
@@ -687,7 +688,7 @@ function invoiceHtml(inv, o, modules) {
     </tr>`,
     ...regular.map(m => {
       const base  = o.billing_type === 'yearly' ? (m.yearly_price || m.monthly_price) : m.monthly_price;
-      const price = (base || 0) * multiplier;
+      const price = charmPrice((base || 0) * multiplier);
       return `<tr>
         <td style="padding:12px 16px;font-size:14px;color:#1e293b;border-bottom:1px solid #e2e8f0">${esc(m.name)}</td>
         <td style="padding:12px 16px;font-size:14px;color:#1e293b;border-bottom:1px solid #e2e8f0;text-align:center">1</td>

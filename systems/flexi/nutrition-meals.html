@@ -33,6 +33,7 @@
 .ing-unit{width:84px;flex-shrink:0}
 .ing-name{flex:1}
 .ing-remove{width:28px;height:28px;flex-shrink:0}
+.ing-calc{width:28px;height:28px;flex-shrink:0}
 
 /* compact / expanded plan rows */
 .plan-row-compact{display:flex;align-items:center;gap:14px;padding:14px 16px}
@@ -184,6 +185,7 @@ import { requireFlexiAccess } from "./shared/auth.js";
 import { renderNav, wireMobileNavToggle } from "./shared/nav.js";
 import { sb } from "./shared/supabase.js";
 import { revealApp, setupThemeToggle, escapeHtml, setLoading, showMessage, openModal, closeModal, toast, emptyState, tileGradient, enhanceSelect } from "./shared/ui.js";
+import { searchFood, scaleNutrition, toGrams } from "./shared/nutrition-lookup.js";
 
 const { profile, tier } = await requireFlexiAccess({ feature: "nutrition" });
 renderNav({ activeKey: "nutrition", profile, tier });
@@ -234,7 +236,7 @@ const stepsEl = document.getElementById("stepsList");
 document.getElementById("addStepBtn").addEventListener("click", () => addDynRow(stepsEl, true));
 
 // ---- Structured ingredient rows (qty + unit + name) ----
-const UNITS = ["g","kg","ml","l","tsp","tbsp","cup","oz","piece","slice"];
+const UNITS = ["g","kg","oz","lb","ml","l","tsp","tbsp","cup","piece","slice"];
 const ingredientsEl = document.getElementById("ingredientsList");
 function ingredientRowHTML(ing) {
   const { qty = "", unit = "g", name = "" } = ing || {};
@@ -242,12 +244,75 @@ function ingredientRowHTML(ing) {
     <input class="fx-input ing-qty" type="number" step="0.1" placeholder="Qty" value="${qty ?? ""}"/>
     <select class="fx-select ing-unit">${UNITS.map(u => `<option value="${u}" ${u === unit ? "selected" : ""}>${u}</option>`).join("")}</select>
     <input class="fx-input ing-name" placeholder="Ingredient name" value="${escapeHtml(name)}"/>
+    <button type="button" class="fx-icon-btn ing-calc" title="Auto-calculate nutrition &amp; add to totals above">🧮</button>
     <button type="button" class="fx-icon-btn ing-remove">✕</button>
   </div>`;
 }
+function addIngredientToTotals(food, grams) {
+  const scaled = scaleNutrition(food.per100g, grams);
+  const addTo = (id, val) => { const el = document.getElementById(id); el.value = (parseFloat(el.value) || 0) + (val || 0); };
+  addTo("mealCals", scaled.calories);
+  addTo("mealProtein", scaled.protein_g);
+  addTo("mealCarbs", scaled.carbs_g);
+  addTo("mealFat", scaled.fat_g);
+  toast(`Added "${food.name}" — ${scaled.calories ?? 0} kcal to totals above`, "success");
+}
 function wireIngredientRow(row) {
   enhanceSelect(row.querySelector(".ing-unit"), { placeholder: "Unit…" });
+  row.querySelector(".ing-calc").addEventListener("click", async () => {
+    const qty = parseFloat(row.querySelector(".ing-qty").value);
+    const unit = row.querySelector(".ing-unit").value;
+    const name = row.querySelector(".ing-name").value.trim();
+    if (!name) { toast("Enter an ingredient name first.", "error"); return; }
+    if (!qty) { toast("Enter a quantity first.", "error"); return; }
+    // Weight units (g/kg/oz/lb) convert to grams outright. "piece"/"slice"
+    // depend on the specific product picked below — some shop products list
+    // a known per-item weight, most generic foods don't. Everything else
+    // (ml/cup/tbsp/etc) can't be converted at all without knowing density.
+    const fixedGrams = toGrams(qty, unit);
+    if (fixedGrams == null && unit !== "piece" && unit !== "slice") {
+      toast(`Auto-calc needs a weight unit (g, kg, oz or lb) — "${unit}" can't be converted since it depends on the food. Switch the unit or enter the values manually.`, "error");
+      return;
+    }
+
+    ingredientsEl.querySelectorAll(".ing-match-list").forEach(el => el.remove());
+    const calcBtn = row.querySelector(".ing-calc");
+    setLoading(calcBtn, true, "…");
+    let foods;
+    try {
+      foods = await searchFood(name);
+    } catch (err) {
+      setLoading(calcBtn, false);
+      toast(err.message || "Lookup failed.", "error");
+      return;
+    }
+    setLoading(calcBtn, false);
+    if (!foods.length) { toast(`No match found for "${name}".`, "error"); return; }
+
+    const list = document.createElement("div");
+    list.className = "meal-pick-list ing-match-list";
+    list.innerHTML = foods.map((f, i) => `
+      <div class="meal-pick-row" data-pick-food="${i}">
+        <span>${f.source === "branded" ? "🏪 " : ""}${escapeHtml(f.name)}${f.brand ? ` <span class="mp-meta" style="margin-left:0">(${escapeHtml(f.brand)})</span>` : ""}</span>
+        <span class="mp-meta">${f.per100g.calories ?? "—"} kcal/100g${f.servingGrams ? ` · 1 serving ≈ ${f.servingGrams}g` : ""}</span>
+      </div>
+    `).join("") + (foods.some(f => f.source === "branded")
+      ? `<div style="padding:6px 8px;font-size:10.5px;color:var(--fx-text3)">🏪 Shop products via <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener" style="color:inherit">Open Food Facts</a></div>`
+      : "");
+    row.insertAdjacentElement("afterend", list);
+    list.querySelectorAll("[data-pick-food]").forEach(el => el.addEventListener("click", () => {
+      const food = foods[parseInt(el.dataset.pickFood, 10)];
+      const grams = fixedGrams ?? toGrams(qty, unit, food);
+      if (grams == null) {
+        toast(`"${food.name}" doesn't list a known weight per ${unit} — switch to g/kg/oz/lb, or pick a different match.`, "error");
+        return;
+      }
+      addIngredientToTotals(food, grams);
+      list.remove();
+    }));
+  });
   row.querySelector(".ing-remove").addEventListener("click", () => {
+    ingredientsEl.querySelectorAll(".ing-match-list").forEach(el => el.remove());
     if (ingredientsEl.querySelectorAll(".ing-row").length <= 1) {
       row.querySelector(".ing-qty").value = ""; row.querySelector(".ing-name").value = "";
       return;

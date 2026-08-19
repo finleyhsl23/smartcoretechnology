@@ -628,7 +628,7 @@
       const base  = o.billing_type === 'yearly'
         ? (dbMod.monthly_price * 12 || 0)
         : (dbMod.monthly_price || 0);
-      const price = base * mult;
+      const price = charmPrice(base * mult);
       html += modRow({
         dot: 'dot-active', name: esc(dbMod.name),
         desc: dbMod.description || '',
@@ -745,8 +745,8 @@
       if (m.slug === 'smartcore-core') continue;
       const isCrm   = CRM_SLUGS.includes(m.slug);
       const base     = o.billing_type === 'yearly' ? (m.monthly_price * 12 || 0) : (m.monthly_price || 0);
-      const oldPrice = isCrm ? base : base * oldMult;
-      const newPrice = isCrm ? base : base * newMult;
+      const oldPrice = charmPrice(isCrm ? base : base * oldMult);
+      const newPrice = charmPrice(isCrm ? base : base * newMult);
       const changed  = !isCrm && Math.abs(newPrice - oldPrice) > 0.001;
       html += `<div class="breakdown-row${changed ? ' highlight' : ''}">
         <span class="label">${esc(m.name)}${isCrm ? ' <span style="font-size:10px;opacity:.6">(flat rate)</span>' : ''}</span>
@@ -998,6 +998,8 @@
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
+  function charmPrice(v) { return v > 0 ? Math.ceil(v / 5) * 5 + 0.99 : v; }
+
   function calcTotal(modules, moduleMap, sizeMultiplier, billingType, discountPct) {
     let subtotal = 0;
     for (const m of modules) {
@@ -1007,7 +1009,7 @@
       const base  = billingType === 'yearly'
         ? ((dbMod.monthly_price || m.monthly_price || 0) * 12)
         : (dbMod.monthly_price || m.monthly_price || 0);
-      subtotal += isCrm ? base : base * sizeMultiplier;
+      subtotal += charmPrice(isCrm ? base : base * sizeMultiplier);
     }
     const discount = subtotal * (discountPct || 0) / 100;
     return { subtotal, discount, total: Math.max(0, subtotal - discount) };

@@ -5,8 +5,13 @@
 // grant) that a browser session should not need to enumerate itself. Email
 // failures are logged and swallowed — an evacuation is already underway and
 // this notification must never appear to "fail" the evacuation flow.
+//
+// Also fans out a push notification (panic alert) to every device belonging
+// to anyone the live register shows as signed in at this site right now —
+// the people actually on-site during the drill, not just admins/marshals.
 import { json, options, getCallerProfile, hasPermission, sb } from './_auth.js';
 import { sendResendEmail, smartcoreEmailShell } from '../_utils.js';
+import { sendPushToUsers } from '../_push.js';
 
 export const onRequestOptions = () => options();
 
@@ -79,7 +84,31 @@ export async function onRequestPost({ request, env }) {
       console.error('notify-evacuation-started: some emails failed', failures.map((f) => f.reason?.message));
     }
 
-    return json({ success: true, notified: recipients.length, failed: failures.length });
+    // Push: everyone the live register shows as signed in at this site,
+    // regardless of permission — this is the "panic alert" to people
+    // actually on-site, not the admin/marshal email list above.
+    let pushResult = { sent: 0 };
+    try {
+      const onSiteRes = await sb(
+        env,
+        `/presence_fire_safety_current_presence?company_id=eq.${profile.company_id}&site_id=eq.${session.site_id}` +
+          `&subject_type=eq.employee&current_status=eq.in&select=core_employees(auth_user_id)`
+      );
+      const onSite = await onSiteRes.json();
+      const authUserIds = (onSite || []).map((r) => r.core_employees?.auth_user_id).filter(Boolean);
+      pushResult = await sendPushToUsers(env, authUserIds, {
+        title: `Evacuation started at ${siteName}`,
+        body: session.assembly_point ? `Make your way to ${session.assembly_point}` : 'Make your way to your assembly point.',
+        url: '/systems/presence-fire-safety/evacuation.html',
+        urgency: 'high',
+        requireInteraction: true,
+        critical: true,
+      });
+    } catch (e) {
+      console.error('notify-evacuation-started: push failed', e.message);
+    }
+
+    return json({ success: true, notified: recipients.length, failed: failures.length, pushed: pushResult.sent });
   } catch (e) {
     console.error('notify-evacuation-started:', e.message);
     // Still respond 200-shaped success:false — the evacuation itself already
