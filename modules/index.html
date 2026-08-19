@@ -636,6 +636,24 @@ const SUPABASE_URL  = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
+// Kiosk devices can sit on this page for days. If the OS suspends the tab's
+// JS execution (screen-off power saving overnight, backgrounding, etc.),
+// Supabase's own auto-refresh timer can't fire during that suspension — by
+// the time the page "wakes up" the access token can be well past expiry.
+// visibilitychange/pageshow/online are browser/OS-driven rather than JS
+// timers, so they fire reliably even after a full suspension — force a
+// refresh right then instead of waiting on whatever's left of the normal
+// refresh schedule.
+(function wireWakeRefresh() {
+  const tryRefresh = () => { sb.auth.refreshSession().catch(() => {}); };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") tryRefresh();
+  });
+  window.addEventListener("pageshow", (e) => { if (e.persisted) tryRefresh(); });
+  window.addEventListener("online", tryRefresh);
+  setInterval(tryRefresh, 15 * 60 * 1000);
+})();
+
 // Module catalog
 const CATALOG = {
   'smartcore-core':            { name:'SmartCore Core',       desc:'Employee management, departments, shift patterns & onboarding', icon:'🏢', color:'blue',   href:'/systems/core/',                alwaysActive:true },
