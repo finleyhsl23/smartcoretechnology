@@ -31,7 +31,7 @@ export function renderNav(currentPage, profile) {
 
   nav.innerHTML = `
     <div class="sidebar-logo">
-      <div class="logo-dot">SC</div>
+      <div class="logo-dot"><img src="/systems/presence-fire-safety/shared/assets/sc-icon-transparent-white.png" alt="SmartCore"/></div>
       <div class="logo-text">
         <strong>SmartCore</strong>
         <span>Presence &amp; Fire Safety</span>
