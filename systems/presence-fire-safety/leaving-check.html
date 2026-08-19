@@ -89,6 +89,10 @@
         ? emptyState({ icon: "check-circle-2", title: "Everyone's signed out", message: "The register shows nobody else on site." })
         : `
         <p class="text-muted" style="margin-bottom:14px">The register still shows these people signed in. Tick anyone who's actually left without signing out, then Query them — this emails the configured query address(es) and logs who flagged whom.</p>
+        <label class="pfs-person-row pfs-select-all-row">
+          <input type="checkbox" id="lpSelectAll"/>
+          <div class="pfs-person-info"><strong>Select all</strong></div>
+        </label>
         <div id="lpPeopleList"></div>
         <div class="lp-actions-bar">
           <button class="btn btn-primary" id="querySelectedBtn" type="button" disabled>Query Selected</button>
@@ -99,6 +103,11 @@
     if (!nobody) {
       renderPeopleList();
       document.getElementById("querySelectedBtn").addEventListener("click", queryUpdatedSelected);
+      document.getElementById("lpSelectAll").addEventListener("change", (e) => {
+        document.querySelectorAll("#lpPeopleList input:not(:disabled)").forEach(cb => { cb.checked = e.target.checked; });
+        syncSelectAll();
+        updateQueryBtnState();
+      });
     }
   }
 
@@ -122,9 +131,10 @@
         </label>`;
     }).join("");
     list.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(cb => {
-      cb.addEventListener("change", updateQueryBtnState);
+      cb.addEventListener("change", () => { syncSelectAll(); updateQueryBtnState(); });
     });
     updateQueryBtnState();
+    syncSelectAll();
   }
 
   function updateQueryBtnState() {
@@ -132,6 +142,19 @@
     if (!btn) return;
     const anyChecked = !![...document.querySelectorAll('#lpPeopleList input[type=checkbox]:checked:not(:disabled)')].length;
     btn.disabled = !anyChecked;
+  }
+
+  // Keeps the "Select all" checkbox in sync with the individual rows —
+  // ticked when every selectable row is, indeterminate when only some are.
+  function syncSelectAll() {
+    const selectAll = document.getElementById("lpSelectAll");
+    if (!selectAll) return;
+    const boxes = [...document.querySelectorAll("#lpPeopleList input:not(:disabled)")];
+    if (!boxes.length) { selectAll.checked = false; selectAll.disabled = true; return; }
+    selectAll.disabled = false;
+    const checkedCount = boxes.filter(cb => cb.checked).length;
+    selectAll.checked = checkedCount === boxes.length;
+    selectAll.indeterminate = checkedCount > 0 && checkedCount < boxes.length;
   }
 
   function queryUpdatedSelected() {

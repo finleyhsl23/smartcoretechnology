@@ -700,6 +700,10 @@
       <div class="modal-header"><h3>Leaving Check</h3></div>
       <div class="modal-body">
         <p class="text-muted" style="margin-top:0">The register still shows these people signed in. Tick anyone who's actually left, then Query them.</p>
+        <label class="pfs-person-row pfs-select-all-row">
+          <input type="checkbox" id="lcSelectAll"/>
+          <div class="pfs-person-info"><strong>Select all</strong></div>
+        </label>
         <div id="lcPeopleList"></div>
       </div>
       <div class="modal-footer">
@@ -731,9 +735,10 @@
           </label>`;
       }).join("");
       list.querySelectorAll("input[type=checkbox]:not(:disabled)").forEach(cb => {
-        cb.addEventListener("change", updateQueryBtn);
+        cb.addEventListener("change", () => { syncSelectAll(); updateQueryBtn(); });
       });
       updateQueryBtn();
+      syncSelectAll();
     }
 
     function updateQueryBtn() {
@@ -741,6 +746,24 @@
       const anyChecked = !![...overlay.querySelectorAll("#lcPeopleList input:checked:not(:disabled)")].length;
       btn.disabled = !anyChecked;
     }
+
+    // Keeps the "Select all" checkbox in sync with the individual rows —
+    // ticked when every selectable row is, indeterminate when only some are.
+    function syncSelectAll() {
+      const selectAll = overlay.querySelector("#lcSelectAll");
+      const boxes = [...overlay.querySelectorAll("#lcPeopleList input:not(:disabled)")];
+      if (!boxes.length) { selectAll.checked = false; selectAll.disabled = true; return; }
+      selectAll.disabled = false;
+      const checkedCount = boxes.filter(cb => cb.checked).length;
+      selectAll.checked = checkedCount === boxes.length;
+      selectAll.indeterminate = checkedCount > 0 && checkedCount < boxes.length;
+    }
+
+    overlay.querySelector("#lcSelectAll").addEventListener("change", (e) => {
+      overlay.querySelectorAll("#lcPeopleList input:not(:disabled)").forEach(cb => { cb.checked = e.target.checked; });
+      syncSelectAll();
+      updateQueryBtn();
+    });
 
     renderList(new Set());
 
