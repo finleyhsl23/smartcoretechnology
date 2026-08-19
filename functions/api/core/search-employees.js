@@ -12,7 +12,10 @@ export async function onRequestGet(context) {
     const q = url.searchParams.get('q') || '';
     const roleFilter = url.searchParams.get('roles'); // e.g. "admin,owner"
 
-    let path = `/core_employees?company_id=eq.${profile.company_id}&select=id,full_name,role,job_title`;
+    // role=neq.kiosk — device accounts (presence-fire-safety kiosk sign-in
+    // recovery) are auth users, not real people, and must never surface in
+    // a "find a person" search used across modules.
+    let path = `/core_employees?company_id=eq.${profile.company_id}&role=neq.kiosk&select=id,full_name,role,job_title`;
     if (q) path += `&full_name=ilike.*${encodeURIComponent(q)}*`;
     if (roleFilter) {
       const roles = roleFilter.split(',').map(r => `"${r.trim()}"`).join(',');

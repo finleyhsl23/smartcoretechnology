@@ -31,7 +31,9 @@ export async function onRequestPost(context) {
     // Enforce employee limit
     const employeeLimit = companies?.[0]?.employee_limit;
     if (employeeLimit) {
-      const currentEmps = await sbGet(env, `/core_employees?company_id=eq.${profile.company_id}&select=id`);
+      // role=neq.kiosk — device accounts don't count against a company's
+      // paid headcount limit, they're not real people.
+      const currentEmps = await sbGet(env, `/core_employees?company_id=eq.${profile.company_id}&role=neq.kiosk&select=id`);
       const currentCount = currentEmps?.length || 0;
       if (currentCount >= employeeLimit) {
         return json({

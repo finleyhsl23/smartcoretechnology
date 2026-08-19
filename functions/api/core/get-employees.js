@@ -88,7 +88,10 @@ export async function onRequestGet(context) {
     }
 
     const [employees, departments, shiftPatterns, authorizers] = await Promise.all([
-      sbGet(env, `/core_employees?company_id=eq.${profile.company_id}&order=full_name.asc`),
+      // role=neq.kiosk — device accounts (see functions/api/presence-fire-safety/
+      // devices-register.js) are auth users for kiosk sign-in recovery, not
+      // real headcount, and must never show up in the employee directory.
+      sbGet(env, `/core_employees?company_id=eq.${profile.company_id}&role=neq.kiosk&order=full_name.asc`),
       sbGet(env, `/core_departments?company_id=eq.${profile.company_id}&order=name.asc`),
       sbGet(env, `/core_shift_patterns?company_id=eq.${profile.company_id}&order=name.asc`),
       sbGet(env, `/core_employee_authorizers?select=*,authorizer:authorizer_employee_id(id,full_name,role)`),
