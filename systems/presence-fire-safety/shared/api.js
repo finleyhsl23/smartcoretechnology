@@ -147,6 +147,30 @@ export const devices = {
     if (!res.ok) throw new Error(data.error || "Could not register device");
     return data;
   },
+  /** Kiosk-account candidates for the "enter kiosk mode" picker — active,
+   *  Basic-Auth-enabled devices at this site. */
+  async listKioskAccounts(companyId, siteId) {
+    const { data, error } = await sb().from("presence_fire_safety_devices")
+      .select("id, device_name").eq("company_id", companyId).eq("site_id", siteId)
+      .eq("active", true).eq("basic_auth_enabled", true).order("device_name");
+    if (error) throw error;
+    return data || [];
+  },
+  /** Switches this browser's session to a registered device's dedicated
+   *  kiosk account — no password needed, the caller just needs
+   *  presence.manage_settings. Returns the new session for setSession(). */
+  async switchToKioskAccount(deviceId) {
+    const { data: { session } } = await sb().auth.getSession();
+    if (!session) throw new Error("Not signed in");
+    const res = await fetch("/api/presence-fire-safety/kiosk-switch-session", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ device_id: deviceId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not switch to the kiosk account");
+    return data.session;
+  },
 };
 
 // ── Presence: live register, history, transactional sign in/out ─────────

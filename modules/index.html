@@ -808,6 +808,21 @@ async function loadDashboard(user) {
     if (empErr) throw empErr;
 
     const emp = empRows?.[0];
+
+    // A 'kiosk' role is a device's dedicated presence-fire-safety login
+    // (see functions/api/presence-fire-safety/devices-register.js) — full
+    // access within that one module, but deliberately never a real account
+    // anywhere else on the platform. It should never be usable to browse
+    // the general dashboard, so force a real sign-out back to the login
+    // screen instead of ever rendering it here.
+    if (emp?.role === 'kiosk') {
+      dashboardLoaded = false;
+      await sb.auth.signOut();
+      hide('shell'); show('loginWrap');
+      showErr(document.getElementById('lErr'), 'This is a kiosk device account — sign in with your own SmartCore account instead.');
+      return;
+    }
+
     state.employee = emp;
     state.companyId = emp?.company_id || null;
     state.isOwner = emp?.role === 'owner' || emp?.role === 'admin';

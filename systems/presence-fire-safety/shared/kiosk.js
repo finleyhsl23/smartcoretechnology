@@ -8,7 +8,7 @@
 
 import { sb } from "./supabase.js";
 import { getProfile, clearProfileCache, getMyPermissions, hasPermission, getSelectedSiteId } from "./auth.js";
-import { settings } from "./api.js";
+import { settings, devices } from "./api.js";
 import { esc, toast, modal } from "./ui.js";
 import { hideVirtualKeyboard } from "./virtual-keyboard.js";
 import { getTheme } from "./theme.js";
@@ -75,14 +75,84 @@ export function initKioskToggle({ companyId, currentPage }) {
     if (active) {
       await requestExitKioskMode({ companyId });
     } else {
-      setKioskModeActive(true);
-      if (currentPage && KIOSK_ALLOWED_PAGES.includes(currentPage)) {
-        window.location.reload();
-      } else {
-        window.location.href = SIGNIN_PAGE;
-      }
+      await requestEnterKioskMode({ companyId, currentPage });
     }
   };
+}
+
+/**
+ * Entering kiosk mode offers a choice: continue under the signed-in
+ * person's own account (simple, but ties the device to them personally —
+ * whoever exits kiosk mode as them lands in a real admin session), or
+ * switch to one of this site's registered kiosk device accounts (never
+ * tied to a person — see requestExitKioskMode, which forces a genuine
+ * sign-in on exit for that case). Skips straight to the "own account" path
+ * if no kiosk accounts exist for this site yet, same as the old behaviour.
+ */
+async function requestEnterKioskMode({ companyId, currentPage }) {
+  function proceed() {
+    setKioskModeActive(true);
+    if (currentPage && KIOSK_ALLOWED_PAGES.includes(currentPage)) {
+      window.location.reload();
+    } else {
+      window.location.href = SIGNIN_PAGE;
+    }
+  }
+
+  const siteId = getSelectedSiteId();
+  let kioskAccounts = [];
+  try {
+    if (siteId) kioskAccounts = await devices.listKioskAccounts(companyId, siteId);
+  } catch {
+    /* best-effort — fall through to the simple path below */
+  }
+  if (!kioskAccounts.length) { proceed(); return; }
+
+  const profile = await getProfile().catch(() => null);
+  const overlay = modal(`
+    <div class="modal-header"><h3>Enter Kiosk Mode</h3></div>
+    <div class="modal-body">
+      <p class="text-muted" style="margin-bottom:16px">How should this device sign in?</p>
+      <button type="button" class="pfs-kiosk-choice-btn" id="kioskChoiceMe">
+        <strong>Continue as ${esc(profile?.full_name || "me")}</strong>
+        <span>Uses your own account for this kiosk session.</span>
+      </button>
+      ${kioskAccounts.length > 1 ? `
+        <label class="form-label" for="kioskDeviceSelect" style="margin-top:16px">Kiosk account</label>
+        <select class="form-input" id="kioskDeviceSelect">
+          ${kioskAccounts.map(d => `<option value="${esc(d.id)}">${esc(d.device_name)}</option>`).join("")}
+        </select>
+      ` : ""}
+      <button type="button" class="pfs-kiosk-choice-btn recommended" id="kioskChoiceDevice" style="margin-top:10px">
+        <strong>Use a kiosk account <span class="badge badge-blue">Recommended</span></strong>
+        <span>This device's own dedicated login — never tied to you personally. Exiting kiosk mode always requires a real sign-in afterwards.</span>
+      </button>
+    </div>
+    <div class="modal-footer"><button class="btn modal-close" type="button">Cancel</button></div>
+  `);
+  window.lucide?.createIcons?.();
+
+  overlay.querySelector("#kioskChoiceMe").addEventListener("click", () => {
+    overlay.remove();
+    proceed();
+  });
+
+  overlay.querySelector("#kioskChoiceDevice").addEventListener("click", async (evt) => {
+    const btn = evt.currentTarget;
+    const deviceId = kioskAccounts.length > 1 ? overlay.querySelector("#kioskDeviceSelect").value : kioskAccounts[0].id;
+    btn.disabled = true;
+    try {
+      const session = await devices.switchToKioskAccount(deviceId);
+      const { error } = await sb().auth.setSession({ access_token: session.access_token, refresh_token: session.refresh_token });
+      if (error) throw error;
+      clearProfileCache();
+      overlay.remove();
+      proceed();
+    } catch (e) {
+      btn.disabled = false;
+      toast("error", "Couldn't switch to kiosk account", e.message || "Please try again.");
+    }
+  });
 }
 
 /**
@@ -100,6 +170,24 @@ export function renderKioskEvacuationBanner(containerId) {
       <i data-lucide="flame"></i><span>Emergency Evacuation</span>
     </a>`;
   window.lucide?.createIcons?.();
+}
+
+/**
+ * Releases kiosk mode after a successful PIN/fallback-sign-in exit. A
+ * 'kiosk' role is a device's own dedicated account (see
+ * requestEnterKioskMode/devices-register.js) — it must never be left
+ * sitting in an authenticated admin session, so exiting kiosk mode under
+ * one forces a real sign-out back to /modules/ instead of the module
+ * dashboard, requiring whoever's there to sign in with their own account.
+ */
+async function finishExitKioskMode(role) {
+  setKioskModeActive(false);
+  if (role === "kiosk") {
+    await sb().auth.signOut();
+    window.location.href = "/modules/";
+  } else {
+    window.location.href = DASHBOARD_PAGE;
+  }
 }
 
 /**
@@ -178,10 +266,9 @@ export async function requestExitKioskMode({ companyId }) {
         const pin = pinValue;
         if (!pin) { updateSubmitState(); return; }
         await settings.verifyKioskExitPin(companyId, getSelectedSiteId(), pin);
-        // Success — release kiosk mode and return to the admin dashboard.
-        setKioskModeActive(false);
         overlay.remove();
-        window.location.href = DASHBOARD_PAGE;
+        const profile = await getProfile().catch(() => null);
+        await finishExitKioskMode(profile?.role);
         return;
       }
 
@@ -203,9 +290,8 @@ export async function requestExitKioskMode({ companyId }) {
       await getMyPermissions(newProfile.company_id);
 
       if (hasPermission("presence.manage_settings")) {
-        setKioskModeActive(false);
         overlay.remove();
-        window.location.href = DASHBOARD_PAGE;
+        await finishExitKioskMode(newProfile.role);
       } else {
         alertBox.innerHTML = `<p class="form-error">Signed in, but this account doesn't have permission to exit kiosk mode. Ask an owner or administrator.</p>`;
         submitBtn.disabled = false;

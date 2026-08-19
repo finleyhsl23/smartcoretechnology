@@ -114,13 +114,13 @@ export async function onRequestPost({ request, env }) {
         auth_user_id: authUser.id,
         employee_id: kioskEmployeeId,
         full_name: `Kiosk: ${deviceName}`,
-        // 'admin' — presence_fire_safety_my_permissions() grants owner/
-        // admin/administrator every module permission unconditionally, so
-        // this session gets the full kiosk UI (employee, visitor,
-        // contractor sign-in, evacuation, everything) without needing a
-        // pile of individual permission grants for a device that isn't a
-        // real person anyway.
-        role: 'admin',
+        // 'kiosk' — a dedicated role (not 'admin') so this account gets
+        // full presence-fire-safety access (same as admin, within this one
+        // module — see presence_fire_safety_my_permissions/has_permission)
+        // but is never treated as a real admin/owner anywhere else on the
+        // platform, and modules/index.html refuses to show it a normal
+        // dashboard at all — a device isn't a person's account.
+        role: 'kiosk',
         work_email: kioskEmail,
       });
       if (!empRes.ok) {
