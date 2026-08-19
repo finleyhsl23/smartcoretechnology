@@ -718,10 +718,51 @@ sb.auth.onAuthStateChange((event, session) => {
   }
 });
 
+const PFS_KIOSK_MODE_KEY = 'smartcore-pfs-kiosk-mode';
+const PFS_SIGNIN_PAGE = '/systems/presence-fire-safety/employee-signin.html';
+
+/** Optional, additive recovery for unattended kiosk devices — NOT a login
+ *  gate, does nothing for anyone else. Only kicks in if this request
+ *  happens to already carry Basic Auth credentials (e.g. Fully Kiosk
+ *  Browser's own HTTP Authentication setting, configured once on the
+ *  device itself and sent automatically from then on, independent of any
+ *  page session/localStorage). If present, uses them to silently
+ *  re-establish the session instead of sitting on the login screen with no
+ *  one on-site to type a password back in. */
+async function tryKioskBasicAuthRecovery() {
+  try {
+    const res = await fetch('/api/kiosk-basic-auth-signin');
+    if (!res.ok) return false;
+    const { session } = await res.json();
+    if (!session?.access_token || !session?.refresh_token) return false;
+    // Set before setSession() so the onAuthStateChange handler above (which
+    // also reacts to SIGNED_IN) doesn't race us into loading the dashboard
+    // before the kiosk-mode redirect check below gets to run.
+    dashboardLoaded = true;
+    const { error } = await sb.auth.setSession({ access_token: session.access_token, refresh_token: session.refresh_token });
+    if (error) { dashboardLoaded = false; return false; }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function init() {
   try {
-    const { data: { session } } = await sb.auth.getSession();
+    let { data: { session } } = await sb.auth.getSession();
+    if (!session && await tryKioskBasicAuthRecovery()) {
+      ({ data: { session } } = await sb.auth.getSession());
+    }
     if (!session) { showLogin(); return; }
+
+    // A device with presence-fire-safety kiosk mode enabled should never
+    // sit on the general module list — snap it straight back to its kiosk
+    // sign-in screen, whether it got here via a normal load or recovery.
+    if (localStorage.getItem(PFS_KIOSK_MODE_KEY) === '1') {
+      window.location.replace(PFS_SIGNIN_PAGE);
+      return;
+    }
+
     dashboardLoaded = true;
     await loadDashboard(session.user);
   } catch(e) {
