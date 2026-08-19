@@ -88,9 +88,31 @@ export async function onRequestPost({ request, env }) {
       const authUser = await authRes.json();
       basicAuthAuthUserId = authUser.id;
 
+      // core_employees.employee_id is required and unique company-wide —
+      // same generation scheme as the normal "add employee" flow (see
+      // functions/api/core/add-employee.js), just with a fixed KSK prefix
+      // so these are obviously device accounts, not real headcount, at a
+      // glance in any employee list.
+      let kioskEmployeeId;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const digits = String(Math.floor(Math.random() * 1e9)).padStart(9, '0');
+        const candidate = `KSK${digits}`;
+        const existing = await sb(env, `/core_employees?employee_id=eq.${candidate}&select=id&limit=1`);
+        const existingRows = await existing.json();
+        if (!existingRows?.length) { kioskEmployeeId = candidate; break; }
+      }
+      if (!kioskEmployeeId) {
+        await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${authUser.id}`, {
+          method: 'DELETE',
+          headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+        }).catch(() => {});
+        return json({ error: 'Could not allocate a unique kiosk employee ID — please try again' }, 500);
+      }
+
       const empRes = await sb(env, '/core_employees', 'POST', {
         company_id: profile.company_id,
         auth_user_id: authUser.id,
+        employee_id: kioskEmployeeId,
         full_name: `Kiosk: ${deviceName}`,
         role: 'employee',
         work_email: kioskEmail,
