@@ -114,7 +114,13 @@ export async function onRequestPost({ request, env }) {
         auth_user_id: authUser.id,
         employee_id: kioskEmployeeId,
         full_name: `Kiosk: ${deviceName}`,
-        role: 'employee',
+        // 'admin' — presence_fire_safety_my_permissions() grants owner/
+        // admin/administrator every module permission unconditionally, so
+        // this session gets the full kiosk UI (employee, visitor,
+        // contractor sign-in, evacuation, everything) without needing a
+        // pile of individual permission grants for a device that isn't a
+        // real person anyway.
+        role: 'admin',
         work_email: kioskEmail,
       });
       if (!empRes.ok) {
