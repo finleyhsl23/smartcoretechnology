@@ -6,14 +6,20 @@
 // The raw secret is returned exactly once, in this response, and is never
 // logged.
 //
-// If enable_basic_auth is set, ALSO provisions a dedicated Supabase login
-// used only for kiosk Basic Auth recovery (see functions/api/kiosk-start.js)
-// — deliberately never a real employee's own password, so a kiosk browser's
-// stored credentials are worthless for anything beyond signing into that
-// one low-privilege device identity, and can be revoked independently by
-// deactivating the device.
+// If enable_basic_auth is set, this also gives the device Basic Auth
+// recovery (see functions/api/kiosk-start.js) — but deliberately WITHOUT
+// ever creating a real Supabase Auth user. A random UUID is stored directly
+// as core_employees.auth_user_id (that column has no FK to auth.users) and
+// kiosk-start.js/kiosk-switch-session.js sign a session JWT for it
+// themselves (see _kiosk_jwt.js) — so a kiosk device never appears in
+// Supabase Auth at all, only as a core_employees row scoped to this module.
+// The Basic Auth username/password are this device's own credentials,
+// hashed and checked directly against presence_fire_safety_devices — not a
+// real login for anything else, and revocable independently of any person's
+// actual account by deactivating the device.
 import { json, options, getCallerProfile, hasPermission, sb } from './_auth.js';
 import { sendResendEmail, smartcoreEmailShell } from '../_utils.js';
+import { sha256Hex } from './_kiosk_jwt.js';
 
 export const onRequestOptions = () => options();
 
@@ -27,12 +33,6 @@ function generateDeviceSecret() {
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   const extra = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`).replace(/-/g, '');
   return `${hex}${extra}`;
-}
-
-async function sha256Hex(input) {
-  const data = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 export async function onRequestPost({ request, env }) {
@@ -62,32 +62,19 @@ export async function onRequestPost({ request, env }) {
     const tokenHash = await sha256Hex(rawSecret);
 
     let basicAuthAuthUserId = null;
+    let basicAuthUsername = null;
+    let basicAuthPasswordHash = null;
     let basicAuthCredentials = null;
     if (enableBasicAuth) {
-      const slug = deviceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'kiosk';
-      const kioskEmail = `kiosk-${slug}-${crypto.randomUUID().slice(0, 8)}@devices.smartcoretechnology.internal`;
-      const kioskPassword = generateDeviceSecret().slice(0, 32);
+      // No Supabase Auth user is created here — just a random identity for
+      // core_employees.auth_user_id (no FK to auth.users) that kiosk-start.js
+      // signs a session JWT for directly. See _kiosk_jwt.js.
+      basicAuthAuthUserId = crypto.randomUUID();
 
-      const authRes = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users`, {
-        method: 'POST',
-        headers: {
-          apikey: env.SUPABASE_SERVICE_KEY,
-          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: kioskEmail,
-          password: kioskPassword,
-          email_confirm: true,
-          user_metadata: { is_kiosk_device: true, device_name: deviceName },
-        }),
-      });
-      if (!authRes.ok) {
-        const err = await authRes.json().catch(() => ({}));
-        return json({ error: err.message || 'Could not create the kiosk sign-in account' }, 500);
-      }
-      const authUser = await authRes.json();
-      basicAuthAuthUserId = authUser.id;
+      const slug = deviceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'kiosk';
+      basicAuthUsername = `kiosk-${slug}-${crypto.randomUUID().slice(0, 8)}`;
+      const kioskPassword = generateDeviceSecret().slice(0, 32);
+      basicAuthPasswordHash = await sha256Hex(kioskPassword);
 
       // core_employees.employee_id is required and unique company-wide —
       // same generation scheme as the normal "add employee" flow (see
@@ -103,16 +90,12 @@ export async function onRequestPost({ request, env }) {
         if (!existingRows?.length) { kioskEmployeeId = candidate; break; }
       }
       if (!kioskEmployeeId) {
-        await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${authUser.id}`, {
-          method: 'DELETE',
-          headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
-        }).catch(() => {});
         return json({ error: 'Could not allocate a unique kiosk employee ID — please try again' }, 500);
       }
 
       const empRes = await sb(env, '/core_employees', 'POST', {
         company_id: profile.company_id,
-        auth_user_id: authUser.id,
+        auth_user_id: basicAuthAuthUserId,
         employee_id: kioskEmployeeId,
         full_name: `Kiosk: ${deviceName}`,
         // 'kiosk' — a dedicated role (not 'admin') so this account gets
@@ -122,20 +105,13 @@ export async function onRequestPost({ request, env }) {
         // platform, and modules/index.html refuses to show it a normal
         // dashboard at all — a device isn't a person's account.
         role: 'kiosk',
-        work_email: kioskEmail,
       });
       if (!empRes.ok) {
-        // Best-effort cleanup — don't leave an orphaned auth user behind if
-        // the employee record failed to create.
-        await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${authUser.id}`, {
-          method: 'DELETE',
-          headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
-        }).catch(() => {});
         const errText = await empRes.text();
         throw new Error(errText || 'Could not create the kiosk employee record');
       }
 
-      basicAuthCredentials = { username: kioskEmail, password: kioskPassword };
+      basicAuthCredentials = { username: basicAuthUsername, password: kioskPassword };
     }
 
     const insertRes = await sb(env, '/presence_fire_safety_devices', 'POST', {
@@ -148,6 +124,8 @@ export async function onRequestPost({ request, env }) {
       created_by: profile.id,
       basic_auth_enabled: enableBasicAuth,
       basic_auth_auth_user_id: basicAuthAuthUserId,
+      basic_auth_username: basicAuthUsername,
+      basic_auth_password_hash: basicAuthPasswordHash,
     });
     if (!insertRes.ok) {
       const errText = await insertRes.text();

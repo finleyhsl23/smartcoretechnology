@@ -14,6 +14,15 @@
 // hook (onReceivedHttpAuthRequest) this relies on. This is the mechanism
 // that lets an unattended kiosk recover its own session (e.g. after an
 // overnight suspension wiped it) with nobody on-site to type a password.
+//
+// The username/password checked here are the device's OWN credentials
+// (hashed, stored on presence_fire_safety_devices) — not a real Supabase
+// Auth login. See functions/api/presence-fire-safety/devices-register.js
+// and _kiosk_jwt.js for why: a kiosk device deliberately never creates a
+// real auth.users row at all, only a core_employees row scoped to this one
+// module, with a JWT this endpoint signs itself.
+import { signKioskJwt, sha256Hex } from './presence-fire-safety/_kiosk_jwt.js';
+
 const SUPABASE_URL = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts';
 const DEFAULT_NEXT = '/systems/presence-fire-safety/employee-signin.html';
@@ -49,40 +58,31 @@ export async function onRequestGet({ request, env }) {
   const header = request.headers.get('Authorization') || '';
   if (!header.startsWith('Basic ')) return challenge('Sign-in required');
 
-  let email, password;
+  let username, password;
   try {
     const decoded = b64decode(header.slice(6));
     const idx = decoded.indexOf(':');
     if (idx < 0) throw new Error('malformed');
-    email = decoded.slice(0, idx);
+    username = decoded.slice(0, idx);
     password = decoded.slice(idx + 1);
   } catch {
     return errorPage('Malformed credentials.');
   }
-  if (!email || !password) return errorPage('Missing email or password.');
+  if (!username || !password) return errorPage('Missing username or password.');
 
   const baseUrl = env.SUPABASE_URL || SUPABASE_URL;
-  const res = await fetch(`${baseUrl}/auth/v1/token?grant_type=password`, {
-    method: 'POST',
-    headers: { apikey: SUPABASE_ANON, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-
-  if (!res.ok) return errorPage('The configured username/password were rejected.');
-  const session = await res.json();
-  if (!session?.access_token || !session?.refresh_token || !session?.user?.id) return errorPage('Sign-in did not return a usable session.');
-
-  // The password grant above only proves these are valid Supabase
-  // credentials — it says nothing about whether the device they belong to
-  // is still meant to have kiosk recovery access. Deactivating a device in
-  // Settings → Devices must actually revoke this, not just look like it
-  // does, so check the device row itself before granting entry.
   const deviceRes = await fetch(
-    `${baseUrl}/rest/v1/presence_fire_safety_devices?basic_auth_auth_user_id=eq.${session.user.id}&basic_auth_enabled=eq.true&active=eq.true&select=id&limit=1`,
+    `${baseUrl}/rest/v1/presence_fire_safety_devices?basic_auth_username=eq.${encodeURIComponent(username)}&basic_auth_enabled=eq.true&active=eq.true&select=id,basic_auth_auth_user_id,basic_auth_password_hash&limit=1`,
     { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } }
   );
   const devices = await deviceRes.json().catch(() => []);
-  if (!deviceRes.ok || !devices?.length) return errorPage('This device has been deactivated.');
+  const device = devices?.[0];
+  if (!deviceRes.ok || !device) return errorPage('The configured username/password were rejected.');
+
+  const passwordHash = await sha256Hex(password);
+  if (passwordHash !== device.basic_auth_password_hash) return errorPage('The configured username/password were rejected.');
+
+  const jwt = await signKioskJwt(env, device.basic_auth_auth_user_id);
 
   const html = `<!doctype html>
 <meta charset="utf-8">
@@ -92,9 +92,13 @@ export async function onRequestGet({ request, env }) {
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     const sb = supabase.createClient(${JSON.stringify(baseUrl)}, ${JSON.stringify(SUPABASE_ANON)});
+    // No real refresh token exists for a self-signed kiosk session — this
+    // token is long-lived (7 days) instead, and this same recovery flow
+    // re-mints a fresh one well before that (Fully Kiosk Browser reloads
+    // this Start URL periodically/on reboot) rather than needing one.
     sb.auth.setSession({
-      access_token: ${JSON.stringify(session.access_token)},
-      refresh_token: ${JSON.stringify(session.refresh_token)},
+      access_token: ${JSON.stringify(jwt)},
+      refresh_token: "kiosk-self-signed-no-refresh",
     }).then(({ error }) => {
       if (error) {
         document.body.textContent = 'Could not establish session: ' + error.message;
