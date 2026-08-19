@@ -1,5 +1,40 @@
 // UI helpers for the Smartfits Vehicle Installations Database
 
+// Phone cameras routinely shoot 8-15MB, 4000px+ photos — comfortably over
+// what the storage bucket accepts, and the "file too large" upload
+// failures this caused were exactly that. A wiring/component-location
+// photo doesn't need more than ~2000px on its longest edge to zoom in on
+// clearly, so every photo gets downscaled to that (and re-encoded as a
+// reasonably-compressed JPEG) before it's staged or uploaded — this alone
+// gets the overwhelming majority of phone photos down to 1-3MB. Anything
+// already small (already-compact image, or a non-JPEG-friendly type like
+// GIF) is left alone rather than needlessly re-encoded.
+const MAX_IMAGE_DIMENSION = 2000;
+const IMAGE_QUALITY = 0.82;
+const SKIP_COMPRESSION_UNDER_BYTES = 3 * 1024 * 1024;
+
+export async function compressImage(file) {
+  if (!file.type?.startsWith("image/") || file.type === "image/gif") return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size < SKIP_COMPRESSION_UNDER_BYTES) {
+      bitmap.close?.();
+      return file;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", IMAGE_QUALITY));
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file; // compression failing shouldn't block the upload — fall back to the original
+  }
+}
+
 // Staged photos (add-a-vehicle / suggest-a-change flows) sit in memory as
 // File objects until the parent row exists and they can actually be
 // uploaded — which on a long multi-photo form can be minutes later, and on
@@ -8,9 +43,14 @@
 // after that, so reading its bytes into a plain in-memory Blob the moment
 // it's picked (rather than only when finally uploaded) avoids uploads
 // failing with a generic "Load failed" once the user gets to Save/Submit.
+// Also runs the file through compressImage() first, so every photo that
+// ever gets staged is already a reasonably-sized JPEG by the time it's
+// frozen — this is the one place both add-mode and edit-mode's staging
+// paths funnel through.
 export async function freezeFile(file) {
-  const buf = await file.arrayBuffer();
-  return new File([buf], file.name, { type: file.type });
+  const compressed = await compressImage(file);
+  const buf = await compressed.arrayBuffer();
+  return new File([buf], compressed.name, { type: compressed.type });
 }
 
 export function esc(s) {

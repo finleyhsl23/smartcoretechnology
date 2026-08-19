@@ -41,7 +41,7 @@
   } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/api.js";
   import { renderNav, initMobileNav, initTopbar } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/nav.js";
   import { initTheme } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/theme.js";
-  import { esc, setInner, loadingState, errorState, toast, confirmDialog, permissionDeniedState, modal, freezeFile } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
+  import { esc, setInner, loadingState, errorState, toast, confirmDialog, permissionDeniedState, modal, freezeFile, compressImage } from "/custom/smartfitsinstallationsltd/vehicle-database/shared/ui.js";
 
   initTheme();
   const BASE = "/custom/smartfitsinstallationsltd/vehicle-database";
@@ -227,7 +227,7 @@
       if (!file) return;
       if (isEdit) {
         try {
-          await uploadVehiclePhoto(vehicleId, category, file, _profile.id);
+          await uploadVehiclePhoto(vehicleId, category, await compressImage(file), _profile.id);
           _existingPhotos = await listVehiclePhotos(vehicleId);
           renderPhotoStrip(category);
         } catch (err) {
@@ -1009,10 +1009,13 @@
     const patch = buildPatchFromVehicle();
     const btn = document.getElementById("wizNextBtn");
     btn.disabled = true;
+    const btnOriginalHtml = btn.innerHTML;
     try {
       if (_canDirectCreate) {
         const created = await createVehicle(patch, _profile.id);
-        for (const p of _stagedPhotos) {
+        for (let i = 0; i < _stagedPhotos.length; i++) {
+          setUploadProgress(btn, i, _stagedPhotos.length);
+          const p = _stagedPhotos[i];
           try { await uploadVehiclePhoto(created.id, p.category, p.file, _profile.id); }
           catch (err) { toast("error", `Couldn't upload a photo (${p.category.replace(/_/g, " ")})`, err.message); }
         }
@@ -1022,7 +1025,9 @@
         // the same review queue as a field-edit suggestion, just with the
         // whole vehicle as the "proposed changes" and no vehicle_id yet.
         const request = await createNewVehicleRequest({ requested_by: _profile.id, proposed_changes: patch });
-        for (const p of _stagedPhotos) {
+        for (let i = 0; i < _stagedPhotos.length; i++) {
+          setUploadProgress(btn, i, _stagedPhotos.length);
+          const p = _stagedPhotos[i];
           try { await uploadRequestPhoto(request.id, p.category, p.file); }
           catch (err) { toast("error", `Couldn't upload a photo (${p.category.replace(/_/g, " ")})`, err.message); }
         }
@@ -1031,9 +1036,20 @@
       }
     } catch (e2) {
       btn.disabled = false;
+      btn.innerHTML = btnOriginalHtml;
+      window.lucide?.createIcons?.();
       const message = /duplicate key.*registration/i.test(e2.message) ? "This registration already has a profile for that fitment." : e2.message;
       toast("error", "Couldn't save", message);
     }
+  }
+
+  // Shows which of several photos is uploading right now — a multi-photo
+  // vehicle otherwise just sits on a disabled button for however long the
+  // whole batch takes, with nothing to say it hasn't stalled.
+  function setUploadProgress(btn, index, total) {
+    if (total <= 1) return;
+    btn.innerHTML = `<i data-lucide="upload"></i> Uploading photo ${index + 1} of ${total}…`;
+    window.lucide?.createIcons?.();
   }
 
   // Managers/admins/owners skip the review queue entirely — this is the
