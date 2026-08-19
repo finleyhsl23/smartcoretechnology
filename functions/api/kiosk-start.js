@@ -70,7 +70,19 @@ export async function onRequestGet({ request, env }) {
 
   if (!res.ok) return errorPage('The configured username/password were rejected.');
   const session = await res.json();
-  if (!session?.access_token || !session?.refresh_token) return errorPage('Sign-in did not return a usable session.');
+  if (!session?.access_token || !session?.refresh_token || !session?.user?.id) return errorPage('Sign-in did not return a usable session.');
+
+  // The password grant above only proves these are valid Supabase
+  // credentials — it says nothing about whether the device they belong to
+  // is still meant to have kiosk recovery access. Deactivating a device in
+  // Settings → Devices must actually revoke this, not just look like it
+  // does, so check the device row itself before granting entry.
+  const deviceRes = await fetch(
+    `${baseUrl}/rest/v1/presence_fire_safety_devices?basic_auth_auth_user_id=eq.${session.user.id}&basic_auth_enabled=eq.true&active=eq.true&select=id&limit=1`,
+    { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } }
+  );
+  const devices = await deviceRes.json().catch(() => []);
+  if (!deviceRes.ok || !devices?.length) return errorPage('This device has been deactivated.');
 
   const html = `<!doctype html>
 <meta charset="utf-8">
