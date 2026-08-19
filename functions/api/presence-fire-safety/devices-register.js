@@ -13,6 +13,7 @@
 // one low-privilege device identity, and can be revoked independently by
 // deactivating the device.
 import { json, options, getCallerProfile, hasPermission, sb } from './_auth.js';
+import { sendResendEmail, smartcoreEmailShell } from '../_utils.js';
 
 export const onRequestOptions = () => options();
 
@@ -153,6 +154,34 @@ export async function onRequestPost({ request, env }) {
       throw new Error(errText || 'Could not register device');
     }
     const [device] = await insertRes.json();
+
+    // Best-effort — a new device is a security-relevant event (especially
+    // with Basic Auth recovery enabled, which mints a standing sign-in
+    // credential) that owners/admins should know about even if they weren't
+    // the one who registered it. Never let this failing affect the
+    // already-successful registration above.
+    try {
+      const adminsRes = await sb(env, `/core_employees?company_id=eq.${profile.company_id}&role=in.(owner,admin,administrator)&select=full_name,work_email`);
+      const admins = (await adminsRes.json()).filter((a) => a.work_email);
+      if (admins.length) {
+        const html = smartcoreEmailShell({
+          title: 'New device registered',
+          intro: `${profile.full_name || 'Someone'} registered a new Presence &amp; Fire Safety device for <strong>${site.name}</strong>.`,
+          bodyHtml: `
+            <p><strong>Device:</strong> ${deviceName} (${deviceType})</p>
+            <p><strong>Basic Auth recovery:</strong> ${enableBasicAuth ? 'Enabled' : 'Off'}</p>
+            ${enableBasicAuth ? '<p style="color:#6b7280;font-size:13px">This device now has a standing sign-in credential for unattended kiosk recovery. If this wasn\'t expected, deactivate it in Settings → Devices.</p>' : ''}
+          `,
+          buttonText: 'View Devices',
+          buttonUrl: 'https://smartcoretechnology.co.uk/systems/presence-fire-safety/settings.html',
+        });
+        await Promise.allSettled(
+          admins.map((a) => sendResendEmail(env, { to: a.work_email, subject: `New device registered: ${deviceName}`, html }))
+        );
+      }
+    } catch (e) {
+      console.error('devices-register: admin notification failed', e.message);
+    }
 
     // Never log rawSecret, tokenHash, or basicAuthCredentials.
     return json({
