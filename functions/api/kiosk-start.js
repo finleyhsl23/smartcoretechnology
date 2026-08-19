@@ -24,7 +24,6 @@
 import { signKioskJwt, sha256Hex } from './presence-fire-safety/_kiosk_jwt.js';
 
 const SUPABASE_URL = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts';
 const DEFAULT_NEXT = '/systems/presence-fire-safety/employee-signin.html';
 
 function challenge(message) {
@@ -84,29 +83,55 @@ export async function onRequestGet({ request, env }) {
 
   const jwt = await signKioskJwt(env, device.basic_auth_auth_user_id);
 
+  // Deliberately does NOT use supabase-js's own auth.setSession() here.
+  // setSession() calls Supabase Auth's /auth/v1/user endpoint to hydrate the
+  // full user object, and that endpoint rejects any JWT whose `sub` isn't a
+  // real row in auth.users — exactly what a kiosk identity is not by design
+  // (see functions/api/presence-fire-safety/_kiosk_jwt.js). Instead, this
+  // writes the session directly into the same localStorage key supabase-js
+  // uses by default (`sb-<project-ref>-auth-token`) and does a plain
+  // navigation — the destination page's own fresh client picks the session
+  // up from storage on init without ever calling that endpoint, as long as
+  // it isn't already near expiry (a freshly-minted 7-day token never is).
   const html = `<!doctype html>
 <meta charset="utf-8">
 <title>Signing in…</title>
 <body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#03060f;color:#e2e8f0">
   <div>Signing in…</div>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
-    const sb = supabase.createClient(${JSON.stringify(baseUrl)}, ${JSON.stringify(SUPABASE_ANON)});
-    // No real refresh token exists for a self-signed kiosk session — this
-    // token is long-lived (7 days) instead, and this same recovery flow
-    // re-mints a fresh one well before that (Fully Kiosk Browser reloads
-    // this Start URL periodically/on reboot) rather than needing one.
-    sb.auth.setSession({
-      access_token: ${JSON.stringify(jwt)},
-      refresh_token: "kiosk-self-signed-no-refresh",
-    }).then(({ error }) => {
-      if (error) {
-        document.body.textContent = 'Could not establish session: ' + error.message;
-        return;
+    (function () {
+      function decodeJwtPayload(jwt) {
+        var b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        var pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+        return JSON.parse(atob(b64 + pad));
       }
+      var accessToken = ${JSON.stringify(jwt)};
+      var payload = decodeJwtPayload(accessToken);
+      var iat = payload.iat || Math.floor(Date.now() / 1000);
+      var nowIso = new Date(iat * 1000).toISOString();
+      var session = {
+        access_token: accessToken,
+        refresh_token: 'kiosk-self-signed-no-refresh',
+        token_type: 'bearer',
+        expires_in: payload.exp - iat,
+        expires_at: payload.exp,
+        user: {
+          id: payload.sub,
+          aud: payload.aud || 'authenticated',
+          role: payload.role || 'authenticated',
+          email: '',
+          phone: '',
+          app_metadata: {},
+          user_metadata: {},
+          identities: [],
+          created_at: nowIso,
+          updated_at: nowIso,
+        },
+      };
+      localStorage.setItem('sb-hjdpcfhozhoyeqevnupm-auth-token', JSON.stringify(session));
       localStorage.setItem('smartcore-pfs-kiosk-mode', '1');
       window.location.replace(${JSON.stringify(next)});
-    });
+    })();
   </script>
 </body>`;
 

@@ -1,6 +1,7 @@
 // Shared auth/authorization helpers for Presence & Fire Safety Cloudflare
 // Pages Functions. Mirrors the pattern in functions/api/core/_auth.js —
 // fetch-based, no npm dependencies, one shared helper file per module.
+import { verifyJwt } from './_kiosk_jwt.js';
 
 export const SUPABASE_URL = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
 // Same anon (publishable) key already used verbatim elsewhere in this repo,
@@ -40,23 +41,26 @@ export function getToken(request) {
 // should treat that as 401. The resolved profile carries the caller's own
 // bearer `token` forward so downstream RPC calls can be made as that user
 // (see rpcAsUser/hasPermission below).
+//
+// Verifies the token's signature/expiry LOCALLY (verifyJwt) rather than
+// asking Supabase Auth's /auth/v1/user endpoint. That endpoint additionally
+// requires `sub` to exist in auth.users — true for real employees, but
+// deliberately NOT true for kiosk device identities (self-signed JWTs, see
+// _kiosk_jwt.js), which would otherwise get rejected here on every single
+// API call a kiosk makes, not just at sign-in.
 export async function getCallerProfile(request, env) {
   const token = getToken(request);
   if (!token) return null;
 
-  const userRes = await fetch(`${baseUrl(env)}/auth/v1/user`, {
-    headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_SERVICE_KEY },
-  });
-  if (!userRes.ok) return null;
-  const user = await userRes.json();
-  if (!user?.id) return null;
+  const payload = await verifyJwt(env, token);
+  if (!payload?.sub) return null;
 
-  const empRes = await sb(env, `/core_employees?auth_user_id=eq.${user.id}&select=*&limit=1`);
+  const empRes = await sb(env, `/core_employees?auth_user_id=eq.${payload.sub}&select=*&limit=1`);
   if (!empRes.ok) return null;
   const profiles = await empRes.json();
   if (!profiles?.length) return null;
 
-  return { ...profiles[0], auth_id: user.id, auth_email: user.email, token };
+  return { ...profiles[0], auth_id: payload.sub, auth_email: payload.email || null, token };
 }
 
 // ---------------------------------------------------------------------------

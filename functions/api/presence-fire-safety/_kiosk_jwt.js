@@ -50,3 +50,52 @@ export async function sha256Hex(input) {
   const digest = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+function base64urlToBytes(str) {
+  const padded = str.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((str.length + 3) % 4);
+  const bin = atob(padded);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+// Verifies a Supabase-shaped access token's HMAC signature and expiry
+// LOCALLY, without calling Supabase Auth's /auth/v1/user endpoint. That
+// endpoint verifies the JWT's signature the same way, but ALSO looks up
+// `sub` in auth.users and rejects the token if no such row exists — which
+// is exactly true of every kiosk identity by design (see devices-register.js).
+// Both real employee sessions and kiosk sessions are HS256-signed with the
+// same project JWT secret, so this one local check works for both, and is
+// what every presence-fire-safety API endpoint should use to resolve the
+// caller instead of asking GoTrue (see _auth.js's getCallerProfile).
+export async function verifyJwt(env, token) {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [headerB64, payloadB64, sigB64] = parts;
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(env.SUPABASE_JWT_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    key,
+    base64urlToBytes(sigB64),
+    encoder.encode(`${headerB64}.${payloadB64}`)
+  );
+  if (!valid) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(base64urlToBytes(payloadB64)));
+  } catch {
+    return null;
+  }
+  if (!payload?.sub) return null;
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+  return payload;
+}

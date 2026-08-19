@@ -12,6 +12,57 @@ export function sb() {
   return _client;
 }
 
+// supabase-js's default localStorage key for this project — the same key it
+// computes internally as `sb-<project-ref>-auth-token`. Kept as an explicit
+// constant here because installKioskSession() below writes to it directly,
+// bypassing the SDK, so it must match exactly.
+const KIOSK_STORAGE_KEY = "sb-hjdpcfhozhoyeqevnupm-auth-token";
+
+function decodeJwtPayload(jwt) {
+  const b64 = jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+  return JSON.parse(atob(b64 + pad));
+}
+
+/**
+ * Installs a kiosk session (a self-signed JWT with no real Supabase Auth
+ * user behind it — see functions/api/presence-fire-safety/_kiosk_jwt.js)
+ * directly into local storage, in the shape supabase-js expects, instead of
+ * calling the SDK's own auth.setSession(). setSession() calls GoTrue's
+ * /auth/v1/user endpoint to hydrate the full user object, and GoTrue
+ * rejects any JWT whose `sub` isn't a real auth.users row — exactly what a
+ * kiosk identity deliberately is not ("User from sub claim in JWT does not
+ * exist"). Writing storage directly and then doing a full page navigation
+ * avoids that call: the next page's fresh client reads the stored session
+ * locally on init and only hits the network if it's near expiry, which a
+ * freshly-minted 7-day kiosk token never is.
+ */
+export function installKioskSession(accessToken, refreshToken) {
+  const payload = decodeJwtPayload(accessToken);
+  const iat = payload.iat || Math.floor(Date.now() / 1000);
+  const nowIso = new Date(iat * 1000).toISOString();
+  const session = {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    token_type: "bearer",
+    expires_in: payload.exp - iat,
+    expires_at: payload.exp,
+    user: {
+      id: payload.sub,
+      aud: payload.aud || "authenticated",
+      role: payload.role || "authenticated",
+      email: "",
+      phone: "",
+      app_metadata: {},
+      user_metadata: {},
+      identities: [],
+      created_at: nowIso,
+      updated_at: nowIso,
+    },
+  };
+  localStorage.setItem(KIOSK_STORAGE_KEY, JSON.stringify(session));
+}
+
 /**
  * Kiosk devices sit on one page for days at a time. If the OS suspends the
  * tab's JS execution (screen-off power saving overnight, backgrounding,

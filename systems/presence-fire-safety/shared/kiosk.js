@@ -6,7 +6,7 @@
 // evacuation PIN — see the migration notes), with a fallback to a full
 // SmartCore sign-in if the PIN is wrong or forgotten.
 
-import { sb } from "./supabase.js";
+import { sb, installKioskSession } from "./supabase.js";
 import { getProfile, clearProfileCache, getMyPermissions, hasPermission, getSelectedSiteId } from "./auth.js";
 import { settings, devices } from "./api.js";
 import { esc, toast, modal, loadingState } from "./ui.js";
@@ -149,8 +149,7 @@ async function requestEnterKioskMode({ companyId, currentPage }) {
     overlay.querySelector(".modal-footer")?.remove();
     try {
       const session = await devices.switchToKioskAccount(deviceId);
-      const { error } = await sb().auth.setSession({ access_token: session.access_token, refresh_token: session.refresh_token });
-      if (error) throw error;
+      installKioskSession(session.access_token, session.refresh_token);
       clearProfileCache();
       await new Promise((r) => setTimeout(r, 600));
       overlay.remove();
