@@ -240,21 +240,26 @@ function renderMapCard(card) {
 function renderEventCard(card) {
   const items = card.type === "event_list" ? card.data : [card.data];
   if (!items?.length) return "";
-  const rows = items.slice(0,5).map(e => `
+  const rows = items.slice(0,5).map(e => {
+    const startTime = e.start_time ? fmtTime(e.start_time) : "All day";
+    const startDate = e.start_time ? fmtDate(e.start_time) : "";
+    const locHtml   = e.location ? `<span>📍 ${esc(e.location)}</span>` : "";
+    const descStr   = e.description ? e.description.slice(0,80) : "";
+    const descEllip = e.description && e.description.length > 80 ? "…" : "";
+    const descHtml  = e.description ? `<span>${esc(descStr)}${descEllip}</span>` : "";
+    return `
     <div class="event-row">
       <div class="event-time-block">
-        <div class="etime">${esc(e.start_time ? fmtTime(e.start_time) : "All day")}</div>
-        <div class="edate">${esc(e.start_time ? fmtDate(e.start_time) : "")}</div>
+        <div class="etime">${esc(startTime)}</div>
+        <div class="edate">${esc(startDate)}</div>
       </div>
       <div class="event-info">
         <div class="event-title">${esc(e.title)}</div>
-        <div class="event-meta">
-          ${e.location ? `<span>📍 ${esc(e.location)}</span>` : ""}
-          ${e.description ? `<span>${esc(e.description.slice(0,80))}${e.description.length>80?"…":""}</span>` : ""}
-        </div>
+        <div class="event-meta">${locHtml}${descHtml}</div>
       </div>
-    </div>`).join("");
-  const headLabel = card.action==="created" ? "Event Created" : items.length + " Event" + (items.length!==1?"s":"");
+    </div>`;
+  }).join("");
+  const headLabel = card.action === "created" ? "Event Created" : items.length + " Event" + (items.length !== 1 ? "s" : "");
   return `
     <div class="card">
       <div class="card-head"><span>📅</span> ${headLabel}</div>
@@ -277,7 +282,7 @@ function renderTaskCard(card) {
       ${dueHtml}
     </div>`;
   }).join("");
-  const taskLabel = card.action==="created" ? "Task Created" : items.length + " Task" + (items.length!==1?"s":"");
+  const taskLabel = card.action === "created" ? "Task Created" : items.length + " Task" + (items.length !== 1 ? "s" : "");
   return `
     <div class="card">
       <div class="card-head"><span>✅</span> ${taskLabel}</div>
@@ -289,19 +294,19 @@ function renderContactCard(card) {
   const items = card.type === "contact_list" ? card.data : [card.data];
   if (!items?.length) return "";
   const contacts = items.slice(0,6).map(c => {
-    const initials = ((c.first_name?.[0]||"")+( c.last_name?.[0]||"")).toUpperCase()||"?";
+    const initials  = ((c.first_name?.[0] || "") + (c.last_name?.[0] || "")).toUpperCase() || "?";
     const emailHtml = c.email ? `<div class="contact-detail">✉ ${esc(c.email)}</div>` : "";
     const phoneHtml = c.phone ? `<div class="contact-detail">📞 ${esc(c.phone)}</div>` : "";
     return `
       <div class="contact-item">
         <div class="contact-avatar">${esc(initials)}</div>
         <div>
-          <div class="contact-name">${esc(c.first_name+" "+(c.last_name||""))}</div>
+          <div class="contact-name">${esc(c.first_name + " " + (c.last_name || ""))}</div>
           ${emailHtml}${phoneHtml}
         </div>
       </div>`;
   }).join("");
-  const contLabel = card.action==="created" ? "Contact Saved" : items.length + " Contact" + (items.length!==1?"s":"");
+  const contLabel = card.action === "created" ? "Contact Saved" : items.length + " Contact" + (items.length !== 1 ? "s" : "");
   return `
     <div class="card">
       <div class="card-head"><span>👤</span> ${contLabel}</div>
@@ -314,20 +319,20 @@ function renderEmailDraft(card) {
   const toName   = card.to ? card.to.split(" ")[0] : "[Name]";
   const greeting = card.to ? `Dear ${toName},` : "Dear [Name],";
   const sign     = card.from_name ? `\n\nKind regards,\n${card.from_name}` : "\n\nKind regards,\n[Your name]";
-  const points   = card.key_points?.length ? "\n\n"+card.key_points.map((p,i)=>`${i+1}. ${p}`).join("\n") : "";
+  const points   = card.key_points?.length ? "\n\n" + card.key_points.map((p,i) => `${i+1}. ${p}`).join("\n") : "";
   const body     = `${greeting}\n\n[Re: ${card.purpose}]${points}${sign}`;
   return `
     <div class="card">
       <div class="card-head"><span>✉️</span> Email Draft</div>
       <div class="card-body">
         <div class="email-draft-header">
-          <span class="email-draft-label">To:</span><span>${esc(card.to||"(recipient)")}</span>
-          <span class="email-draft-label">Subject:</span><span>${esc(card.subject||"(subject)")}</span>
+          <span class="email-draft-label">To:</span><span>${esc(card.to || "(recipient)")}</span>
+          <span class="email-draft-label">Subject:</span><span>${esc(card.subject || "(subject)")}</span>
         </div>
         <div class="email-draft-body" id="${id}">${esc(body)}</div>
         <div class="email-draft-actions">
           <button class="card-btn" onclick="window._copyDraft('${id}')">📋 Copy</button>
-          <button class="card-btn" onclick="window._refineEmail(this)" data-purpose="${esc(card.purpose||"")}">✏️ Refine</button>
+          <button class="card-btn" onclick="window._refineEmail(this)" data-purpose="${esc(card.purpose || "")}">✏️ Refine</button>
         </div>
       </div>
     </div>`;
@@ -337,16 +342,17 @@ function renderNoteCard(card) {
   const items = card.type === "note_list" ? card.data : [card.data];
   if (!items?.length) return "";
   const rows = items.slice(0,3).map(n => {
-    const tagsHtml = n.tags?.length ? `<div class="note-tags">${n.tags.map(t=>`<span class="note-tag">${esc(t)}</span>`).join("")}</div>` : "";
-    const preview  = n.content.slice(0,200) + (n.content.length>200?"…":"");
+    const preview  = n.content.slice(0, 200);
+    const ellip    = n.content.length > 200 ? "…" : "";
+    const tagsHtml = n.tags?.length ? `<div class="note-tags">${n.tags.map(t => `<span class="note-tag">${esc(t)}</span>`).join("")}</div>` : "";
     return `
     <div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.04);">
       <div style="font-size:13px;font-weight:600;margin-bottom:5px;">${esc(n.title)}</div>
-      <div class="note-card-content">${esc(preview)}</div>
+      <div class="note-card-content">${esc(preview)}${ellip}</div>
       ${tagsHtml}
     </div>`;
   }).join("");
-  const noteLabel = card.action==="created" ? "Note Saved" : items.length + " Note" + (items.length!==1?"s":"");
+  const noteLabel = card.action === "created" ? "Note Saved" : items.length + " Note" + (items.length !== 1 ? "s" : "");
   return `
     <div class="card">
       <div class="card-head"><span>📄</span> ${noteLabel}</div>
@@ -357,9 +363,9 @@ function renderNoteCard(card) {
 function renderReminderCard(card) {
   const r = card.data;
   if (!r) return "";
-  const headLabel  = card.action==="created" ? "Reminder Set" : "Reminder";
-  const repeatInfo = r.repeat_interval && r.repeat_interval!=="none" ? ` · repeats ${r.repeat_interval}` : "";
-  const timeStr    = r.remind_at ? r.remind_at.slice(0,16).replace("T"," ") : "";
+  const headLabel  = card.action === "created" ? "Reminder Set" : "Reminder";
+  const timeStr    = r.remind_at ? r.remind_at.slice(0,16).replace("T", " ") : "";
+  const repeatInfo = r.repeat_interval && r.repeat_interval !== "none" ? ` · repeats ${r.repeat_interval}` : "";
   return `
     <div class="card">
       <div class="card-head"><span>⏰</span> ${headLabel}</div>
@@ -654,13 +660,13 @@ function setIntState(id, val) {
 let activeSettingsTab = "profile";
 
 function openSettings() {
-  document.getElementById("settingsOverlay").classList.add("active");
-  document.getElementById("settingsPanel").classList.add("active");
+  document.getElementById("settingsOverlay")?.classList.add("active");
+  document.getElementById("settingsPanel")?.classList.add("active");
   renderSettingsTab(activeSettingsTab);
 }
 function closeSettings() {
-  document.getElementById("settingsOverlay").classList.remove("active");
-  document.getElementById("settingsPanel").classList.remove("active");
+  document.getElementById("settingsOverlay")?.classList.remove("active");
+  document.getElementById("settingsPanel")?.classList.remove("active");
 }
 
 function renderSettingsTab(tab) {
