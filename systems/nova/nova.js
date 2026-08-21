@@ -636,13 +636,13 @@ function setIntState(id, val) {
 let activeSettingsTab = "profile";
 
 function openSettings() {
-  document.getElementById("settingsOverlay").classList.add("active");
-  document.getElementById("settingsPanel").classList.add("active");
+  document.getElementById("settingsOverlay")?.classList.add("active");
+  document.getElementById("settingsPanel")?.classList.add("active");
   renderSettingsTab(activeSettingsTab);
 }
 function closeSettings() {
-  document.getElementById("settingsOverlay").classList.remove("active");
-  document.getElementById("settingsPanel").classList.remove("active");
+  document.getElementById("settingsOverlay")?.classList.remove("active");
+  document.getElementById("settingsPanel")?.classList.remove("active");
 }
 
 function renderSettingsTab(tab) {
