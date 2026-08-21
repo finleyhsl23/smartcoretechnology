@@ -567,6 +567,363 @@ async function sendMessage() {
   }
 }
 
+// ── Settings ────────────────────────────────────────────────────────────────
+const INTEGRATIONS = [
+  {
+    category: "Music",
+    items: [
+      { id: "spotify",     icon: "🎵", name: "Spotify",     desc: "Stream music & control playback" },
+      { id: "apple_music", icon: "🎶", name: "Apple Music", desc: "Access your Apple Music library" },
+    ]
+  },
+  {
+    category: "Location & Tracking",
+    items: [
+      { id: "life360", icon: "📍", name: "Life360", desc: "Family location sharing & safety" },
+      { id: "geotab",  icon: "🚗", name: "Geotab",  desc: "Fleet & vehicle tracking" },
+    ]
+  },
+  {
+    category: "Cameras",
+    items: [
+      { id: "ring",        icon: "🔔", name: "Ring",        desc: "Doorbell & security cameras" },
+      { id: "hik_connect", icon: "📷", name: "Hik Connect", desc: "Hikvision IP camera system" },
+      { id: "nest_cam",    icon: "🏠", name: "Nest Cam",    desc: "Google Nest indoor & outdoor cams" },
+      { id: "arlo",        icon: "📹", name: "Arlo",        desc: "Wire-free smart home cameras" },
+    ]
+  },
+  {
+    category: "Smart Home",
+    items: [
+      { id: "alexa",        icon: "🔵", name: "Amazon Alexa",  desc: "Voice control & smart home hub" },
+      { id: "google_home",  icon: "🏡", name: "Google Home",   desc: "Cast, control & automate devices" },
+      { id: "homekit",      icon: "🍎", name: "Apple HomeKit", desc: "Secure home automation" },
+      { id: "philips_hue",  icon: "💡", name: "Philips Hue",   desc: "Smart lighting control" },
+    ]
+  },
+  {
+    category: "Calendar & Email",
+    items: [
+      { id: "gcal",    icon: "📅", name: "Google Calendar",    desc: "Sync events & reminders" },
+      { id: "outlook", icon: "📧", name: "Microsoft Outlook",  desc: "Email & calendar integration" },
+    ]
+  },
+  {
+    category: "Productivity",
+    items: [
+      { id: "notion", icon: "📝", name: "Notion",          desc: "Pages, databases & tasks" },
+      { id: "slack",  icon: "💬", name: "Slack",           desc: "Team messages & channels" },
+      { id: "teams",  icon: "👥", name: "Microsoft Teams", desc: "Meetings & collaboration" },
+    ]
+  },
+  {
+    category: "Health & Fitness",
+    items: [
+      { id: "apple_health", icon: "❤️", name: "Apple Health", desc: "Activity, sleep & vitals" },
+      { id: "fitbit",       icon: "💪", name: "Fitbit",       desc: "Fitness tracking & heart rate" },
+      { id: "garmin",       icon: "⌚", name: "Garmin",       desc: "GPS sports watches & data" },
+    ]
+  },
+];
+
+function getIntState(id) {
+  return localStorage.getItem("nova_int_" + id) === "1";
+}
+function setIntState(id, val) {
+  localStorage.setItem("nova_int_" + id, val ? "1" : "0");
+}
+
+let activeSettingsTab = "profile";
+
+function openSettings() {
+  document.getElementById("settingsOverlay").classList.add("active");
+  document.getElementById("settingsPanel").classList.add("active");
+  renderSettingsTab(activeSettingsTab);
+}
+function closeSettings() {
+  document.getElementById("settingsOverlay").classList.remove("active");
+  document.getElementById("settingsPanel").classList.remove("active");
+}
+
+function renderSettingsTab(tab) {
+  activeSettingsTab = tab;
+  document.querySelectorAll(".snav-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.tab === tab);
+  });
+  const body = document.getElementById("settingsBody");
+  if (!body) return;
+  if (tab === "profile")       body.innerHTML = renderProfileTab();
+  else if (tab === "voice")    body.innerHTML = renderVoiceTab();
+  else if (tab === "appearance") body.innerHTML = renderAppearanceTab();
+  else if (tab === "integrations") body.innerHTML = renderIntegrationsTab();
+  else if (tab === "notifications") body.innerHTML = renderNotificationsTab();
+  else if (tab === "privacy")  body.innerHTML = renderPrivacyTab();
+  attachSettingsEvents(tab);
+}
+
+function renderProfileTab() {
+  const initial  = (profile?.full_name?.[0] || "U").toUpperCase();
+  const fullName = esc(profile?.full_name || "User");
+  const email    = esc(session?.user?.email || "");
+  const role     = esc(profile?.role || "user");
+  return `
+    <div class="profile-avatar-row">
+      <div class="profile-avatar-large">${initial}</div>
+      <div>
+        <div class="profile-name">${fullName}</div>
+        <div class="profile-email">${email}</div>
+        <span class="profile-role">${role}</span>
+      </div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-label">Account</div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">Sign out</div>
+          <div class="settings-row-sub">Sign out of Nova on this device</div>
+        </div>
+        <button class="int-connect-btn" id="settingsSignOut" style="color:#fca5a5;border-color:rgba(239,68,68,0.2);background:rgba(239,68,68,0.06)">Sign out</button>
+      </div>
+    </div>`;
+}
+
+function renderVoiceTab() {
+  const wakeChecked    = localStorage.getItem("nova_wake") !== "0" ? "checked" : "";
+  const ttsChecked     = ttsEnabled ? "checked" : "";
+  const autoChecked    = localStorage.getItem("nova_autosend") !== "0" ? "checked" : "";
+  return `
+    <div class="settings-section">
+      <div class="settings-section-label">Wake Word</div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">Wake word detection</div>
+          <div class="settings-row-sub">Say "Nova" to activate hands-free</div>
+        </div>
+        <input type="checkbox" class="toggle" id="toggleWake" ${wakeChecked}>
+      </div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-label">Text to Speech</div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">Read responses aloud</div>
+          <div class="settings-row-sub">Nova will speak her replies</div>
+        </div>
+        <input type="checkbox" class="toggle" id="toggleTTS" ${ttsChecked}>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">Auto-send voice input</div>
+          <div class="settings-row-sub">Send automatically after speaking</div>
+        </div>
+        <input type="checkbox" class="toggle" id="toggleAutoSend" ${autoChecked}>
+      </div>
+    </div>`;
+}
+
+function renderAppearanceTab() {
+  const isDark      = document.documentElement.getAttribute("data-theme") !== "light";
+  const curAccent   = localStorage.getItem("nova_accent") || "blue";
+  const swatches = [
+    { key: "blue",   color: "#1e5cff", label: "Blue" },
+    { key: "purple", color: "#8b5cf6", label: "Purple" },
+    { key: "teal",   color: "#06b6d4", label: "Teal" },
+    { key: "green",  color: "#10b981", label: "Green" },
+    { key: "rose",   color: "#f43f5e", label: "Rose" },
+    { key: "amber",  color: "#f59e0b", label: "Amber" },
+  ];
+  const swatchHtml = swatches.map(s => {
+    const sel = s.key === curAccent ? " selected" : "";
+    return `<div class="accent-swatch${sel}" data-accent="${s.key}" style="background:${s.color}" title="${s.label}"></div>`;
+  }).join("");
+  return `
+    <div class="settings-section">
+      <div class="settings-section-label">Theme</div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">Dark mode</div>
+          <div class="settings-row-sub">Deep space interface</div>
+        </div>
+        <input type="checkbox" class="toggle" id="toggleTheme" ${isDark ? "checked" : ""}>
+      </div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-label">Accent Colour</div>
+      <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:12px;">
+        <div class="settings-row-label">Choose your colour</div>
+        <div class="accent-picker">${swatchHtml}</div>
+      </div>
+    </div>`;
+}
+
+function renderIntegrationsTab() {
+  let html = "";
+  for (const group of INTEGRATIONS) {
+    html += `<div class="settings-section"><div class="settings-section-label">${esc(group.category)}</div>`;
+    for (const item of group.items) {
+      const connected   = getIntState(item.id);
+      const cardClass   = connected ? " connected" : "";
+      const actionHtml  = connected
+        ? `<span class="int-badge connected">Connected</span>`
+        : `<button class="int-connect-btn" data-int="${esc(item.id)}">Connect</button>`;
+      html += `
+        <div class="int-card${cardClass}" id="intcard_${esc(item.id)}">
+          <div class="int-icon">${item.icon}</div>
+          <div class="int-info">
+            <div class="int-name">${esc(item.name)}</div>
+            <div class="int-desc">${esc(item.desc)}</div>
+          </div>
+          ${actionHtml}
+        </div>`;
+    }
+    html += "</div>";
+  }
+  return html;
+}
+
+function renderNotificationsTab() {
+  const pushChecked   = localStorage.getItem("nova_notif_push")   !== "0" ? "checked" : "";
+  const emailChecked  = localStorage.getItem("nova_notif_email")  === "1" ? "checked" : "";
+  const remindChecked = localStorage.getItem("nova_notif_remind") !== "0" ? "checked" : "";
+  return `
+    <div class="settings-section">
+      <div class="settings-section-label">Notifications</div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">Push notifications</div>
+          <div class="settings-row-sub">Reminders and alerts on this device</div>
+        </div>
+        <input type="checkbox" class="toggle" id="togglePush" ${pushChecked}>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">Email digest</div>
+          <div class="settings-row-sub">Daily summary of tasks and events</div>
+        </div>
+        <input type="checkbox" class="toggle" id="toggleEmail" ${emailChecked}>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">Reminder alerts</div>
+          <div class="settings-row-sub">Get notified when reminders are due</div>
+        </div>
+        <input type="checkbox" class="toggle" id="toggleRemind" ${remindChecked}>
+      </div>
+    </div>`;
+}
+
+function renderPrivacyTab() {
+  const histChecked  = localStorage.getItem("nova_privacy_history")   !== "0" ? "checked" : "";
+  const analytChecked = localStorage.getItem("nova_privacy_analytics") !== "0" ? "checked" : "";
+  return `
+    <div class="settings-section">
+      <div class="settings-section-label">Data & Privacy</div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">Save conversation history</div>
+          <div class="settings-row-sub">Store chats in your account</div>
+        </div>
+        <input type="checkbox" class="toggle" id="toggleHistory" ${histChecked}>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">Usage analytics</div>
+          <div class="settings-row-sub">Help improve Nova with anonymous data</div>
+        </div>
+        <input type="checkbox" class="toggle" id="toggleAnalytics" ${analytChecked}>
+      </div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-label">Data</div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">Clear conversation history</div>
+          <div class="settings-row-sub">Delete all stored chats permanently</div>
+        </div>
+        <button class="int-connect-btn" id="clearHistoryBtn" style="color:#fca5a5;border-color:rgba(239,68,68,0.2);background:rgba(239,68,68,0.06)">Clear</button>
+      </div>
+    </div>`;
+}
+
+function attachSettingsEvents(tab) {
+  if (tab === "profile") {
+    document.getElementById("settingsSignOut")?.addEventListener("click", async () => {
+      await sb().auth.signOut();
+      window.location.href = "/app/index.html";
+    });
+  }
+  if (tab === "voice") {
+    document.getElementById("toggleTTS")?.addEventListener("change", (e) => {
+      ttsEnabled = e.target.checked;
+      document.getElementById("ttsBtn").textContent = ttsEnabled ? "🔊" : "🔇";
+      if (!ttsEnabled) stopSpeaking();
+    });
+    document.getElementById("toggleWake")?.addEventListener("change", (e) => {
+      localStorage.setItem("nova_wake", e.target.checked ? "1" : "0");
+      toast("ok", e.target.checked ? "Wake word on" : "Wake word off");
+    });
+    document.getElementById("toggleAutoSend")?.addEventListener("change", (e) => {
+      localStorage.setItem("nova_autosend", e.target.checked ? "1" : "0");
+    });
+  }
+  if (tab === "appearance") {
+    document.getElementById("toggleTheme")?.addEventListener("change", (e) => {
+      const next = e.target.checked ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("nova_theme", next);
+      document.getElementById("themeBtn").textContent = next === "dark" ? "☀️" : "🌙";
+    });
+    document.querySelectorAll(".accent-swatch").forEach(sw => {
+      sw.addEventListener("click", () => {
+        document.querySelectorAll(".accent-swatch").forEach(s => s.classList.remove("selected"));
+        sw.classList.add("selected");
+        localStorage.setItem("nova_accent", sw.dataset.accent);
+        toast("ok", sw.title + " accent selected");
+      });
+    });
+  }
+  if (tab === "integrations") {
+    document.querySelectorAll(".int-connect-btn[data-int]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        setIntState(btn.dataset.int, true);
+        toast("ok", "Integration connected");
+        renderSettingsTab("integrations");
+      });
+    });
+  }
+  if (tab === "notifications") {
+    document.getElementById("togglePush")?.addEventListener("change", (e) => {
+      localStorage.setItem("nova_notif_push", e.target.checked ? "1" : "0");
+    });
+    document.getElementById("toggleEmail")?.addEventListener("change", (e) => {
+      localStorage.setItem("nova_notif_email", e.target.checked ? "1" : "0");
+    });
+    document.getElementById("toggleRemind")?.addEventListener("change", (e) => {
+      localStorage.setItem("nova_notif_remind", e.target.checked ? "1" : "0");
+    });
+  }
+  if (tab === "privacy") {
+    document.getElementById("toggleHistory")?.addEventListener("change", (e) => {
+      localStorage.setItem("nova_privacy_history", e.target.checked ? "1" : "0");
+    });
+    document.getElementById("toggleAnalytics")?.addEventListener("change", (e) => {
+      localStorage.setItem("nova_privacy_analytics", e.target.checked ? "1" : "0");
+    });
+    document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
+      toast("ok", "Conversation history cleared");
+    });
+  }
+}
+
+function initSettings() {
+  document.getElementById("settingsBtn")?.addEventListener("click", openSettings);
+  document.getElementById("settingsClose")?.addEventListener("click", closeSettings);
+  document.getElementById("settingsOverlay")?.addEventListener("click", closeSettings);
+  document.querySelectorAll(".snav-btn").forEach(btn => {
+    btn.addEventListener("click", () => renderSettingsTab(btn.dataset.tab));
+  });
+}
+
 // ── Boot ───────────────────────────────────────────────────────────────────
 async function boot() {
   initTheme();
@@ -580,6 +937,7 @@ async function boot() {
   renderGreeting();
   initVoice();
   initWakeWord();
+  initSettings();
   resetIdle();
 
   document.addEventListener("mousemove", resetIdle, { passive: true });
