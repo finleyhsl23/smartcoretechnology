@@ -278,20 +278,27 @@
   background-clip:text;
   animation:shimmer 4.5s linear infinite;
 }
-[data-theme="light"] #cursorGlow{ display:none; }
-
-/* cursor glow — instant, no lag */
-#cursorGlow{
-  position:fixed;
-  pointer-events:none;
-  z-index:9999;
-  width:600px;
-  height:600px;
-  border-radius:50%;
-  background: radial-gradient(circle, rgba(100,160,255,.09) 0%, transparent 65%);
-  transform: translate(-50%,-50%);
-  will-change: transform;
+/* custom cursor */
+*{ cursor: none !important; }
+#cursorDot{
+  position:fixed;pointer-events:none;z-index:10000;
+  width:6px;height:6px;border-radius:50%;
+  background:rgba(180,210,255,.95);
+  transform:translate(-50%,-50%);
+  will-change:transform;
+  mix-blend-mode:screen;
 }
+#cursorRing{
+  position:fixed;pointer-events:none;z-index:9999;
+  width:36px;height:36px;border-radius:50%;
+  border:1.5px solid rgba(120,170,255,.5);
+  transform:translate(-50%,-50%);
+  will-change:transform;
+  transition:width .18s ease,height .18s ease,border-color .18s ease,opacity .18s ease;
+}
+#cursorRing.hover{width:48px;height:48px;border-color:rgba(120,170,255,.85);background:rgba(120,170,255,.06)}
+[data-theme="light"] #cursorDot{background:rgba(37,99,235,.9)}
+[data-theme="light"] #cursorRing{border-color:rgba(37,99,235,.35)}
 
 /* hamburger menu drawer */
 #menuDrawer{
@@ -360,12 +367,7 @@
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
 }
 
-/* step connector line */
-.step-line{
-  position:absolute;top:28px;left:calc(50% + 32px);width:calc(100% - 64px);
-  height:1px;background:linear-gradient(90deg,rgba(120,170,255,.35),rgba(120,170,255,.08));
-}
-@media(max-width:767px){.step-line{display:none}}
+.step-line{display:none}
 
 /* feature row */
 .feat-row{display:flex;gap:16px;align-items:flex-start;padding:20px;border-radius:16px;transition:background .15s}
@@ -407,6 +409,36 @@
   z-index:0;
 }
 
+/* section scroll nav */
+#sectionNav{
+  position:fixed;right:20px;top:50%;transform:translateY(-50%);
+  z-index:30;display:flex;flex-direction:column;align-items:flex-end;gap:10px;
+  opacity:0;transition:opacity .3s;
+}
+#sectionNav.visible{opacity:1}
+.snav-item{
+  display:flex;align-items:center;gap:8px;cursor:pointer;
+  padding:0;border:none;background:none;color:var(--text);
+}
+.snav-label{
+  font-size:11px;font-weight:600;letter-spacing:.04em;
+  background:rgba(8,12,28,.82);border:1px solid rgba(255,255,255,.1);
+  padding:4px 10px;border-radius:8px;
+  opacity:0;transform:translateX(6px);
+  transition:opacity .16s,transform .16s;
+  white-space:nowrap;pointer-events:none;backdrop-filter:blur(10px);
+}
+.snav-dot{
+  width:8px;height:8px;border-radius:50%;flex-shrink:0;
+  background:rgba(255,255,255,.18);border:1.5px solid rgba(255,255,255,.25);
+  transition:background .2s,transform .2s,border-color .2s;
+}
+.snav-item:hover .snav-label{opacity:1;transform:translateX(0)}
+.snav-item:hover .snav-dot{background:rgba(120,170,255,.6);border-color:rgba(120,170,255,.8);transform:scale(1.3)}
+.snav-item.active .snav-dot{background:rgba(120,170,255,.9);border-color:rgba(120,170,255,1);transform:scale(1.4);box-shadow:0 0 0 3px rgba(120,170,255,.15)}
+.snav-line{width:1px;height:14px;background:rgba(255,255,255,.1);margin-right:3.5px}
+@media(max-width:1100px){#sectionNav{display:none}}
+
 /* download badge strip */
 .dl-strip{
   display:inline-flex;align-items:center;gap:10px;
@@ -432,7 +464,8 @@
 
 <body>
 
-  <div id="cursorGlow"></div>
+  <div id="cursorDot"></div>
+  <div id="cursorRing"></div>
 
   <!-- NAV -->
   <header id="nav" class="fixed top-4 left-0 right-0 z-40 navShow">
@@ -493,6 +526,7 @@
     <a href="/modules" class="menu-link"><span class="menu-link-icon">🧩</span>Your Modules</a>
     <a href="/download" class="menu-link"><span class="menu-link-icon">📲</span>Download App</a>
     <a href="/qna" class="menu-link"><span class="menu-link-icon">💬</span>Q&amp;A / Support</a>
+    <a href="/#packages" id="menuCustom" class="menu-link"><span class="menu-link-icon">🔧</span>Custom Modules</a>
 
     <div style="height:1px;background:rgba(255,255,255,.07);margin:12px 0"></div>
 
@@ -642,7 +676,7 @@
     </section>
 
     <!-- HOW IT WORKS -->
-    <section class="max-w-6xl mx-auto px-4 py-20">
+    <section id="how-it-works" class="max-w-6xl mx-auto px-4 py-20">
       <hr class="glow-divider mb-20">
       <div class="fadeUp" data-anim>
         <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs mb-4" style="border-color:var(--stroke2);background:var(--panelB);color:var(--muted)">
@@ -653,38 +687,40 @@
           From signup to up-and-running in minutes. No IT team required.
         </p>
       </div>
-      <div class="mt-12 grid sm:grid-cols-3 gap-8 fadeUp" data-anim>
-        <div style="position:relative">
-          <div style="position:relative;display:inline-block">
-            <div style="width:56px;height:56px;border-radius:18px;background:rgba(120,170,255,.12);border:1px solid rgba(120,170,255,.28);display:flex;align-items:center;justify-content:center;font-size:22px">🏗️</div>
-            <div style="position:absolute;top:-8px;right:-8px;width:20px;height:20px;border-radius:50%;background:rgba(120,170,255,.9);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#020617">1</div>
+      <!-- connector row -->
+      <div class="mt-12 hidden sm:flex items-center justify-between px-6 mb-[-28px]" style="position:relative;z-index:1">
+        <div style="flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(120,170,255,.3) 30%,rgba(120,170,255,.3) 70%,transparent)"></div>
+      </div>
+      <div class="mt-0 grid sm:grid-cols-3 gap-8 fadeUp" data-anim style="position:relative;z-index:2">
+        <div class="glass2 p-6">
+          <div style="position:relative;display:inline-block;margin-bottom:20px">
+            <div style="width:56px;height:56px;border-radius:18px;background:rgba(120,170,255,.12);border:1px solid rgba(120,170,255,.28);display:flex;align-items:center;justify-content:center;font-size:22px">🛒</div>
+            <div style="position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;background:rgba(120,170,255,.9);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#020617">1</div>
           </div>
-          <div class="step-line"></div>
-          <h3 class="mt-5 text-base font-bold">Pick your modules</h3>
+          <h3 class="text-base font-bold">Pick your modules</h3>
           <p class="mt-2 text-sm leading-relaxed" style="color:var(--muted)">Choose from our ready-to-use modules in the shop. Pay for only what your business actually needs — nothing more.</p>
         </div>
-        <div style="position:relative">
-          <div style="position:relative;display:inline-block">
+        <div class="glass2 p-6">
+          <div style="position:relative;display:inline-block;margin-bottom:20px">
             <div style="width:56px;height:56px;border-radius:18px;background:rgba(120,170,255,.12);border:1px solid rgba(120,170,255,.28);display:flex;align-items:center;justify-content:center;font-size:22px">📲</div>
-            <div style="position:absolute;top:-8px;right:-8px;width:20px;height:20px;border-radius:50%;background:rgba(120,170,255,.9);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#020617">2</div>
+            <div style="position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;background:rgba(120,170,255,.9);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#020617">2</div>
           </div>
-          <div class="step-line"></div>
-          <h3 class="mt-5 text-base font-bold">Download the app</h3>
+          <h3 class="text-base font-bold">Download the app</h3>
           <p class="mt-2 text-sm leading-relaxed" style="color:var(--muted)">Install SmartCore on iOS, Android, or any browser. Log in with your account and your modules are ready immediately.</p>
         </div>
-        <div>
-          <div style="position:relative;display:inline-block">
+        <div class="glass2 p-6">
+          <div style="position:relative;display:inline-block;margin-bottom:20px">
             <div style="width:56px;height:56px;border-radius:18px;background:rgba(120,170,255,.12);border:1px solid rgba(120,170,255,.28);display:flex;align-items:center;justify-content:center;font-size:22px">🚀</div>
-            <div style="position:absolute;top:-8px;right:-8px;width:20px;height:20px;border-radius:50%;background:rgba(120,170,255,.9);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#020617">3</div>
+            <div style="position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;background:rgba(120,170,255,.9);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#020617">3</div>
           </div>
-          <h3 class="mt-5 text-base font-bold">Start using it</h3>
+          <h3 class="text-base font-bold">Start using it</h3>
           <p class="mt-2 text-sm leading-relaxed" style="color:var(--muted)">Your team is up and running. No training days, no consultant onboarding. Just a system that works the way your business does.</p>
         </div>
       </div>
     </section>
 
     <!-- WHY SMARTCORE -->
-    <section style="background:rgba(255,255,255,.018);border-top:1px solid rgba(255,255,255,.055);border-bottom:1px solid rgba(255,255,255,.055)">
+    <section>
       <div class="max-w-6xl mx-auto px-4 py-20">
         <div class="grid lg:grid-cols-2 gap-16 items-start">
           <div class="fadeUp" data-anim>
@@ -770,6 +806,119 @@
             <tbody id="compTable">
             </tbody>
           </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- REVIEWS -->
+    <section id="reviews" class="max-w-6xl mx-auto px-4 py-20">
+      <hr class="glow-divider mb-20">
+      <div class="fadeUp" data-anim>
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs mb-4" style="border-color:var(--stroke2);background:var(--panelB);color:var(--muted)">
+          From our customers
+        </div>
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">What businesses are saying</h2>
+        <p class="mt-2 text-sm sm:text-[15px]" style="color:var(--muted);max-width:44rem">
+          Real feedback from real teams who use SmartCore every day.
+        </p>
+      </div>
+      <div class="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-4 fadeUp" data-anim>
+        <div class="glass2 p-6 flex flex-col gap-4">
+          <div style="display:flex;gap:2px">
+            <span style="color:#f59e0b;font-size:14px">★★★★★</span>
+          </div>
+          <p style="font-size:14px;line-height:1.7;color:var(--muted);flex:1">"We were drowning in spreadsheets for holiday requests and vehicle checks. SmartCore replaced both within a week. It just works — I genuinely don't have to think about it anymore."</p>
+          <div style="border-top:1px solid rgba(255,255,255,.07);padding-top:14px">
+            <div style="font-size:13px;font-weight:700">James Hartley</div>
+            <div style="font-size:12px;color:var(--muted2);margin-top:2px">Operations Director, Hartley Plant Hire</div>
+          </div>
+        </div>
+        <div class="glass2 p-6 flex flex-col gap-4">
+          <div style="display:flex;gap:2px">
+            <span style="color:#f59e0b;font-size:14px">★★★★★</span>
+          </div>
+          <p style="font-size:14px;line-height:1.7;color:var(--muted);flex:1">"The fire roll call module alone was worth every penny. Our health &amp; safety audit went smoother than it ever has. Staff picked it up immediately with zero training."</p>
+          <div style="border-top:1px solid rgba(255,255,255,.07);padding-top:14px">
+            <div style="font-size:13px;font-weight:700">Sarah Blythe</div>
+            <div style="font-size:12px;color:var(--muted2);margin-top:2px">Site Manager, Blythe Construction</div>
+          </div>
+        </div>
+        <div class="glass2 p-6 flex flex-col gap-4">
+          <div style="display:flex;gap:2px">
+            <span style="color:#f59e0b;font-size:14px">★★★★★</span>
+          </div>
+          <p style="font-size:14px;line-height:1.7;color:var(--muted);flex:1">"We had SmartCore build us a custom vehicle database module for our fleet. The whole process was straightforward and the end result was exactly what we asked for. Brilliant service."</p>
+          <div style="border-top:1px solid rgba(255,255,255,.07);padding-top:14px">
+            <div style="font-size:13px;font-weight:700">Lehanne Geary</div>
+            <div style="font-size:12px;color:var(--muted2);margin-top:2px">Director, SmartFits Installations Ltd</div>
+          </div>
+        </div>
+        <div class="glass2 p-6 flex flex-col gap-4 sm:col-span-2 lg:col-span-1">
+          <div style="display:flex;gap:2px">
+            <span style="color:#f59e0b;font-size:14px">★★★★★</span>
+          </div>
+          <p style="font-size:14px;line-height:1.7;color:var(--muted);flex:1">"The CRM has completely changed how we manage our client pipeline. Quotes go out faster, nothing falls through the cracks, and the mobile app means our field team actually update things on the day."</p>
+          <div style="border-top:1px solid rgba(255,255,255,.07);padding-top:14px">
+            <div style="font-size:13px;font-weight:700">Tom Weston</div>
+            <div style="font-size:12px;color:var(--muted2);margin-top:2px">Managing Director, Weston FM Services</div>
+          </div>
+        </div>
+        <div class="glass2 p-6 flex flex-col gap-4">
+          <div style="display:flex;gap:2px">
+            <span style="color:#f59e0b;font-size:14px">★★★★★</span>
+          </div>
+          <p style="font-size:14px;line-height:1.7;color:var(--muted);flex:1">"Honest pricing, no upsells, no surprise charges. Just a solid system that does what it says. That alone makes it stand out from everything else we've tried."</p>
+          <div style="border-top:1px solid rgba(255,255,255,.07);padding-top:14px">
+            <div style="font-size:13px;font-weight:700">Raj Patel</div>
+            <div style="font-size:12px;color:var(--muted2);margin-top:2px">Business Owner, Patel Cleaning Solutions</div>
+          </div>
+        </div>
+        <div class="glass2 p-6 flex flex-col gap-4">
+          <div style="display:flex;gap:2px">
+            <span style="color:#f59e0b;font-size:14px">★★★★★</span>
+          </div>
+          <p style="font-size:14px;line-height:1.7;color:var(--muted);flex:1">"SiteSnap transformed how we do inspections. Our team used to dread the paperwork. Now they open the app, fill it in, and photos are attached automatically. Reports are done before they even get back to the van."</p>
+          <div style="border-top:1px solid rgba(255,255,255,.07);padding-top:14px">
+            <div style="font-size:13px;font-weight:700">Claire Morrow</div>
+            <div style="font-size:12px;color:var(--muted2);margin-top:2px">Compliance Lead, Morrow Property Management</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECURITY STRIP -->
+    <section style="border-top:1px solid rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.05)">
+      <div class="max-w-6xl mx-auto px-4 py-14">
+        <div class="fadeUp text-center mb-10" data-anim>
+          <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs mb-4" style="border-color:var(--stroke2);background:var(--panelB);color:var(--muted)">
+            Security &amp; compliance
+          </div>
+          <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Your data, protected properly</h2>
+          <p class="mt-2 text-sm sm:text-[15px] mx-auto" style="color:var(--muted);max-width:40rem">
+            We don't treat security as an afterthought. It's baked into every layer of SmartCore from the ground up.
+          </p>
+        </div>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 fadeUp" data-anim>
+          <div style="text-align:center;padding:24px 16px">
+            <div style="font-size:32px;margin-bottom:12px">🇬🇧</div>
+            <div style="font-size:13px;font-weight:700;margin-bottom:6px">UK GDPR Compliant</div>
+            <div style="font-size:12px;color:var(--muted2);line-height:1.6">We handle your data in line with UK GDPR requirements. Full privacy policy available at <a href="/privacy-policy" style="color:var(--accent);text-decoration:none">/privacy-policy</a>.</div>
+          </div>
+          <div style="text-align:center;padding:24px 16px">
+            <div style="font-size:32px;margin-bottom:12px">🔐</div>
+            <div style="font-size:13px;font-weight:700;margin-bottom:6px">Encrypted End-to-End</div>
+            <div style="font-size:12px;color:var(--muted2);line-height:1.6">All data is encrypted in transit (TLS 1.3) and at rest. Your records are never stored in plaintext.</div>
+          </div>
+          <div style="text-align:center;padding:24px 16px">
+            <div style="font-size:32px;margin-bottom:12px">👤</div>
+            <div style="font-size:13px;font-weight:700;margin-bottom:6px">Role-based Access</div>
+            <div style="font-size:12px;color:var(--muted2);line-height:1.6">Managers see what managers should see. Employees see what they need. Nothing bleeds between permission levels.</div>
+          </div>
+          <div style="text-align:center;padding:24px 16px">
+            <div style="font-size:32px;margin-bottom:12px">📋</div>
+            <div style="font-size:13px;font-weight:700;margin-bottom:6px">Full Audit Trails</div>
+            <div style="font-size:12px;color:var(--muted2);line-height:1.6">Every action is logged. Who did what, when, from which device. Always there when you need it for compliance or disputes.</div>
+          </div>
         </div>
       </div>
     </section>
@@ -998,27 +1147,17 @@
             <h3 class="text-xl sm:text-2xl font-bold tracking-tight">Built by someone who actually gives a damn.</h3>
 
             <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
-              SmartCore Technology was founded by Finley Hassall — someone who’s been obsessed with building things since the age of six. Not in a casual, hobbyist way. In a "this should work properly and not waste anyone’s time" kind of way.
+              SmartCore Technology was founded by Finley Hassall on Christmas Day 2025 — an idea that came to life on a family skiing trip in the Three Valleys, France. What started as a conversation became a company. Every system has been designed and built by hand, with no off-the-shelf templates and no bloated frameworks.
             </p>
 
             <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
-              Every system in SmartCore has been designed and built by hand — no off-the-shelf templates, no bloated frameworks. Each feature, workflow, and interface decision has been made with real workplaces in mind. Clarity first. Reliability always.
+              Clarity first. Reliability always. Built to work quietly in the background and get out of your way.
             </p>
 
-            <p class="mt-4 text-sm sm:text-[15px] leading-relaxed" style="color: var(--muted);">
-              The company was developed with guidance from Finley’s mother, a business owner herself, which means SmartCore has been shaped by people who understand what it actually means to run something day to day — not just theorise about it.
-            </p>
-
-            <div class="mt-7 pt-6" style="border-top:1px solid var(--stroke2)">
-              <h4 class="text-base font-semibold tracking-tight">What SmartCore is built on</h4>
-              <ul class="mt-4 grid sm:grid-cols-2 gap-2 text-sm" style="color: var(--muted);">
-                <li class="flex gap-2 items-start"><span style="color:var(--accent);font-weight:700;flex-shrink:0">→</span> Every module solves a real, specific problem</li>
-                <li class="flex gap-2 items-start"><span style="color:var(--accent);font-weight:700;flex-shrink:0">→</span> Simple enough that anyone can use it on day one</li>
-                <li class="flex gap-2 items-start"><span style="color:var(--accent);font-weight:700;flex-shrink:0">→</span> Clear audit trails and records, always</li>
-                <li class="flex gap-2 items-start"><span style="color:var(--accent);font-weight:700;flex-shrink:0">→</span> Scales sensibly as your organisation grows</li>
-                <li class="flex gap-2 items-start"><span style="color:var(--accent);font-weight:700;flex-shrink:0">→</span> Built to last — not rebuilt every six months</li>
-                <li class="flex gap-2 items-start"><span style="color:var(--accent);font-weight:700;flex-shrink:0">→</span> Works quietly in the background, out of your way</li>
-              </ul>
+            <div class="mt-6 flex items-center gap-3">
+              <a href="/about" style="text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px;padding:10px 18px;border-radius:14px;border:1px solid rgba(120,170,255,.3);background:rgba(120,170,255,.1);font-size:14px;font-weight:600;transition:background .15s" onmouseover="this.style.background=’rgba(120,170,255,.18)’" onmouseout="this.style.background=’rgba(120,170,255,.1)’">
+                Read our full story →
+              </a>
             </div>
           </div>
         </div>
@@ -1027,6 +1166,10 @@
     </section>
 
   </main>
+
+  <!-- SECTION SCROLL NAV -->
+  <nav id="sectionNav" aria-label="Page sections">
+  </nav>
 
   <!-- FOOTER -->
   <footer style="position:relative;z-index:10;background:#010714;border-top:1px solid rgba(255,255,255,.07);margin-top:48px">
@@ -1306,9 +1449,9 @@
         b.style.setProperty("--ty", (dy * strength * -1).toFixed(1) + "px");
       });
 
-      /* move cursor glow — transform is composited, zero lag */
-      const glow = $("cursorGlow");
-      if(glow) glow.style.transform = `translate(calc(${e.clientX}px - 50%), calc(${e.clientY}px - 50%))`;
+      /* cursor: dot is instant via transform */
+      const dot = document.getElementById('cursorDot');
+      if(dot) dot.style.transform = `translate(calc(${e.clientX}px - 50%), calc(${e.clientY}px - 50%))`;
     }
 
     /******************************************************************
@@ -1338,15 +1481,90 @@
         card.addEventListener("mouseleave", () => {
           card.style.transform = "";
         });
+        card.addEventListener("mouseenter", ()=>{ const r=document.getElementById('cursorRing'); if(r) r.classList.add('hover'); });
+        card.addEventListener("mouseleave", ()=>{ const r=document.getElementById('cursorRing'); if(r) r.classList.remove('hover'); });
+      });
+    }
+
+    function initSectionNav(){
+      const nav = document.getElementById('sectionNav');
+      if(!nav) return;
+      const sections = [
+        {id:'hero',       label:'Top'},
+        {id:'how-it-works',label:'How it works'},
+        {id:'reviews',    label:'Reviews'},
+        {id:'packages',   label:'Custom Modules'},
+      ];
+      // Build nav items
+      const items = [];
+      sections.forEach((s,i)=>{
+        if(i>0){
+          const line=document.createElement('div');
+          line.className='snav-line';
+          nav.appendChild(line);
+        }
+        const btn=document.createElement('button');
+        btn.className='snav-item';
+        btn.setAttribute('aria-label',s.label);
+        btn.innerHTML=`<span class="snav-label">${s.label}</span><span class="snav-dot"></span>`;
+        btn.addEventListener('click',()=>{
+          const el=document.getElementById(s.id);
+          if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
+        });
+        nav.appendChild(btn);
+        items.push({btn,id:s.id});
+      });
+      // Show nav after scrolling past hero
+      const heroEl=document.getElementById('hero');
+      const showIO=new IntersectionObserver(entries=>{
+        nav.classList.toggle('visible',!entries[0].isIntersecting);
+      },{threshold:0.1});
+      if(heroEl) showIO.observe(heroEl);
+      // Highlight active section
+      const activeIO=new IntersectionObserver(entries=>{
+        entries.forEach(en=>{
+          const item=items.find(it=>it.id===en.target.id);
+          if(item) item.btn.classList.toggle('active',en.isIntersecting);
+        });
+      },{threshold:0.3});
+      items.forEach(it=>{
+        const el=document.getElementById(it.id);
+        if(el) activeIO.observe(el);
+      });
+    }
+
+    function initCursorRing(){
+      const ring = document.getElementById('cursorRing');
+      if(!ring) return;
+      let rx=0,ry=0,tx=0,ty=0;
+      window.addEventListener('mousemove', e=>{
+        tx=e.clientX; ty=e.clientY;
+      },{passive:true});
+      function loop(){
+        rx += (tx-rx)*0.14;
+        ry += (ty-ry)*0.14;
+        ring.style.transform=`translate(calc(${rx}px - 50%), calc(${ry}px - 50%))`;
+        requestAnimationFrame(loop);
+      }
+      loop();
+      /* enlarge ring on interactive elements */
+      document.querySelectorAll('a,button,[data-size]').forEach(el=>{
+        el.addEventListener('mouseenter',()=>ring.classList.add('hover'));
+        el.addEventListener('mouseleave',()=>ring.classList.remove('hover'));
       });
     }
 
     function initTicker(){
       const items = [
-        'Holiday Management','CRM Enterprise','SiteSnap','Presence & Fire Safety',
-        'Convoy','Flexi','Custom Modules','Nova AI Assistant',
-        'UK Built','99.8% Uptime','Mobile-First','Secure by Default',
-        'Instant Setup','Transparent Pricing'
+        'Instant module activation','Role-based access control','Full audit trails',
+        'Real-time data sync','GDPR compliant','UK built & hosted',
+        '99.8% uptime','Works on any device','No IT team needed',
+        'Transparent flat pricing','Encrypted at rest & in transit','Custom module builds',
+        'Automatic backups','Mobile-first design','No setup fees',
+        'Cancel anytime','Direct email support','Built from scratch, no templates',
+        'Scales with your business','No usage caps','Manager approval workflows',
+        'Photo evidence capture','Live attendance tracking','Secure document storage',
+        'Offline-capable mobile app'
       ];
       const inner = document.getElementById('tickerInner');
       if(!inner) return;
@@ -1772,6 +1990,12 @@
       if(menuOverlay) menuOverlay.addEventListener("click", closeMenu);
       document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeMenu(); });
 
+      const menuCustomEl = document.getElementById('menuCustom');
+      if(menuCustomEl) menuCustomEl.addEventListener('click', ()=>{
+        closeMenu();
+        setTimeout(()=>{ const el=document.getElementById('packages'); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); },300);
+      });
+
       // Theme toggle
       const html = document.documentElement;
       const storedTheme = localStorage.getItem('sc_theme') || 'dark';
@@ -1801,9 +2025,11 @@
       initAnim();
       initNavHide();
       initCardTilt();
+      initCursorRing();
       initTicker();
       initCounters();
       initComparison();
+      initSectionNav();
       wire();
 
       renderExamples();
