@@ -305,6 +305,23 @@ Deno.serve(async (req) => {
       content: message,
     });
 
+    // ---------- a human has taken this over — the AI stays out of it ----------
+    // Staff claimed this ticket from the support console. The message is
+    // stored above so they see it; no AI reply is generated. The customer's
+    // page keeps polling and will pick up the staff reply when it's sent.
+    if (ticket.claimed_by) {
+      return json({
+        ticket_id: ticket.id,
+        ticket_ref: ticket.ticket_ref,
+        agent_name: ticket.agent_name,
+        agent_title: ticket.agent_title,
+        reply: null,
+        escalated: false,
+        status: ticket.status,
+        human_owner: true,
+      });
+    }
+
     // ---------- build the transcript ----------
     const { data: history } = await admin
       .from("support_messages")

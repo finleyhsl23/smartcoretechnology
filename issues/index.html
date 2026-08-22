@@ -891,20 +891,23 @@ async function runExchange(text, isFirst){
       .select('id').eq('ticket_id', state.ticketId);
     (msgs || []).forEach(m => state.seen.add(m.id));
 
-    // Now the (now-identified) agent reads and replies — fresh timers,
-    // independent of however long the matching search took.
-    const read = readTime(text);
-    await sleep(read);
-    typing(true);
-    const { think, type } = replyTime(data.reply);
-    await sleep(think * 0.35 + type);
-    typing(false);
-    addMsg('them', data.reply, data.agent_name);
-
-    if (data.escalated) {
-      setTimeout(() => { showPipeline(); startPolling(); }, 700);
+    // A member of staff has taken this ticket over — there's no AI reply
+    // to deliver. Their message will arrive through the poller instead.
+    if (data.reply) {
+      const read = readTime(text);
+      await sleep(read);
+      typing(true);
+      const { think, type } = replyTime(data.reply);
+      await sleep(think * 0.35 + type);
+      typing(false);
+      addMsg('them', data.reply, data.agent_name);
     }
+
+    if (data.escalated) showPipeline();
     setStatus(data.status);
+    // A human may take over or reply at any point, on any ticket — always
+    // listen for it rather than only once escalated.
+    startPolling();
 
   } catch (e) {
     if (isFirst) resolveSearchingUI(null);

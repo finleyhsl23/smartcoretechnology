@@ -84,6 +84,8 @@ h1{font-size:22px;font-weight:750;letter-spacing:-.02em}
 .pill.info{color:var(--accent);border-color:rgba(120,170,255,.32);background:var(--accentSoft)}
 .pill.mute{color:var(--muted2)}
 .ml{margin-left:auto}
+.live-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(34,197,94,.6);animation:pulse 2.4s ease-out infinite;margin-right:6px}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}70%{box-shadow:0 0 0 6px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
 
 .detail{padding:20px 22px}
 .sec{margin-bottom:22px}
@@ -133,6 +135,7 @@ a{color:var(--accent)}
       <div class="sub" id="sub">Loading…</div>
     </div>
     <div class="row ml">
+      <span class="pill mute" id="liveBadge"><span class="live-dot"></span>Live</span>
       <button id="refresh" class="btn">Refresh</button>
       <button id="themeBtn" class="btn">Theme</button>
       <a href="/hq" class="btn">← HQ</a>
@@ -158,7 +161,10 @@ a{color:var(--accent)}
 const $ = id => document.getElementById(id);
 const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
 
-const state = { tickets: [], sel: null, filter: 'open', session: null };
+const state = {
+  tickets: [], sel: null, filter: 'open', session: null, staffId: null,
+  lastFx: null, knownMsgIds: new Set(),
+};
 
 /* theme */
 $('themeBtn').onclick = () => {
@@ -229,6 +235,35 @@ function renderList(){
   });
 }
 
+function headRowHtml(t, fx){
+  const claimBtn = (!t.claimed_by || t.claimed_by !== state.staffId)
+    ? `<button class="btn go" id="btnClaimToggle" data-act="claim">${t.claimed_by ? 'Take over' : 'Take over from AI'}</button>`
+    : `<button class="btn" id="btnClaimToggle" data-act="release">Hand back to AI</button>`;
+  const claimBadge = t.claimed_by
+    ? `<span class="pill ${t.claimed_by === state.staffId ? 'ok' : 'warn'}">🧑 ${esc(t.claimed_by_name || 'Staff')}</span>`
+    : `<span class="pill mute">🤖 AI handling</span>`;
+  return `
+    <span class="ref">${esc(t.ticket_ref)}</span>${pill(t.status)}${claimBadge}
+    <span class="ml row">
+      ${fx?.status === 'deployed' ? `<button class="btn danger" id="btnRevert">Revert fix</button>` : ''}
+      ${['escalated','rejected'].includes(t.status) ? `<button class="btn go" id="btnRerun">Run pipeline again</button>` : ''}
+      ${claimBtn}
+      ${t.status !== 'resolved' ? `<button class="btn" id="btnClose">Mark resolved</button>` : `<button class="btn" id="btnReopen">Reopen</button>`}
+    </span>`;
+}
+
+function appendMessageBubble(t, m){
+  if (state.knownMsgIds.has(m.id)) return;
+  state.knownMsgIds.add(m.id);
+  const thread = document.querySelector('#detail .thread');
+  if (!thread) return;
+  const div = document.createElement('div');
+  div.className = `tm ${m.role==='user'?'user':'agent'}`;
+  div.innerHTML = `<div class="tm-who">${esc(m.role==='user' ? (t.contact_name||'Customer') : (m.author_name||'Agent'))}${m.meta?.human ? ' · human' : ''} · ${when(m.created_at)}</div>${esc(m.content).replace(/\n/g,'<br>')}`;
+  thread.appendChild(div);
+  thread.scrollTop = thread.scrollHeight;
+}
+
 async function openTicket(id){
   state.sel = id;
   renderList();
@@ -242,6 +277,8 @@ async function openTicket(id){
   ]);
 
   const fx = (fixes || [])[0];
+  state.lastFx = fx;
+  state.knownMsgIds = new Set((msgs || []).map(m => m.id));
 
   const checksHtml = fx?.reviewer_checks
     ? `<div class="checks">${Object.entries(fx.reviewer_checks).map(([k,v]) =>
@@ -250,14 +287,7 @@ async function openTicket(id){
 
   $('detail').innerHTML = `
     <div class="sec">
-      <div class="sec-h">
-        <span class="ref">${esc(t.ticket_ref)}</span>${pill(t.status)}
-        <span class="ml row">
-          ${fx?.status === 'deployed' ? `<button class="btn danger" id="btnRevert">Revert fix</button>` : ''}
-          ${['escalated','rejected'].includes(t.status) ? `<button class="btn go" id="btnRerun">Run pipeline again</button>` : ''}
-          ${t.status !== 'resolved' ? `<button class="btn" id="btnClose">Mark resolved</button>` : `<button class="btn" id="btnReopen">Reopen</button>`}
-        </span>
-      </div>
+      <div class="sec-h" id="detailHeadRow">${headRowHtml(t, fx)}</div>
       <div style="font-size:17px;font-weight:650;line-height:1.35;margin-bottom:12px">${esc(t.subject || 'No subject')}</div>
       <div class="grid2">
         <div class="kv"><dt>Customer</dt><dd>${esc(t.contact_name || '—')}<br><span style="font-weight:400;color:var(--muted2);font-size:12px">${esc(t.contact_email || '')}</span></dd></div>
@@ -317,51 +347,56 @@ async function openTicket(id){
       </div></div>` : ''}
   `;
 
-  wireActions(t, fx);
+  wireHeadActions(t, fx);
+  wireReplyAction(t);
+  subscribeTicket(id);
 }
 
-function wireActions(t, fx){
-  const call = async (action, extra, btn) => {
-    const label = btn ? btn.textContent : null;
-    if (btn){ btn.disabled = true; btn.textContent = 'Working…'; }
-    try {
-      const { data:{ session } } = await sb.auth.getSession();
-      const r = await fetch(`${window.__SUPABASE_URL}/functions/v1/support-admin`, {
-        method:'POST',
-        headers:{
-          'Content-Type':'application/json',
-          apikey: window.__SUPABASE_ANON,
-          Authorization:`Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ action, ...extra }),
-      });
+/* ---------------- admin actions ---------------- */
+async function call(action, extra, btn){
+  const label = btn ? btn.textContent : null;
+  if (btn){ btn.disabled = true; btn.textContent = 'Working…'; }
+  try {
+    const { data:{ session } } = await sb.auth.getSession();
+    const r = await fetch(`${window.__SUPABASE_URL}/functions/v1/support-admin`, {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        apikey: window.__SUPABASE_ANON,
+        Authorization:`Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ action, ...extra }),
+    });
 
-      let out = {};
-      try { out = await r.json(); }
-      catch { out = { error: `Server returned ${r.status}.` }; }
+    let out = {};
+    try { out = await r.json(); }
+    catch { out = { error: `Server returned ${r.status}.` }; }
 
-      // The pipeline refuses a revert that would discard later work.
-      if (r.status === 409 && out.error === 'changed_since_fix') {
-        if (confirm(`${out.message}\n\nForce the revert anyway?`)) {
-          if (btn){ btn.disabled = false; btn.textContent = label; }
-          return call(action, { ...extra, force: true }, btn);
-        }
-      } else if (!r.ok) {
-        alert(out.error || out.message || 'Failed.');
+    // The pipeline refuses a revert that would discard later work.
+    if (r.status === 409 && out.error === 'changed_since_fix') {
+      if (confirm(`${out.message}\n\nForce the revert anyway?`)) {
+        if (btn){ btn.disabled = false; btn.textContent = label; }
+        return call(action, { ...extra, force: true }, btn);
       }
-
-      await load();
-      if (state.sel) await openTicket(state.sel);
-    } catch(e){
-      alert(String(e.message || e));
-    } finally {
-      if (btn && document.body.contains(btn)) {
-        btn.disabled = false;
-        btn.textContent = label;
-      }
+    } else if (!r.ok) {
+      alert(out.error || out.message || 'Failed.');
     }
-  };
 
+    await load();
+    if (state.sel) await openTicket(state.sel);
+  } catch(e){
+    alert(String(e.message || e));
+  } finally {
+    if (btn && document.body.contains(btn)) {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  }
+}
+
+/* Buttons that live inside #detailHeadRow — re-wired whenever that row is
+   regenerated, including by a realtime ticket update. */
+function wireHeadActions(t, fx){
   const rv = $('btnRevert');
   if (rv) rv.onclick = () => {
     if (!confirm(`Revert the fix on ${t.ticket_ref}?\n\nThis restores the exact file contents captured before the change and merges that to main.`)) return;
@@ -377,12 +412,59 @@ function wireActions(t, fx){
   const ro = $('btnReopen');
   if (ro) ro.onclick = () => call('reopen', { ticket_id: t.id }, ro);
 
+  const ct = $('btnClaimToggle');
+  if (ct) ct.onclick = () => call(ct.dataset.act, { ticket_id: t.id }, ct);
+}
+
+/* The reply box itself — left alone by realtime updates so a draft in
+   progress is never wiped out from under someone typing. */
+function wireReplyAction(t){
   const rp = $('btnReply');
   if (rp) rp.onclick = () => {
     const c = $('replyBox').value.trim();
     if (!c) return;
     call('reply', { ticket_id: t.id, content: c }, rp);
   };
+}
+
+/* ---------------- realtime ---------------- */
+let ticketChannel = null;
+
+function subscribeTicket(id){
+  if (ticketChannel) { sb.removeChannel(ticketChannel); ticketChannel = null; }
+  ticketChannel = sb.channel(`rt-ticket-${id}`)
+    .on('postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'support_messages', filter: `ticket_id=eq.${id}` },
+      payload => {
+        if (state.sel !== id) return;
+        const t = state.tickets.find(x => x.id === id);
+        appendMessageBubble(t || {}, payload.new);
+      })
+    .on('postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'support_tickets', filter: `id=eq.${id}` },
+      payload => {
+        if (state.sel !== id) return;
+        const idx = state.tickets.findIndex(x => x.id === id);
+        if (idx >= 0) state.tickets[idx] = { ...state.tickets[idx], ...payload.new };
+        const nt = idx >= 0 ? state.tickets[idx] : payload.new;
+        const row = $('detailHeadRow');
+        if (row) row.innerHTML = headRowHtml(nt, state.lastFx);
+        wireHeadActions(nt, state.lastFx);
+        renderList();
+      })
+    .subscribe();
+}
+
+let listChannel = null;
+let listRefreshTimer = null;
+
+function subscribeList(){
+  listChannel = sb.channel('rt-support-tickets')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, () => {
+      clearTimeout(listRefreshTimer);
+      listRefreshTimer = setTimeout(load, 500);
+    })
+    .subscribe();
 }
 
 async function load(){
@@ -412,9 +494,12 @@ $('refresh').onclick = load;
   }
 
   state.session = session;
+  state.staffId = staff.id;
   $('app').classList.remove('hidden');
   await load();
-  setInterval(load, 20000);
+  subscribeList();
+  // Fallback poll in case a realtime connection ever drops silently.
+  setInterval(load, 30000);
 })();
 </script>
 </body>
