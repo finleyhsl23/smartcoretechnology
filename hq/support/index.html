@@ -101,12 +101,13 @@ pre.code{
 }
 .body-txt{font-size:13.5px;line-height:1.65;color:var(--muted)}
 
-.thread{display:flex;flex-direction:column;gap:11px;max-height:420px;overflow-y:auto;padding-right:4px}
-.tm{padding:11px 14px;border-radius:12px;border:1px solid var(--stroke2);font-size:13.5px;line-height:1.6}
-.tm.user{background:var(--accentSoft);border-color:rgba(120,170,255,.2)}
-.tm.agent{background:rgba(255,255,255,.04)}
-[data-theme="light"] .tm.agent{background:rgba(30,50,120,.04)}
+.thread{display:flex;flex-direction:column;gap:11px;max-height:60vh;overflow-y:auto;padding-right:4px}
+.tm{padding:11px 14px;border-radius:14px;border:1px solid var(--stroke2);font-size:13.5px;line-height:1.6;max-width:78%;word-wrap:break-word;overflow-wrap:anywhere}
+.tm.user{background:var(--accentSoft);border-color:rgba(120,170,255,.2);align-self:flex-start;border-top-left-radius:5px}
+.tm.agent{background:rgba(255,255,255,.05);align-self:flex-end;border-top-right-radius:5px}
+[data-theme="light"] .tm.agent{background:rgba(30,50,120,.05)}
 .tm-who{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted2);margin-bottom:5px}
+.tm.agent .tm-who{text-align:right}
 
 .checks{display:flex;flex-wrap:wrap;gap:7px}
 .chk{font-size:11.5px;padding:4px 9px;border-radius:8px;border:1px solid var(--stroke2);display:flex;align-items:center;gap:5px}
@@ -181,7 +182,7 @@ const when = d => d ? new Date(d).toLocaleString('en-GB',{day:'numeric',month:'s
 const STATUS = {
   triage:['Triage','info'], diagnosing:['Diagnosing','info'],
   queued_for_fix:['Queued','warn'], fixing:['Fixing','warn'], in_review:['In review','warn'],
-  fix_deployed:['Deployed','ok'], resolved:['Resolved','ok'],
+  fix_deployed:['Deployed','ok'], pending_close:['Confirming close','ok'], resolved:['Resolved','ok'],
   awaiting_user:['Awaiting user','info'],
   escalated:['Needs you','bad'], rejected:['Rejected','bad'],
 };
@@ -196,7 +197,7 @@ function matches(t){
   if (state.filter === 'all') return true;
   if (state.filter === 'open') return !['resolved','rejected','fix_deployed'].includes(t.status);
   if (state.filter === 'escalated') return ['escalated','rejected'].includes(t.status);
-  if (state.filter === 'deployed') return t.status === 'fix_deployed';
+  if (state.filter === 'deployed') return t.status === 'fix_deployed' || t.status === 'pending_close';
   if (state.filter === 'resolved') return t.status === 'resolved';
   return true;
 }
@@ -338,7 +339,10 @@ async function openTicket(id){
     <div class="sec">
       <div class="sec-h">Reply as ${esc(t.agent_name || 'the agent')}</div>
       <textarea id="replyBox" placeholder="Write a reply — it appears to the customer as ${esc(t.agent_name||'their support agent')}."></textarea>
-      <div class="row" style="margin-top:9px"><button class="btn go" id="btnReply">Send reply</button></div>
+      <div class="row" style="margin-top:9px">
+        <button class="btn go" id="btnReply">Send reply</button>
+        ${t.status !== 'resolved' ? `<button class="btn ml" id="btnCloseChat">Close chat</button>` : ''}
+      </div>
     </div>
 
     ${(events||[]).length ? `<div class="sec"><div class="sec-h">Activity</div>
@@ -425,6 +429,9 @@ function wireReplyAction(t){
     if (!c) return;
     call('reply', { ticket_id: t.id, content: c }, rp);
   };
+
+  const cc = $('btnCloseChat');
+  if (cc) cc.onclick = () => call('close', { ticket_id: t.id }, cc);
 }
 
 /* ---------------- realtime ---------------- */

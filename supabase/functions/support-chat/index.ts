@@ -128,6 +128,59 @@ const DIAGNOSIS_TOOL = {
   },
 };
 
+// ---------------------------------------------------------------- follow-up
+// Once a fix has been deployed, the customer's next message is a reply to
+// "did that fix it?" — not a fresh bug report. Using the normal triage tool
+// here risks the model re-classifying a "yes, thanks!" as a new report and
+// re-escalating, which resets the pipeline stepper the customer just
+// watched complete. A dedicated tool keeps this turn on-rails.
+function followupSystemPrompt(o: {
+  agentName: string;
+  agentTitle: string;
+  userName: string;
+  ticketRef: string;
+  askedToClose: boolean;
+  fixSummary: string;
+}) {
+  return `You are ${o.agentName}, ${o.agentTitle} at SmartCore Technology. Ticket ${o.ticketRef} already had a fix deployed for:
+"${o.fixSummary || "the issue they reported"}"
+
+${o.askedToClose
+    ? `You already asked ${o.userName} whether you can close this ticket. Their latest message is answering that question.`
+    : `You just told ${o.userName} the fix was live and asked them to check it. Their latest message is their response to that.`}
+
+HOW YOU WRITE
+British English. Warm, brief, natural — like a real person, not a script. Never say "I'm an AI" unprompted.
+
+Call fix_followup every time. Choose the verdict carefully:
+- confirmed_working — they say it's fixed / working / sorted / thanks, but have NOT explicitly told you to close it. Your reply should thank them and ask something like "Perfect — am I okay to close this ticket?" (vary the wording naturally, don't reuse the same phrase every time).
+- close_confirmed — ${o.askedToClose
+      ? "they've said yes / go ahead / please do, answering your question about closing it."
+      : "they confirm it's fixed AND clearly tell you to close/resolve it in the same message — skip asking permission, just confirm you're closing it."} Your reply should be a short, warm sign-off.
+- still_broken — the fix did not work, or the same or a related problem is back. Your reply should apologise briefly and say you're passing it straight back to the technical team. Do not ask further diagnostic questions — we already have the original report.
+- unclear — anything else: an unrelated new question, small talk, or an ambiguous reply. Respond naturally and helpfully; do not close or escalate anything.`;
+}
+
+const FOLLOWUP_TOOL = {
+  name: "fix_followup",
+  description:
+    "Record the customer's response after a fix was deployed, or after you asked permission to close the ticket.",
+  input_schema: {
+    type: "object",
+    properties: {
+      verdict: {
+        type: "string",
+        enum: ["confirmed_working", "still_broken", "close_confirmed", "unclear"],
+      },
+      reply: {
+        type: "string",
+        description: "What to say to the customer right now.",
+      },
+    },
+    required: ["verdict", "reply"],
+  },
+};
+
 // ---------------------------------------------------------------- helpers
 async function callAnthropic(body: unknown) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -335,84 +388,145 @@ Deno.serve(async (req) => {
       content: m.content,
     }));
 
-    // ---------- ask the model ----------
-    const result = await callAnthropic({
-      model: CHAT_MODEL,
-      max_tokens: 1600,
-      system: systemPrompt({
-        agentName: ticket.agent_name ?? "Jane Walsh",
-        agentTitle: ticket.agent_title ?? "SmartCore Technical Support",
-        userName: ticket.contact_name ?? "there",
-        companyName: companyName || "not recorded",
-        moduleList,
-        ticketRef: ticket.ticket_ref,
-      }),
-      tools: [DIAGNOSIS_TOOL],
-      messages: msgs,
-    });
+    // A deployed fix awaiting confirmation gets a narrower, dedicated
+    // follow-up turn instead of full re-triage.
+    const inFollowup = ["fix_deployed", "pending_close"].includes(ticket.status);
 
-    // ---------- interpret ----------
     let replyText = "";
     let diagnosis: any = null;
-    for (const block of result.content ?? []) {
-      if (block.type === "text") replyText += block.text;
-      if (block.type === "tool_use" && block.name === "submit_diagnosis") {
-        diagnosis = block.input;
-      }
-    }
-
+    let followup: any = null;
     let escalated = false;
 
-    if (diagnosis) {
-      replyText = diagnosis.reply || replyText;
+    if (inFollowup) {
+      const { data: lastFix } = await admin
+        .from("support_fix_attempts")
+        .select("summary")
+        .eq("ticket_id", ticket.id)
+        .eq("status", "deployed")
+        .order("deployed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      const patch: any = {
-        subject: diagnosis.subject ?? ticket.subject,
-        severity: diagnosis.severity ?? "normal",
-        diagnosis: diagnosis.diagnosis ?? null,
-        error_message: diagnosis.error_message ?? null,
-        console_log: diagnosis.console_log ?? null,
-        steps_to_repro: diagnosis.steps_to_repro ?? null,
-        is_bug: !!diagnosis.is_bug,
-      };
+      const result = await callAnthropic({
+        model: CHAT_MODEL,
+        max_tokens: 700,
+        system: followupSystemPrompt({
+          agentName: ticket.agent_name ?? "Jane Walsh",
+          agentTitle: ticket.agent_title ?? "SmartCore Technical Support",
+          userName: ticket.contact_name ?? "there",
+          ticketRef: ticket.ticket_ref,
+          askedToClose: ticket.status === "pending_close",
+          fixSummary: lastFix?.summary ?? ticket.diagnosis ?? "",
+        }),
+        tools: [FOLLOWUP_TOOL],
+        tool_choice: { type: "tool", name: "fix_followup" },
+        messages: msgs,
+      });
 
-      if (diagnosis.module_slug) {
-        patch.module_slug = diagnosis.module_slug;
-        // re-assign to the specialist for that module
-        const { data: agents } = await admin
-          .from("support_agents")
-          .select("*")
-          .eq("is_active", true)
-          .order("sort_order");
-        const family = agentFamily(diagnosis.module_slug);
-        const specPool = (agents ?? []).filter((a: any) => a.specialism === family);
-        const spec = specPool.length
-          ? specPool[Math.floor(Math.random() * specPool.length)]
-          : null;
-        if (spec && spec.id !== ticket.agent_id) {
-          patch.agent_id = spec.id;
-          patch.agent_name = spec.name;
-          patch.agent_title = spec.title;
+      for (const block of result.content ?? []) {
+        if (block.type === "tool_use" && block.name === "fix_followup") {
+          followup = block.input;
         }
       }
 
-      if (diagnosis.is_bug) {
-        patch.status = "queued_for_fix";
-        escalated = true;
-      } else {
+      replyText = followup?.reply || "";
+      const patch: any = {};
+
+      if (followup?.verdict === "confirmed_working") {
+        patch.status = "pending_close";
+      } else if (followup?.verdict === "close_confirmed") {
         patch.status = "resolved";
         patch.resolved_at = new Date().toISOString();
+      } else if (followup?.verdict === "still_broken") {
+        patch.status = "queued_for_fix";
+        escalated = true;
       }
+      // "unclear" — no status change.
 
-      await admin.from("support_tickets").update(patch).eq("id", ticket.id);
-      await admin.from("support_events").insert({
-        ticket_id: ticket.id,
-        kind: diagnosis.is_bug ? "escalated_to_pipeline" : "closed_in_chat",
-        detail: diagnosis,
+      if (Object.keys(patch).length) {
+        await admin.from("support_tickets").update(patch).eq("id", ticket.id);
+        await admin.from("support_events").insert({
+          ticket_id: ticket.id,
+          kind: `followup_${followup.verdict}`,
+          detail: followup,
+        });
+      }
+    } else {
+      // ---------- ask the model ----------
+      const result = await callAnthropic({
+        model: CHAT_MODEL,
+        max_tokens: 1600,
+        system: systemPrompt({
+          agentName: ticket.agent_name ?? "Jane Walsh",
+          agentTitle: ticket.agent_title ?? "SmartCore Technical Support",
+          userName: ticket.contact_name ?? "there",
+          companyName: companyName || "not recorded",
+          moduleList,
+          ticketRef: ticket.ticket_ref,
+        }),
+        tools: [DIAGNOSIS_TOOL],
+        messages: msgs,
       });
 
-      if (patch.agent_name) ticket.agent_name = patch.agent_name;
-      if (patch.agent_title) ticket.agent_title = patch.agent_title;
+      // ---------- interpret ----------
+      for (const block of result.content ?? []) {
+        if (block.type === "text") replyText += block.text;
+        if (block.type === "tool_use" && block.name === "submit_diagnosis") {
+          diagnosis = block.input;
+        }
+      }
+
+      if (diagnosis) {
+        replyText = diagnosis.reply || replyText;
+
+        const patch: any = {
+          subject: diagnosis.subject ?? ticket.subject,
+          severity: diagnosis.severity ?? "normal",
+          diagnosis: diagnosis.diagnosis ?? null,
+          error_message: diagnosis.error_message ?? null,
+          console_log: diagnosis.console_log ?? null,
+          steps_to_repro: diagnosis.steps_to_repro ?? null,
+          is_bug: !!diagnosis.is_bug,
+        };
+
+        if (diagnosis.module_slug) {
+          patch.module_slug = diagnosis.module_slug;
+          // re-assign to the specialist for that module
+          const { data: agents } = await admin
+            .from("support_agents")
+            .select("*")
+            .eq("is_active", true)
+            .order("sort_order");
+          const family = agentFamily(diagnosis.module_slug);
+          const specPool = (agents ?? []).filter((a: any) => a.specialism === family);
+          const spec = specPool.length
+            ? specPool[Math.floor(Math.random() * specPool.length)]
+            : null;
+          if (spec && spec.id !== ticket.agent_id) {
+            patch.agent_id = spec.id;
+            patch.agent_name = spec.name;
+            patch.agent_title = spec.title;
+          }
+        }
+
+        if (diagnosis.is_bug) {
+          patch.status = "queued_for_fix";
+          escalated = true;
+        } else {
+          patch.status = "resolved";
+          patch.resolved_at = new Date().toISOString();
+        }
+
+        await admin.from("support_tickets").update(patch).eq("id", ticket.id);
+        await admin.from("support_events").insert({
+          ticket_id: ticket.id,
+          kind: diagnosis.is_bug ? "escalated_to_pipeline" : "closed_in_chat",
+          detail: diagnosis,
+        });
+
+        if (patch.agent_name) ticket.agent_name = patch.agent_name;
+        if (patch.agent_title) ticket.agent_title = patch.agent_title;
+      }
     }
 
     if (!replyText.trim()) {
@@ -441,6 +555,12 @@ Deno.serve(async (req) => {
       }).catch(() => {});
     }
 
+    let statusOut = ticket.status;
+    if (followup?.verdict === "confirmed_working") statusOut = "pending_close";
+    else if (followup?.verdict === "close_confirmed") statusOut = "resolved";
+    else if (followup?.verdict === "still_broken") statusOut = "queued_for_fix";
+    else if (diagnosis) statusOut = diagnosis.is_bug ? "queued_for_fix" : "resolved";
+
     return json({
       ticket_id: ticket.id,
       ticket_ref: ticket.ticket_ref,
@@ -448,11 +568,7 @@ Deno.serve(async (req) => {
       agent_title: ticket.agent_title,
       reply: replyText,
       escalated,
-      status: diagnosis
-        ? diagnosis.is_bug
-          ? "queued_for_fix"
-          : "resolved"
-        : "triage",
+      status: statusOut,
     });
   } catch (e) {
     console.error("support-chat", e);
