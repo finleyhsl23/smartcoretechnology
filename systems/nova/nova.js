@@ -1,817 +1,677 @@
-// SmartCore Nova — AI Personal Assistant Frontend
+// Nova Workplace AI
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPABASE_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
-const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
-const sb = () => createClient(SUPABASE_URL, SUPABASE_ANON);
+const SB_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+const db = () => createClient(SB_URL, SB_ANON);
 
 // ── State ──────────────────────────────────────────────────────────────────
-let session          = null;
-let profile          = null;
-let messages         = [];
-let convId           = null;
-let ttsEnabled       = true;
-let recognition      = null;
-let isListening      = false;
-let synth            = window.speechSynthesis;
-let idleTimer        = null;
-let connectedServices = new Set();
+let session = null, profile = null;
+let teamMembers = [];
+let projects = [];
+let uploadedFiles = [];
+let activeProjectId = null;
+let selectedColor = "#5b8aff";
+let activeTaskProjectId = null;
+let activeMemberProjectId = null;
+let aiMessages = [], aiConvId = null;
+let recognition = null, aiListening = false;
 let activeSettingsTab = "profile";
 
-// ── Theme ──────────────────────────────────────────────────────────────────
-function initTheme() {
-  const saved = localStorage.getItem("nova_theme") || "dark";
-  document.documentElement.setAttribute("data-theme", saved);
-  document.getElementById("themeBtn").textContent = saved === "dark" ? "☀️" : "🌙";
+// ── Helpers ────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function toggleTheme() {
-  const cur  = document.documentElement.getAttribute("data-theme");
-  const next = cur === "dark" ? "light" : "dark";
-  document.documentElement.setAttribute("data-theme", next);
-  localStorage.setItem("nova_theme", next);
-  document.getElementById("themeBtn").textContent = next === "dark" ? "☀️" : "🌙";
-}
-
-// ── Toast ──────────────────────────────────────────────────────────────────
 function toast(type, msg) {
   const wrap = document.getElementById("toastwrap");
   const el = document.createElement("div");
-  el.className = `toast ${type}`;
+  el.className = "toast " + type;
   el.textContent = msg;
   wrap.appendChild(el);
   setTimeout(() => el.remove(), 3500);
 }
 
-// ── Orb state ──────────────────────────────────────────────────────────────
-function setOrbState(state) {
-  const orb = document.getElementById("novaOrb");
-  if (!orb) return;
-  orb.className = "orb-dot" + (state !== "idle" ? ` ${state}` : "");
+function closeModal(id) {
+  document.getElementById(id)?.classList.remove("active");
 }
 
-// ── Greeting ───────────────────────────────────────────────────────────────
-function renderGreeting() {
-  const h = new Date().getHours();
-  const period = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
-  const firstName = profile?.full_name?.split(" ")[0] || "";
-  const greeting  = `Good ${period}${firstName ? `, ${firstName}` : ""}`;
-  const el = document.getElementById("greetingText");
-  if (el) el.textContent = greeting;
+function openModal(id) {
+  document.getElementById(id)?.classList.add("active");
+}
+
+// ── Theme ──────────────────────────────────────────────────────────────────
+function initTheme() {
+  const t = localStorage.getItem("nova_theme") || "dark";
+  document.documentElement.setAttribute("data-theme", t);
+}
+
+function toggleTheme() {
+  const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("nova_theme", next);
 }
 
 // ── Auth ───────────────────────────────────────────────────────────────────
 async function requireAuth() {
-  const client = sb();
-  const { data, error } = await client.auth.getSession();
-  if (error || !data?.session) {
-    window.location.href = "/app/index.html";
-    throw new Error("Not authenticated");
-  }
+  const client = db();
+  const { data } = await client.auth.getSession();
+  if (!data?.session) { window.location.href = "/app/index.html"; throw 0; }
   session = data.session;
-
-  const { data: prof, error: profErr } = await client
+  const { data: prof } = await client
     .from("user_profiles")
     .select("user_id, company_id, role, full_name, active")
     .eq("user_id", session.user.id)
     .maybeSingle();
-
-  if (profErr || !prof) {
-    window.location.href = "/app/index.html";
-    throw new Error("No profile");
-  }
+  if (!prof) { window.location.href = "/app/index.html"; throw 0; }
   profile = prof;
 }
 
-// ── Conversation ───────────────────────────────────────────────────────────
-async function ensureConversation(firstMsg) {
-  if (convId) return;
-  const client = sb();
-  const { data, error } = await client
-    .from("nova_conversations")
-    .insert({
-      user_id:    session.user.id,
-      company_id: profile.company_id,
-      title:      firstMsg.slice(0, 80),
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  convId = data.id;
+// ── Navigation ─────────────────────────────────────────────────────────────
+const TITLES = { home: "Home", team: "Team", files: "Files", email: "Email Rewriter", projects: "Projects" };
+
+function showModule(name) {
+  document.querySelectorAll(".module").forEach(el => el.classList.add("hidden"));
+  document.getElementById("mod-" + name)?.classList.remove("hidden");
+  document.querySelectorAll(".snav[data-module]").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.module === name);
+  });
+  const el = document.getElementById("pageTitle");
+  if (el) el.textContent = TITLES[name] || name;
+  if (name === "home") loadHome();
+  if (name === "team") loadTeam("all");
+  if (name === "projects") loadProjects();
 }
 
-async function saveMessage(role, content, metadata = {}) {
-  if (!convId) return;
-  const client = sb();
-  await client.from("nova_messages").insert({ conversation_id: convId, role, content, metadata });
+// ── Presence ───────────────────────────────────────────────────────────────
+async function updatePresence() {
+  if (!session || !profile) return;
+  try {
+    await db().from("nova_presence").upsert({
+      user_id:      session.user.id,
+      company_id:   profile.company_id,
+      display_name: profile.full_name || session.user.email,
+      last_seen:    new Date().toISOString(),
+      status:       "online",
+    }, { onConflict: "user_id" });
+  } catch (_) {}
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-function esc(s) {
-  return String(s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-function fmtTime(iso) {
-  if (!iso) return "";
-  return iso.slice(11, 16);
-}
-function fmtDate(iso) {
-  if (!iso) return "";
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-}
-function scrollToBottom() {
-  const chat = document.getElementById("novaChat");
-  if (chat) chat.scrollTop = chat.scrollHeight;
-}
-function removeGreeting() {
-  document.getElementById("novaGreeting")?.remove();
+async function getOnlineCount() {
+  try {
+    const cutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const { count } = await db().from("nova_presence")
+      .select("*", { count: "exact", head: true })
+      .eq("company_id", profile.company_id)
+      .gte("last_seen", cutoff);
+    return count || 0;
+  } catch (_) { return 0; }
 }
 
-function showIdleScreen() {
-  const screen = document.getElementById("idleScreen");
-  if (!screen) return;
+// ── Home ───────────────────────────────────────────────────────────────────
+async function loadHome() {
   const h = new Date().getHours();
   const period = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
-  const firstName = profile?.full_name?.split(" ")[0] || "";
-  const text = `Good ${period}${firstName ? `, ${firstName}` : ""}`;
-  const el = document.getElementById("idleGreetingText");
-  if (el) el.textContent = text;
-  screen.classList.add("active");
+  const first = profile?.full_name?.split(" ")[0] || "";
+  const greetEl = document.getElementById("homeGreeting");
+  if (greetEl) greetEl.textContent = "Good " + period + (first ? ", " + first : "");
+
+  const [online, projData, taskData] = await Promise.all([
+    getOnlineCount(),
+    db().from("nova_projects").select("*", { count: "exact", head: true }).eq("company_id", profile.company_id).eq("status", "active"),
+    db().from("nova_tasks").select("nova_projects!inner(company_id)", { count: "exact", head: true }).eq("nova_projects.company_id", profile.company_id).neq("status", "done"),
+  ]);
+
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  setVal("statOnline", online);
+  setVal("statProjects", projData.count || 0);
+  setVal("statTasks", taskData.count || 0);
+  setVal("statFiles", uploadedFiles.length);
+  setVal("onlineBadge", online);
+
+  // Activity feed
+  const acts = [];
+  try {
+    const { data: rp } = await db().from("nova_projects")
+      .select("title, created_at").eq("company_id", profile.company_id)
+      .order("created_at", { ascending: false }).limit(3);
+    rp?.forEach(p => acts.push({ icon: "📋", text: "Project created: " + p.title, time: p.created_at }));
+
+    const { data: rt } = await db().from("nova_tasks")
+      .select("title, created_at, nova_projects(title, company_id)")
+      .order("created_at", { ascending: false }).limit(5);
+    rt?.forEach(t => {
+      if (t.nova_projects?.company_id === profile.company_id)
+        acts.push({ icon: "✅", text: "Task added: " + t.title + " — " + t.nova_projects.title, time: t.created_at });
+    });
+  } catch (_) {}
+
+  acts.sort((a, b) => new Date(b.time) - new Date(a.time));
+  const list = document.getElementById("activityList");
+  if (!list) return;
+  if (!acts.length) { list.innerHTML = '<div class="empty-hint">No recent activity</div>'; return; }
+  list.innerHTML = acts.slice(0, 6).map(a => {
+    const d = new Date(a.time);
+    const ts = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) + " " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    return `<div class="activity-item"><span class="act-icon">${a.icon}</span><div><div class="act-text">${esc(a.text)}</div><div class="act-time">${ts}</div></div></div>`;
+  }).join("");
 }
 
-function resetIdle() {
-  const screen = document.getElementById("idleScreen");
-  screen?.classList.remove("active");
-  clearTimeout(idleTimer);
-  idleTimer = setTimeout(showIdleScreen, 45000);
+// ── Team ───────────────────────────────────────────────────────────────────
+async function loadTeam(filter) {
+  const cutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const [presRes, profRes] = await Promise.all([
+    db().from("nova_presence").select("user_id, display_name, last_seen").eq("company_id", profile.company_id),
+    db().from("user_profiles").select("user_id, full_name, role").eq("company_id", profile.company_id),
+  ]);
+
+  teamMembers = (profRes.data || []).map(p => {
+    const pres = presRes.data?.find(r => r.user_id === p.user_id);
+    const online = !!(pres && pres.last_seen >= cutoff);
+    const name = p.full_name || pres?.display_name || "Team Member";
+    return {
+      user_id:  p.user_id,
+      name,
+      role:     p.role || "Member",
+      online,
+      last_seen: pres?.last_seen || null,
+      initials:  name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(),
+    };
+  });
+
+  teamMembers.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
+
+  const shown = filter === "online" ? teamMembers.filter(m => m.online)
+              : filter === "offline" ? teamMembers.filter(m => !m.online)
+              : teamMembers;
+
+  const onlineCount = teamMembers.filter(m => m.online).length;
+  const subEl = document.getElementById("teamSub");
+  if (subEl) subEl.textContent = onlineCount + " online · " + teamMembers.length + " total";
+  const badgeEl = document.getElementById("onlineBadge");
+  if (badgeEl) badgeEl.textContent = onlineCount;
+
+  const grid = document.getElementById("teamGrid");
+  if (!grid) return;
+  if (!shown.length) { grid.innerHTML = '<div class="empty-hint">No team members</div>'; return; }
+
+  grid.innerHTML = shown.map(m => {
+    const statusClass = m.online ? "online" : "offline";
+    const timeStr = m.last_seen
+      ? "Last seen " + new Date(m.last_seen).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+      : "Never logged in";
+    const meTag = m.user_id === session.user.id ? ' <span class="you-tag">You</span>' : "";
+    return `
+      <div class="team-card">
+        <div class="team-card-avatar">${esc(m.initials)}</div>
+        <div class="status-dot ${statusClass}"></div>
+        <div class="team-card-name">${esc(m.name)}${meTag}</div>
+        <div class="team-card-role">${esc(m.role)}</div>
+        <div class="team-card-status">${m.online ? "● Online now" : timeStr}</div>
+      </div>`;
+  }).join("");
 }
 
-// ── Render messages ────────────────────────────────────────────────────────
-function renderUserMsg(content) {
-  const chat = document.getElementById("novaChat");
-  const el   = document.createElement("div");
-  el.className = "msg user";
-  el.innerHTML = `
-    <div class="msg-avatar">${(profile?.full_name?.[0] || "U").toUpperCase()}</div>
-    <div class="msg-body">
-      <div class="msg-bubble">${esc(content)}</div>
-      <div class="msg-time">${fmtTime(new Date().toISOString())}</div>
-    </div>
-  `;
-  chat.appendChild(el);
-  scrollToBottom();
+// ── Files ───────────────────────────────────────────────────────────────────
+function renderFiles() {
+  const list = document.getElementById("filesList");
+  if (!list) return;
+  if (!uploadedFiles.length) { list.innerHTML = ""; return; }
+  const icons = { pdf:"📄", doc:"📝", docx:"📝", xls:"📊", xlsx:"📊", csv:"📊",
+                  jpg:"🖼️", jpeg:"🖼️", png:"🖼️", gif:"🖼️", webp:"🖼️",
+                  mp4:"🎬", mov:"🎬", mp3:"🎵", zip:"🗜️", json:"📋", txt:"📃", md:"📃" };
+  list.innerHTML = uploadedFiles.map((f, i) => {
+    const ext = f.name.split(".").pop().toLowerCase();
+    const icon = icons[ext] || "📁";
+    const size = f.size < 1024 ? f.size + " B" : f.size < 1048576 ? (f.size/1024).toFixed(1) + " KB" : (f.size/1048576).toFixed(1) + " MB";
+    return `
+      <div class="file-item">
+        <span class="file-icon">${icon}</span>
+        <div class="file-info">
+          <div class="file-name">${esc(f.name)}</div>
+          <div class="file-meta">${esc(size)}${f.type ? " · " + esc(f.type) : ""}</div>
+        </div>
+        <div class="file-actions">
+          <button class="file-btn" onclick="window._analyzeFile(${i})">Ask Nova</button>
+          <button class="file-btn danger" onclick="window._removeFile(${i})">Remove</button>
+        </div>
+      </div>`;
+  }).join("");
+  const statEl = document.getElementById("statFiles");
+  if (statEl) statEl.textContent = uploadedFiles.length;
 }
 
-function renderNovaMsg(content, cards = []) {
-  const chat = document.getElementById("novaChat");
-  const el   = document.createElement("div");
-  el.className = "msg nova";
-  let cardsHtml = "";
-  if (cards?.length) {
-    cardsHtml = `<div class="msg-cards">${cards.map(renderCard).join("")}</div>`;
+async function handleFiles(files) {
+  for (const f of files) uploadedFiles.push(f);
+  renderFiles();
+  toast("ok", files.length + " file" + (files.length !== 1 ? "s" : "") + " added");
+}
+
+window._removeFile = function(i) { uploadedFiles.splice(i, 1); renderFiles(); };
+
+window._analyzeFile = async function(i) {
+  const file = uploadedFiles[i];
+  if (!file) return;
+  openAiPanel();
+  const textish = /\.(txt|md|csv|json|js|ts|jsx|tsx|html|css|py|rb|go|rs|sql|sh|yaml|yml|xml|log)$/i.test(file.name)
+               || file.type.startsWith("text/")
+               || file.type === "application/json";
+
+  if (textish) {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const text = e.target.result;
+      const preview = text.slice(0, 8000);
+      const suffix = text.length > 8000 ? "\n\n[File truncated — " + (text.length - 8000) + " more characters not shown]" : "";
+      await sendAiMessage("Please analyse this file called \"" + file.name + "\":\n\n" + preview + suffix);
+    };
+    reader.readAsText(file);
+  } else {
+    await sendAiMessage("I've uploaded a file called \"" + file.name + "\" (" + (file.type || "unknown type") + ", " + (file.size / 1024).toFixed(1) + " KB). Can you help me understand how to work with this type of file?");
   }
-  el.innerHTML = `
-    <div class="msg-avatar">✦</div>
-    <div class="msg-body">
-      <div class="msg-bubble">${esc(content)}</div>
-      ${cardsHtml}
-      <div class="msg-time">${fmtTime(new Date().toISOString())}</div>
-    </div>
-  `;
-  chat.appendChild(el);
-  scrollToBottom();
-}
+};
 
-// ── Typing indicator ───────────────────────────────────────────────────────
-function showTyping() {
-  const chat = document.getElementById("novaChat");
-  const el   = document.createElement("div");
-  el.className = "typing-indicator";
-  el.id = "typingWrap";
-  el.innerHTML = `
-    <div class="msg-avatar nova" style="width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 38% 32%,#4a80ff 0%,#1e5cff 45%,#0a1a6e 100%);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;flex-shrink:0;">✦</div>
-    <div class="typing-dots"><span></span><span></span><span></span></div>
-  `;
-  chat.appendChild(el);
-  scrollToBottom();
-}
-function hideTyping() { document.getElementById("typingWrap")?.remove(); }
+// ── Email ───────────────────────────────────────────────────────────────────
+async function rewriteEmail() {
+  const input = (document.getElementById("emailInput")?.value || "").trim();
+  if (!input) { toast("warn", "Paste an email first"); return; }
+  const tone = document.getElementById("toneSelect")?.value || "professional";
+  const btn = document.getElementById("rewriteBtn");
+  const output = document.getElementById("emailOutput");
+  if (!btn || !output) return;
 
-// ── Rich cards ─────────────────────────────────────────────────────────────
-function renderCard(card) {
-  if (!card) return "";
-  switch (card.type) {
-    case "map":          return renderMapCard(card);
-    case "event":
-    case "event_list":   return renderEventCard(card);
-    case "task":
-    case "task_list":    return renderTaskCard(card);
-    case "contact":
-    case "contact_list": return renderContactCard(card);
-    case "email_draft":  return renderEmailDraft(card);
-    case "note":
-    case "note_list":    return renderNoteCard(card);
-    case "reminder":     return renderReminderCard(card);
-    default: return "";
+  btn.disabled = true;
+  btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg> Rewriting…';
+  output.innerHTML = '<div class="email-empty"><div class="typing-dots"><span></span><span></span><span></span></div></div>';
+
+  try {
+    const prompt = "Rewrite the following email in a " + tone + " tone. Keep the core message intact but improve the language, structure, and clarity. Return ONLY the rewritten email with no additional commentary:\n\n" + input;
+    const res = await fetch("/api/nova/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + session.access_token },
+      body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
+    });
+    const data = await res.json();
+    if (data.ok && data.reply) {
+      output.innerHTML = '<div style="white-space:pre-wrap;line-height:1.7">' + esc(data.reply) + '</div>';
+      window._emailResult = data.reply;
+      const copyBtn = document.getElementById("copyEmailBtn");
+      if (copyBtn) copyBtn.classList.remove("hidden");
+    } else {
+      output.innerHTML = '<div class="email-empty"><p>Something went wrong. Please try again.</p></div>';
+    }
+  } catch (_) {
+    output.innerHTML = '<div class="email-empty"><p>Connection error. Please try again.</p></div>';
   }
+
+  btn.disabled = false;
+  btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg> Rewrite';
 }
 
-function renderMapCard(card) {
-  const lat  = card.lat  || 51.5074;
-  const lng  = card.lng  || -0.1278;
-  const name = card.display_name || card.query || "Location";
-  const mapUrl  = `https://www.openstreetmap.org/export/embed.html?bbox=${lng-0.01},${lat-0.007},${lng+0.01},${lat+0.007}&layer=mapnik&marker=${lat},${lng}`;
-  const openUrl = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=14/${lat}/${lng}`;
-  const shortName = name.length > 60 ? name.slice(0,60)+"…" : name;
-  return `
-    <div class="card card-map">
-      <div class="card-head"><span>🗺️</span> Location</div>
-      <iframe src="${esc(mapUrl)}" loading="lazy" title="Map"></iframe>
-      <div class="card-map-info">
-        <span>${esc(shortName)}</span>
-        <a href="${openUrl}" target="_blank" rel="noopener" class="card-map-link">Open in Maps ↗</a>
+// ── Projects ────────────────────────────────────────────────────────────────
+async function loadProjects() {
+  const { data } = await db().from("nova_projects")
+    .select("id, title, description, color, status, due_date, created_at")
+    .eq("company_id", profile.company_id)
+    .eq("status", "active")
+    .order("created_at", { ascending: false });
+  projects = data || [];
+
+  const subEl = document.getElementById("projectsSub");
+  if (subEl) subEl.textContent = projects.length + " active project" + (projects.length !== 1 ? "s" : "");
+
+  const grid = document.getElementById("projectsGrid");
+  if (!grid) return;
+  if (!projects.length) { grid.innerHTML = '<div class="empty-hint">No projects yet — create your first one</div>'; return; }
+
+  const { data: tasks } = await db().from("nova_tasks").select("project_id, status").in("project_id", projects.map(p => p.id));
+
+  grid.innerHTML = projects.map(p => {
+    const pt = (tasks || []).filter(t => t.project_id === p.id);
+    const done = pt.filter(t => t.status === "done").length;
+    const pct = pt.length ? Math.round(done / pt.length * 100) : 0;
+    const clr = esc(p.color || "#5b8aff");
+    const due = p.due_date ? '<div class="proj-due">Due ' + new Date(p.due_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) + '</div>' : "";
+    return `
+      <div class="proj-card" onclick="window._openProject('${esc(p.id)}')">
+        <div class="proj-card-bar" style="background:${clr}"></div>
+        <div class="proj-card-body">
+          <div class="proj-card-title">${esc(p.title)}</div>
+          <div class="proj-card-desc">${esc(p.description || "")}</div>
+          ${due}
+          <div class="proj-progress">
+            <div class="prog-bar"><div class="prog-fill" style="width:${pct}%;background:${clr}"></div></div>
+            <span class="prog-label">${done}/${pt.length}</span>
+          </div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+window._openProject = async function(id) {
+  activeProjectId = id;
+  document.getElementById("projectsListView")?.classList.add("hidden");
+  document.getElementById("projectDetailView")?.classList.remove("hidden");
+  await renderProjectDetail(id);
+};
+
+async function renderProjectDetail(id) {
+  const proj = projects.find(p => p.id === id);
+  if (!proj) return;
+
+  const [{ data: tasks }, { data: members }] = await Promise.all([
+    db().from("nova_tasks").select("*").eq("project_id", id).order("created_at", { ascending: true }),
+    db().from("nova_project_members").select("user_id, role, user_profiles(full_name)").eq("project_id", id),
+  ]);
+
+  const groups = { todo: [], in_progress: [], done: [] };
+  (tasks || []).forEach(t => { if (groups[t.status]) groups[t.status].push(t); else groups.todo.push(t); });
+
+  const statusColors = { todo: "#64748b", in_progress: "#f59e0b", done: "#10b981" };
+  const statusLabels = { todo: "To Do", in_progress: "In Progress", done: "Done" };
+  const advLabels    = { todo: "▶", in_progress: "✓", done: "↩" };
+  const nextStatus   = { todo: "in_progress", in_progress: "done", done: "todo" };
+
+  const tasksHtml = Object.entries(groups).map(([status, items]) => {
+    if (!items.length) return "";
+    const rows = items.map(t => {
+      const due = t.due_date ? '<span class="task-due-badge">' + new Date(t.due_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) + '</span>' : "";
+      return `
+        <div class="task-item">
+          <button class="task-advance" onclick="window._advanceTask('${esc(t.id)}','${nextStatus[status]}')" title="Advance">${advLabels[status]}</button>
+          <div class="task-item-body">
+            <div class="task-item-title${status === "done" ? " done" : ""}">${esc(t.title)}</div>
+            <div class="task-item-meta"><span class="task-prio prio-${esc(t.priority||"medium")}">${esc(t.priority||"medium")}</span>${due}</div>
+          </div>
+          <button class="task-del" onclick="window._deleteTask('${esc(t.id)}')" title="Remove">✕</button>
+        </div>`;
+    }).join("");
+    return '<div class="task-group"><div class="task-group-head" style="color:' + statusColors[status] + '">' + statusLabels[status] + ' <span class="task-count">' + items.length + '</span></div>' + rows + '</div>';
+  }).join("");
+
+  const membersHtml = (members || []).map(m => {
+    const name = m.user_profiles?.full_name || "Member";
+    const init = name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+    return '<div class="proj-member"><div class="pm-avatar">' + esc(init) + '</div><div class="pm-name">' + esc(name) + '</div></div>';
+  }).join("");
+
+  const clr = esc(proj.color || "#5b8aff");
+  const content = document.getElementById("projectDetailContent");
+  if (!content) return;
+
+  content.innerHTML = `
+    <div class="proj-detail-head">
+      <div class="proj-detail-color" style="background:${clr}"></div>
+      <div>
+        <div class="proj-detail-title">${esc(proj.title)}</div>
+        <div class="proj-detail-desc">${esc(proj.description || "No description")}</div>
+      </div>
+    </div>
+    <div class="proj-detail-body">
+      <div>
+        <div class="section-head"><span>Tasks</span><button class="btn-sm" onclick="window._openAddTask('${esc(id)}')">+ Add task</button></div>
+        <div id="taskBoard">${tasksHtml || '<div class="empty-hint">No tasks yet</div>'}</div>
+      </div>
+      <div>
+        <div class="section-head"><span>Members</span><button class="btn-sm" onclick="window._openAddMember('${esc(id)}')">+ Add</button></div>
+        <div class="proj-members-list" id="projMembersList">${membersHtml || '<div class="empty-hint" style="font-size:12px">No members added</div>'}</div>
       </div>
     </div>`;
 }
 
-function renderEventCard(card) {
-  const items = card.type === "event_list" ? card.data : [card.data];
-  if (!items?.length) return "";
-  const rows = items.slice(0,5).map(e => {
-    const timeStr = e.start_time ? fmtTime(e.start_time) : "All day";
-    const dateStr = e.start_time ? fmtDate(e.start_time) : "";
-    const locHtml = e.location ? `<span>📍 ${esc(e.location)}</span>` : "";
-    const desc    = e.description ? e.description.slice(0,80) + (e.description.length>80?"…":"") : "";
-    const descHtml = desc ? `<span>${esc(desc)}</span>` : "";
-    return `<div class="event-row"><div class="event-time-block"><div class="etime">${esc(timeStr)}</div><div class="edate">${esc(dateStr)}</div></div><div class="event-info"><div class="event-title">${esc(e.title)}</div><div class="event-meta">${locHtml}${descHtml}</div></div></div>`;
-  }).join("");
-  const label = card.action==="created" ? "Event Created" : items.length + " Event" + (items.length!==1?"s":"");
-  return `<div class="card"><div class="card-head"><span>📅</span> ${label}</div><div class="card-body">${rows}</div></div>`;
-}
-
-function renderTaskCard(card) {
-  const items = card.type === "task_list" ? card.data : [card.data];
-  if (!items?.length) return "";
-  const rows = items.slice(0,8).map(t => {
-    const doneClass = t.status === "completed" ? " done" : "";
-    const prioStr   = t.priority || "medium";
-    const dueHtml   = t.due_date ? `<span class="task-due">${t.due_date}</span>` : "";
-    return `<div class="task-row"><div class="task-check${doneClass}"></div><span class="task-text${doneClass}">${esc(t.title)}</span><span class="task-priority prio-${prioStr}">${prioStr}</span>${dueHtml}</div>`;
-  }).join("");
-  const label = card.action==="created" ? "Task Created" : items.length + " Task" + (items.length!==1?"s":"");
-  return `<div class="card"><div class="card-head"><span>✅</span> ${label}</div><div class="card-body" style="padding:8px 14px;">${rows}</div></div>`;
-}
-
-function renderContactCard(card) {
-  const items = card.type === "contact_list" ? card.data : [card.data];
-  if (!items?.length) return "";
-  const contacts = items.slice(0,6).map(c => {
-    const initials  = ((c.first_name?.[0]||"")+( c.last_name?.[0]||"")).toUpperCase()||"?";
-    const emailHtml = c.email ? `<div class="contact-detail">✉ ${esc(c.email)}</div>` : "";
-    const phoneHtml = c.phone ? `<div class="contact-detail">📞 ${esc(c.phone)}</div>` : "";
-    return `<div class="contact-item"><div class="contact-avatar">${esc(initials)}</div><div><div class="contact-name">${esc(c.first_name+" "+(c.last_name||""))}</div>${emailHtml}${phoneHtml}</div></div>`;
-  }).join("");
-  const label = card.action==="created" ? "Contact Saved" : items.length + " Contact" + (items.length!==1?"s":"");
-  return `<div class="card"><div class="card-head"><span>👤</span> ${label}</div><div class="card-body"><div class="contact-card-grid">${contacts}</div></div></div>`;
-}
-
-function renderEmailDraft(card) {
-  const id       = "draft_" + Math.random().toString(36).slice(2);
-  const toName   = card.to ? card.to.split(" ")[0] : "[Name]";
-  const greeting = card.to ? `Dear ${toName},` : "Dear [Name],";
-  const sign     = card.from_name ? `\n\nKind regards,\n${card.from_name}` : "\n\nKind regards,\n[Your name]";
-  const points   = card.key_points?.length ? "\n\n"+card.key_points.map((p,i)=>`${i+1}. ${p}`).join("\n") : "";
-  const body     = `${greeting}\n\n[Re: ${card.purpose}]${points}${sign}`;
-  const purpose  = esc(card.purpose||"");
-  return `<div class="card"><div class="card-head"><span>✉️</span> Email Draft</div><div class="card-body"><div class="email-draft-header"><span class="email-draft-label">To:</span><span>${esc(card.to||"(recipient)")}</span><span class="email-draft-label">Subject:</span><span>${esc(card.subject||"(subject)")}</span></div><div class="email-draft-body" id="${id}">${esc(body)}</div><div class="email-draft-actions"><button class="card-btn" onclick="window._copyDraft('${id}')">📋 Copy</button><button class="card-btn" onclick="window._refineEmail(this)" data-purpose="${purpose}">✏️ Refine</button></div></div></div>`;
-}
-
-function renderNoteCard(card) {
-  const items = card.type === "note_list" ? card.data : [card.data];
-  if (!items?.length) return "";
-  const rows = items.slice(0,3).map(n => {
-    const preview  = n.content.slice(0,200) + (n.content.length>200?"…":"");
-    const tagsHtml = n.tags?.length ? `<div class="note-tags">${n.tags.map(t=>`<span class="note-tag">${esc(t)}</span>`).join("")}</div>` : "";
-    return `<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.04);"><div style="font-size:13px;font-weight:600;margin-bottom:5px;">${esc(n.title)}</div><div class="note-card-content">${esc(preview)}</div>${tagsHtml}</div>`;
-  }).join("");
-  const label = card.action==="created" ? "Note Saved" : items.length + " Note" + (items.length!==1?"s":"");
-  return `<div class="card"><div class="card-head"><span>📄</span> ${label}</div><div class="card-body">${rows}</div></div>`;
-}
-
-function renderReminderCard(card) {
-  const r = card.data;
-  if (!r) return "";
-  const label  = card.action==="created" ? "Reminder Set" : "Reminder";
-  const timeStr = r.remind_at ? r.remind_at.slice(0,16).replace("T"," ") : "";
-  const repeat  = r.repeat_interval && r.repeat_interval!=="none" ? ` · repeats ${r.repeat_interval}` : "";
-  return `<div class="card"><div class="card-head"><span>⏰</span> ${label}</div><div class="card-body"><div class="reminder-item"><span class="reminder-icon">🔔</span><div><div class="reminder-title">${esc(r.title)}</div><div class="reminder-time">${timeStr}${repeat}</div></div></div></div></div>`;
-}
-
-window._copyDraft = function(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  navigator.clipboard.writeText(el.textContent)
-    .then(() => toast("ok", "Copied to clipboard"))
-    .catch(() => toast("warn", "Could not copy"));
+window._advanceTask = async function(taskId, next) {
+  await db().from("nova_tasks").update({ status: next }).eq("id", taskId);
+  await renderProjectDetail(activeProjectId);
 };
-window._refineEmail = function(btn) {
-  const ta = document.getElementById("novaTextarea");
-  if (ta) {
-    ta.value = `Please refine the email draft about: ${btn.getAttribute("data-purpose")}`;
-    ta.focus();
+
+window._deleteTask = async function(taskId) {
+  await db().from("nova_tasks").delete().eq("id", taskId);
+  await renderProjectDetail(activeProjectId);
+};
+
+window._openAddTask = function(projectId) {
+  activeTaskProjectId = projectId;
+  const sel = document.getElementById("tmAssignee");
+  if (sel) {
+    sel.innerHTML = '<option value="">Unassigned</option>' +
+      teamMembers.map(m => '<option value="' + esc(m.user_id) + '">' + esc(m.name) + '</option>').join("");
   }
+  const ti = document.getElementById("tmTitle"); if (ti) ti.value = "";
+  const td = document.getElementById("tmDue");   if (td) td.value = "";
+  const tp = document.getElementById("tmPriority"); if (tp) tp.value = "medium";
+  openModal("taskModalBg");
 };
 
-// ── TTS ────────────────────────────────────────────────────────────────────
-function speak(text) {
-  if (!ttsEnabled || !synth) return;
-  synth.cancel();
-  const clean = text.replace(/\d+\./g,"").replace(/[\u{1F300}-\u{1F9FF}]/gu,"").replace(/\s+/g," ").trim().slice(0,500);
-  if (!clean) return;
-  const utt = new SpeechSynthesisUtterance(clean);
-  utt.rate  = 0.95;
-  utt.pitch = 1.05;
-  utt.lang  = "en-GB";
-  const voices = synth.getVoices();
-  const v = voices.find(v => v.lang==="en-GB" && v.name.toLowerCase().includes("female"))
-         || voices.find(v => v.lang==="en-GB")
-         || voices.find(v => v.lang.startsWith("en"));
-  if (v) utt.voice = v;
-  utt.onstart = () => setOrbState("speaking");
-  utt.onend   = () => setOrbState("idle");
-  utt.onerror = () => setOrbState("idle");
-  setOrbState("speaking");
-  synth.speak(utt);
+window._openAddMember = function(projectId) {
+  activeMemberProjectId = projectId;
+  const inp = document.getElementById("memberSearch"); if (inp) inp.value = "";
+  const res = document.getElementById("memberSearchResults"); if (res) res.innerHTML = "";
+  openModal("memberModalBg");
+};
+
+async function saveTask() {
+  const title = (document.getElementById("tmTitle")?.value || "").trim();
+  if (!title) { toast("warn", "Task title is required"); return; }
+  const priority    = document.getElementById("tmPriority")?.value || "medium";
+  const due_date    = document.getElementById("tmDue")?.value || null;
+  const assignee_id = document.getElementById("tmAssignee")?.value || null;
+  const { error } = await db().from("nova_tasks").insert({ project_id: activeTaskProjectId, title, priority, due_date, assignee_id: assignee_id || undefined, status: "todo", created_by: session.user.id });
+  if (error) { toast("bad", "Failed to add task"); return; }
+  closeModal("taskModalBg");
+  toast("ok", "Task added");
+  await renderProjectDetail(activeProjectId);
 }
 
-function stopSpeaking() {
-  synth?.cancel();
-  setOrbState("idle");
+function searchMembers(q) {
+  const res = document.getElementById("memberSearchResults");
+  if (!res) return;
+  if (!q.trim()) { res.innerHTML = ""; return; }
+  const hits = teamMembers.filter(m => m.name.toLowerCase().includes(q.toLowerCase()));
+  if (!hits.length) { res.innerHTML = '<div class="search-no-result">No matches</div>'; return; }
+  res.innerHTML = hits.map(m => `
+    <div class="search-result-item" onclick="window._addMember('${esc(m.user_id)}')">
+      <div class="sr-avatar">${esc(m.initials)}</div>
+      <div><div class="sr-name">${esc(m.name)}</div><div class="sr-role">${esc(m.role)}</div></div>
+      <span class="${m.online ? "status-online" : "status-offline"}">${m.online ? "Online" : "Offline"}</span>
+    </div>`).join("");
 }
 
-// ── Wake word ──────────────────────────────────────────────────────────────
-function initWakeWord() {
-  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRec) return;
-  let wake = new SpeechRec();
-  wake.continuous = true;
-  wake.interimResults = true;
-  wake.lang = "en-GB";
-  let restarting = false;
-  wake.onresult = (event) => {
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const text = event.results[i][0].transcript.toLowerCase().trim();
-      if (text.includes("nova")) {
-        wake.stop();
-        setTimeout(() => { if (!isListening) toggleVoice(); }, 250);
-        return;
-      }
-    }
-  };
-  wake.onend = () => {
-    if (!isListening && !restarting) {
-      restarting = true;
-      setTimeout(() => { restarting = false; try { wake.start(); } catch(e) {} }, 500);
-    }
-  };
-  wake.onerror = () => {
-    if (!isListening && !restarting) {
-      restarting = true;
-      setTimeout(() => { restarting = false; try { wake.start(); } catch(e) {} }, 1000);
-    }
-  };
-  try { wake.start(); } catch(e) {}
+window._addMember = async function(userId) {
+  const { error } = await db().from("nova_project_members").upsert({ project_id: activeMemberProjectId, user_id: userId, role: "member" }, { onConflict: "project_id,user_id" });
+  if (error) { toast("bad", "Could not add member"); return; }
+  closeModal("memberModalBg");
+  toast("ok", "Member added to project");
+  await renderProjectDetail(activeProjectId);
+};
+
+// ── Create / delete project ─────────────────────────────────────────────────
+function openNewProjectModal() {
+  const fi = document.getElementById("pmTitle"); if (fi) fi.value = "";
+  const fd = document.getElementById("pmDesc");  if (fd) fd.value = "";
+  const fu = document.getElementById("pmDue");   if (fu) fu.value = "";
+  selectedColor = "#5b8aff";
+  document.querySelectorAll(".cswatch").forEach(s => s.classList.toggle("active", s.dataset.color === "#5b8aff"));
+  openModal("projectModalBg");
 }
 
-// ── Speech Recognition ─────────────────────────────────────────────────────
+async function saveProject() {
+  const title = (document.getElementById("pmTitle")?.value || "").trim();
+  if (!title) { toast("warn", "Project name is required"); return; }
+  const description = (document.getElementById("pmDesc")?.value || "").trim();
+  const due_date    = document.getElementById("pmDue")?.value || null;
+  const { data, error } = await db().from("nova_projects").insert({
+    company_id: profile.company_id,
+    title, description,
+    color:      selectedColor,
+    status:     "active",
+    due_date,
+    created_by: session.user.id,
+  }).select().single();
+  if (error) { toast("bad", "Failed to create project"); return; }
+  await db().from("nova_project_members").insert({ project_id: data.id, user_id: session.user.id, role: "lead" });
+  closeModal("projectModalBg");
+  toast("ok", "Project created");
+  showModule("projects");
+}
+
+async function deleteProject() {
+  if (!activeProjectId || !confirm("Delete this project and all its tasks?")) return;
+  await db().from("nova_tasks").delete().eq("project_id", activeProjectId);
+  await db().from("nova_project_members").delete().eq("project_id", activeProjectId);
+  await db().from("nova_projects").delete().eq("id", activeProjectId);
+  activeProjectId = null;
+  document.getElementById("projectDetailView")?.classList.add("hidden");
+  document.getElementById("projectsListView")?.classList.remove("hidden");
+  toast("ok", "Project deleted");
+  await loadProjects();
+}
+
+// ── AI Panel ────────────────────────────────────────────────────────────────
+function openAiPanel() {
+  document.getElementById("aiOverlay")?.classList.add("active");
+  document.getElementById("aiPanel")?.classList.add("active");
+  document.getElementById("aiTextarea")?.focus();
+}
+
+function closeAiPanel() {
+  document.getElementById("aiOverlay")?.classList.remove("active");
+  document.getElementById("aiPanel")?.classList.remove("active");
+}
+
+function setAiOrb(state) {
+  const o = document.getElementById("aiOrb");
+  if (!o) return;
+  o.className = "ai-orb" + (state !== "idle" ? " " + state : "");
+}
+
+function appendAiMsg(role, content) {
+  const msgs = document.getElementById("aiMsgs");
+  if (!msgs) return;
+  document.getElementById("aiWelcome")?.remove();
+  const el = document.createElement("div");
+  el.className = "ai-msg " + role;
+  const av = role === "user" ? (profile?.full_name?.[0] || "U").toUpperCase() : "✦";
+  el.innerHTML = '<div class="ai-msg-avatar">' + av + '</div><div class="ai-msg-bubble">' + esc(content).replace(/\n/g, "<br>") + '</div>';
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function showAiTyping() {
+  const msgs = document.getElementById("aiMsgs");
+  if (!msgs) return;
+  const el = document.createElement("div");
+  el.className = "ai-msg nova";
+  el.id = "aiTyping";
+  el.innerHTML = '<div class="ai-msg-avatar">✦</div><div class="ai-msg-bubble"><div class="typing-dots"><span></span><span></span><span></span></div></div>';
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function hideAiTyping() { document.getElementById("aiTyping")?.remove(); }
+
+async function ensureAiConv(msg) {
+  if (aiConvId) return;
+  const { data } = await db().from("nova_conversations").insert({
+    user_id: session.user.id,
+    company_id: profile.company_id,
+    title: msg.slice(0, 80),
+  }).select().single();
+  if (data) aiConvId = data.id;
+}
+
+async function sendAiMessage(override) {
+  const ta = document.getElementById("aiTextarea");
+  const content = (override || ta?.value || "").trim();
+  if (!content) return;
+  if (ta && !override) { ta.value = ""; ta.style.height = "24px"; }
+  const sendBtn = document.getElementById("aiSendBtn");
+  if (sendBtn) sendBtn.disabled = true;
+
+  openAiPanel();
+  appendAiMsg("user", content);
+  aiMessages.push({ role: "user", content });
+  await ensureAiConv(content);
+  setAiOrb("thinking");
+  showAiTyping();
+
+  try {
+    const res = await fetch("/api/nova/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + session.access_token },
+      body: JSON.stringify({ messages: aiMessages.slice(-20), conversation_id: aiConvId }),
+    });
+    const data = await res.json();
+    hideAiTyping();
+    setAiOrb("idle");
+    const reply = (data.ok && data.reply) ? data.reply : "I'm sorry, something went wrong. Please try again.";
+    aiMessages.push({ role: "assistant", content: reply });
+    appendAiMsg("nova", reply);
+  } catch (_) {
+    hideAiTyping();
+    setAiOrb("idle");
+    appendAiMsg("nova", "Connection error. Please check your connection and try again.");
+  }
+
+  if (sendBtn) sendBtn.disabled = false;
+}
+
+// ── Voice ───────────────────────────────────────────────────────────────────
 function initVoice() {
-  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRec) { document.getElementById("micBtn").style.display = "none"; return; }
-  recognition = new SpeechRec();
-  recognition.lang = "en-GB";
-  recognition.interimResults = true;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  recognition = new SR();
   recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.lang = "en-GB";
 
-  recognition.onresult = (event) => {
-    let interim = "", final = "";
-    for (const res of event.results) {
-      if (res.isFinal) final   += res[0].transcript;
-      else             interim += res[0].transcript;
+  recognition.onresult = (e) => {
+    let final = "", interim = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) final += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
     }
-    const bar  = document.getElementById("voiceBar");
-    const text = document.getElementById("transcriptText");
-    bar.classList.add("active");
-    text.textContent = final || interim;
-    if (final) document.getElementById("novaTextarea").value = final;
+    const ta = document.getElementById("aiTextarea");
+    if (ta) ta.value = final || interim;
+    if (final) {
+      aiListening = false;
+      document.getElementById("aiMicBtn")?.classList.remove("active");
+      sendAiMessage();
+    }
   };
 
   recognition.onend = () => {
-    isListening = false;
-    document.getElementById("micBtn")?.classList.remove("active");
-    setOrbState("idle");
-    document.getElementById("voiceBar")?.classList.remove("active");
-    const input = document.getElementById("novaTextarea");
-    if (input?.value.trim()) setTimeout(() => sendMessage(), 100);
-  };
-
-  recognition.onerror = (e) => {
-    isListening = false;
-    document.getElementById("micBtn")?.classList.remove("active");
-    setOrbState("idle");
-    if (e.error !== "no-speech" && e.error !== "aborted") toast("warn", `Mic error: ${e.error}`);
+    aiListening = false;
+    document.getElementById("aiMicBtn")?.classList.remove("active");
   };
 }
 
 function toggleVoice() {
-  if (!recognition) return;
-  if (isListening) {
+  if (!recognition) { toast("warn", "Voice input not supported in this browser"); return; }
+  if (aiListening) {
     recognition.stop();
-    isListening = false;
-    document.getElementById("micBtn").classList.remove("active");
-    setOrbState("idle");
-    return;
-  }
-  stopSpeaking();
-  try {
-    const transcriptEl = document.getElementById("transcriptText");
-    if (transcriptEl) transcriptEl.textContent = "";
-    recognition.start();
-    isListening = true;
-    document.getElementById("micBtn").classList.add("active");
-    setOrbState("listening");
-    resetIdle();
-  } catch (e) {
-    toast("warn", "Could not start microphone");
-  }
-}
-
-// ── Send ───────────────────────────────────────────────────────────────────
-async function sendMessage() {
-  const textarea  = document.getElementById("novaTextarea");
-  const sendBtn   = document.getElementById("sendBtn");
-  const userInput = (textarea?.value || "").trim();
-  if (!userInput) return;
-  if (!session)   { toast("bad", "Not signed in"); return; }
-
-  stopSpeaking();
-  textarea.value = "";
-  textarea.style.height = "24px";
-  sendBtn.disabled = true;
-  removeGreeting();
-  await ensureConversation(userInput);
-  renderUserMsg(userInput);
-  messages.push({ role: "user", content: userInput });
-  saveMessage("user", userInput);
-  setOrbState("thinking");
-  showTyping();
-
-  try {
-    const res = await fetch("/api/nova/chat", {
-      method:  "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
-      body: JSON.stringify({ messages: messages.slice(-20), conversation_id: convId }),
-    });
-    const data = await res.json();
-    hideTyping();
-    if (!data.ok || !data.reply) {
-      setOrbState("idle");
-      toast("bad", data.error || "Something went wrong");
-      renderNovaMsg("I'm sorry, I encountered an issue. Please try again.");
-      return;
-    }
-    messages.push({ role: "assistant", content: data.reply });
-    saveMessage("assistant", data.reply, { cards: data.cards || [] });
-    renderNovaMsg(data.reply, data.cards || []);
-    setOrbState("idle");
-    speak(data.reply);
-  } catch (e) {
-    hideTyping();
-    setOrbState("idle");
-    toast("bad", "Connection error — please try again");
-    renderNovaMsg("I'm having trouble connecting right now. Please check your connection and try again.");
-  } finally {
-    sendBtn.disabled = false;
-    textarea?.focus();
-  }
-}
-
-// ── OAuth ──────────────────────────────────────────────────────────────────
-function base64urlEncode(buffer) {
-  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-}
-
-async function generatePKCE() {
-  const verifier  = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
-  const hash      = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-  const challenge = base64urlEncode(hash);
-  return { verifier, challenge };
-}
-
-const INT_OAUTH = {
-  spotify: {
-    authUrl:    "https://accounts.spotify.com/authorize",
-    tokenUrl:   "https://accounts.spotify.com/api/token",
-    scope:      "user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private user-library-read",
-    setupLink:  "https://developer.spotify.com/dashboard",
-    setupSteps: [
-      "Go to developer.spotify.com/dashboard and log in",
-      "Click \"Create app\" — name it anything, e.g. \"Nova\"",
-      "In app settings, add the Redirect URI shown below",
-      "Copy your Client ID and paste it here",
-    ],
-  },
-  gcal: {
-    authUrl:    "https://accounts.google.com/o/oauth2/v2/auth",
-    tokenUrl:   "https://oauth2.googleapis.com/token",
-    scope:      "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
-    extra:      { access_type: "offline", prompt: "consent" },
-    setupLink:  "https://console.cloud.google.com/",
-    setupSteps: [
-      "Go to Google Cloud Console and create or select a project",
-      "Enable the Google Calendar API under APIs & Services",
-      "Create OAuth credentials — Web application type",
-      "Add the Redirect URI shown below to Authorised redirect URIs",
-      "Copy your Client ID and paste it here",
-    ],
-  },
-  nest_cam: {
-    authUrl:    "https://accounts.google.com/o/oauth2/v2/auth",
-    tokenUrl:   "https://oauth2.googleapis.com/token",
-    scope:      "https://www.googleapis.com/auth/sdm.service",
-    extra:      { access_type: "offline", prompt: "consent" },
-    setupLink:  "https://console.cloud.google.com/",
-    setupSteps: [
-      "Go to Google Cloud Console and create or select a project",
-      "Enable the Smart Device Management API",
-      "Create OAuth credentials — Web application type",
-      "Add the Redirect URI shown below to Authorised redirect URIs",
-      "Copy your Client ID and paste it here",
-    ],
-  },
-  google_home: {
-    authUrl:    "https://accounts.google.com/o/oauth2/v2/auth",
-    tokenUrl:   "https://oauth2.googleapis.com/token",
-    scope:      "https://www.googleapis.com/auth/homegraph",
-    extra:      { access_type: "offline", prompt: "consent" },
-    setupLink:  "https://console.cloud.google.com/",
-    setupSteps: [
-      "Go to Google Cloud Console and create or select a project",
-      "Enable the HomeGraph API",
-      "Create OAuth credentials — Web application type",
-      "Add the Redirect URI shown below to Authorised redirect URIs",
-      "Copy your Client ID and paste it here",
-    ],
-  },
-  outlook: {
-    authUrl:    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-    tokenUrl:   "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-    scope:      "https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/Mail.ReadWrite offline_access",
-    setupLink:  "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
-    setupSteps: [
-      "Go to Azure Portal → App registrations → New registration",
-      "Set platform to Single-page application (SPA)",
-      "Add the Redirect URI shown below",
-      "Under API permissions add Microsoft Graph: Calendars.ReadWrite, Mail.ReadWrite",
-      "Copy your Application (client) ID and paste it here",
-    ],
-  },
-  teams: {
-    authUrl:    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-    tokenUrl:   "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-    scope:      "https://graph.microsoft.com/Team.ReadBasic.All https://graph.microsoft.com/Chat.ReadWrite offline_access",
-    setupLink:  "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
-    setupSteps: [
-      "Go to Azure Portal → App registrations → New registration",
-      "Set platform to Single-page application (SPA)",
-      "Add the Redirect URI shown below",
-      "Under API permissions add Microsoft Graph: Team.ReadBasic.All, Chat.ReadWrite",
-      "Copy your Application (client) ID and paste it here",
-    ],
-  },
-  fitbit: {
-    authUrl:    "https://www.fitbit.com/oauth2/authorize",
-    tokenUrl:   "https://api.fitbit.com/oauth2/token",
-    scope:      "activity heartrate sleep profile settings",
-    setupLink:  "https://dev.fitbit.com/apps/new",
-    setupSteps: [
-      "Go to dev.fitbit.com/apps and log in",
-      "Click Register a new app, set OAuth 2.0 Application Type to Personal",
-      "Add the Redirect URL shown below",
-      "Copy your Client ID and paste it here",
-    ],
-  },
-};
-
-const INT_NO_API = {
-  apple_music: "Apple Music requires a paid Apple Developer account and MusicKit JS. Server-side integration coming soon.",
-  life360:     "Life360 does not currently offer a public developer API.",
-  geotab:      "Geotab integration requires an enterprise SDK licence. Contact support for setup.",
-  ring:        "Ring (Amazon) does not provide a public OAuth API for third-party apps.",
-  hik_connect: "Hik Connect requires an enterprise API agreement with Hikvision.",
-  arlo:        "Arlo does not provide a public developer OAuth API.",
-  alexa:       "Amazon Alexa integration requires a Smart Home Skill setup — server-side coming soon.",
-  homekit:     "Apple HomeKit is only accessible through iOS/macOS apps. No web API is available.",
-  philips_hue: "Philips Hue OAuth requires a client secret — server-side integration coming soon.",
-  notion:      "Notion OAuth requires a client secret — server-side integration coming soon.",
-  slack:       "Slack OAuth requires a client secret — server-side integration coming soon.",
-  apple_health:"Apple Health is iOS-only via HealthKit. No web API exists.",
-  garmin:      "Garmin uses OAuth 1.0 which requires server-side signing — coming soon.",
-};
-
-async function loadConnectedServices() {
-  if (!session) return;
-  try {
-    const { data } = await sb()
-      .from("nova_oauth_tokens")
-      .select("service")
-      .eq("user_id", session.user.id);
-    connectedServices = new Set((data || []).map(r => r.service));
-  } catch {
-    connectedServices = new Set();
-  }
-}
-
-async function saveOAuthToken(service, tokenData) {
-  const expiresAt = tokenData.expires_in
-    ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
-    : null;
-  await sb().from("nova_oauth_tokens").upsert({
-    user_id:       session.user.id,
-    service,
-    access_token:  tokenData.access_token,
-    refresh_token: tokenData.refresh_token || null,
-    expires_at:    expiresAt,
-    scope:         tokenData.scope || null,
-    updated_at:    new Date().toISOString(),
-  }, { onConflict: "user_id,service" });
-  connectedServices.add(service);
-}
-
-async function deleteOAuthToken(service) {
-  await sb().from("nova_oauth_tokens").delete()
-    .eq("user_id", session.user.id).eq("service", service);
-  connectedServices.delete(service);
-}
-
-function getStoredClientId(service) {
-  return localStorage.getItem("nova_cid_" + service) || "";
-}
-
-async function initiateOAuth(service, clientId) {
-  const cfg = INT_OAUTH[service];
-  if (!cfg) return;
-  localStorage.setItem("nova_cid_" + service, clientId);
-  const { verifier, challenge } = await generatePKCE();
-  const state = base64urlEncode(crypto.getRandomValues(new Uint8Array(12)));
-  localStorage.setItem("nova_pkce_" + state, JSON.stringify({ verifier, service, clientId }));
-  const redirectUri = window.location.origin + "/systems/nova/oauth-callback.html";
-  const params = new URLSearchParams({
-    client_id:             clientId,
-    response_type:         "code",
-    redirect_uri:          redirectUri,
-    scope:                 cfg.scope,
-    state,
-    code_challenge:        challenge,
-    code_challenge_method: "S256",
-    ...(cfg.extra || {}),
-  });
-  const popup = window.open(cfg.authUrl + "?" + params.toString(), "nova_oauth", "width=540,height=660,left=200,top=80");
-  if (!popup) toast("warn", "Pop-up blocked — please allow pop-ups and try again");
-}
-
-async function handleOAuthMessage(event) {
-  if (event.origin !== window.location.origin) return;
-  const msg = event.data || {};
-  if (msg.type !== "nova_oauth_callback") return;
-  const { code, state, error } = msg;
-  if (error) { toast("bad", "OAuth error: " + error); return; }
-  if (!code || !state) return;
-  const stored = localStorage.getItem("nova_pkce_" + state);
-  if (!stored) { toast("bad", "OAuth state mismatch — please try again"); return; }
-  localStorage.removeItem("nova_pkce_" + state);
-  const { verifier, service, clientId } = JSON.parse(stored);
-  const cfg = INT_OAUTH[service];
-  if (!cfg) return;
-  const redirectUri = window.location.origin + "/systems/nova/oauth-callback.html";
-  try {
-    const body = new URLSearchParams({
-      client_id:     clientId,
-      grant_type:    "authorization_code",
-      code,
-      redirect_uri:  redirectUri,
-      code_verifier: verifier,
-    });
-    const res = await fetch(cfg.tokenUrl, {
-      method:  "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-    });
-    const tokenData = await res.json();
-    if (!tokenData.access_token) throw new Error(tokenData.error_description || tokenData.error || "No access token returned");
-    await saveOAuthToken(service, tokenData);
-    toast("ok", "Connected successfully!");
-    if (activeSettingsTab === "integrations") renderSettingsTab("integrations");
-  } catch (e) {
-    toast("bad", "Could not connect: " + (e.message || "unknown error"));
-  }
-}
-
-function showOAuthModal(service) {
-  const intItem = INTEGRATIONS.flatMap(g => g.items).find(i => i.id === service);
-  const name    = intItem?.name || service;
-  const icon    = intItem?.icon || "🔗";
-  const cfg     = INT_OAUTH[service];
-  const noApi   = INT_NO_API[service];
-
-  document.getElementById("oauthModal")?.remove();
-  const modal = document.createElement("div");
-  modal.id = "oauthModal";
-  modal.style.cssText = "position:fixed;inset:0;z-index:600;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);";
-
-  if (noApi) {
-    modal.innerHTML = buildNoApiModalHtml(name, icon, noApi);
-  } else if (cfg) {
-    const storedId    = getStoredClientId(service);
-    const redirectUri = window.location.origin + "/systems/nova/oauth-callback.html";
-    modal.innerHTML   = buildSetupModalHtml(name, icon, service, cfg, storedId, redirectUri);
+    aiListening = false;
+    document.getElementById("aiMicBtn")?.classList.remove("active");
   } else {
-    return;
+    try {
+      recognition.start();
+      aiListening = true;
+      document.getElementById("aiMicBtn")?.classList.add("active");
+    } catch (_) {
+      toast("warn", "Could not start microphone");
+    }
   }
-
-  document.body.appendChild(modal);
-  modal.addEventListener("click", e => { if (e.target === modal) modal.remove(); });
-  document.getElementById("oauthModalClose")?.addEventListener("click", () => modal.remove());
-  document.getElementById("oauthStartBtn")?.addEventListener("click", async () => {
-    const clientId = document.getElementById("oauthClientId")?.value.trim();
-    if (!clientId) { toast("warn", "Please enter your Client ID"); return; }
-    modal.remove();
-    await initiateOAuth(service, clientId);
-  });
-}
-
-function buildNoApiModalHtml(name, icon, reason) {
-  return `<div style="background:rgba(8,12,30,0.97);border:1px solid rgba(255,255,255,0.1);border-radius:20px;width:380px;max-width:90vw;padding:28px 24px;"><div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;"><span style="font-size:24px">${icon}</span><span style="font-size:16px;font-weight:600;color:#e9f0ff">${esc(name)}</span><button id="oauthModalClose" style="margin-left:auto;background:none;border:none;color:rgba(255,255,255,0.35);cursor:pointer;font-size:20px;line-height:1;">✕</button></div><div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.18);border-radius:12px;padding:14px;color:#fcd34d;font-size:13px;line-height:1.65;">ℹ️ ${esc(reason)}</div></div>`;
-}
-
-function buildSetupModalHtml(name, icon, service, cfg, storedId, redirectUri) {
-  const stepsHtml = cfg.setupSteps.map((s, i) => {
-    const num = i + 1;
-    return `<div style="display:flex;gap:10px;margin-bottom:9px;font-size:13px;line-height:1.55;color:rgba(233,240,255,0.72);"><span style="background:rgba(30,92,255,0.18);color:#93c5fd;min-width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;font-weight:700;">${num}</span><span>${esc(s)}</span></div>`;
-  }).join("");
-  return `<div style="background:rgba(8,12,30,0.97);border:1px solid rgba(255,255,255,0.1);border-radius:20px;width:430px;max-width:92vw;padding:28px 24px;max-height:90vh;overflow-y:auto;"><div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;"><span style="font-size:24px">${icon}</span><span style="font-size:16px;font-weight:600;color:#e9f0ff">Connect ${esc(name)}</span><button id="oauthModalClose" style="margin-left:auto;background:none;border:none;color:rgba(255,255,255,0.35);cursor:pointer;font-size:20px;line-height:1;">✕</button></div><div style="margin-bottom:18px;">${stepsHtml}</div><div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:10px 14px;margin-bottom:16px;"><div style="font-size:10px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:rgba(233,240,255,0.3);margin-bottom:5px;">Redirect URI — add this to your app</div><div style="font-size:12px;color:#93c5fd;word-break:break-all;font-family:monospace;">${esc(redirectUri)}</div></div><div style="margin-bottom:16px;"><div style="font-size:11px;color:rgba(233,240,255,0.45);margin-bottom:6px;">Client ID</div><input id="oauthClientId" type="text" value="${esc(storedId)}" placeholder="Paste your Client ID here" style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:10px 13px;color:#e9f0ff;font-family:inherit;font-size:13px;outline:none;"></div><div style="display:flex;gap:8px;"><a href="${esc(cfg.setupLink)}" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.1);color:rgba(233,240,255,0.55);font-size:13px;text-decoration:none;display:flex;align-items:center;justify-content:center;">Open Developer Console ↗</a><button id="oauthStartBtn" style="flex:1;padding:10px;border-radius:10px;background:#1e5cff;border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Authorise →</button></div></div>`;
 }
 
 // ── Settings ────────────────────────────────────────────────────────────────
-const INTEGRATIONS = [
-  { category: "Music", items: [
-    { id: "spotify",     icon: "🎵", name: "Spotify",     desc: "Stream music & control playback" },
-    { id: "apple_music", icon: "🎶", name: "Apple Music", desc: "Access your Apple Music library" },
-  ]},
-  { category: "Location & Tracking", items: [
-    { id: "life360", icon: "📍", name: "Life360", desc: "Family location sharing & safety" },
-    { id: "geotab",  icon: "🚗", name: "Geotab",  desc: "Fleet & vehicle tracking" },
-  ]},
-  { category: "Cameras", items: [
-    { id: "ring",        icon: "🔔", name: "Ring",        desc: "Doorbell & security cameras" },
-    { id: "hik_connect", icon: "📷", name: "Hik Connect", desc: "Hikvision IP camera system" },
-    { id: "nest_cam",    icon: "🏠", name: "Nest Cam",    desc: "Google Nest indoor & outdoor cams" },
-    { id: "arlo",        icon: "📹", name: "Arlo",        desc: "Wire-free smart home cameras" },
-  ]},
-  { category: "Smart Home", items: [
-    { id: "alexa",       icon: "🔵", name: "Amazon Alexa",  desc: "Voice control & smart home hub" },
-    { id: "google_home", icon: "🏡", name: "Google Home",   desc: "Cast, control & automate devices" },
-    { id: "homekit",     icon: "🍎", name: "Apple HomeKit", desc: "Secure home automation" },
-    { id: "philips_hue", icon: "💡", name: "Philips Hue",   desc: "Smart lighting control" },
-  ]},
-  { category: "Calendar & Email", items: [
-    { id: "gcal",    icon: "📅", name: "Google Calendar",   desc: "Sync events & reminders" },
-    { id: "outlook", icon: "📧", name: "Microsoft Outlook", desc: "Email & calendar integration" },
-  ]},
-  { category: "Productivity", items: [
-    { id: "notion", icon: "📝", name: "Notion",          desc: "Pages, databases & tasks" },
-    { id: "slack",  icon: "💬", name: "Slack",           desc: "Team messages & channels" },
-    { id: "teams",  icon: "👥", name: "Microsoft Teams", desc: "Meetings & collaboration" },
-  ]},
-  { category: "Health & Fitness", items: [
-    { id: "apple_health", icon: "❤️", name: "Apple Health", desc: "Activity, sleep & vitals" },
-    { id: "fitbit",       icon: "💪", name: "Fitbit",       desc: "Fitness tracking & heart rate" },
-    { id: "garmin",       icon: "⌚", name: "Garmin",       desc: "GPS sports watches & data" },
-  ]},
-];
-
-function getIntState(id) { return connectedServices.has(id); }
-
-async function openSettings() {
+function openSettings() {
   document.getElementById("settingsOverlay")?.classList.add("active");
   document.getElementById("settingsPanel")?.classList.add("active");
-  await loadConnectedServices();
   renderSettingsTab(activeSettingsTab);
 }
+
 function closeSettings() {
   document.getElementById("settingsOverlay")?.classList.remove("active");
   document.getElementById("settingsPanel")?.classList.remove("active");
@@ -819,240 +679,208 @@ function closeSettings() {
 
 function renderSettingsTab(tab) {
   activeSettingsTab = tab;
-  document.querySelectorAll(".snav-btn").forEach(b => {
-    b.classList.toggle("active", b.dataset.tab === tab);
-  });
+  document.querySelectorAll(".s-tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
   const body = document.getElementById("settingsBody");
   if (!body) return;
-  if (tab === "profile")            body.innerHTML = renderProfileTab();
-  else if (tab === "voice")         body.innerHTML = renderVoiceTab();
-  else if (tab === "appearance")    body.innerHTML = renderAppearanceTab();
-  else if (tab === "integrations")  body.innerHTML = renderIntegrationsTab();
-  else if (tab === "notifications") body.innerHTML = renderNotificationsTab();
-  else if (tab === "privacy")       body.innerHTML = renderPrivacyTab();
-  attachSettingsEvents(tab);
-}
 
-function renderProfileTab() {
-  const initial  = (profile?.full_name?.[0] || "U").toUpperCase();
-  const fullName = esc(profile?.full_name || "User");
-  const email    = esc(session?.user?.email || "");
-  const role     = esc(profile?.role || "user");
-  return `<div class="profile-avatar-row"><div class="profile-avatar-large">${initial}</div><div><div class="profile-name">${fullName}</div><div class="profile-email">${email}</div><span class="profile-role">${role}</span></div></div><div class="settings-section"><div class="settings-section-label">Account</div><div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Sign out</div><div class="settings-row-sub">Sign out of Nova on this device</div></div><button class="int-connect-btn" id="settingsSignOut" style="color:#fca5a5;border-color:rgba(239,68,68,0.2);background:rgba(239,68,68,0.06)">Sign out</button></div></div>`;
-}
-
-function renderVoiceTab() {
-  const wakeChecked = localStorage.getItem("nova_wake") !== "0" ? "checked" : "";
-  const ttsChecked  = ttsEnabled ? "checked" : "";
-  const autoChecked = localStorage.getItem("nova_autosend") !== "0" ? "checked" : "";
-  return `<div class="settings-section"><div class="settings-section-label">Wake Word</div><div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Wake word detection</div><div class="settings-row-sub">Say "Nova" to activate hands-free</div></div><input type="checkbox" class="toggle" id="toggleWake" ${wakeChecked}></div></div><div class="settings-section"><div class="settings-section-label">Text to Speech</div><div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Read responses aloud</div><div class="settings-row-sub">Nova will speak her replies</div></div><input type="checkbox" class="toggle" id="toggleTTS" ${ttsChecked}></div><div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Auto-send voice input</div><div class="settings-row-sub">Send automatically after speaking</div></div><input type="checkbox" class="toggle" id="toggleAutoSend" ${autoChecked}></div></div>`;
-}
-
-function renderAppearanceTab() {
-  const isDark    = document.documentElement.getAttribute("data-theme") !== "light";
-  const curAccent = localStorage.getItem("nova_accent") || "blue";
-  const swatches  = [
-    { key: "blue",   color: "#1e5cff", label: "Blue" },
-    { key: "purple", color: "#8b5cf6", label: "Purple" },
-    { key: "teal",   color: "#06b6d4", label: "Teal" },
-    { key: "green",  color: "#10b981", label: "Green" },
-    { key: "rose",   color: "#f43f5e", label: "Rose" },
-    { key: "amber",  color: "#f59e0b", label: "Amber" },
-  ];
-  const swatchHtml = swatches.map(s => {
-    const sel = s.key === curAccent ? " selected" : "";
-    return `<div class="accent-swatch${sel}" data-accent="${s.key}" style="background:${s.color}" title="${s.label}"></div>`;
-  }).join("");
-  return `<div class="settings-section"><div class="settings-section-label">Theme</div><div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Dark mode</div><div class="settings-row-sub">Deep space interface</div></div><input type="checkbox" class="toggle" id="toggleTheme" ${isDark ? "checked" : ""}></div></div><div class="settings-section"><div class="settings-section-label">Accent Colour</div><div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:12px;"><div class="settings-row-label">Choose your colour</div><div class="accent-picker">${swatchHtml}</div></div></div>`;
-}
-
-function renderIntegrationsTab() {
-  let html = "";
-  for (const group of INTEGRATIONS) {
-    html += `<div class="settings-section"><div class="settings-section-label">${esc(group.category)}</div>`;
-    for (const item of group.items) {
-      const connected = connectedServices.has(item.id);
-      const hasOAuth  = !!INT_OAUTH[item.id];
-      const hasNoApi  = !!INT_NO_API[item.id];
-      const cardClass = connected ? " connected" : "";
-      let actionHtml;
-      if (connected) {
-        actionHtml = `<div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;flex-shrink:0;"><span class="int-badge connected">Connected</span><button class="int-disconnect-btn" data-int="${esc(item.id)}">Disconnect</button></div>`;
-      } else if (hasOAuth) {
-        actionHtml = `<button class="int-connect-btn" data-int="${esc(item.id)}">Connect</button>`;
-      } else if (hasNoApi) {
-        actionHtml = `<button class="int-info-btn" data-int="${esc(item.id)}">Info</button>`;
-      } else {
-        actionHtml = `<span class="int-soon">Soon</span>`;
-      }
-      html += `<div class="int-card${cardClass}"><div class="int-icon">${item.icon}</div><div class="int-info"><div class="int-name">${esc(item.name)}</div><div class="int-desc">${esc(item.desc)}</div></div>${actionHtml}</div>`;
-    }
-    html += "</div>";
-  }
-  return html;
-}
-
-function renderNotificationsTab() {
-  const pushChecked   = localStorage.getItem("nova_notif_push")   !== "0" ? "checked" : "";
-  const emailChecked  = localStorage.getItem("nova_notif_email")  === "1" ? "checked" : "";
-  const remindChecked = localStorage.getItem("nova_notif_remind") !== "0" ? "checked" : "";
-  return `<div class="settings-section"><div class="settings-section-label">Notifications</div><div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Push notifications</div><div class="settings-row-sub">Reminders and alerts on this device</div></div><input type="checkbox" class="toggle" id="togglePush" ${pushChecked}></div><div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Email digest</div><div class="settings-row-sub">Daily summary of tasks and events</div></div><input type="checkbox" class="toggle" id="toggleEmail" ${emailChecked}></div><div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Reminder alerts</div><div class="settings-row-sub">Get notified when reminders are due</div></div><input type="checkbox" class="toggle" id="toggleRemind" ${remindChecked}></div></div>`;
-}
-
-function renderPrivacyTab() {
-  const histChecked   = localStorage.getItem("nova_privacy_history")   !== "0" ? "checked" : "";
-  const analytChecked = localStorage.getItem("nova_privacy_analytics") !== "0" ? "checked" : "";
-  return `<div class="settings-section"><div class="settings-section-label">Data & Privacy</div><div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Save conversation history</div><div class="settings-row-sub">Store chats in your account</div></div><input type="checkbox" class="toggle" id="toggleHistory" ${histChecked}></div><div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Usage analytics</div><div class="settings-row-sub">Help improve Nova with anonymous data</div></div><input type="checkbox" class="toggle" id="toggleAnalytics" ${analytChecked}></div></div><div class="settings-section"><div class="settings-section-label">Data</div><div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Clear conversation history</div><div class="settings-row-sub">Delete all stored chats permanently</div></div><button class="int-connect-btn" id="clearHistoryBtn" style="color:#fca5a5;border-color:rgba(239,68,68,0.2);background:rgba(239,68,68,0.06)">Clear</button></div></div>`;
-}
-
-function attachSettingsEvents(tab) {
   if (tab === "profile") {
-    document.getElementById("settingsSignOut")?.addEventListener("click", async () => {
-      await sb().auth.signOut();
-      window.location.href = "/app/index.html";
+    body.innerHTML = `
+      <div class="sfield"><div class="sfield-label">Full name</div><div class="sfield-val">${esc(profile?.full_name || "–")}</div></div>
+      <div class="sfield"><div class="sfield-label">Email</div><div class="sfield-val">${esc(session?.user?.email || "–")}</div></div>
+      <div class="sfield"><div class="sfield-label">Role</div><div class="sfield-val">${esc(profile?.role || "Member")}</div></div>
+      <div class="sfield"><div class="sfield-label">Company ID</div><div class="sfield-val">${esc(profile?.company_id || "–")}</div></div>`;
+  } else if (tab === "appearance") {
+    const cur = document.documentElement.getAttribute("data-theme");
+    body.innerHTML = `
+      <div class="srow">
+        <span class="srow-label">Theme</span>
+        <div style="display:flex;gap:6px">
+          <button class="theme-opt${cur === "dark" ? " active" : ""}" onclick="setTheme('dark',this)">Dark</button>
+          <button class="theme-opt${cur === "light" ? " active" : ""}" onclick="setTheme('light',this)">Light</button>
+        </div>
+      </div>`;
+    window.setTheme = function(t, btn) {
+      document.documentElement.setAttribute("data-theme", t);
+      localStorage.setItem("nova_theme", t);
+      document.querySelectorAll(".theme-opt").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    };
+  } else if (tab === "notifications") {
+    const granted = Notification.permission === "granted";
+    body.innerHTML = `
+      <div class="srow">
+        <span class="srow-label">Browser notifications</span>
+        <label class="toggle"><input type="checkbox" id="notifToggle"${granted ? " checked" : ""}><span class="toggle-slider"></span></label>
+      </div>`;
+    document.getElementById("notifToggle")?.addEventListener("change", async (e) => {
+      if (e.target.checked) {
+        const p = await Notification.requestPermission();
+        if (p !== "granted") { e.target.checked = false; toast("warn", "Notifications blocked by browser"); }
+      }
     });
-  }
-  if (tab === "voice") {
-    document.getElementById("toggleTTS")?.addEventListener("change", (e) => {
-      ttsEnabled = e.target.checked;
-      document.getElementById("ttsBtn").textContent = ttsEnabled ? "🔊" : "🔇";
-      if (!ttsEnabled) stopSpeaking();
-    });
-    document.getElementById("toggleWake")?.addEventListener("change", (e) => {
-      localStorage.setItem("nova_wake", e.target.checked ? "1" : "0");
-      toast("ok", e.target.checked ? "Wake word on" : "Wake word off");
-    });
-    document.getElementById("toggleAutoSend")?.addEventListener("change", (e) => {
-      localStorage.setItem("nova_autosend", e.target.checked ? "1" : "0");
-    });
-  }
-  if (tab === "appearance") {
-    document.getElementById("toggleTheme")?.addEventListener("change", (e) => {
-      const next = e.target.checked ? "dark" : "light";
-      document.documentElement.setAttribute("data-theme", next);
-      localStorage.setItem("nova_theme", next);
-      document.getElementById("themeBtn").textContent = next === "dark" ? "☀️" : "🌙";
-    });
-    document.querySelectorAll(".accent-swatch").forEach(sw => {
-      sw.addEventListener("click", () => {
-        document.querySelectorAll(".accent-swatch").forEach(s => s.classList.remove("selected"));
-        sw.classList.add("selected");
-        localStorage.setItem("nova_accent", sw.dataset.accent);
-        toast("ok", sw.title + " accent selected");
-      });
-    });
-  }
-  if (tab === "integrations") {
-    document.querySelectorAll(".int-connect-btn[data-int]").forEach(btn => {
-      btn.addEventListener("click", () => showOAuthModal(btn.dataset.int));
-    });
-    document.querySelectorAll(".int-info-btn[data-int]").forEach(btn => {
-      btn.addEventListener("click", () => showOAuthModal(btn.dataset.int));
-    });
-    document.querySelectorAll(".int-disconnect-btn[data-int]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        await deleteOAuthToken(btn.dataset.int);
-        toast("ok", "Disconnected");
-        renderSettingsTab("integrations");
-      });
-    });
-  }
-  if (tab === "notifications") {
-    document.getElementById("togglePush")?.addEventListener("change", (e) => {
-      localStorage.setItem("nova_notif_push", e.target.checked ? "1" : "0");
-    });
-    document.getElementById("toggleEmail")?.addEventListener("change", (e) => {
-      localStorage.setItem("nova_notif_email", e.target.checked ? "1" : "0");
-    });
-    document.getElementById("toggleRemind")?.addEventListener("change", (e) => {
-      localStorage.setItem("nova_notif_remind", e.target.checked ? "1" : "0");
-    });
-  }
-  if (tab === "privacy") {
-    document.getElementById("toggleHistory")?.addEventListener("change", (e) => {
-      localStorage.setItem("nova_privacy_history", e.target.checked ? "1" : "0");
-    });
-    document.getElementById("toggleAnalytics")?.addEventListener("change", (e) => {
-      localStorage.setItem("nova_privacy_analytics", e.target.checked ? "1" : "0");
-    });
-    document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
+  } else if (tab === "privacy") {
+    body.innerHTML = `
+      <div class="sinfo">Your conversations are stored securely in your company's Supabase instance and are only accessible to you. Nova processes your messages through the SmartCore API.</div>
+      <button class="btn-ghost" style="margin-top:16px" onclick="window._clearHistory()">Clear conversation history</button>`;
+    window._clearHistory = async function() {
+      if (!confirm("Clear all Nova conversation history?")) return;
+      const { data: convs } = await db().from("nova_conversations").select("id").eq("user_id", session.user.id);
+      if (convs?.length) {
+        await db().from("nova_messages").delete().in("conversation_id", convs.map(c => c.id));
+        await db().from("nova_conversations").delete().eq("user_id", session.user.id);
+      }
+      aiMessages = []; aiConvId = null;
       toast("ok", "Conversation history cleared");
-    });
+    };
   }
 }
 
-function initSettings() {
-  document.getElementById("settingsBtn")?.addEventListener("click", openSettings);
-  document.getElementById("settingsClose")?.addEventListener("click", closeSettings);
-  document.getElementById("settingsOverlay")?.addEventListener("click", closeSettings);
-  document.querySelectorAll(".snav-btn").forEach(btn => {
-    btn.addEventListener("click", () => renderSettingsTab(btn.dataset.tab));
-  });
+// ── Sidebar user ─────────────────────────────────────────────────────────────
+function renderSidebarUser() {
+  const name = profile?.full_name || session?.user?.email || "User";
+  const initials = name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+  const av = document.getElementById("suAvatar"); if (av) av.textContent = initials;
+  const nm = document.getElementById("suName");   if (nm) nm.textContent = name;
+  const rl = document.getElementById("suRole");   if (rl) rl.textContent = profile?.role || "Member";
 }
 
-// ── Boot ───────────────────────────────────────────────────────────────────
+// ── Boot ────────────────────────────────────────────────────────────────────
 async function boot() {
   initTheme();
+  await requireAuth();
+  renderSidebarUser();
 
-  try {
-    await requireAuth();
-  } catch {
-    return;
+  // Module nav
+  document.querySelectorAll(".snav[data-module]").forEach(btn => {
+    btn.addEventListener("click", () => showModule(btn.dataset.module));
+  });
+  document.querySelectorAll(".quick-card[data-module]").forEach(btn => {
+    btn.addEventListener("click", () => showModule(btn.dataset.module));
+  });
+  document.getElementById("homeNewProject")?.addEventListener("click", () => {
+    openNewProjectModal();
+    showModule("projects");
+  });
+
+  // Theme
+  document.getElementById("themeBtn")?.addEventListener("click", toggleTheme);
+
+  // Hamburger
+  document.getElementById("hamburger")?.addEventListener("click", () => {
+    document.getElementById("sidebar")?.classList.toggle("open");
+  });
+
+  // Logout
+  document.getElementById("logoutBtn")?.addEventListener("click", async () => {
+    await db().auth.signOut();
+    window.location.href = "/app/index.html";
+  });
+
+  // Settings
+  document.getElementById("settingsNavBtn")?.addEventListener("click", openSettings);
+  document.getElementById("settingsOverlay")?.addEventListener("click", closeSettings);
+  document.getElementById("settingsClose")?.addEventListener("click", closeSettings);
+  document.querySelectorAll(".s-tab").forEach(b => b.addEventListener("click", () => renderSettingsTab(b.dataset.tab)));
+
+  // AI Panel
+  document.getElementById("aiFabBtn")?.addEventListener("click", openAiPanel);
+  document.getElementById("aiOverlay")?.addEventListener("click", closeAiPanel);
+  document.getElementById("aiPanelClose")?.addEventListener("click", closeAiPanel);
+  document.getElementById("aiMicBtn")?.addEventListener("click", toggleVoice);
+  document.getElementById("aiSendBtn")?.addEventListener("click", () => sendAiMessage());
+
+  const aiTA = document.getElementById("aiTextarea");
+  if (aiTA) {
+    aiTA.addEventListener("input", () => {
+      aiTA.style.height = "24px";
+      aiTA.style.height = Math.min(aiTA.scrollHeight, 120) + "px";
+      const sb = document.getElementById("aiSendBtn");
+      if (sb) sb.disabled = !aiTA.value.trim();
+    });
+    aiTA.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendAiMessage(); }
+    });
   }
 
-  renderGreeting();
-  initVoice();
-  initWakeWord();
-  initSettings();
-  resetIdle();
-
-  window.addEventListener("message", handleOAuthMessage);
-
-  document.addEventListener("mousemove", resetIdle, { passive: true });
-  document.addEventListener("keydown",   resetIdle, { passive: true });
-  document.addEventListener("touchstart",resetIdle, { passive: true });
-  document.getElementById("idleScreen")?.addEventListener("click", resetIdle);
-
-  if (synth && synth.getVoices().length === 0) {
-    synth.addEventListener("voiceschanged", () => {}, { once: true });
-  }
-
-  const ta = document.getElementById("novaTextarea");
-  ta?.addEventListener("input", () => {
-    ta.style.height = "24px";
-    ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
-    document.getElementById("sendBtn").disabled = !ta.value.trim();
+  // Projects
+  document.getElementById("newProjectBtn")?.addEventListener("click", openNewProjectModal);
+  document.getElementById("projectModalX")?.addEventListener("click", () => closeModal("projectModalBg"));
+  document.getElementById("projectModalCancel")?.addEventListener("click", () => closeModal("projectModalBg"));
+  document.getElementById("projectModalSave")?.addEventListener("click", saveProject);
+  document.getElementById("projectModalBg")?.addEventListener("click", e => { if (e.target === e.currentTarget) closeModal("projectModalBg"); });
+  document.getElementById("backToProjects")?.addEventListener("click", () => {
+    activeProjectId = null;
+    document.getElementById("projectDetailView")?.classList.add("hidden");
+    document.getElementById("projectsListView")?.classList.remove("hidden");
   });
-  ta?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-  });
-
-  const ttsBtn = document.getElementById("ttsBtn");
-  ttsBtn?.addEventListener("click", () => {
-    ttsEnabled = !ttsEnabled;
-    ttsBtn.textContent = ttsEnabled ? "🔊" : "🔇";
-    if (!ttsEnabled) stopSpeaking();
-    toast("ok", ttsEnabled ? "Voice on" : "Voice off");
-  });
-
-  document.querySelectorAll(".quick-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const ta = document.getElementById("novaTextarea");
-      if (ta) {
-        ta.value = btn.dataset.prompt;
-        ta.dispatchEvent(new Event("input"));
-        sendMessage();
-      }
+  document.getElementById("deleteProjectBtn")?.addEventListener("click", deleteProject);
+  document.querySelectorAll(".cswatch").forEach(s => {
+    s.addEventListener("click", () => {
+      selectedColor = s.dataset.color;
+      document.querySelectorAll(".cswatch").forEach(cs => cs.classList.toggle("active", cs === s));
     });
   });
 
-  document.getElementById("themeBtn")?.addEventListener("click", toggleTheme);
-  document.getElementById("micBtn")?.addEventListener("click", toggleVoice);
-  document.getElementById("sendBtn")?.addEventListener("click", sendMessage);
-  document.getElementById("logoutBtn")?.addEventListener("click", async () => {
-    await sb().auth.signOut();
-    window.location.href = "/app/index.html";
+  // Task modal
+  document.getElementById("taskModalX")?.addEventListener("click", () => closeModal("taskModalBg"));
+  document.getElementById("taskModalCancel")?.addEventListener("click", () => closeModal("taskModalBg"));
+  document.getElementById("taskModalSave")?.addEventListener("click", saveTask);
+  document.getElementById("taskModalBg")?.addEventListener("click", e => { if (e.target === e.currentTarget) closeModal("taskModalBg"); });
+
+  // Member modal
+  document.getElementById("memberModalX")?.addEventListener("click", () => closeModal("memberModalBg"));
+  document.getElementById("memberModalCancel")?.addEventListener("click", () => closeModal("memberModalBg"));
+  document.getElementById("memberModalBg")?.addEventListener("click", e => { if (e.target === e.currentTarget) closeModal("memberModalBg"); });
+  document.getElementById("memberSearch")?.addEventListener("input", e => searchMembers(e.target.value));
+
+  // Invite modal
+  document.getElementById("inviteBtn")?.addEventListener("click", () => {
+    const box = document.getElementById("inviteLinkBox");
+    if (box) box.textContent = window.location.origin + "/app/index.html";
+    openModal("inviteModalBg");
   });
+  document.getElementById("inviteModalX")?.addEventListener("click", () => closeModal("inviteModalBg"));
+  document.getElementById("inviteModalBg")?.addEventListener("click", e => { if (e.target === e.currentTarget) closeModal("inviteModalBg"); });
+  document.getElementById("copyInviteBtn")?.addEventListener("click", () => {
+    navigator.clipboard.writeText(window.location.origin + "/app/index.html").then(() => toast("ok", "Link copied"));
+  });
+
+  // Email
+  document.getElementById("rewriteBtn")?.addEventListener("click", rewriteEmail);
+  document.getElementById("copyEmailBtn")?.addEventListener("click", () => {
+    if (window._emailResult) navigator.clipboard.writeText(window._emailResult).then(() => toast("ok", "Copied"));
+  });
+
+  // Files
+  const fileInput = document.getElementById("fileInput");
+  document.getElementById("browseBtn")?.addEventListener("click", () => fileInput?.click());
+  fileInput?.addEventListener("change", e => handleFiles(Array.from(e.target.files || [])));
+  const dropZone = document.getElementById("dropZone");
+  if (dropZone) {
+    dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+    dropZone.addEventListener("drop", e => { e.preventDefault(); dropZone.classList.remove("drag-over"); handleFiles(Array.from(e.dataTransfer?.files || [])); });
+    dropZone.addEventListener("click", e => { if (e.target !== document.getElementById("browseBtn")) fileInput?.click(); });
+  }
+
+  // Team filters
+  document.querySelectorAll(".filter-btn[data-filter]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      loadTeam(btn.dataset.filter);
+    });
+  });
+
+  // Voice init
+  initVoice();
+
+  // Presence heartbeat
+  await updatePresence();
+  setInterval(updatePresence, 60000);
+
+  // Start on home
+  showModule("home");
 }
 
-boot();
+boot().catch(console.error);
