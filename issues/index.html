@@ -623,16 +623,17 @@ function startPolling(){
           .eq('id', state.ticketId).maybeSingle(),
       ]);
 
-      (msgs || []).forEach(m => {
-        if (state.seen.has(m.id)) return;
+      for (const m of (msgs || [])) {
+        if (state.seen.has(m.id)) continue;
         state.seen.add(m.id);
-        if (m.role !== 'agent') return;
+        if (m.role !== 'agent') continue;
         // Content-level guard: send() may already have rendered this reply
         // locally before we learned its row id.
-        if (state.rendered.has(msgKey('agent', m.content))) return;
-        typing(false);
-        addMsg('them', m.content, m.author_name);
-      });
+        if (state.rendered.has(msgKey('agent', m.content))) continue;
+        // Deliver it the way a person would — brief pause, then typing.
+        state.rendered.add(msgKey('agent', m.content));
+        await deliver(m.content, m.author_name, { read: 500 });
+      }
 
       if (t) {
         if (t.agent_name && t.agent_name !== state.agentName) setAgent(t.agent_name, t.agent_title);
@@ -656,6 +657,52 @@ function setAgent(name, title){
   $('tAgent').textContent = name;
 }
 
+/* ---------------- human cadence ----------------
+   A real person reads your message, thinks, then types — and how long each
+   of those takes depends on what was said. The API usually answers faster
+   than that, so we hold the reply back to the human-plausible moment rather
+   than adding delay on top of the request. */
+
+const sleep = ms => new Promise(r => setTimeout(r, Math.max(0, ms)));
+
+/** Time to read what the customer sent. ~90 chars/sec plus a beat to notice. */
+function readTime(text){
+  const n = (text || '').length;
+  return Math.min(3200, 450 + n * 11);
+}
+
+/** Time to work out the answer, then type it. */
+function replyTime(text){
+  const n = (text || '').length;
+
+  // Technical replies — console steps, error talk, links — take more thought.
+  const technical = /```|console|f12|cmd\s*\+|ctrl\s*\+|error|https?:\/\//i.test(text);
+  // Questions come quicker than explanations.
+  const isQuestion = /\?\s*$/.test((text || '').trim());
+
+  let think = 600 + n * 2.2;
+  if (technical) think *= 1.55;
+  if (isQuestion) think *= 0.75;
+  think = Math.min(4500, think);
+
+  // ~25ms/char ≈ a fast, competent typist who reuses some phrasing.
+  const jitter = 0.85 + Math.random() * 0.3;
+  const type = Math.min(15000, Math.max(900, n * 25 * jitter));
+
+  return { think, type };
+}
+
+/** Render an agent message the way a person would deliver it: a pause to
+ *  read/think, then a visible typing indicator for a length-appropriate time. */
+async function deliver(text, author, opts = {}){
+  const { think, type } = replyTime(text);
+  if (opts.read) await sleep(opts.read);
+  typing(true);
+  await sleep(think * 0.35 + type);
+  typing(false);
+  addMsg('them', text, author);
+}
+
 /* ---------------- send ---------------- */
 async function send(){
   const input = $('input');
@@ -668,14 +715,17 @@ async function send(){
   input.style.height = 'auto';
 
   addMsg('me', text);
-  await new Promise(r => setTimeout(r, 260));
-  typing(true);
+
+  const started = Date.now();
+  const read = readTime(text);
 
   try {
     const { data:{ session } } = await sb.auth.getSession();
     if (!session) { location.reload(); return; }
 
-    const res = await fetch(`${window.__SUPABASE_URL}/functions/v1/support-chat`, {
+    // Fire the request straight away — the pause below is what the customer
+    // perceives, and the request usually finishes inside it.
+    const request = fetch(`${window.__SUPABASE_URL}/functions/v1/support-chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -694,10 +744,16 @@ async function send(){
       }),
     });
 
+    // They're reading your message — nothing on screen yet.
+    await sleep(read);
+    typing(true);
+
+    const res = await request;
     const data = await res.json();
-    typing(false);
 
     if (!res.ok) {
+      await sleep(700);
+      typing(false);
       addMsg('them', data.error || "Sorry — something went wrong on our side. Please try again, or email support@smartcoretechnology.co.uk.", 'SmartCore Support');
       return;
     }
@@ -711,17 +767,26 @@ async function send(){
     $('ticketCard').style.display = '';
     $('tRef').textContent = data.ticket_ref;
 
+    // Record the transcript ids before the reply lands, so the poller can
+    // never race us into rendering the same message twice.
+    const { data: msgs } = await sb.from('support_messages')
+      .select('id').eq('ticket_id', state.ticketId);
+    (msgs || []).forEach(m => state.seen.add(m.id));
+
+    // Hold the reply until reading + thinking + typing would plausibly be
+    // done. If the API was slow, that time has already been spent.
+    const { think, type } = replyTime(data.reply);
+    const target  = read + think + type;
+    const elapsed = Date.now() - started;
+    await sleep(target - elapsed);
+
+    typing(false);
     addMsg('them', data.reply, data.agent_name);
 
     if (data.escalated) {
       setTimeout(() => { showPipeline(); startPolling(); }, 700);
     }
     setStatus(data.status);
-
-    // remember every message we've rendered so polling doesn't duplicate them
-    const { data: msgs } = await sb.from('support_messages')
-      .select('id').eq('ticket_id', state.ticketId);
-    (msgs || []).forEach(m => state.seen.add(m.id));
 
   } catch (e) {
     typing(false);
@@ -813,13 +878,11 @@ async function boot(){
   }
 
   // Fresh conversation — the agent opens.
-  typing(true);
-  setTimeout(() => {
-    typing(false);
-    addMsg('them',
-      `Hi — you're through to ${agent.name} at SmartCore support.\n\nTell me what's going wrong and which part of SmartCore you were using when it happened, and I'll take a look with you.`,
-      agent.name);
-  }, 1100);
+  deliver(
+    `Hi — you're through to ${agent.name} at SmartCore support.\n\nTell me what's going wrong and which part of SmartCore you were using when it happened, and I'll take a look with you.`,
+    agent.name,
+    { read: 700 },
+  );
 }
 
 boot();
