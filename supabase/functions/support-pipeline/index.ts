@@ -6,6 +6,9 @@
 //                   →  approved ? merge to main : escalate to a human
 //                   →  post the "your fix is live" message on the ticket
 //
+// The fix agent submits exact string replacements, not whole files, so a
+// large page can be edited safely without truncation risk.
+//
 // Also supports { action: "revert", attempt_id } to restore the exact
 // pre-change file contents captured before the fix agent touched anything.
 //
@@ -183,7 +186,7 @@ const FIX_TOOLS = [
   {
     name: "propose_fix",
     description:
-      "Submit the finished fix. Provide the COMPLETE new contents of each changed file.",
+      "Submit the finished fix as a set of exact string replacements.",
     input_schema: {
       type: "object",
       properties: {
@@ -193,23 +196,29 @@ const FIX_TOOLS = [
           description:
             "Why this change fixes the reported defect, and why it is safe.",
         },
-        files: {
+        edits: {
           type: "array",
+          description: "The replacements to apply, in order.",
           items: {
             type: "object",
             properties: {
               path: { type: "string" },
-              content: {
+              old_string: {
                 type: "string",
-                description: "COMPLETE new file contents. Not a diff.",
+                description:
+                  "Exact text to replace, copied verbatim from the file. Must appear EXACTLY ONCE — include surrounding lines to make it unique.",
+              },
+              new_string: {
+                type: "string",
+                description: "Replacement text.",
               },
               reason: { type: "string" },
             },
-            required: ["path", "content", "reason"],
+            required: ["path", "old_string", "new_string", "reason"],
           },
         },
       },
-      required: ["summary", "rationale", "files"],
+      required: ["summary", "rationale", "edits"],
     },
   },
   {
@@ -230,14 +239,14 @@ function fixSystemPrompt() {
 ABSOLUTE RULES
 1. Fix the reported bug and NOTHING else. No refactors, no tidying, no renaming, no "while I'm here" improvements, no new features.
 2. Change the fewest lines possible. Ideally one file; never more than ${MAX_FILES}.
-3. You must return the COMPLETE new contents of every file you change. Reproduce the untouched parts byte-for-byte. Do not truncate, do not summarise, do not write "... rest of file unchanged".
+3. You submit EXACT STRING REPLACEMENTS, not whole files. For each edit, old_string must be copied verbatim from the file you read, including its exact indentation and whitespace, and must appear EXACTLY ONCE in that file. If the snippet you want is not unique, widen it with surrounding lines until it is.
 4. Never touch: authentication, login, session handling, payments, Supabase RLS policies, API keys, or anything that deletes data or users.
 5. Never remove large blocks of code. If the fix seems to need that, call cannot_fix instead.
 6. Preserve the existing code style exactly — same indentation, same naming, same idioms.
 7. If you cannot confidently locate the defect from the report, call cannot_fix. A wrong guess is far worse than no fix.
 
 METHOD
-Use list_files to orient yourself, read_file on the likely files, then propose_fix. Read before you write — never propose a change to a file you have not read in full.`;
+Use list_files to orient yourself, read_file on the likely files, then propose_fix. Read before you write — never edit a file you have not read in full.`;
 }
 
 async function runFixAgent(ticket: any, tree: any[]) {
@@ -268,7 +277,7 @@ Browser info: ${JSON.stringify(ticket.browser_info ?? {})}`;
   for (let turn = 0; turn < 14; turn++) {
     const res = await anthropic({
       model: FIX_MODEL,
-      max_tokens: 32000,
+      max_tokens: 16000,
       system: fixSystemPrompt(),
       tools: FIX_TOOLS,
       messages,
@@ -447,7 +456,7 @@ Steps: ${ticket.steps_to_repro || "(none)"}
 THE PROPOSED FIX
 Summary: ${proposal.summary}
 Rationale: ${proposal.rationale}
-Files changed: ${proposal.files.map((f: any) => f.path).join(", ")}
+Files changed: ${[...new Set((proposal.edits ?? []).map((e: any) => e.path))].join(", ")}
 
 THE ACTUAL CHANGES
 ${diffs}`,
@@ -508,7 +517,7 @@ async function doRevert(admin: any, attemptId: string) {
   if (!attempt) return json({ error: "Attempt not found." }, 404);
   if (!attempt.backups) return json({ error: "No backup recorded." }, 400);
 
-  const branch = `revert/${attempt.branch_name ?? attemptId.slice(0, 8)}`;
+  const branch = `revert/${attemptId.slice(0, 8)}`;
   const baseSha = await getBaseSha();
   await createBranch(branch, baseSha);
 
@@ -588,7 +597,7 @@ Deno.serve(async (req) => {
 
     // ---------- 1. FIX AGENT ----------
     const tree = await listTree();
-    const fix = await runFixAgent(ticket, tree);
+    const fix: any = await runFixAgent(ticket, tree);
 
     if (!fix.ok) {
       await admin
@@ -609,29 +618,66 @@ Deno.serve(async (req) => {
     }
 
     const proposal = fix.proposal;
-    const files = (proposal.files ?? []).slice(0, MAX_FILES);
-    if (!files.length) throw new Error("Fix agent proposed no files.");
+    const edits = proposal.edits ?? [];
+    if (!edits.length) throw new Error("Fix agent proposed no edits.");
 
-    // ---------- 2. GUARDRAILS + BACKUPS ----------
+    const paths: string[] = [
+      ...new Set(edits.map((e: any) => String(e.path))),
+    ] as string[];
+    if (paths.length > MAX_FILES) {
+      throw new Error(`Fix touches ${paths.length} files (max ${MAX_FILES}).`);
+    }
+
+    // ---------- 2. APPLY EDITS + GUARDRAILS + BACKUPS ----------
     const backups: Record<string, string> = {};
     const shas: Record<string, string> = {};
-    const diffParts: string[] = [];
+    const updated: Record<string, string> = {};
+    const reasons: Record<string, string[]> = {};
 
-    for (const f of files) {
-      if (forbidden(f.path)) throw new Error(`Fix touched a forbidden path: ${f.path}`);
-      const cur = fix.readCache[f.path] ?? (await readFile(f.path));
-      backups[f.path] = cur.content;
-      shas[f.path] = cur.sha;
+    for (const p of paths) {
+      if (forbidden(p)) throw new Error(`Fix touched a forbidden path: ${p}`);
+      const cur = fix.readCache[p] ?? (await readFile(p));
+      backups[p] = cur.content;
+      shas[p] = cur.sha;
+      updated[p] = cur.content;
+      reasons[p] = [];
+    }
 
-      const beforeLines = cur.content.split("\n").length;
-      const afterLines = String(f.content).split("\n").length;
-      if (afterLines < beforeLines * (1 - MAX_SHRINK_RATIO)) {
+    for (const e of edits) {
+      const p = String(e.path);
+      const oldStr = String(e.old_string ?? "");
+      const newStr = String(e.new_string ?? "");
+      if (!oldStr) throw new Error(`Empty old_string in edit on ${p}.`);
+
+      const hits = updated[p].split(oldStr).length - 1;
+      if (hits === 0) {
         throw new Error(
-          `Fix would delete too much of ${f.path} (${beforeLines} → ${afterLines} lines).`,
+          `Edit target not found in ${p}. The agent's old_string did not match the file.`,
         );
       }
+      if (hits > 1) {
+        throw new Error(
+          `Edit target is ambiguous in ${p} (${hits} matches). Refusing to guess.`,
+        );
+      }
+      updated[p] = updated[p].replace(oldStr, newStr);
+      reasons[p].push(e.reason);
+    }
+
+    const diffParts: string[] = [];
+    for (const p of paths) {
+      const beforeLines = backups[p].split("\n").length;
+      const afterLines = updated[p].split("\n").length;
+      if (afterLines < beforeLines * (1 - MAX_SHRINK_RATIO)) {
+        throw new Error(
+          `Fix would delete too much of ${p} (${beforeLines} → ${afterLines} lines).`,
+        );
+      }
+      if (updated[p] === backups[p]) {
+        throw new Error(`Edits produced no change in ${p}.`);
+      }
       diffParts.push(
-        `===== ${f.path} =====\nreason: ${f.reason}\n${lineDiff(cur.content, String(f.content))}`,
+        `===== ${p} =====\nreason: ${reasons[p].join("; ")}\n${lineDiff(backups[p], updated[p])}`,
       );
     }
 
@@ -641,9 +687,9 @@ Deno.serve(async (req) => {
         status: "awaiting_review",
         summary: proposal.summary,
         rationale: proposal.rationale,
-        files_changed: files.map((f: any) => ({ path: f.path, reason: f.reason })),
+        files_changed: paths.map((p) => ({ path: p, reason: reasons[p].join("; ") })),
         backups,
-        patch: files.map((f: any) => ({ path: f.path, content: f.content })),
+        patch: edits,
       })
       .eq("id", attemptId);
 
@@ -653,12 +699,12 @@ Deno.serve(async (req) => {
     await createBranch(branch, baseSha);
 
     let lastCommit = "";
-    for (const f of files) {
+    for (const p of paths) {
       const res = await commitFile(
         branch,
-        f.path,
-        String(f.content),
-        shas[f.path],
+        p,
+        updated[p],
+        shas[p],
         `fix(${ticket.ticket_ref}): ${proposal.summary}`.slice(0, 200),
       );
       lastCommit = res?.commit?.sha ?? lastCommit;
@@ -677,6 +723,7 @@ Deno.serve(async (req) => {
     const review = await runReviewAgent(ticket, proposal, diffParts.join("\n\n"));
     const allChecksPass =
       review.checks &&
+      Object.keys(review.checks).length >= 6 &&
       Object.values(review.checks).every((v) => v === true);
     const approved = review.verdict === "approved" && allChecksPass;
 

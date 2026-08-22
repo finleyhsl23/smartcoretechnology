@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Support Console — SmartCore HQ</title>
+  <link rel="icon" type="image/png" href="../../SmartCore Official Logos/SC Icon - Black Background.png">
+  <script>(function(){var t=localStorage.getItem('sc_theme');if(t)document.documentElement.setAttribute('data-theme',t)})()</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    window.__SUPABASE_URL  = "https://hjdpcfhozhoyeqevnupm.supabase.co";
+    window.__SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts";
+  </script>
+<style>
+:root{
+  --panelB:rgba(8,12,28,.45);
+  --stroke:rgba(255,255,255,.12);
+  --stroke2:rgba(255,255,255,.08);
+  --text:#eaf0ff;--muted:rgba(234,240,255,.74);--muted2:rgba(234,240,255,.58);
+  --accent:rgba(120,170,255,.95);--accentSoft:rgba(120,170,255,.18);
+  --ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;
+  --code:rgba(0,0,0,.35);
+}
+[data-theme="light"]{
+  --panelB:rgba(255,255,255,.62);
+  --stroke:rgba(30,50,120,.10);--stroke2:rgba(30,50,120,.07);
+  --text:#0c1333;--muted:rgba(12,19,51,.65);--muted2:rgba(12,19,51,.50);
+  --accent:#2563eb;--accentSoft:rgba(37,99,235,.12);
+  --ok:#16a34a;--warn:#d97706;--bad:#dc2626;
+  --code:rgba(30,50,120,.06);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;
+  color:var(--text);min-height:100vh;
+  background:linear-gradient(180deg,#020617 0%,#030a1f 50%,#030818 100%);
+  background-attachment:fixed;
+}
+[data-theme="light"] body{background:linear-gradient(180deg,#eef2ff 0%,#f0f4ff 50%,#f5f7ff 100%);background-attachment:fixed}
+.glass2{background:rgba(255,255,255,.045);border:1px solid var(--stroke2);border-radius:16px;backdrop-filter:blur(14px)}
+[data-theme="light"] .glass2{background:rgba(255,255,255,.72);border-color:rgba(30,50,120,.08)}
+.wrap{max-width:1500px;margin:0 auto;padding:26px 18px 60px}
+.top{display:flex;align-items:center;gap:14px;margin-bottom:22px;flex-wrap:wrap}
+h1{font-size:22px;font-weight:750;letter-spacing:-.02em}
+.sub{font-size:13px;color:var(--muted2)}
+.btn{
+  padding:8px 13px;border-radius:10px;border:1px solid var(--stroke2);
+  background:rgba(255,255,255,.05);color:inherit;font:inherit;font-size:13px;
+  font-weight:550;cursor:pointer;text-decoration:none;display:inline-flex;
+  align-items:center;gap:7px;transition:background .13s;
+}
+.btn:hover{background:rgba(255,255,255,.1)}
+[data-theme="light"] .btn{background:rgba(0,0,0,.04)}
+[data-theme="light"] .btn:hover{background:rgba(0,0,0,.08)}
+.btn.danger{border-color:color-mix(in srgb,var(--bad) 40%,transparent);color:var(--bad)}
+.btn.go{border-color:rgba(120,170,255,.35);background:var(--accentSoft)}
+.btn:disabled{opacity:.45;cursor:default}
+
+.cols{display:grid;grid-template-columns:390px minmax(0,1fr);gap:18px;align-items:start}
+@media(max-width:1080px){.cols{grid-template-columns:1fr}}
+
+.filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+.chip{padding:5px 11px;border-radius:999px;border:1px solid var(--stroke2);background:var(--panelB);font-size:12px;font-weight:600;cursor:pointer;transition:all .13s}
+.chip.on{border-color:rgba(120,170,255,.4);background:var(--accentSoft);color:var(--accent)}
+
+.list{display:flex;flex-direction:column;gap:9px;max-height:78vh;overflow-y:auto;padding-right:4px}
+.list::-webkit-scrollbar{width:6px}
+.list::-webkit-scrollbar-thumb{background:var(--stroke);border-radius:3px}
+.tk{padding:13px 15px;cursor:pointer;transition:border-color .13s,background .13s}
+.tk:hover{border-color:rgba(120,170,255,.28)}
+.tk.sel{border-color:var(--accent);background:var(--accentSoft)}
+.tk-top{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.ref{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted2)}
+.tk-sub{font-size:13.5px;font-weight:600;line-height:1.4;margin-bottom:5px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.tk-meta{font-size:11.5px;color:var(--muted2);display:flex;gap:9px;flex-wrap:wrap}
+
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:999px;border:1px solid var(--stroke2);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+.pill.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 38%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.pill.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 38%,transparent);background:color-mix(in srgb,var(--warn) 12%,transparent)}
+.pill.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 38%,transparent);background:color-mix(in srgb,var(--bad) 12%,transparent)}
+.pill.info{color:var(--accent);border-color:rgba(120,170,255,.32);background:var(--accentSoft)}
+.pill.mute{color:var(--muted2)}
+.ml{margin-left:auto}
+
+.detail{padding:20px 22px}
+.sec{margin-bottom:22px}
+.sec-h{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted2);margin-bottom:11px;display:flex;align-items:center;gap:9px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:11px}
+.kv{font-size:13px}
+.kv dt{color:var(--muted2);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+.kv dd{font-weight:550;word-break:break-word}
+pre.code{
+  font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.55;
+  background:var(--code);border:1px solid var(--stroke2);border-radius:10px;
+  padding:12px 14px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:280px;overflow-y:auto;
+}
+.body-txt{font-size:13.5px;line-height:1.65;color:var(--muted)}
+
+.thread{display:flex;flex-direction:column;gap:11px;max-height:420px;overflow-y:auto;padding-right:4px}
+.tm{padding:11px 14px;border-radius:12px;border:1px solid var(--stroke2);font-size:13.5px;line-height:1.6}
+.tm.user{background:var(--accentSoft);border-color:rgba(120,170,255,.2)}
+.tm.agent{background:rgba(255,255,255,.04)}
+[data-theme="light"] .tm.agent{background:rgba(30,50,120,.04)}
+.tm-who{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted2);margin-bottom:5px}
+
+.checks{display:flex;flex-wrap:wrap;gap:7px}
+.chk{font-size:11.5px;padding:4px 9px;border-radius:8px;border:1px solid var(--stroke2);display:flex;align-items:center;gap:5px}
+.chk.pass{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 32%,transparent)}
+.chk.fail{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 32%,transparent)}
+
+textarea{
+  width:100%;border:1px solid var(--stroke2);background:rgba(255,255,255,.05);
+  color:var(--text);border-radius:12px;padding:11px 13px;font:inherit;font-size:13.5px;
+  line-height:1.55;min-height:88px;resize:vertical;outline:none;
+}
+[data-theme="light"] textarea{background:rgba(255,255,255,.8)}
+textarea:focus{border-color:rgba(120,170,255,.4)}
+.empty{padding:60px 24px;text-align:center;color:var(--muted2);font-size:14px}
+.hidden{display:none !important}
+.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div>
+      <h1>Support Console</h1>
+      <div class="sub" id="sub">Loading…</div>
+    </div>
+    <div class="row ml">
+      <button id="refresh" class="btn">Refresh</button>
+      <button id="themeBtn" class="btn">Theme</button>
+      <a href="/hq" class="btn">← HQ</a>
+    </div>
+  </div>
+
+  <div id="denied" class="glass2 empty hidden">
+    This console is for SmartCore personnel. <a href="/">Back to the site</a>
+  </div>
+
+  <div id="app" class="cols hidden">
+    <div>
+      <div class="filters" id="filters"></div>
+      <div class="list" id="list"></div>
+    </div>
+    <div class="glass2 detail" id="detail">
+      <div class="empty">Select a ticket to see the full history, the fix that was written, and the reviewer's decision.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_ANON);
+
+const state = { tickets: [], sel: null, filter: 'open', session: null };
+
+/* theme */
+$('themeBtn').onclick = () => {
+  const h = document.documentElement;
+  const n = h.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  h.setAttribute('data-theme', n);
+  localStorage.setItem('sc_theme', n);
+};
+document.documentElement.setAttribute('data-theme', localStorage.getItem('sc_theme') || 'dark');
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const when = d => d ? new Date(d).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+
+const STATUS = {
+  triage:['Triage','info'], diagnosing:['Diagnosing','info'],
+  queued_for_fix:['Queued','warn'], fixing:['Fixing','warn'], in_review:['In review','warn'],
+  fix_deployed:['Deployed','ok'], resolved:['Resolved','ok'],
+  awaiting_user:['Awaiting user','info'],
+  escalated:['Needs you','bad'], rejected:['Rejected','bad'],
+};
+const pill = s => { const [l,c] = STATUS[s] || [s,'mute']; return `<span class="pill ${c}">${esc(l)}</span>`; };
+
+const FILTERS = [
+  ['open','Open'], ['escalated','Needs you'], ['deployed','Deployed'],
+  ['resolved','Resolved'], ['all','All'],
+];
+
+function matches(t){
+  if (state.filter === 'all') return true;
+  if (state.filter === 'open') return !['resolved','rejected','fix_deployed'].includes(t.status);
+  if (state.filter === 'escalated') return ['escalated','rejected'].includes(t.status);
+  if (state.filter === 'deployed') return t.status === 'fix_deployed';
+  if (state.filter === 'resolved') return t.status === 'resolved';
+  return true;
+}
+
+function renderFilters(){
+  $('filters').innerHTML = FILTERS.map(([k,l]) => {
+    const n = state.tickets.filter(t => { const s = state.filter; state.filter = k; const m = matches(t); state.filter = s; return m; }).length;
+    return `<button class="chip ${state.filter===k?'on':''}" data-f="${k}">${l} · ${n}</button>`;
+  }).join('');
+  $('filters').querySelectorAll('.chip').forEach(c => {
+    c.onclick = () => { state.filter = c.dataset.f; renderFilters(); renderList(); };
+  });
+}
+
+function renderList(){
+  const rows = state.tickets.filter(matches);
+  $('list').innerHTML = rows.length ? rows.map(t => `
+    <div class="glass2 tk ${state.sel===t.id?'sel':''}" data-id="${t.id}">
+      <div class="tk-top">
+        <span class="ref">${esc(t.ticket_ref)}</span>
+        ${t.severity && t.severity!=='normal' ? `<span class="pill mute">${esc(t.severity)}</span>` : ''}
+        <span class="ml">${pill(t.status)}</span>
+      </div>
+      <div class="tk-sub">${esc(t.subject || 'No subject')}</div>
+      <div class="tk-meta">
+        <span>${esc(t.contact_name || '—')}</span>
+        <span>·</span>
+        <span>${esc(t.agent_name || '—')}</span>
+        <span>·</span>
+        <span>${when(t.created_at)}</span>
+      </div>
+    </div>`).join('') : `<div class="glass2 empty">Nothing here.</div>`;
+
+  $('list').querySelectorAll('.tk').forEach(el => {
+    el.onclick = () => openTicket(el.dataset.id);
+  });
+}
+
+async function openTicket(id){
+  state.sel = id;
+  renderList();
+  $('detail').innerHTML = `<div class="empty">Loading…</div>`;
+
+  const t = state.tickets.find(x => x.id === id);
+  const [{ data: msgs }, { data: fixes }, { data: events }] = await Promise.all([
+    sb.from('support_messages').select('*').eq('ticket_id', id).order('created_at'),
+    sb.from('support_fix_attempts').select('*').eq('ticket_id', id).order('created_at', {ascending:false}),
+    sb.from('support_events').select('*').eq('ticket_id', id).order('created_at', {ascending:false}).limit(20),
+  ]);
+
+  const fx = (fixes || [])[0];
+
+  const checksHtml = fx?.reviewer_checks
+    ? `<div class="checks">${Object.entries(fx.reviewer_checks).map(([k,v]) =>
+        `<span class="chk ${v?'pass':'fail'}">${v?'✓':'✕'} ${esc(k.replace(/_/g,' '))}</span>`).join('')}</div>`
+    : '';
+
+  $('detail').innerHTML = `
+    <div class="sec">
+      <div class="sec-h">
+        <span class="ref">${esc(t.ticket_ref)}</span>${pill(t.status)}
+        <span class="ml row">
+          ${fx?.status === 'deployed' ? `<button class="btn danger" id="btnRevert">Revert fix</button>` : ''}
+          ${['escalated','rejected'].includes(t.status) ? `<button class="btn go" id="btnRerun">Run pipeline again</button>` : ''}
+          ${t.status !== 'resolved' ? `<button class="btn" id="btnClose">Mark resolved</button>` : `<button class="btn" id="btnReopen">Reopen</button>`}
+        </span>
+      </div>
+      <div style="font-size:17px;font-weight:650;line-height:1.35;margin-bottom:12px">${esc(t.subject || 'No subject')}</div>
+      <div class="grid2">
+        <div class="kv"><dt>Customer</dt><dd>${esc(t.contact_name || '—')}<br><span style="font-weight:400;color:var(--muted2);font-size:12px">${esc(t.contact_email || '')}</span></dd></div>
+        <div class="kv"><dt>Assigned agent</dt><dd>${esc(t.agent_name || '—')}</dd></div>
+        <div class="kv"><dt>Module</dt><dd>${esc(t.module_slug || '—')}</dd></div>
+        <div class="kv"><dt>Severity</dt><dd>${esc(t.severity || '—')}</dd></div>
+        <div class="kv"><dt>Classified as</dt><dd>${t.is_bug === true ? 'Bug' : t.is_bug === false ? 'Not a bug' : '—'}</dd></div>
+        <div class="kv"><dt>Opened</dt><dd>${when(t.created_at)}</dd></div>
+      </div>
+    </div>
+
+    ${t.diagnosis ? `<div class="sec"><div class="sec-h">Triage diagnosis</div><div class="body-txt">${esc(t.diagnosis)}</div></div>` : ''}
+    ${t.error_message ? `<div class="sec"><div class="sec-h">Error reported</div><pre class="code">${esc(t.error_message)}</pre></div>` : ''}
+    ${t.console_log ? `<div class="sec"><div class="sec-h">Console output</div><pre class="code">${esc(t.console_log)}</pre></div>` : ''}
+    ${t.steps_to_repro ? `<div class="sec"><div class="sec-h">Steps to reproduce</div><div class="body-txt">${esc(t.steps_to_repro)}</div></div>` : ''}
+
+    ${fx ? `
+    <div class="sec">
+      <div class="sec-h">Fix attempt ${fx.attempt_no}
+        <span class="pill ${fx.status==='deployed'?'ok':fx.status==='rejected'||fx.status==='failed'?'bad':'warn'}">${esc(fx.status)}</span>
+      </div>
+      ${fx.summary ? `<div style="font-weight:600;font-size:14px;margin-bottom:8px">${esc(fx.summary)}</div>` : ''}
+      ${fx.rationale ? `<div class="body-txt" style="margin-bottom:12px">${esc(fx.rationale)}</div>` : ''}
+      ${fx.error ? `<pre class="code" style="border-color:color-mix(in srgb,var(--bad) 30%,transparent)">${esc(fx.error)}</pre>` : ''}
+      ${fx.files_changed ? `<div class="grid2" style="margin-bottom:12px">${fx.files_changed.map(f =>
+        `<div class="kv"><dt>${esc(f.path)}</dt><dd style="font-weight:400;font-size:12.5px;color:var(--muted)">${esc(f.reason||'')}</dd></div>`).join('')}</div>` : ''}
+      ${fx.branch_name ? `<div class="kv" style="margin-bottom:12px"><dt>Branch</dt><dd style="font-family:'JetBrains Mono',monospace;font-size:12px">${esc(fx.branch_name)}${fx.merge_sha?` → merged ${esc(String(fx.merge_sha).slice(0,8))}`:''}</dd></div>` : ''}
+      ${fx.reviewer_reason ? `
+        <div class="sec-h" style="margin-top:14px">Reviewer decision
+          <span class="pill ${fx.reviewer_verdict==='approved'?'ok':'bad'}">${esc(fx.reviewer_verdict||'—')}</span>
+        </div>
+        <div class="body-txt" style="margin-bottom:10px">${esc(fx.reviewer_reason)}</div>
+        ${checksHtml}` : ''}
+      ${fx.backups ? `<div style="font-size:11.5px;color:var(--muted2);margin-top:12px">Pre-change backup held for ${Object.keys(fx.backups).length} file(s) — revert restores them exactly.</div>` : ''}
+    </div>` : ''}
+
+    <div class="sec">
+      <div class="sec-h">Conversation</div>
+      <div class="thread">
+        ${(msgs||[]).map(m => `
+          <div class="tm ${m.role==='user'?'user':'agent'}">
+            <div class="tm-who">${esc(m.role==='user' ? (t.contact_name||'Customer') : (m.author_name||'Agent'))}${m.meta?.human ? ' · human' : ''} · ${when(m.created_at)}</div>
+            ${esc(m.content).replace(/\n/g,'<br>')}
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h">Reply as ${esc(t.agent_name || 'the agent')}</div>
+      <textarea id="replyBox" placeholder="Write a reply — it appears to the customer as ${esc(t.agent_name||'their support agent')}."></textarea>
+      <div class="row" style="margin-top:9px"><button class="btn go" id="btnReply">Send reply</button></div>
+    </div>
+
+    ${(events||[]).length ? `<div class="sec"><div class="sec-h">Activity</div>
+      <div style="font-size:12px;color:var(--muted2);display:flex;flex-direction:column;gap:5px">
+      ${events.map(e => `<div>${when(e.created_at)} · ${esc(e.kind)}</div>`).join('')}
+      </div></div>` : ''}
+  `;
+
+  wireActions(t, fx);
+}
+
+function wireActions(t, fx){
+  const call = async (action, extra, btn) => {
+    if (btn){ btn.disabled = true; btn.textContent = 'Working…'; }
+    try {
+      const { data:{ session } } = await sb.auth.getSession();
+      const r = await fetch(`${window.__SUPABASE_URL}/functions/v1/support-admin`, {
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json',
+          apikey: window.__SUPABASE_ANON,
+          Authorization:`Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ action, ...extra }),
+      });
+      const out = await r.json();
+      if (!r.ok) { alert(out.error || 'Failed.'); }
+      await load();
+      if (state.sel) openTicket(state.sel);
+    } catch(e){ alert(String(e.message||e)); }
+  };
+
+  const rv = $('btnRevert');
+  if (rv) rv.onclick = () => {
+    if (!confirm(`Revert the fix on ${t.ticket_ref}?\n\nThis restores the exact file contents captured before the change and merges that to main.`)) return;
+    call('revert', { attempt_id: fx.id }, rv);
+  };
+
+  const rr = $('btnRerun');
+  if (rr) rr.onclick = () => call('rerun', { ticket_id: t.id }, rr);
+
+  const cl = $('btnClose');
+  if (cl) cl.onclick = () => call('close', { ticket_id: t.id }, cl);
+
+  const ro = $('btnReopen');
+  if (ro) ro.onclick = () => call('reopen', { ticket_id: t.id }, ro);
+
+  const rp = $('btnReply');
+  if (rp) rp.onclick = () => {
+    const c = $('replyBox').value.trim();
+    if (!c) return;
+    call('reply', { ticket_id: t.id, content: c }, rp);
+  };
+}
+
+async function load(){
+  const { data } = await sb.from('support_tickets')
+    .select('*').order('created_at', { ascending:false }).limit(200);
+  state.tickets = data || [];
+  const open = state.tickets.filter(t => !['resolved','rejected','fix_deployed'].includes(t.status)).length;
+  const needs = state.tickets.filter(t => ['escalated','rejected'].includes(t.status)).length;
+  $('sub').textContent = `${state.tickets.length} tickets · ${open} open · ${needs} need you`;
+  renderFilters();
+  renderList();
+}
+
+$('refresh').onclick = load;
+
+(async function boot(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if (!session) { location.href = '/'; return; }
+
+  const { data: staff } = await sb.from('smartcore_staff')
+    .select('id,is_active').eq('user_id', session.user.id).maybeSingle();
+
+  if (!staff || staff.is_active === false) {
+    $('denied').classList.remove('hidden');
+    $('sub').textContent = 'Access denied';
+    return;
+  }
+
+  state.session = session;
+  $('app').classList.remove('hidden');
+  await load();
+  setInterval(load, 20000);
+})();
+</script>
+</body>
+</html>
