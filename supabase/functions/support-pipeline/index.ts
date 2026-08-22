@@ -22,7 +22,12 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+// Hyphenated name preferred; underscore variant accepted because some
+// secret stores reject hyphens in variable names.
+const AI_FIXER_KEY =
+  Deno.env.get("AI-CODE-FIXER-API-KEY") ??
+  Deno.env.get("AI_CODE_FIXER_API_KEY") ??
+  "";
 const GITHUB_TOKEN = Deno.env.get("GITHUB_TOKEN") ?? "";
 const REPO = Deno.env.get("SUPPORT_REPO") ?? "finleyhsl23/smartcoretechnology";
 const BASE_BRANCH = Deno.env.get("SUPPORT_BASE_BRANCH") ?? "main";
@@ -232,7 +237,7 @@ async function anthropic(body: unknown) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
+      "x-api-key": AI_FIXER_KEY,
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify(body),
@@ -717,9 +722,9 @@ Deno.serve(async (req) => {
   const boundary = `<<<CUSTOMER_REPORT_${crypto.randomUUID().slice(0, 8)}>>>`;
 
   try {
-    if (!ANTHROPIC_API_KEY || !GITHUB_TOKEN) {
+    if (!AI_FIXER_KEY || !GITHUB_TOKEN) {
       throw new Error(
-        "Pipeline not configured (missing ANTHROPIC_API_KEY or GITHUB_TOKEN).",
+        "Pipeline not configured (missing AI-CODE-FIXER-API-KEY or GITHUB_TOKEN).",
       );
     }
 

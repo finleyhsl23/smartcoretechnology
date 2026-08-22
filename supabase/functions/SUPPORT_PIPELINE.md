@@ -13,8 +13,12 @@ every ticket to a human until they're present.
 
 | Secret | What it is | Needed by |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Anthropic API key | all three functions |
+| `AI-CODE-FIXER-API-KEY` | Anthropic API key | `support-chat`, `support-pipeline` |
 | `GITHUB_TOKEN` | GitHub PAT with `repo` scope on `finleyhsl23/smartcoretechnology` | `support-pipeline` |
+
+If your secret store rejects hyphens in a name, use `AI_CODE_FIXER_API_KEY`
+instead — both functions read the hyphenated name first and fall back to the
+underscore form.
 
 Optional overrides (all have sensible defaults):
 

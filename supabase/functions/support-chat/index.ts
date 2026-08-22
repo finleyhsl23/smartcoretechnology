@@ -9,7 +9,12 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+// Hyphenated name preferred; underscore variant accepted because some
+// secret stores reject hyphens in variable names.
+const AI_FIXER_KEY =
+  Deno.env.get("AI-CODE-FIXER-API-KEY") ??
+  Deno.env.get("AI_CODE_FIXER_API_KEY") ??
+  "";
 const CHAT_MODEL = Deno.env.get("SUPPORT_CHAT_MODEL") ?? "claude-sonnet-5";
 
 const cors = {
@@ -129,7 +134,7 @@ async function callAnthropic(body: unknown) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
+      "x-api-key": AI_FIXER_KEY,
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify(body),
@@ -155,7 +160,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   try {
-    if (!ANTHROPIC_API_KEY) {
+    if (!AI_FIXER_KEY) {
       return json(
         { error: "Support is temporarily unavailable. Please email support@smartcoretechnology.co.uk." },
         503,
