@@ -582,6 +582,18 @@ html{scrollbar-width:none}
     <a href="/privacy-policy" class="menu-link" style="opacity:.7"><span class="menu-link-icon" style="font-size:13px">🔒</span>Privacy Policy</a>
 
     <div style="flex:1"></div>
+
+    <!-- theme toggle row -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.03);margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:18px" id="menuThemeIcon">🌙</span>
+        <span style="font-size:14px;font-weight:500" id="menuThemeLabel">Dark mode</span>
+      </div>
+      <button id="menuThemeToggle" aria-label="Toggle theme" style="width:44px;height:26px;border-radius:13px;border:none;background:rgba(120,170,255,.25);cursor:pointer;position:relative;transition:background .2s;flex-shrink:0">
+        <span id="menuThemeThumb" style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s;display:block"></span>
+      </button>
+    </div>
+
     <button id="menuLoginBtn" style="margin:16px 0 8px;width:100%;padding:13px 14px;border-radius:14px;border:1px solid rgba(120,170,255,.3);background:rgba(120,170,255,.12);font-size:15px;font-weight:600;color:var(--text);cursor:pointer;display:flex;align-items:center;gap:10px;transition:background .14s" onmouseover="this.style.background='rgba(120,170,255,.2)'" onmouseout="this.style.background='rgba(120,170,255,.12)'">
       <span style="font-size:18px">🔑</span> Log in to SmartCore
     </button>
@@ -2095,17 +2107,35 @@ html{scrollbar-width:none}
       html.setAttribute('data-theme', storedTheme);
       updateThemeIcon(storedTheme);
 
-      $('themeToggle').onclick = () => {
-        const current = html.getAttribute('data-theme') || 'dark';
-        const next = current === 'dark' ? 'light' : 'dark';
+      function applyTheme(next) {
         html.setAttribute('data-theme', next);
         localStorage.setItem('sc_theme', next);
         updateThemeIcon(next);
+      }
+
+      $('themeToggle').onclick = () => {
+        const current = html.getAttribute('data-theme') || 'dark';
+        applyTheme(current === 'dark' ? 'light' : 'dark');
+      };
+
+      $('menuThemeToggle').onclick = () => {
+        const current = html.getAttribute('data-theme') || 'dark';
+        applyTheme(current === 'dark' ? 'light' : 'dark');
       };
 
       function updateThemeIcon(theme) {
-        $('themeIconDark').style.display = theme === 'dark' ? 'block' : 'none';
-        $('themeIconLight').style.display = theme === 'light' ? 'block' : 'none';
+        const isLight = theme === 'light';
+        $('themeIconDark').style.display = isLight ? 'none' : 'block';
+        $('themeIconLight').style.display = isLight ? 'block' : 'none';
+        // menu toggle
+        const thumb = $('menuThemeThumb');
+        const toggle = $('menuThemeToggle');
+        const icon = $('menuThemeIcon');
+        const label = $('menuThemeLabel');
+        if(thumb) thumb.style.transform = isLight ? 'translateX(18px)' : 'translateX(0)';
+        if(toggle) toggle.style.background = isLight ? 'rgba(37,99,235,.7)' : 'rgba(120,170,255,.25)';
+        if(icon) icon.textContent = isLight ? '☀️' : '🌙';
+        if(label) label.textContent = isLight ? 'Light mode' : 'Dark mode';
       }
     }
 
