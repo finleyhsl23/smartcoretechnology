@@ -2,6 +2,8 @@
 // Body: { messages: [{role,content}], conversation_id?: string }
 // Auth: Bearer <supabase access token>
 
+import { getValidAccessToken, googleApi } from './_google.js';
+
 const SUPABASE_URL = 'https://hjdpcfhozhoyeqevnupm.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZHBjZmhvemhveWVxZXZudXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTk3MzYsImV4cCI6MjA4MjQ5NTczNn0.BXosJO4NmEZOe73GXSGPa3z-i_4ZzF9zBAMBIf6Mkts';
 
@@ -22,6 +24,18 @@ YOUR CAPABILITIES:
 - Finding locations and providing directions via map
 - Searching CRM data (companies, contacts, leads, tasks, quotes)
 - Providing daily briefings and summaries
+- Searching the live web for current information
+- Reading and sending Gmail, managing Google Calendar, and reading Google Drive files
+
+WEB SEARCH:
+You can search the web. Use it whenever the user asks about current events, prices, company information, or anything that may have changed recently — do not answer from memory when the answer could be out of date. Cite the source when you use search results.
+
+GOOGLE WORKSPACE:
+The user may connect their Google account, which gives you their Gmail, Google Calendar and Google Drive through the google_ tools.
+- If a google_ tool reports that Google is not connected, tell the user to open Settings, go to Integrations and click Connect Google. Do not keep retrying.
+- Before sending an email with google_send_email, always show the user the recipient, subject and full body and get their explicit go-ahead. Sending cannot be undone.
+- Prefer google_create_event over create_event when the user means their real calendar, and say which calendar you used.
+- Never repeat someone's email contents to anyone other than the account owner.
 
 FILES, IMAGES AND PDFS:
 You can see images and read PDFs directly when they are attached to the conversation. Describe only what is genuinely in front of you.
@@ -298,6 +312,87 @@ const TOOLS = [
     },
   },
   {
+    name: 'google_search_email',
+    description: "Search the user's Gmail inbox. Returns matching messages with sender, subject, date and a snippet. Use Gmail search syntax, e.g. 'is:unread', 'from:jane@acme.com', 'newer_than:7d', 'has:attachment'. Requires the user to have connected Google.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        query:       { type: 'string', description: "Gmail search query, e.g. 'is:unread newer_than:3d'" },
+        max_results: { type: 'number', description: 'How many messages to return (default 10, max 25)' },
+      },
+    },
+  },
+  {
+    name: 'google_read_email',
+    description: 'Read the full body of one Gmail message. First use google_search_email to get the message ID.',
+    input_schema: {
+      type: 'object',
+      required: ['message_id'],
+      properties: { message_id: { type: 'string' } },
+    },
+  },
+  {
+    name: 'google_send_email',
+    description: "Send an email from the user's Gmail account. Always confirm the recipient, subject and full body with the user before sending — this cannot be undone.",
+    input_schema: {
+      type: 'object',
+      required: ['to', 'subject', 'body'],
+      properties: {
+        to:      { type: 'string', description: 'Recipient email address' },
+        subject: { type: 'string' },
+        body:    { type: 'string', description: 'Plain text body of the email' },
+        cc:      { type: 'string', description: 'Optional CC address' },
+      },
+    },
+  },
+  {
+    name: 'google_list_events',
+    description: "List events from the user's Google Calendar within a date range.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        from_date: { type: 'string', description: 'ISO date, defaults to today' },
+        to_date:   { type: 'string', description: 'ISO date, defaults to 7 days ahead' },
+      },
+    },
+  },
+  {
+    name: 'google_create_event',
+    description: "Create an event in the user's Google Calendar. Use this rather than create_event when the user means their real Google calendar.",
+    input_schema: {
+      type: 'object',
+      required: ['title', 'start_time'],
+      properties: {
+        title:       { type: 'string' },
+        start_time:  { type: 'string', description: 'ISO 8601 datetime, e.g. 2026-07-01T14:00:00' },
+        end_time:    { type: 'string', description: 'ISO 8601 datetime. Defaults to one hour after start.' },
+        description: { type: 'string' },
+        location:    { type: 'string' },
+        attendees:   { type: 'array', items: { type: 'string' }, description: 'Email addresses to invite' },
+      },
+    },
+  },
+  {
+    name: 'google_search_drive',
+    description: "Search the user's Google Drive for files by name or content. Returns file names, types and IDs.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        query:       { type: 'string', description: 'Words to search for in the file name or contents' },
+        max_results: { type: 'number', description: 'Default 10, max 25' },
+      },
+    },
+  },
+  {
+    name: 'google_read_drive_file',
+    description: 'Read the text contents of a Google Doc, Sheet, Slide or plain text file from Drive. First use google_search_drive to get the file ID.',
+    input_schema: {
+      type: 'object',
+      required: ['file_id'],
+      properties: { file_id: { type: 'string' } },
+    },
+  },
+  {
     name: 'crm_search_companies',
     description: 'Search CRM companies.',
     input_schema: {
@@ -359,7 +454,45 @@ async function nominatimGeocode(query) {
   return { found: false };
 }
 
-async function runTool(toolName, input, userId, companyId, svcHdr, cards) {
+// ── Gmail helpers ───────────────────────────────────────────────────────────
+function b64urlDecode(data) {
+  try {
+    const b64 = data.replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64);
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    return new TextDecoder('utf-8').decode(bytes);
+  } catch (_) { return ''; }
+}
+
+function b64urlEncode(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function headerVal(payload, name) {
+  return payload?.headers?.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+}
+
+// Walks the MIME tree preferring text/plain, falling back to stripped HTML.
+function extractBody(payload) {
+  if (!payload) return '';
+  if (payload.body?.data && (!payload.mimeType || payload.mimeType.startsWith('text/'))) {
+    const text = b64urlDecode(payload.body.data);
+    return payload.mimeType === 'text/html' ? text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ') : text;
+  }
+  for (const part of payload.parts || []) {
+    if (part.mimeType === 'text/plain' && part.body?.data) return b64urlDecode(part.body.data);
+  }
+  for (const part of payload.parts || []) {
+    const nested = extractBody(part);
+    if (nested) return nested;
+  }
+  return '';
+}
+
+async function runTool(toolName, input, userId, companyId, svcHdr, cards, env) {
   const base = `${SUPABASE_URL}/rest/v1`;
   const enc = encodeURIComponent;
   const nova = (path, opts = {}) => fetch(`${base}/${path}`, { ...opts, headers: { ...svcHdr, ...(opts.headers || {}) } });
@@ -568,6 +701,137 @@ async function runTool(toolName, input, userId, companyId, svcHdr, cards) {
       return `Email draft prepared. To: ${input.to || '(recipient)'}, Subject: ${subject}. The draft is shown in the panel.`;
     }
 
+    // ── Google Workspace ──────────────────────────────────────────────────
+    if (toolName.startsWith('google_')) {
+      const token = await getValidAccessToken(userId, svcHdr, env);
+      if (!token) {
+        return 'The user has not connected their Google account yet. Tell them to open Settings, go to Integrations, and click Connect Google.';
+      }
+      const g = 'https://www.googleapis.com';
+
+      if (toolName === 'google_search_email') {
+        const max = Math.min(input.max_results || 10, 25);
+        const q = enc(input.query || 'in:inbox');
+        const list = await googleApi(token, `${g}/gmail/v1/users/me/messages?q=${q}&maxResults=${max}`);
+        if (!list.ok) return `Gmail error: ${list.error}`;
+        const ids = (list.data.messages || []).map(m => m.id);
+        if (!ids.length) return 'No emails matched that search.';
+
+        const msgs = await Promise.all(ids.map(async id => {
+          const r = await googleApi(token, `${g}/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`);
+          if (!r.ok) return null;
+          return {
+            id,
+            from:    headerVal(r.data.payload, 'From'),
+            subject: headerVal(r.data.payload, 'Subject'),
+            date:    headerVal(r.data.payload, 'Date'),
+            snippet: r.data.snippet || '',
+            unread:  (r.data.labelIds || []).includes('UNREAD'),
+          };
+        }));
+
+        const found = msgs.filter(Boolean);
+        cards.push({ type: 'email_list', data: found });
+        return `Found ${found.length} email(s):\n` + found.map((m, i) =>
+          `${i + 1}. ${m.unread ? '[UNREAD] ' : ''}From: ${m.from} | Subject: ${m.subject} | ${m.date}\n   ${m.snippet}\n   ID:${m.id}`
+        ).join('\n');
+      }
+
+      if (toolName === 'google_read_email') {
+        const r = await googleApi(token, `${g}/gmail/v1/users/me/messages/${enc(input.message_id)}?format=full`);
+        if (!r.ok) return `Gmail error: ${r.error}`;
+        const body = extractBody(r.data.payload).slice(0, 6000);
+        return `From: ${headerVal(r.data.payload, 'From')}\nTo: ${headerVal(r.data.payload, 'To')}\nSubject: ${headerVal(r.data.payload, 'Subject')}\nDate: ${headerVal(r.data.payload, 'Date')}\n\n${body || '(no readable text body)'}`;
+      }
+
+      if (toolName === 'google_send_email') {
+        const lines = [
+          `To: ${input.to}`,
+          ...(input.cc ? [`Cc: ${input.cc}`] : []),
+          `Subject: ${input.subject}`,
+          'Content-Type: text/plain; charset="UTF-8"',
+          '',
+          input.body,
+        ];
+        const r = await googleApi(token, `${g}/gmail/v1/users/me/messages/send`, {
+          method: 'POST',
+          body: JSON.stringify({ raw: b64urlEncode(lines.join('\r\n')) }),
+        });
+        if (!r.ok) return `Could not send the email: ${r.error}`;
+        cards.push({ type: 'email_sent', to: input.to, subject: input.subject });
+        return `Email sent to ${input.to} with subject "${input.subject}".`;
+      }
+
+      if (toolName === 'google_list_events') {
+        const from = input.from_date ? new Date(input.from_date) : new Date();
+        const to   = input.to_date ? new Date(input.to_date) : new Date(Date.now() + 7 * 864e5);
+        const url = `${g}/calendar/v3/calendars/primary/events?timeMin=${enc(from.toISOString())}&timeMax=${enc(to.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=25`;
+        const r = await googleApi(token, url);
+        if (!r.ok) return `Calendar error: ${r.error}`;
+        const items = r.data.items || [];
+        if (!items.length) return 'No Google Calendar events in that period.';
+        cards.push({ type: 'gcal_list', data: items.map(e => ({ id: e.id, title: e.summary, start: e.start?.dateTime || e.start?.date, location: e.location })) });
+        return `Found ${items.length} Google Calendar event(s):\n` + items.map((e, i) => {
+          const start = e.start?.dateTime ? e.start.dateTime.slice(0, 16).replace('T', ' ') : `${e.start?.date} (all day)`;
+          return `${i + 1}. ${e.summary || '(no title)'} — ${start}${e.location ? ` | ${e.location}` : ''}${e.attendees?.length ? ` | ${e.attendees.length} attendee(s)` : ''}`;
+        }).join('\n');
+      }
+
+      if (toolName === 'google_create_event') {
+        const start = new Date(input.start_time);
+        const end = input.end_time ? new Date(input.end_time) : new Date(start.getTime() + 3600e3);
+        const payload = {
+          summary: input.title,
+          start: { dateTime: start.toISOString() },
+          end:   { dateTime: end.toISOString() },
+          ...(input.description && { description: input.description }),
+          ...(input.location && { location: input.location }),
+          ...(input.attendees?.length && { attendees: input.attendees.map(e => ({ email: e })) }),
+        };
+        const r = await googleApi(token, `${g}/calendar/v3/calendars/primary/events?sendUpdates=all`, {
+          method: 'POST', body: JSON.stringify(payload),
+        });
+        if (!r.ok) return `Could not create the event: ${r.error}`;
+        cards.push({ type: 'gcal_event', action: 'created', data: { id: r.data.id, title: r.data.summary, start: r.data.start?.dateTime, link: r.data.htmlLink } });
+        return `Google Calendar event created: "${r.data.summary}" on ${r.data.start?.dateTime?.slice(0, 16).replace('T', ' ')}.`;
+      }
+
+      if (toolName === 'google_search_drive') {
+        const max = Math.min(input.max_results || 10, 25);
+        const q = input.query ? `fullText contains '${String(input.query).replace(/'/g, "\\'")}' and trashed = false` : 'trashed = false';
+        const url = `${g}/drive/v3/files?q=${enc(q)}&pageSize=${max}&fields=${enc('files(id,name,mimeType,modifiedTime,webViewLink)')}&orderBy=modifiedTime desc`;
+        const r = await googleApi(token, url);
+        if (!r.ok) return `Drive error: ${r.error}`;
+        const files = r.data.files || [];
+        if (!files.length) return 'No Drive files matched that search.';
+        cards.push({ type: 'drive_list', data: files });
+        return `Found ${files.length} Drive file(s):\n` + files.map((f, i) =>
+          `${i + 1}. ${f.name} (${f.mimeType?.split('.').pop()}) — modified ${f.modifiedTime?.slice(0, 10)} | ID:${f.id}`
+        ).join('\n');
+      }
+
+      if (toolName === 'google_read_drive_file') {
+        const meta = await googleApi(token, `${g}/drive/v3/files/${enc(input.file_id)}?fields=name,mimeType`);
+        if (!meta.ok) return `Drive error: ${meta.error}`;
+        const mime = meta.data.mimeType || '';
+
+        // Google-native formats must be exported; everything else downloads directly.
+        const exportAs = mime === 'application/vnd.google-apps.document' ? 'text/plain'
+                       : mime === 'application/vnd.google-apps.spreadsheet' ? 'text/csv'
+                       : mime === 'application/vnd.google-apps.presentation' ? 'text/plain'
+                       : null;
+
+        const url = exportAs
+          ? `${g}/drive/v3/files/${enc(input.file_id)}/export?mimeType=${enc(exportAs)}`
+          : `${g}/drive/v3/files/${enc(input.file_id)}?alt=media`;
+
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return `Could not read "${meta.data.name}": ${res.status}. Binary formats like PDF and images cannot be read this way — ask the user to download and upload it instead.`;
+        const text = (await res.text()).slice(0, 8000);
+        return `Contents of "${meta.data.name}":\n\n${text}`;
+      }
+    }
+
     if (toolName === 'crm_search_companies') {
       let url = `${base}/crm_companies?tenant_id=eq.${companyId}&select=name,status,industry,email,phone,city&order=name&limit=15`;
       if (input.name) url += `&name=ilike.*${enc(input.name)}*`;
@@ -652,19 +916,30 @@ export async function onRequestPost(context) {
       const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt, tools: TOOLS, messages: currentMessages }),
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2048,
+          system: systemPrompt,
+          // web_search runs on Anthropic's side; the rest are handled by runTool below.
+          tools: [...TOOLS, { type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+          messages: currentMessages,
+        }),
       });
       if (!claudeRes.ok) { const err = await claudeRes.text(); console.error('Claude API error:', err); return json({ ok: false, error: 'AI error' }, 500); }
       const data = await claudeRes.json();
-      if (data.stop_reason === 'end_turn') { reply = data.content?.find(b => b.type === 'text')?.text || ''; break; }
+      // A web_search turn returns several text blocks around the results, so
+      // take all of them rather than just the first.
+      const allText = (blocks) => (blocks || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
+
+      if (data.stop_reason === 'end_turn') { reply = allText(data.content); break; }
       if (data.stop_reason === 'tool_use') {
         const toolUseBlocks = data.content.filter(b => b.type === 'tool_use');
         currentMessages = [...currentMessages, { role: 'assistant', content: data.content }];
-        const toolResults = await Promise.all(toolUseBlocks.map(async tb => ({ type: 'tool_result', tool_use_id: tb.id, content: await runTool(tb.name, tb.input, userId, companyId, svcHdr, cards) })));
+        const toolResults = await Promise.all(toolUseBlocks.map(async tb => ({ type: 'tool_result', tool_use_id: tb.id, content: await runTool(tb.name, tb.input, userId, companyId, svcHdr, cards, env) })));
         currentMessages = [...currentMessages, { role: 'user', content: toolResults }];
         continue;
       }
-      reply = data.content?.find(b => b.type === 'text')?.text || '';
+      reply = allText(data.content);
       break;
     }
 

@@ -762,6 +762,9 @@ function renderSettingsTab(tab) {
       <div class="sfield"><div class="sfield-label">Email</div><div class="sfield-val">${esc(session?.user?.email || "–")}</div></div>
       <div class="sfield"><div class="sfield-label">Role</div><div class="sfield-val">${esc(profile?.role || "Member")}</div></div>
       <div class="sfield"><div class="sfield-label">Company ID</div><div class="sfield-val">${esc(profile?.company_id || "–")}</div></div>`;
+  } else if (tab === "integrations") {
+    body.innerHTML = '<div class="sinfo">Loading…</div>';
+    renderIntegrations();
   } else if (tab === "appearance") {
     const cur = document.documentElement.getAttribute("data-theme");
     body.innerHTML = `
@@ -806,6 +809,73 @@ function renderSettingsTab(tab) {
       toast("ok", "Conversation history cleared");
     };
   }
+}
+
+// ── Google integration ───────────────────────────────────────────────────────
+async function googleApi(action, extra) {
+  const res = await fetch("/api/nova/google", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + session.access_token },
+    body: JSON.stringify({ action, ...(extra || {}) }),
+  });
+  return await res.json();
+}
+
+async function renderIntegrations() {
+  const body = document.getElementById("settingsBody");
+  if (!body) return;
+
+  let status;
+  try { status = await googleApi("status"); }
+  catch (_) { body.innerHTML = '<div class="sinfo">Could not reach the server.</div>'; return; }
+
+  if (!status.ok) {
+    body.innerHTML = '<div class="sinfo">' + esc(status.error || "Google integration unavailable.") + '</div>';
+    return;
+  }
+
+  if (status.connected) {
+    body.innerHTML = `
+      <div class="sfield">
+        <div class="sfield-label">Google account</div>
+        <div class="sfield-val">${esc(status.email || "Connected")}</div>
+      </div>
+      <div class="sinfo" style="margin-top:12px">Nova can read and send your Gmail, manage your Google Calendar, and read files from your Drive. Ask it things like "any unread emails from this week?" or "what's on my calendar tomorrow?"</div>
+      <button class="btn-danger" style="margin-top:16px" id="gDisconnect">Disconnect Google</button>`;
+    document.getElementById("gDisconnect")?.addEventListener("click", async () => {
+      if (!confirm("Disconnect your Google account from Nova?")) return;
+      await googleApi("disconnect");
+      toast("ok", "Google disconnected");
+      renderIntegrations();
+    });
+  } else {
+    body.innerHTML = `
+      <div class="sinfo">Connect your Google account so Nova can work with your real Gmail, Calendar and Drive. You can disconnect at any time, and Nova only ever accesses your own account.</div>
+      <button class="btn-primary" style="margin-top:16px" id="gConnect">Connect Google</button>`;
+    document.getElementById("gConnect")?.addEventListener("click", connectGoogle);
+  }
+}
+
+async function connectGoogle() {
+  const res = await googleApi("auth_url");
+  if (!res.ok) { toast("bad", res.error || "Could not start Google sign-in"); return; }
+
+  const popup = window.open(res.url, "nova_google", "width=520,height=680");
+  if (!popup) { toast("warn", "Please allow pop-ups to connect Google"); return; }
+
+  const onMessage = async (ev) => {
+    if (ev.origin !== window.location.origin) return;
+    if (ev.data?.type !== "nova_oauth_callback") return;
+    window.removeEventListener("message", onMessage);
+
+    if (ev.data.error) { toast("bad", "Google sign-in was cancelled"); return; }
+    if (ev.data.state !== res.state) { toast("bad", "Sign-in could not be verified — please try again"); return; }
+
+    const done = await googleApi("exchange", { code: ev.data.code });
+    if (done.ok) { toast("ok", "Google connected" + (done.email ? " — " + done.email : "")); renderIntegrations(); }
+    else { toast("bad", done.error || "Could not connect Google"); }
+  };
+  window.addEventListener("message", onMessage);
 }
 
 // ── Sidebar user ─────────────────────────────────────────────────────────────
