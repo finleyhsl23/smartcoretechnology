@@ -143,16 +143,32 @@ async function callAnthropic(body: unknown) {
   return await r.json();
 }
 
-function pickAgent(agents: any[], moduleSlug: string | null, seed: string) {
-  if (moduleSlug) {
-    const spec = agents.filter((a) => a.specialism === moduleSlug);
-    if (spec.length) return spec[0];
+// The frontend's module picker sends raw purchased-module slugs
+// (e.g. "smartcore-crm-lite", "presence-and-fire-safety"); the agent
+// roster's specialism column uses short family names. Normalise before
+// matching.
+function agentFamily(slug: string | null | undefined): string | null {
+  if (!slug) return null;
+  const s = String(slug).toLowerCase();
+  if (s === "crm" || s.startsWith("smartcore-crm")) return "crm";
+  if (s.startsWith("presence")) return "presence-fire-safety";
+  if (s === "sitesnap") return "sitesnap";
+  if (s === "flexi" || s.startsWith("smartcore-flexi")) return "smartcore-flexi";
+  return s;
+}
+
+// True random pick every time — never deterministic on the caller, so the
+// same customer isn't always routed to the same agent.
+function pickAgent(agents: any[], moduleSlug: string | null) {
+  const family = agentFamily(moduleSlug);
+  if (family) {
+    const spec = agents.filter((a) => a.specialism === family);
+    if (spec.length) return spec[Math.floor(Math.random() * spec.length)];
   }
   const generalists = agents.filter((a) => !a.specialism);
   const pool = generalists.length ? generalists : agents;
-  let h = 0;
-  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return pool[h % pool.length];
+  if (!pool.length) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 // ---------------------------------------------------------------- handler
@@ -180,6 +196,10 @@ Deno.serve(async (req) => {
     const message: string = (body.message ?? "").toString().slice(0, 20000);
     let ticketId: string | null = body.ticket_id ?? null;
     const browserInfo = body.browser_info ?? null;
+    // Module the customer picked on the report page, before any ticket
+    // existed — only meaningful on the very first message.
+    const moduleSlugHint = (body.module_slug ?? "").toString().trim().slice(0, 80) || null;
+    const moduleNameHint = (body.module_name ?? "").toString().trim().slice(0, 120) || null;
 
     if (!message.trim()) return json({ error: "Empty message." }, 400);
 
@@ -230,7 +250,7 @@ Deno.serve(async (req) => {
         .eq("is_active", true)
         .order("sort_order");
 
-      const agent = pickAgent(agents ?? [], null, user.id);
+      const agent = pickAgent(agents ?? [], moduleSlugHint);
 
       const { data: created, error: createErr } = await admin
         .from("support_tickets")
@@ -240,6 +260,8 @@ Deno.serve(async (req) => {
           employee_id: emp?.id ?? null,
           contact_name: emp?.full_name ?? user.email ?? "there",
           contact_email: user.email,
+          module_slug: moduleSlugHint,
+          module_name: moduleNameHint,
           subject: message.slice(0, 80),
           status: "triage",
           agent_id: agent?.id ?? null,
@@ -345,9 +367,11 @@ Deno.serve(async (req) => {
           .select("*")
           .eq("is_active", true)
           .order("sort_order");
-        const spec = (agents ?? []).find(
-          (a: any) => a.specialism === diagnosis.module_slug,
-        );
+        const family = agentFamily(diagnosis.module_slug);
+        const specPool = (agents ?? []).filter((a: any) => a.specialism === family);
+        const spec = specPool.length
+          ? specPool[Math.floor(Math.random() * specPool.length)]
+          : null;
         if (spec && spec.id !== ticket.agent_id) {
           patch.agent_id = spec.id;
           patch.agent_name = spec.name;
