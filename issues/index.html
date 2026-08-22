@@ -441,9 +441,12 @@ const state = {
   session: null,
   busy: false,
   poller: null,
-  seen: new Set(),
+  seen: new Set(),       // message ids we've already handled
+  rendered: new Set(),   // role|content keys — guards against duplicate renders
   pipelineEl: null,
 };
+
+const msgKey = (role, content) => `${role}|${content}`;
 
 /* ---------------- theme ---------------- */
 (function(){
@@ -526,6 +529,7 @@ function scroll(){
 }
 
 function addMsg(who, text, author){
+  state.rendered.add(msgKey(who === 'me' ? 'user' : 'agent', text));
   const el = document.createElement('div');
   el.className = `msg ${who === 'me' ? 'me' : 'them'}`;
   const av = who === 'me' ? '' :
@@ -625,16 +629,20 @@ function startPolling(){
       (msgs || []).forEach(m => {
         if (state.seen.has(m.id)) return;
         state.seen.add(m.id);
-        if (m.role === 'agent') {
-          typing(false);
-          addMsg('them', m.content, m.author_name);
-        }
+        if (m.role !== 'agent') return;
+        // Content-level guard: send() may already have rendered this reply
+        // locally before we learned its row id.
+        if (state.rendered.has(msgKey('agent', m.content))) return;
+        typing(false);
+        addMsg('them', m.content, m.author_name);
       });
 
       if (t) {
         if (t.agent_name && t.agent_name !== state.agentName) setAgent(t.agent_name, t.agent_title);
         setStatus(t.status);
-        if (t.status === 'fix_deployed' || t.status === 'resolved' || t.status === 'escalated') {
+        // Keep listening while a human may still reply. Only a finished
+        // ticket stops the poller.
+        if (t.status === 'resolved') {
           clearInterval(state.poller);
           state.poller = null;
         }
@@ -793,13 +801,20 @@ async function boot(){
 
   // Resume the most recent open ticket, if there is one.
   const { data: open } = await sb.from('support_tickets')
-    .select('id,ticket_ref,status,agent_name,agent_title')
+    .select('id,ticket_ref,status,agent_name,agent_title,updated_at')
     .eq('user_id', session.user.id)
     .not('status','in','(resolved,rejected)')
     .order('created_at', { ascending:false })
     .limit(1);
 
-  if (open && open.length) {
+  // A ticket whose fix already shipped stays resumable for a day, so the
+  // customer can say whether it worked — after that a new report starts a
+  // new ticket rather than being appended to a closed-out one.
+  const stale = t =>
+    t.status === 'fix_deployed' &&
+    Date.now() - new Date(t.updated_at).getTime() > 24 * 60 * 60 * 1000;
+
+  if (open && open.length && !stale(open[0])) {
     const t = open[0];
     state.ticketId  = t.id;
     state.ticketRef = t.ticket_ref;
@@ -823,8 +838,9 @@ async function boot(){
     if (['queued_for_fix','fixing','in_review'].includes(t.status)) {
       showPipeline();
       renderSteps(STATUS_STEP[t.status] || 1);
-      startPolling();
     }
+    // Poll on any live ticket — a human may reply on an escalated one.
+    startPolling();
     return;
   }
 

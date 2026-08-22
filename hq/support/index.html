@@ -322,6 +322,7 @@ async function openTicket(id){
 
 function wireActions(t, fx){
   const call = async (action, extra, btn) => {
+    const label = btn ? btn.textContent : null;
     if (btn){ btn.disabled = true; btn.textContent = 'Working…'; }
     try {
       const { data:{ session } } = await sb.auth.getSession();
@@ -334,11 +335,31 @@ function wireActions(t, fx){
         },
         body: JSON.stringify({ action, ...extra }),
       });
-      const out = await r.json();
-      if (!r.ok) { alert(out.error || 'Failed.'); }
+
+      let out = {};
+      try { out = await r.json(); }
+      catch { out = { error: `Server returned ${r.status}.` }; }
+
+      // The pipeline refuses a revert that would discard later work.
+      if (r.status === 409 && out.error === 'changed_since_fix') {
+        if (confirm(`${out.message}\n\nForce the revert anyway?`)) {
+          if (btn){ btn.disabled = false; btn.textContent = label; }
+          return call(action, { ...extra, force: true }, btn);
+        }
+      } else if (!r.ok) {
+        alert(out.error || out.message || 'Failed.');
+      }
+
       await load();
-      if (state.sel) openTicket(state.sel);
-    } catch(e){ alert(String(e.message||e)); }
+      if (state.sel) await openTicket(state.sel);
+    } catch(e){
+      alert(String(e.message || e));
+    } finally {
+      if (btn && document.body.contains(btn)) {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    }
   };
 
   const rv = $('btnRevert');
