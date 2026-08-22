@@ -827,8 +827,8 @@ html{scrollbar-width:none}
       </div>
       <!-- auto carousel -->
       <div class="mt-10 fadeUp" data-anim>
-        <div id="revViewport" style="overflow:hidden;mask-image:linear-gradient(90deg,transparent,black 6%,black 94%,transparent)">
-          <div id="reviewTrack" style="display:flex;gap:24px;transition:transform .7s cubic-bezier(.4,0,.2,1)">
+        <div id="revViewport" style="overflow:hidden;mask-image:linear-gradient(90deg,transparent,black 4%,black 96%,transparent)">
+          <div id="reviewTrack" style="display:flex;gap:24px">
             <div class="review-card glass2 p-6 flex flex-col gap-4" style="min-width:340px;width:340px;flex-shrink:0">
               <div style="color:#f59e0b;font-size:14px">★★★★★</div>
               <p style="font-size:14px;line-height:1.7;color:var(--muted);flex:1">"We were drowning in spreadsheets for holiday requests and vehicle checks. SmartCore replaced both within a week. It just works — I genuinely don't have to think about it anymore."</p>
@@ -1623,26 +1623,31 @@ html{scrollbar-width:none}
       const track = document.getElementById('reviewTrack');
       const viewport = document.getElementById('revViewport');
       if(!track || !viewport) return;
-      const cards = Array.from(track.querySelectorAll('.review-card'));
-      if(!cards.length) return;
-      let current = 0;
-      let paused = false;
-      let timer;
+      const origCards = Array.from(track.querySelectorAll('.review-card'));
+      if(!origCards.length) return;
 
-      function goTo(idx){
-        current = (idx + cards.length) % cards.length;
-        const cardW = cards[0].offsetWidth + 24;
-        track.style.transform = `translateX(-${current * cardW}px)`;
+      // Duplicate cards for seamless loop
+      origCards.forEach(c => track.appendChild(c.cloneNode(true)));
+
+      const GAP = 24;
+      const speed = 0.5; // px per frame
+      let offset = 0;
+      let raf;
+
+      function getSetWidth(){
+        const c = track.querySelectorAll('.review-card')[0];
+        return origCards.length * (c.offsetWidth + GAP);
       }
 
-      function tick(){ if(!paused) goTo(current + 1); }
+      function loop(){
+        offset += speed;
+        const setW = getSetWidth();
+        if(offset >= setW) offset -= setW;
+        track.style.transform = `translateX(-${offset}px)`;
+        raf = requestAnimationFrame(loop);
+      }
 
-      function start(){ timer = setInterval(tick, 3800); }
-
-      viewport.addEventListener('mouseenter', ()=>{ paused = true; });
-      viewport.addEventListener('mouseleave', ()=>{ paused = false; });
-
-      start();
+      loop();
     }
 
     function initNavHide(){
