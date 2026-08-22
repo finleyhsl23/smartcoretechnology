@@ -252,25 +252,78 @@ async function handleFiles(files) {
 
 window._removeFile = function(i) { uploadedFiles.splice(i, 1); renderFiles(); };
 
+// Media types Claude can look at directly
+const VISION_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const MAX_MEDIA_BYTES = 5 * 1024 * 1024; // Anthropic per-file limit
+
+function readAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1] || "");
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+function readAsText(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = reject;
+    r.readAsText(file);
+  });
+}
+
 window._analyzeFile = async function(i) {
   const file = uploadedFiles[i];
   if (!file) return;
   openAiPanel();
-  const textish = /\.(txt|md|csv|json|js|ts|jsx|tsx|html|css|py|rb|go|rs|sql|sh|yaml|yml|xml|log)$/i.test(file.name)
+
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  const isImage = VISION_TYPES.includes(file.type) || /^(jpg|jpeg|png|gif|webp)$/.test(ext);
+  const isPdf   = file.type === "application/pdf" || ext === "pdf";
+  const isText  = /\.(txt|md|csv|json|js|ts|jsx|tsx|html|css|py|rb|go|rs|sql|sh|yaml|yml|xml|log)$/i.test(file.name)
                || file.type.startsWith("text/")
                || file.type === "application/json";
 
-  if (textish) {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const text = e.target.result;
+  try {
+    if (isImage || isPdf) {
+      if (file.size > MAX_MEDIA_BYTES) {
+        toast("warn", "File is over 5 MB — too large for Nova to read");
+        appendAiMsg("nova", "\"" + file.name + "\" is " + (file.size / 1048576).toFixed(1) + " MB. I can only read images and PDFs up to 5 MB — try compressing it and uploading again.");
+        return;
+      }
+      const data = await readAsBase64(file);
+      const mediaType = isPdf
+        ? "application/pdf"
+        : (VISION_TYPES.includes(file.type) ? file.type : (ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg"));
+
+      const block = isPdf
+        ? { type: "document", source: { type: "base64", media_type: mediaType, data } }
+        : { type: "image",    source: { type: "base64", media_type: mediaType, data } };
+
+      const ask = isPdf
+        ? "Please read this PDF called \"" + file.name + "\" and summarise what it contains. Highlight anything that needs action."
+        : "Please look at this image called \"" + file.name + "\" and describe what you see. If it contains any text, read it out for me.";
+
+      await sendAiMessage({
+        display: (isPdf ? "📄 " : "🖼️ ") + file.name + " — " + ask,
+        content: [block, { type: "text", text: ask }],
+      });
+      return;
+    }
+
+    if (isText) {
+      const text = await readAsText(file);
       const preview = text.slice(0, 8000);
       const suffix = text.length > 8000 ? "\n\n[File truncated — " + (text.length - 8000) + " more characters not shown]" : "";
       await sendAiMessage("Please analyse this file called \"" + file.name + "\":\n\n" + preview + suffix);
-    };
-    reader.readAsText(file);
-  } else {
-    await sendAiMessage("I've uploaded a file called \"" + file.name + "\" (" + (file.type || "unknown type") + ", " + (file.size / 1024).toFixed(1) + " KB). Can you help me understand how to work with this type of file?");
+      return;
+    }
+
+    await sendAiMessage("I've uploaded a file called \"" + file.name + "\" (" + (file.type || "unknown type") + ", " + (file.size / 1024).toFixed(1) + " KB). I can't read this format directly — what are my options for working with it?");
+  } catch (_) {
+    toast("bad", "Could not read that file");
   }
 };
 
@@ -582,18 +635,38 @@ async function ensureAiConv(msg) {
   if (data) aiConvId = data.id;
 }
 
+// Re-sending base64 media on every follow-up would blow up the payload, so only
+// the most recent message keeps its image/document blocks; older ones collapse
+// to a short placeholder that keeps the conversation readable.
+function trimHistory(msgs) {
+  const lastIdx = msgs.length - 1;
+  return msgs.map((m, i) => {
+    if (i === lastIdx || !Array.isArray(m.content)) return m;
+    const stripped = m.content.map(b =>
+      (b.type === "image" || b.type === "document")
+        ? { type: "text", text: "[" + (b.type === "image" ? "image" : "PDF") + " shared earlier in this conversation]" }
+        : b
+    );
+    return { ...m, content: stripped };
+  });
+}
+
+// `override` may be a plain string, or { display, content } where `content` is
+// an Anthropic content-block array (used for images and PDFs).
 async function sendAiMessage(override) {
   const ta = document.getElementById("aiTextarea");
-  const content = (override || ta?.value || "").trim();
-  if (!content) return;
+  const isRich = override && typeof override === "object";
+  const content = isRich ? override.content : (override || ta?.value || "").trim();
+  const display = isRich ? override.display : content;
+  if (!content || (Array.isArray(content) && !content.length)) return;
   if (ta && !override) { ta.value = ""; ta.style.height = "24px"; }
   const sendBtn = document.getElementById("aiSendBtn");
   if (sendBtn) sendBtn.disabled = true;
 
   openAiPanel();
-  appendAiMsg("user", content);
+  appendAiMsg("user", display);
   aiMessages.push({ role: "user", content });
-  await ensureAiConv(content);
+  await ensureAiConv(display);
   setAiOrb("thinking");
   showAiTyping();
 
@@ -601,7 +674,7 @@ async function sendAiMessage(override) {
     const res = await fetch("/api/nova/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + session.access_token },
-      body: JSON.stringify({ messages: aiMessages.slice(-20), conversation_id: aiConvId }),
+      body: JSON.stringify({ messages: trimHistory(aiMessages.slice(-20)), conversation_id: aiConvId }),
     });
     const data = await res.json();
     hideAiTyping();
