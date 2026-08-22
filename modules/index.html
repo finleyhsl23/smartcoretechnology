@@ -707,8 +707,19 @@ function showLogin() {
   document.getElementById('modContent').innerHTML = '<div class="spin">Loading modules…</div>';
 }
 
+/** A page that needs a signed-in user can send people here with
+ *  ?next=/somewhere and we'll drop them back once they're in.
+ *  Same-origin relative paths only — never an absolute or //host URL. */
+function nextTarget() {
+  const n = new URLSearchParams(location.search).get('next');
+  if (!n || !n.startsWith('/') || n.startsWith('//')) return null;
+  return n;
+}
+
 sb.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_IN' && session && !dashboardLoaded) {
+    const next = nextTarget();
+    if (next) { window.location.replace(next); return; }
     dashboardLoaded = true;
     loadDashboard(session.user);
     return;
@@ -762,6 +773,10 @@ async function init() {
       window.location.replace(PFS_SIGNIN_PAGE);
       return;
     }
+
+    // Already signed in and someone sent us here to get them signed in.
+    const next = nextTarget();
+    if (next) { window.location.replace(next); return; }
 
     dashboardLoaded = true;
     await loadDashboard(session.user);
@@ -979,7 +994,18 @@ function render() {
   if (!html) html = `<div class="spin">No modules found. Contact support@smartcoretechnology.co.uk</div>`;
 
   html += `
-    <div style="margin-top:40px;background:linear-gradient(135deg,rgba(6,182,212,.08),rgba(59,130,246,.06));border:1px solid rgba(6,182,212,.18);border-radius:18px;padding:28px 32px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap">
+    <div style="margin-top:28px;background:linear-gradient(135deg,rgba(245,158,11,.08),rgba(239,68,68,.05));border:1px solid rgba(245,158,11,.2);border-radius:18px;padding:28px 32px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:18px">
+        <div style="width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,rgba(245,158,11,.2),rgba(239,68,68,.1));border:1px solid rgba(245,158,11,.22);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">🛠️</div>
+        <div>
+          <div class="referral-title" style="font-size:16px;font-weight:800;color:#f1f5f9;margin-bottom:4px">Having an issue with one of your modules?</div>
+          <div class="referral-desc" style="font-size:13px;color:#475569;line-height:1.5">Tell our technical support team what's going wrong. If it's a fault on our side, we'll fix it and let you know when it's live.</div>
+        </div>
+      </div>
+      <a href="/issues" style="background:linear-gradient(135deg,#d97706,#dc2626);color:#fff;border:none;border-radius:10px;padding:11px 24px;font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0;transition:opacity .15s;box-shadow:0 2px 12px rgba(245,158,11,.22)" onmouseover="this.style.opacity='.88'" onmouseout="this.style.opacity='1'">Report an issue →</a>
+    </div>
+
+    <div style="margin-top:20px;background:linear-gradient(135deg,rgba(6,182,212,.08),rgba(59,130,246,.06));border:1px solid rgba(6,182,212,.18);border-radius:18px;padding:28px 32px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:18px">
         <div style="width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,rgba(6,182,212,.2),rgba(59,130,246,.12));border:1px solid rgba(6,182,212,.2);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">🤝</div>
         <div>
